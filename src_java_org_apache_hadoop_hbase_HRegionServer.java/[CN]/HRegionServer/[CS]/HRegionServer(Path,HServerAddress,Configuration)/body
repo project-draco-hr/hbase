@@ -1,0 +1,38 @@
+{
+  this.stopRequested=false;
+  this.regionDir=regionDir;
+  this.address=address;
+  this.conf=conf;
+  this.rand=new Random();
+  this.regions=new TreeMap<Text,HRegion>();
+  this.locking=new HLocking();
+  this.outboundMsgs=new Vector<HMsg>();
+  this.threadWakeFrequency=conf.getLong("hbase.hregionserver.thread.wakefrequency",10 * 1000);
+  this.maxLogEntries=conf.getInt("hbase.hregionserver.maxlogentries",30 * 1000);
+  this.msgInterval=conf.getLong("hbase.hregionserver.msginterval",15 * 1000);
+  this.splitCheckFrequency=conf.getLong("hbase.hregionserver.thread.splitcheckfrequency",60 * 1000);
+  this.cacheFlusher=new Flusher();
+  this.cacheFlusherThread=new Thread(cacheFlusher);
+  this.splitChecker=new SplitChecker();
+  this.splitCheckerThread=new Thread(splitChecker);
+  try {
+    this.fs=FileSystem.get(conf);
+    Path newlogdir=new Path(regionDir,"log" + "_" + address.toString());
+    this.oldlogfile=new Path(regionDir,"oldlogfile" + "_" + address.toString());
+    HLog.consolidateOldLog(newlogdir,oldlogfile,fs,conf);
+    this.log=new HLog(fs,newlogdir,conf);
+    this.logRoller=new LogRoller();
+    this.logRollerThread=new Thread(logRoller);
+    this.hbaseMaster=(HMasterRegionInterface)RPC.waitForProxy(HMasterRegionInterface.class,HMasterRegionInterface.versionId,new HServerAddress(conf.get(MASTER_DEFAULT_NAME)).getInetSocketAddress(),conf);
+    this.cacheFlusherThread.start();
+    this.splitCheckerThread.start();
+    this.logRollerThread.start();
+    this.leases=new Leases(conf.getLong("hbase.hregionserver.lease.period",3 * 60 * 1000),threadWakeFrequency);
+    this.server=RPC.getServer(this,address.getBindAddress().toString(),address.getPort(),conf.getInt("hbase.hregionserver.handler.count",10),false,conf);
+    this.server.start();
+  }
+ catch (  IOException e) {
+    this.stopRequested=true;
+    throw e;
+  }
+}

@@ -1,0 +1,52 @@
+{
+synchronized (rollLock) {
+    Vector<Path> toDeleteList=new Vector<Path>();
+synchronized (this) {
+      if (closed) {
+        throw new IOException("Cannot roll log; log is closed");
+      }
+      while (insideCacheFlush) {
+        try {
+          wait();
+        }
+ catch (        InterruptedException ie) {
+        }
+      }
+      LOG.debug("closing current log writer and getting a new one");
+      if (writer != null) {
+        writer.close();
+        if (filenum > 0) {
+          outputfiles.put(logSeqNum - 1,computeFilename(filenum - 1));
+        }
+      }
+      Path newPath=computeFilename(filenum++);
+      this.writer=SequenceFile.createWriter(fs,conf,newPath,HLogKey.class,HLogEdit.class);
+      LOG.debug("new log writer created");
+      long oldestOutstandingSeqNum=Long.MAX_VALUE;
+      for (Iterator<Long> it=regionToLastFlush.values().iterator(); it.hasNext(); ) {
+        long curSeqNum=it.next().longValue();
+        if (curSeqNum < oldestOutstandingSeqNum) {
+          oldestOutstandingSeqNum=curSeqNum;
+        }
+      }
+      LOG.debug("removing old log files");
+      for (Iterator<Long> it=outputfiles.keySet().iterator(); it.hasNext(); ) {
+        long maxSeqNum=it.next().longValue();
+        if (maxSeqNum < oldestOutstandingSeqNum) {
+          Path p=outputfiles.get(maxSeqNum);
+          it.remove();
+          toDeleteList.add(p);
+        }
+ else {
+          break;
+        }
+      }
+    }
+    for (Iterator<Path> it=toDeleteList.iterator(); it.hasNext(); ) {
+      Path p=it.next();
+      fs.delete(p);
+    }
+    LOG.debug("old log files deleted");
+    this.numEntries=0;
+  }
+}

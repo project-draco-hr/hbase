@@ -1,0 +1,65 @@
+{
+  while (!stopRequested) {
+    long startTime=System.currentTimeMillis();
+    Vector<HRegion> checkSplit=new Vector<HRegion>();
+    locking.obtainReadLock();
+    try {
+      checkSplit.addAll(regions.values());
+    }
+  finally {
+      locking.releaseReadLock();
+    }
+    Vector<SplitRegion> toSplit=new Vector<SplitRegion>();
+    for (Iterator<HRegion> it=checkSplit.iterator(); it.hasNext(); ) {
+      HRegion cur=it.next();
+      Text midKey=new Text();
+      try {
+        if (cur.needsSplit(midKey)) {
+          toSplit.add(new SplitRegion(cur,midKey));
+        }
+      }
+ catch (      IOException iex) {
+        iex.printStackTrace();
+      }
+    }
+    for (Iterator<SplitRegion> it=toSplit.iterator(); it.hasNext(); ) {
+      SplitRegion r=it.next();
+      locking.obtainWriteLock();
+      regions.remove(r.region.getRegionName());
+      locking.releaseWriteLock();
+      HRegion[] newRegions=null;
+      try {
+        Text oldRegion=r.region.getRegionName();
+        newRegions=r.region.closeAndSplit(r.midKey);
+        Text tableToUpdate=(oldRegion.find(META_TABLE_NAME.toString()) == 0) ? ROOT_TABLE_NAME : META_TABLE_NAME;
+        client.openTable(tableToUpdate);
+        long lockid=client.startUpdate(oldRegion);
+        client.delete(lockid,META_COL_REGIONINFO);
+        client.delete(lockid,META_COL_SERVER);
+        client.delete(lockid,META_COL_STARTCODE);
+        client.commit(lockid);
+        for (int i=0; i < newRegions.length; i++) {
+          ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+          DataOutputStream out=new DataOutputStream(bytes);
+          newRegions[i].getRegionInfo().write(out);
+          lockid=client.startUpdate(newRegions[i].getRegionName());
+          client.put(lockid,META_COL_REGIONINFO,bytes.toByteArray());
+          client.commit(lockid);
+        }
+        reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
+        newRegions[0].close();
+        newRegions[1].close();
+      }
+ catch (      IOException e) {
+        e.printStackTrace();
+        continue;
+      }
+    }
+    long endTime=System.currentTimeMillis();
+    try {
+      Thread.sleep(splitCheckFrequency - (endTime - startTime));
+    }
+ catch (    InterruptedException iex) {
+    }
+  }
+}

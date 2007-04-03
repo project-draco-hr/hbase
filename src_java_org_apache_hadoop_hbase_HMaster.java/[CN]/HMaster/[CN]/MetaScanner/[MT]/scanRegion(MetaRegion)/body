@@ -1,0 +1,51 @@
+{
+  HRegionInterface server=null;
+  HScannerInterface scanner=null;
+  try {
+    server=client.getHRegionConnection(region.server);
+    scanner=server.openScanner(region.regionName,cols,firstRow);
+  }
+ catch (  IOException iex) {
+    try {
+      close();
+    }
+ catch (    IOException iex2) {
+    }
+    return;
+  }
+  try {
+    HStoreKey key=new HStoreKey();
+    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+    DataInputBuffer inbuf=new DataInputBuffer();
+    while (scanner.next(key,results)) {
+      byte hRegionInfoBytes[]=results.get(META_COL_REGIONINFO);
+      inbuf.reset(hRegionInfoBytes,hRegionInfoBytes.length);
+      HRegionInfo info=new HRegionInfo();
+      info.readFields(inbuf);
+      byte serverBytes[]=results.get(META_COL_SERVER);
+      String serverName=new String(serverBytes,UTF8_ENCODING);
+      byte startCodeBytes[]=results.get(META_COL_STARTCODE);
+      long startCode=Long.decode(new String(startCodeBytes,UTF8_ENCODING));
+      HServerInfo storedInfo=null;
+synchronized (serversToServerInfo) {
+        storedInfo=serversToServerInfo.get(serverName);
+        if (storedInfo == null || storedInfo.getStartCode() != startCode) {
+synchronized (unassignedRegions) {
+            unassignedRegions.put(info.regionName,info);
+            assignAttempts.put(info.regionName,0L);
+          }
+        }
+      }
+      results.clear();
+    }
+  }
+ catch (  Exception iex) {
+  }
+ finally {
+    try {
+      scanner.close();
+    }
+ catch (    IOException iex2) {
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  Text[] columns={META_COLUMN_FAMILY};
+  while (!allMetaRegionsScanned) {
+    try {
+      allMetaRegionsScanned.wait();
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  for (Iterator<MetaRegion> i=knownMetaRegions.tailMap(tableName).values().iterator(); i.hasNext(); ) {
+    long clientId=rand.nextLong();
+    MetaRegion m=i.next();
+    HRegionInterface server=client.getHRegionConnection(m.server);
+    try {
+      HScannerInterface scanner=server.openScanner(m.regionName,columns,tableName);
+      HStoreKey key=new HStoreKey();
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      DataInputBuffer inbuf=new DataInputBuffer();
+      Vector<Text> rowsToDelete=new Vector<Text>();
+      while (scanner.next(key,results)) {
+        byte hRegionInfoBytes[]=results.get(META_COL_REGIONINFO);
+        inbuf.reset(hRegionInfoBytes,hRegionInfoBytes.length);
+        HRegionInfo info=new HRegionInfo();
+        info.readFields(inbuf);
+        if (info.tableDesc.getName().compareTo(tableName) > 0) {
+          break;
+        }
+        byte serverBytes[]=results.get(META_COL_SERVER);
+        String serverName=new String(serverBytes,UTF8_ENCODING);
+        byte startCodeBytes[]=results.get(META_COL_STARTCODE);
+        long startCode=Long.decode(new String(startCodeBytes,UTF8_ENCODING));
+synchronized (serversToServerInfo) {
+          HServerInfo s=serversToServerInfo.get(serverName);
+          if (s != null && s.getStartCode() == startCode) {
+            TreeMap<Text,HRegionInfo> regionsToKill=killList.get(serverName);
+            if (regionsToKill == null) {
+              regionsToKill=new TreeMap<Text,HRegionInfo>();
+            }
+            regionsToKill.put(info.regionName,info);
+            killList.put(serverName,regionsToKill);
+          }
+        }
+      }
+      for (Iterator<Text> row=rowsToDelete.iterator(); row.hasNext(); ) {
+        long lockid=server.startUpdate(m.regionName,clientId,row.next());
+        server.delete(m.regionName,clientId,lockid,columns[0]);
+        server.commit(m.regionName,clientId,lockid);
+      }
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+    }
+  }
+}

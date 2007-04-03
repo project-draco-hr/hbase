@@ -1,0 +1,51 @@
+{
+  this.closed=true;
+  this.dir=dir;
+  this.conf=conf;
+  this.fs=FileSystem.get(conf);
+  this.rand=new Random();
+  if (!fs.exists(dir)) {
+    fs.mkdirs(dir);
+  }
+  Path rootRegionDir=HStoreFile.getHRegionDir(dir,rootRegionInfo.regionName);
+  if (!fs.exists(rootRegionDir)) {
+    HRegion root=createNewHRegion(rootTableDesc,0L);
+    HRegion meta=createNewHRegion(metaTableDesc,1L);
+    addTableToMeta(root,meta);
+  }
+  this.maxRegionOpenTime=conf.getLong("hbase.hbasemaster.maxregionopen",30 * 1000);
+  this.msgQueue=new Vector<PendingOperation>();
+  this.serverLeases=new Leases(conf.getLong("hbase.master.lease.period",15 * 1000),conf.getLong("hbase.master.lease.thread.wakefrequency",15 * 1000));
+  this.server=RPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.hregionserver.handler.count",10),false,conf);
+  this.client=new HClient(conf);
+  this.metaRescanInterval=conf.getLong("hbase.master.meta.thread.rescanfrequency",60 * 1000);
+  this.rootRegionLocation=null;
+  this.rootScanned=false;
+  this.rootScanner=new RootScanner();
+  this.rootScannerThread=new Thread(rootScanner,"HMaster.rootScanner");
+  this.numMetaRegions=0;
+  this.metaRegionsToScan=new Vector<MetaRegion>();
+  this.knownMetaRegions=new TreeMap<Text,MetaRegion>();
+  this.allMetaRegionsScanned=new Boolean(false);
+  this.metaScanner=new MetaScanner();
+  this.metaScannerThread=new Thread(metaScanner,"HMaster.metaScanner");
+  this.clientProcessor=new ClientProcessor();
+  this.clientProcessorThread=new Thread(clientProcessor,"HMaster.clientProcessor");
+  this.unassignedRegions=new TreeMap<Text,HRegionInfo>();
+  this.unassignedRegions.put(rootRegionInfo.regionName,rootRegionInfo);
+  this.assignAttempts=new TreeMap<Text,Long>();
+  this.assignAttempts.put(rootRegionInfo.regionName,0L);
+  this.killList=new TreeMap<String,TreeMap<Text,HRegionInfo>>();
+  this.serversToServerInfo=new TreeMap<String,HServerInfo>();
+  this.closed=false;
+  try {
+    this.rootScannerThread.start();
+    this.metaScannerThread.start();
+    this.clientProcessorThread.start();
+    this.server.start();
+  }
+ catch (  IOException e) {
+    this.closed=true;
+    throw e;
+  }
+}

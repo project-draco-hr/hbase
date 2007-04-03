@@ -1,0 +1,43 @@
+{
+  if (numVersions == 0) {
+    throw new IllegalArgumentException("Must request at least one value.");
+  }
+  Vector<byte[]> results=new Vector<byte[]>();
+  locking.obtainReadLock();
+  try {
+    MapFile.Reader[] maparray=maps.values().toArray(new MapFile.Reader[maps.size()]);
+    for (int i=maparray.length - 1; i >= 0; i--) {
+      MapFile.Reader map=maparray[i];
+synchronized (map) {
+        BytesWritable readval=new BytesWritable();
+        map.reset();
+        HStoreKey readkey=(HStoreKey)map.getClosest(key,readval);
+        if (readkey.matchesRowCol(key)) {
+          results.add(readval.get());
+          readval=new BytesWritable();
+          while (map.next(readkey,readval) && readkey.matchesRowCol(key)) {
+            if (numVersions > 0 && (results.size() >= numVersions)) {
+              break;
+            }
+ else {
+              results.add(readval.get());
+              readval=new BytesWritable();
+            }
+          }
+        }
+      }
+      if (results.size() >= numVersions) {
+        break;
+      }
+    }
+    if (results.size() == 0) {
+      return null;
+    }
+ else {
+      return (byte[][])results.toArray(new byte[results.size()][]);
+    }
+  }
+  finally {
+    locking.releaseReadLock();
+  }
+}

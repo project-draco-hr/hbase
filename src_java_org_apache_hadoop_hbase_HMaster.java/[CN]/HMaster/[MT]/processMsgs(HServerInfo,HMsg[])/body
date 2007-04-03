@@ -1,0 +1,99 @@
+{
+  Vector<HMsg> returnMsgs=new Vector<HMsg>();
+  TreeMap<Text,HRegionInfo> regionsToKill=killList.get(info.toString());
+  if (regionsToKill != null) {
+    for (Iterator<HRegionInfo> i=regionsToKill.values().iterator(); i.hasNext(); ) {
+      returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_AND_DELETE,i.next()));
+    }
+  }
+synchronized (unassignedRegions) {
+    for (int i=0; i < incomingMsgs.length; i++) {
+      HRegionInfo region=incomingMsgs[i].getRegionInfo();
+switch (incomingMsgs[i].getMsg()) {
+case HMsg.MSG_REPORT_OPEN:
+        HRegionInfo regionInfo=unassignedRegions.get(region.regionName);
+      if (regionInfo == null) {
+        returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
+      }
+ else {
+        unassignedRegions.remove(region.regionName);
+        assignAttempts.remove(region.regionName);
+        if (region.regionName.compareTo(rootRegionInfo.regionName) == 0) {
+          rootRegionLocation=new HServerAddress(info.getServerAddress());
+          rootRegionLocation.notifyAll();
+          break;
+        }
+ else         if (region.regionName.find(META_TABLE_NAME.toString()) == 0) {
+          MetaRegion r=new MetaRegion();
+          r.server=info.getServerAddress();
+          r.regionName=region.regionName;
+          r.startKey=region.startKey;
+synchronized (metaRegionsToScan) {
+            metaRegionsToScan.add(r);
+            metaRegionsToScan.notifyAll();
+          }
+        }
+synchronized (msgQueue) {
+          msgQueue.add(new PendingOpenReport(info,region.regionName));
+          msgQueue.notifyAll();
+        }
+      }
+    break;
+case HMsg.MSG_REPORT_CLOSE:
+  if (region.regionName.compareTo(rootRegionInfo.regionName) == 0) {
+    rootRegionLocation=null;
+    unassignedRegions.put(region.regionName,region);
+    assignAttempts.put(region.regionName,0L);
+  }
+ else {
+    boolean reassignRegion=true;
+    if (regionsToKill.containsKey(region.regionName)) {
+      regionsToKill.remove(region.regionName);
+      if (regionsToKill.size() > 0) {
+        killList.put(info.toString(),regionsToKill);
+      }
+ else {
+        killList.remove(info.toString());
+      }
+      reassignRegion=false;
+    }
+synchronized (msgQueue) {
+      msgQueue.add(new PendingCloseReport(region,reassignRegion));
+      msgQueue.notifyAll();
+    }
+  }
+break;
+case HMsg.MSG_NEW_REGION:
+if (region.regionName.find(META_TABLE_NAME.toString()) == 0) {
+allMetaRegionsScanned=false;
+}
+synchronized (unassignedRegions) {
+unassignedRegions.put(region.regionName,region);
+assignAttempts.put(region.regionName,0L);
+}
+break;
+default :
+throw new IOException("Impossible state during msg processing.  Instruction: " + incomingMsgs[i].getMsg());
+}
+}
+if (unassignedRegions.size() > 0) {
+int targetForServer=(int)Math.ceil(unassignedRegions.size() / (1.0 * serversToServerInfo.size()));
+int counter=0;
+long now=System.currentTimeMillis();
+for (Iterator<Text> it=unassignedRegions.keySet().iterator(); it.hasNext(); ) {
+Text curRegionName=it.next();
+HRegionInfo regionInfo=unassignedRegions.get(curRegionName);
+long assignedTime=assignAttempts.get(curRegionName);
+if (now - assignedTime > maxRegionOpenTime) {
+returnMsgs.add(new HMsg(HMsg.MSG_REGION_OPEN,regionInfo));
+assignAttempts.put(curRegionName,now);
+counter++;
+}
+if (counter >= targetForServer) {
+break;
+}
+}
+}
+}
+return (HMsg[])returnMsgs.toArray(new HMsg[returnMsgs.size()]);
+}

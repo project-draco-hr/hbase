@@ -1,0 +1,134 @@
+{
+synchronized (compactLock) {
+    LOG.debug("started compaction of " + this.regionName + "/"+ this.colFamily);
+    Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,colFamily);
+    fs.mkdirs(curCompactStore);
+    try {
+      Vector<HStoreFile> toCompactFiles=null;
+      locking.obtainWriteLock();
+      try {
+        toCompactFiles=new Vector<HStoreFile>(mapFiles.values());
+      }
+  finally {
+        locking.releaseWriteLock();
+      }
+      long maxSeenSeqID=-1;
+      for (Iterator<HStoreFile> it=toCompactFiles.iterator(); it.hasNext(); ) {
+        HStoreFile hsf=it.next();
+        long seqid=hsf.loadInfo(fs);
+        if (seqid > 0) {
+          if (seqid > maxSeenSeqID) {
+            maxSeenSeqID=seqid;
+          }
+        }
+      }
+      LOG.debug("max sequence id =" + maxSeenSeqID);
+      HStoreFile compactedOutputFile=new HStoreFile(conf,compactdir,regionName,colFamily,-1);
+      if (toCompactFiles.size() == 1) {
+        LOG.debug("nothing to compact for " + this.regionName + "/"+ this.colFamily);
+        HStoreFile hsf=toCompactFiles.elementAt(0);
+        if (hsf.loadInfo(fs) == -1) {
+          return;
+        }
+      }
+      MapFile.Writer compactedOut=new MapFile.Writer(conf,fs,compactedOutputFile.getMapFilePath().toString(),HStoreKey.class,BytesWritable.class);
+      try {
+        MapFile.Reader[] readers=new MapFile.Reader[toCompactFiles.size()];
+        HStoreKey[] keys=new HStoreKey[toCompactFiles.size()];
+        BytesWritable[] vals=new BytesWritable[toCompactFiles.size()];
+        boolean[] done=new boolean[toCompactFiles.size()];
+        int pos=0;
+        for (Iterator<HStoreFile> it=toCompactFiles.iterator(); it.hasNext(); ) {
+          HStoreFile hsf=it.next();
+          readers[pos]=new MapFile.Reader(fs,hsf.getMapFilePath().toString(),conf);
+          keys[pos]=new HStoreKey();
+          vals[pos]=new BytesWritable();
+          done[pos]=false;
+          pos++;
+        }
+        LOG.debug("processing HStoreFile readers");
+        int numDone=0;
+        for (int i=0; i < readers.length; i++) {
+          readers[i].reset();
+          done[i]=!readers[i].next(keys[i],vals[i]);
+          if (done[i]) {
+            numDone++;
+          }
+        }
+        int timesSeen=0;
+        Text lastRow=new Text();
+        Text lastColumn=new Text();
+        while (numDone < done.length) {
+          int smallestKey=-1;
+          for (int i=0; i < readers.length; i++) {
+            if (done[i]) {
+              continue;
+            }
+            if (smallestKey < 0) {
+              smallestKey=i;
+            }
+ else {
+              if (keys[i].compareTo(keys[smallestKey]) < 0) {
+                smallestKey=i;
+              }
+            }
+          }
+          HStoreKey sk=keys[smallestKey];
+          if (lastRow.equals(sk.getRow()) && lastColumn.equals(sk.getColumn())) {
+            timesSeen++;
+          }
+ else {
+            timesSeen=1;
+          }
+          if (timesSeen <= maxVersions) {
+            if (sk.getRow().getLength() != 0 && sk.getColumn().getLength() != 0) {
+              compactedOut.append(sk,vals[smallestKey]);
+            }
+          }
+          lastRow.set(sk.getRow());
+          lastColumn.set(sk.getColumn());
+          if (!readers[smallestKey].next(keys[smallestKey],vals[smallestKey])) {
+            done[smallestKey]=true;
+            readers[smallestKey].close();
+            numDone++;
+          }
+        }
+        LOG.debug("all HStores processed");
+      }
+  finally {
+        compactedOut.close();
+      }
+      LOG.debug("writing new compacted HStore");
+      if ((!deleteSequenceInfo) && maxSeenSeqID >= 0) {
+        compactedOutputFile.writeInfo(fs,maxSeenSeqID);
+      }
+ else {
+        compactedOutputFile.writeInfo(fs,-1);
+      }
+      Path filesToReplace=new Path(curCompactStore,COMPACTION_TO_REPLACE);
+      DataOutputStream out=new DataOutputStream(fs.create(filesToReplace));
+      try {
+        out.writeInt(toCompactFiles.size());
+        for (Iterator<HStoreFile> it=toCompactFiles.iterator(); it.hasNext(); ) {
+          HStoreFile hsf=it.next();
+          hsf.write(out);
+        }
+      }
+  finally {
+        out.close();
+      }
+      Path doneFile=new Path(curCompactStore,COMPACTION_DONE);
+      out=new DataOutputStream(fs.create(doneFile));
+      try {
+      }
+  finally {
+        out.close();
+      }
+      processReadyCompaction();
+      LOG.debug("compaction complete for " + this.regionName + "/"+ this.colFamily);
+    }
+  finally {
+      fs.delete(compactdir);
+    }
+  }
+}

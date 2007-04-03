@@ -1,0 +1,71 @@
+{
+  Text cols[]={ROOT_COLUMN_FAMILY};
+  Text firstRow=new Text();
+  while ((!closed)) {
+    int metaRegions=0;
+    while (rootRegionLocation == null) {
+      try {
+        rootRegionLocation.wait();
+      }
+ catch (      InterruptedException e) {
+      }
+    }
+    HRegionInterface server=null;
+    HScannerInterface scanner=null;
+    try {
+      server=client.getHRegionConnection(rootRegionLocation);
+      scanner=server.openScanner(rootRegionInfo.regionName,cols,firstRow);
+    }
+ catch (    IOException iex) {
+      try {
+        close();
+      }
+ catch (      IOException iex2) {
+      }
+      break;
+    }
+    try {
+      HStoreKey key=new HStoreKey();
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      DataInputBuffer inbuf=new DataInputBuffer();
+      while (scanner.next(key,results)) {
+        byte hRegionInfoBytes[]=results.get(ROOT_COL_REGIONINFO);
+        inbuf.reset(hRegionInfoBytes,hRegionInfoBytes.length);
+        HRegionInfo info=new HRegionInfo();
+        info.readFields(inbuf);
+        byte serverBytes[]=results.get(ROOT_COL_SERVER);
+        String serverName=new String(serverBytes,UTF8_ENCODING);
+        byte startCodeBytes[]=results.get(ROOT_COL_STARTCODE);
+        long startCode=Long.decode(new String(startCodeBytes,UTF8_ENCODING));
+        HServerInfo storedInfo=null;
+synchronized (serversToServerInfo) {
+          storedInfo=serversToServerInfo.get(serverName);
+          if (storedInfo == null || storedInfo.getStartCode() != startCode) {
+synchronized (unassignedRegions) {
+              unassignedRegions.put(info.regionName,info);
+              assignAttempts.put(info.regionName,0L);
+            }
+          }
+        }
+        results.clear();
+        metaRegions+=1;
+      }
+    }
+ catch (    Exception iex) {
+    }
+ finally {
+      try {
+        scanner.close();
+      }
+ catch (      IOException iex2) {
+      }
+    }
+    rootScanned=true;
+    numMetaRegions=metaRegions;
+    try {
+      Thread.sleep(metaRescanInterval);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+}

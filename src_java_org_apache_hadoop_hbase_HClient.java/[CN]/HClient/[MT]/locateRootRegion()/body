@@ -1,0 +1,37 @@
+{
+  if (master == null) {
+    master=(HMasterInterface)RPC.getProxy(HMasterInterface.class,HMasterInterface.versionID,masterLocation.getInetSocketAddress(),conf);
+  }
+  int tries=0;
+  HServerAddress rootRegionLocation=null;
+  do {
+    int localTimeouts=0;
+    while (rootRegionLocation == null && localTimeouts < numTimeouts) {
+      rootRegionLocation=master.findRootRegion();
+      if (rootRegionLocation == null) {
+        try {
+          Thread.sleep(clientTimeout);
+        }
+ catch (        InterruptedException iex) {
+        }
+        localTimeouts++;
+      }
+    }
+    if (rootRegionLocation == null) {
+      throw new IOException("Timed out trying to locate root region");
+    }
+    HRegionInterface rootRegion=getHRegionConnection(rootRegionLocation);
+    if (rootRegion.getRegionInfo(rootRegionInfo.regionName) != null) {
+      tableServers=new TreeMap<Text,TableInfo>();
+      tableServers.put(startRow,new TableInfo(rootRegionInfo,rootRegionLocation));
+      tablesToServers.put(ROOT_TABLE_NAME,tableServers);
+      break;
+    }
+    rootRegionLocation=null;
+  }
+ while (rootRegionLocation == null && tries++ < numRetries);
+  if (rootRegionLocation == null) {
+    closed=true;
+    throw new IOException("unable to locate root region server");
+  }
+}

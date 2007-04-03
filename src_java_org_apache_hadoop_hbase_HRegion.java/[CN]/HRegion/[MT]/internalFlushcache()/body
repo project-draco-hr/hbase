@@ -1,0 +1,29 @@
+{
+  Vector<HStoreFile> allHStoreFiles=new Vector<HStoreFile>();
+  LOG.debug("flushing cache for region " + this.regionInfo.regionName);
+  LOG.debug("starting memcache snapshot");
+  HMemcache.Snapshot retval=memcache.snapshotMemcacheForLog(log);
+  TreeMap<HStoreKey,BytesWritable> memcacheSnapshot=retval.memcacheSnapshot;
+  if (memcacheSnapshot == null) {
+    for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
+      HStore hstore=it.next();
+      Vector<HStoreFile> hstoreFiles=hstore.getAllMapFiles();
+      allHStoreFiles.addAll(0,hstoreFiles);
+    }
+    return allHStoreFiles;
+  }
+  long logCacheFlushId=retval.sequenceId;
+  LOG.debug("flushing memcache to HStores");
+  for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
+    HStore hstore=it.next();
+    Vector<HStoreFile> hstoreFiles=hstore.flushCache(memcacheSnapshot,logCacheFlushId);
+    allHStoreFiles.addAll(0,hstoreFiles);
+  }
+  LOG.debug("writing flush cache complete to log");
+  log.completeCacheFlush(this.regionInfo.regionName,regionInfo.tableDesc.getName(),logCacheFlushId);
+  LOG.debug("deleting memcache snapshot");
+  memcache.deleteSnapshot();
+  LOG.debug("cache flush complete for region " + this.regionInfo.regionName);
+  this.commitsSinceFlush=0;
+  return allHStoreFiles;
+}

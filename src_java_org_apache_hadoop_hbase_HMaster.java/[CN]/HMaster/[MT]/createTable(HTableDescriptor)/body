@@ -1,0 +1,39 @@
+{
+  HRegionInfo newRegion=new HRegionInfo(rand.nextLong(),desc,null,null);
+  while (!allMetaRegionsScanned) {
+    try {
+      allMetaRegionsScanned.wait();
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  Text metaStartRow=knownMetaRegions.headMap(newRegion.regionName).lastKey();
+  MetaRegion m=knownMetaRegions.get(metaStartRow);
+  Text metaRegionName=m.regionName;
+  HRegionInterface server=client.getHRegionConnection(m.server);
+  BytesWritable bytes=server.get(metaRegionName,desc.getName(),META_COL_REGIONINFO);
+  if (bytes != null && bytes.getSize() != 0) {
+    byte[] infoBytes=bytes.get();
+    DataInputBuffer inbuf=new DataInputBuffer();
+    inbuf.reset(infoBytes,infoBytes.length);
+    HRegionInfo info=new HRegionInfo();
+    info.readFields(inbuf);
+    if (info.tableDesc.getName().compareTo(desc.getName()) == 0) {
+      throw new IOException("table already exists");
+    }
+  }
+  HRegion r=createNewHRegion(desc,newRegion.regionId);
+  HRegionInfo info=r.getRegionInfo();
+  Text regionName=r.getRegionName();
+  ByteArrayOutputStream byteValue=new ByteArrayOutputStream();
+  DataOutputStream s=new DataOutputStream(byteValue);
+  info.write(s);
+  long clientId=rand.nextLong();
+  long lockid=server.startUpdate(metaRegionName,clientId,regionName);
+  server.put(metaRegionName,clientId,lockid,META_COL_REGIONINFO,new BytesWritable(byteValue.toByteArray()));
+  server.commit(metaRegionName,clientId,lockid);
+synchronized (unassignedRegions) {
+    unassignedRegions.put(regionName,info);
+    assignAttempts.put(regionName,0L);
+  }
+}

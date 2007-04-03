@@ -1,0 +1,44 @@
+{
+  while (!stopRequested) {
+    HServerInfo info=new HServerInfo(address,rand.nextLong());
+    long lastMsg=0;
+    long waitTime;
+    try {
+      hbaseMaster.regionServerStartup(info);
+    }
+ catch (    IOException e) {
+      waitTime=msgInterval - (System.currentTimeMillis() - lastMsg);
+      try {
+        Thread.sleep(waitTime);
+      }
+ catch (      InterruptedException iex) {
+      }
+      continue;
+    }
+    while (!stopRequested) {
+      if ((System.currentTimeMillis() - lastMsg) >= msgInterval) {
+        HMsg outboundArray[]=null;
+synchronized (outboundMsgs) {
+          outboundArray=outboundMsgs.toArray(new HMsg[outboundMsgs.size()]);
+          outboundMsgs.clear();
+        }
+        try {
+          HMsg msgs[]=hbaseMaster.regionServerReport(info,outboundArray);
+          lastMsg=System.currentTimeMillis();
+          if (!processMessages(msgs)) {
+            break;
+          }
+        }
+ catch (        IOException e) {
+          e.printStackTrace();
+        }
+      }
+      waitTime=msgInterval - (System.currentTimeMillis() - lastMsg);
+      try {
+        Thread.sleep(waitTime);
+      }
+ catch (      InterruptedException iex) {
+      }
+    }
+  }
+}

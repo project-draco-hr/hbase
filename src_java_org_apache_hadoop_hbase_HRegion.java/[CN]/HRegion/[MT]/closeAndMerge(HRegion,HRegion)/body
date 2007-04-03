@@ -1,0 +1,98 @@
+{
+  if (srcA.getStartKey() == null) {
+    if (srcB.getStartKey() == null) {
+      throw new IOException("Cannot merge two regions with null start key");
+    }
+  }
+ else   if ((srcB.getStartKey() == null) || (srcA.getStartKey().compareTo(srcB.getStartKey()) > 0)) {
+    HRegion tmp=srcA;
+    srcA=srcB;
+    srcB=tmp;
+  }
+  if (!srcA.getEndKey().equals(srcB.getStartKey())) {
+    throw new IOException("Cannot merge non-adjacent regions");
+  }
+  FileSystem fs=srcA.getFilesystem();
+  Configuration conf=srcA.getConf();
+  HTableDescriptor tabledesc=srcA.getTableDesc();
+  HLog log=srcA.getLog();
+  Path dir=srcA.getDir();
+  Text startKey=srcA.getStartKey();
+  Text endKey=srcB.getEndKey();
+  Path merges=new Path(srcA.getRegionDir(),MERGEDIR);
+  if (!fs.exists(merges)) {
+    fs.mkdirs(merges);
+  }
+  HRegionInfo newRegionInfo=new HRegionInfo(Math.abs(rand.nextLong()),tabledesc,startKey,endKey);
+  Path newRegionDir=HStoreFile.getHRegionDir(merges,newRegionInfo.regionName);
+  if (fs.exists(newRegionDir)) {
+    throw new IOException("Cannot merge; target file collision at " + newRegionDir);
+  }
+  LOG.info("starting merge of regions: " + srcA.getRegionName() + " and "+ srcB.getRegionName()+ " new region start key is '"+ (startKey == null ? "" : startKey)+ "', end key is '"+ (endKey == null ? "" : endKey)+ "'");
+  LOG.debug("flushing and getting file names for region " + srcA.getRegionName());
+  TreeSet<HStoreFile> alreadyMerged=new TreeSet<HStoreFile>();
+  TreeMap<Text,Vector<HStoreFile>> filesToMerge=new TreeMap<Text,Vector<HStoreFile>>();
+  for (Iterator<HStoreFile> it=srcA.flushcache(true).iterator(); it.hasNext(); ) {
+    HStoreFile src=it.next();
+    Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
+    if (v == null) {
+      v=new Vector<HStoreFile>();
+      filesToMerge.put(src.getColFamily(),v);
+    }
+    v.add(src);
+  }
+  LOG.debug("flushing and getting file names for region " + srcB.getRegionName());
+  for (Iterator<HStoreFile> it=srcB.flushcache(true).iterator(); it.hasNext(); ) {
+    HStoreFile src=it.next();
+    Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
+    if (v == null) {
+      v=new Vector<HStoreFile>();
+      filesToMerge.put(src.getColFamily(),v);
+    }
+    v.add(src);
+  }
+  LOG.debug("merging stores");
+  for (Iterator<Text> it=filesToMerge.keySet().iterator(); it.hasNext(); ) {
+    Text colFamily=it.next();
+    Vector<HStoreFile> srcFiles=filesToMerge.get(colFamily);
+    HStoreFile dst=new HStoreFile(conf,merges,newRegionInfo.regionName,colFamily,Math.abs(rand.nextLong()));
+    dst.mergeStoreFiles(srcFiles,fs,conf);
+    alreadyMerged.addAll(srcFiles);
+  }
+  LOG.debug("flushing changes since start of merge for region " + srcA.getRegionName());
+  filesToMerge.clear();
+  for (Iterator<HStoreFile> it=srcA.close().iterator(); it.hasNext(); ) {
+    HStoreFile src=it.next();
+    if (!alreadyMerged.contains(src)) {
+      Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
+      if (v == null) {
+        v=new Vector<HStoreFile>();
+        filesToMerge.put(src.getColFamily(),v);
+      }
+      v.add(src);
+    }
+  }
+  LOG.debug("flushing changes since start of merge for region " + srcB.getRegionName());
+  for (Iterator<HStoreFile> it=srcB.close().iterator(); it.hasNext(); ) {
+    HStoreFile src=it.next();
+    if (!alreadyMerged.contains(src)) {
+      Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
+      if (v == null) {
+        v=new Vector<HStoreFile>();
+        filesToMerge.put(src.getColFamily(),v);
+      }
+      v.add(src);
+    }
+  }
+  LOG.debug("merging changes since start of merge");
+  for (Iterator<Text> it=filesToMerge.keySet().iterator(); it.hasNext(); ) {
+    Text colFamily=it.next();
+    Vector<HStoreFile> srcFiles=filesToMerge.get(colFamily);
+    HStoreFile dst=new HStoreFile(conf,merges,newRegionInfo.regionName,colFamily,Math.abs(rand.nextLong()));
+    dst.mergeStoreFiles(srcFiles,fs,conf);
+  }
+  HRegion dstRegion=new HRegion(dir,log,fs,conf,newRegionInfo,newRegionDir,null);
+  fs.delete(merges);
+  LOG.info("merge completed. New region is " + dstRegion.getRegionName());
+  return dstRegion;
+}

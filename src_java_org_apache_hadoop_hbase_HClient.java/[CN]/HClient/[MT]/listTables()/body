@@ -1,0 +1,33 @@
+{
+  TreeSet<HTableDescriptor> uniqueTables=new TreeSet<HTableDescriptor>();
+  TreeMap<Text,TableInfo> metaTables=tablesToServers.get(META_TABLE_NAME);
+  if (metaTables == null) {
+    loadMetaFromRoot(META_TABLE_NAME);
+    metaTables=tablesToServers.get(META_TABLE_NAME);
+  }
+  for (Iterator<TableInfo> i=metaTables.values().iterator(); i.hasNext(); ) {
+    TableInfo t=i.next();
+    HRegionInterface server=getHRegionConnection(t.serverAddress);
+    HScannerInterface scanner=null;
+    try {
+      scanner=server.openScanner(t.regionInfo.regionName,metaColumns,startRow);
+      HStoreKey key=new HStoreKey();
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      DataInputBuffer inbuf=new DataInputBuffer();
+      while (scanner.next(key,results)) {
+        byte infoBytes[]=(byte[])results.get(ROOT_COL_REGIONINFO);
+        inbuf.reset(infoBytes,infoBytes.length);
+        HRegionInfo info=new HRegionInfo();
+        info.readFields(inbuf);
+        if (info.startKey.getLength() == 0) {
+          uniqueTables.add(info.tableDesc);
+        }
+        results.clear();
+      }
+    }
+  finally {
+      scanner.close();
+    }
+  }
+  return (HTableDescriptor[])uniqueTables.toArray(new HTableDescriptor[uniqueTables.size()]);
+}

@@ -1,0 +1,31 @@
+{
+  while (!allMetaRegionsScanned) {
+    try {
+      allMetaRegionsScanned.wait();
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  Text metaRegionName;
+  HRegionInterface server;
+  if (rootRegion) {
+    metaRegionName=rootRegionInfo.regionName;
+    server=client.getHRegionConnection(rootRegionLocation);
+  }
+ else {
+    Text metaStartRow=knownMetaRegions.headMap(regionInfo.regionName).lastKey();
+    MetaRegion r=knownMetaRegions.get(metaStartRow);
+    metaRegionName=r.regionName;
+    server=client.getHRegionConnection(r.server);
+  }
+  long lockid=server.startUpdate(metaRegionName,clientId,regionInfo.regionName);
+  server.delete(metaRegionName,clientId,lockid,META_COL_SERVER);
+  server.delete(metaRegionName,clientId,lockid,META_COL_STARTCODE);
+  server.commit(metaRegionName,clientId,lockid);
+  if (reassignRegion) {
+synchronized (unassignedRegions) {
+      unassignedRegions.put(regionInfo.regionName,regionInfo);
+      assignAttempts.put(regionInfo.regionName,0L);
+    }
+  }
+}

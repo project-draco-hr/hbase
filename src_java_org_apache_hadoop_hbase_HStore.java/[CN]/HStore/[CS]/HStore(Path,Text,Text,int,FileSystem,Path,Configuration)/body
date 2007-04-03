@@ -1,0 +1,68 @@
+{
+  this.dir=dir;
+  this.regionName=regionName;
+  this.colFamily=colFamily;
+  this.maxVersions=maxVersions;
+  this.fs=fs;
+  this.conf=conf;
+  this.mapdir=HStoreFile.getMapDir(dir,regionName,colFamily);
+  fs.mkdirs(mapdir);
+  this.loginfodir=HStoreFile.getInfoDir(dir,regionName,colFamily);
+  fs.mkdirs(loginfodir);
+  LOG.debug("starting HStore for " + regionName + "/"+ colFamily);
+  this.compactdir=new Path(dir,COMPACTION_DIR);
+  Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,colFamily);
+  if (fs.exists(curCompactStore)) {
+    processReadyCompaction();
+    fs.delete(curCompactStore);
+  }
+  Vector<HStoreFile> hstoreFiles=HStoreFile.loadHStoreFiles(conf,dir,regionName,colFamily,fs);
+  for (Iterator<HStoreFile> it=hstoreFiles.iterator(); it.hasNext(); ) {
+    HStoreFile hsf=it.next();
+    mapFiles.put(hsf.loadInfo(fs),hsf);
+  }
+  long maxSeqID=-1;
+  for (Iterator<HStoreFile> it=hstoreFiles.iterator(); it.hasNext(); ) {
+    HStoreFile hsf=it.next();
+    long seqid=hsf.loadInfo(fs);
+    if (seqid > 0) {
+      if (seqid > maxSeqID) {
+        maxSeqID=seqid;
+      }
+    }
+  }
+  LOG.debug("reading reconstructionLog");
+  if (reconstructionLog != null && fs.exists(reconstructionLog)) {
+    long maxSeqIdInLog=-1;
+    TreeMap<HStoreKey,BytesWritable> reconstructedCache=new TreeMap<HStoreKey,BytesWritable>();
+    SequenceFile.Reader login=new SequenceFile.Reader(fs,reconstructionLog,conf);
+    try {
+      HLogKey key=new HLogKey();
+      HLogEdit val=new HLogEdit();
+      while (login.next(key,val)) {
+        maxSeqIdInLog=Math.max(maxSeqIdInLog,key.getLogSeqNum());
+        if (key.getLogSeqNum() <= maxSeqID) {
+          continue;
+        }
+        reconstructedCache.put(new HStoreKey(key.getRow(),val.getColumn(),val.getTimestamp()),val.getVal());
+      }
+    }
+  finally {
+      login.close();
+    }
+    if (reconstructedCache.size() > 0) {
+      LOG.debug("flushing reconstructionCache");
+      flushCacheHelper(reconstructedCache,maxSeqIdInLog + 1,true);
+    }
+  }
+  if (mapFiles.size() >= 1) {
+    compactHelper(true);
+  }
+  LOG.debug("starting map readers");
+  for (Iterator<Long> it=mapFiles.keySet().iterator(); it.hasNext(); ) {
+    Long key=it.next().longValue();
+    HStoreFile hsf=mapFiles.get(key);
+    maps.put(key,new MapFile.Reader(fs,hsf.getMapFilePath().toString(),conf));
+  }
+  LOG.info("HStore online for " + this.regionName + "/"+ this.colFamily);
+}

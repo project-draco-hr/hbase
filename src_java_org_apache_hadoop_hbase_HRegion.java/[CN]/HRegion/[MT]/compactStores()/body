@@ -1,0 +1,31 @@
+{
+  boolean shouldCompact=false;
+synchronized (writestate) {
+    if ((!writestate.writesOngoing) && writestate.writesEnabled && (!writestate.closed)&& recentCommits > MIN_COMMITS_FOR_COMPACTION) {
+      writestate.writesOngoing=true;
+      shouldCompact=true;
+    }
+  }
+  if (!shouldCompact) {
+    LOG.info("not compacting region " + this.regionInfo.regionName);
+    return false;
+  }
+ else {
+    try {
+      LOG.info("starting compaction on region " + this.regionInfo.regionName);
+      for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
+        HStore store=it.next();
+        store.compact();
+      }
+      LOG.info("compaction completed on region " + this.regionInfo.regionName);
+      return true;
+    }
+  finally {
+synchronized (writestate) {
+        writestate.writesOngoing=false;
+        recentCommits=0;
+        writestate.notifyAll();
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  if (((regionInfo.startKey.getLength() != 0) && (regionInfo.startKey.compareTo(midKey) > 0)) || ((regionInfo.endKey.getLength() != 0) && (regionInfo.endKey.compareTo(midKey) < 0))) {
+    throw new IOException("Region splitkey must lie within region boundaries.");
+  }
+  LOG.info("splitting region " + this.regionInfo.regionName);
+  Path splits=new Path(regiondir,SPLITDIR);
+  if (!fs.exists(splits)) {
+    fs.mkdirs(splits);
+  }
+  long regionAId=Math.abs(rand.nextLong());
+  HRegionInfo regionAInfo=new HRegionInfo(regionAId,regionInfo.tableDesc,regionInfo.startKey,midKey);
+  long regionBId=Math.abs(rand.nextLong());
+  HRegionInfo regionBInfo=new HRegionInfo(regionBId,regionInfo.tableDesc,midKey,null);
+  Path dirA=HStoreFile.getHRegionDir(splits,regionAInfo.regionName);
+  Path dirB=HStoreFile.getHRegionDir(splits,regionBInfo.regionName);
+  if (fs.exists(dirA) || fs.exists(dirB)) {
+    throw new IOException("Cannot split; target file collision at " + dirA + " or "+ dirB);
+  }
+  TreeSet<HStoreFile> alreadySplit=new TreeSet<HStoreFile>();
+  Vector<HStoreFile> hstoreFilesToSplit=flushcache(true);
+  for (Iterator<HStoreFile> it=hstoreFilesToSplit.iterator(); it.hasNext(); ) {
+    HStoreFile hsf=it.next();
+    LOG.debug("splitting HStore " + hsf.getRegionName() + "/"+ hsf.getColFamily()+ "/"+ hsf.fileId());
+    HStoreFile dstA=new HStoreFile(conf,splits,regionAInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
+    HStoreFile dstB=new HStoreFile(conf,splits,regionBInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
+    hsf.splitStoreFile(midKey,dstA,dstB,fs,conf);
+    alreadySplit.add(hsf);
+  }
+  hstoreFilesToSplit=close();
+  for (Iterator<HStoreFile> it=hstoreFilesToSplit.iterator(); it.hasNext(); ) {
+    HStoreFile hsf=it.next();
+    if (!alreadySplit.contains(hsf)) {
+      LOG.debug("splitting HStore " + hsf.getRegionName() + "/"+ hsf.getColFamily()+ "/"+ hsf.fileId());
+      HStoreFile dstA=new HStoreFile(conf,splits,regionAInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
+      HStoreFile dstB=new HStoreFile(conf,splits,regionBInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
+      hsf.splitStoreFile(midKey,dstA,dstB,fs,conf);
+    }
+  }
+  HRegion regionA=new HRegion(dir,log,fs,conf,regionAInfo,dirA,null);
+  HRegion regionB=new HRegion(dir,log,fs,conf,regionBInfo,dirB,null);
+  fs.delete(splits);
+  fs.delete(regiondir);
+  HRegion regions[]=new HRegion[2];
+  regions[0]=regionA;
+  regions[1]=regionB;
+  LOG.info("region split complete. new regions are: " + regions[0].getRegionName() + ", "+ regions[1].getRegionName());
+  return regions;
+}
