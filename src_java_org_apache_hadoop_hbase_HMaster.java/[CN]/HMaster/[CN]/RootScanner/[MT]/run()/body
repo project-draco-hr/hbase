@@ -1,71 +1,86 @@
 {
-  Text cols[]={ROOT_COLUMN_FAMILY};
-  Text firstRow=new Text();
   while ((!closed)) {
-    int metaRegions=0;
-    while (rootRegionLocation == null) {
-      try {
-        rootRegionLocation.wait();
-      }
- catch (      InterruptedException e) {
-      }
-    }
-    HRegionInterface server=null;
-    HScannerInterface scanner=null;
+    rootScanned=false;
+    waitForRootRegion();
+    rootServer=null;
+    long scannerId=-1L;
     try {
-      server=client.getHRegionConnection(rootRegionLocation);
-      scanner=server.openScanner(rootRegionInfo.regionName,cols,firstRow);
+      rootServer=client.getHRegionConnection(rootRegionLocation);
+      scannerId=rootServer.openScanner(HGlobals.rootRegionInfo.regionName,cols,firstRow);
     }
  catch (    IOException iex) {
       try {
-        close();
+        iex.printStackTrace();
+        if (scannerId != -1L) {
+          rootServer.close(scannerId);
+        }
       }
  catch (      IOException iex2) {
       }
+      closed=true;
       break;
     }
     try {
-      HStoreKey key=new HStoreKey();
-      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      LOG.debug("starting root region scan");
       DataInputBuffer inbuf=new DataInputBuffer();
-      while (scanner.next(key,results)) {
-        byte hRegionInfoBytes[]=results.get(ROOT_COL_REGIONINFO);
-        inbuf.reset(hRegionInfoBytes,hRegionInfoBytes.length);
+      while (true) {
+        TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+        HStoreKey key=new HStoreKey();
+        LabelledData[] values=rootServer.next(scannerId,key);
+        if (values.length == 0) {
+          break;
+        }
+        for (int i=0; i < values.length; i++) {
+          results.put(values[i].getLabel(),values[i].getData().get());
+        }
+        byte[] bytes=results.get(ROOT_COL_REGIONINFO);
+        if (bytes == null || bytes.length == 0) {
+          LOG.fatal("no value for " + ROOT_COL_REGIONINFO);
+          stop();
+        }
+        inbuf.reset(bytes,bytes.length);
         HRegionInfo info=new HRegionInfo();
         info.readFields(inbuf);
-        byte serverBytes[]=results.get(ROOT_COL_SERVER);
-        String serverName=new String(serverBytes,UTF8_ENCODING);
-        byte startCodeBytes[]=results.get(ROOT_COL_STARTCODE);
-        long startCode=Long.decode(new String(startCodeBytes,UTF8_ENCODING));
-        HServerInfo storedInfo=null;
-synchronized (serversToServerInfo) {
-          storedInfo=serversToServerInfo.get(serverName);
-          if (storedInfo == null || storedInfo.getStartCode() != startCode) {
-synchronized (unassignedRegions) {
-              unassignedRegions.put(info.regionName,info);
-              assignAttempts.put(info.regionName,0L);
-            }
-          }
+        String serverName=null;
+        bytes=results.get(ROOT_COL_SERVER);
+        if (bytes != null && bytes.length != 0) {
+          serverName=new String(bytes,UTF8_ENCODING);
         }
-        results.clear();
-        metaRegions+=1;
+        long startCode=-1L;
+        bytes=results.get(ROOT_COL_STARTCODE);
+        if (bytes != null && bytes.length != 0) {
+          startCode=Long.valueOf(new String(bytes,UTF8_ENCODING));
+        }
+        HServerInfo storedInfo=null;
+        if (serverName != null) {
+          serversToServerInfo.get(serverName);
+        }
+        if (storedInfo == null || storedInfo.getStartCode() != startCode) {
+          unassignedRegions.put(info.regionName,info);
+          assignAttempts.put(info.regionName,0L);
+          LOG.debug("region unassigned: " + info.regionName);
+        }
+        numMetaRegions+=1;
       }
     }
  catch (    Exception iex) {
+      iex.printStackTrace();
     }
  finally {
       try {
-        scanner.close();
+        if (scannerId != -1L) {
+          rootServer.close(scannerId);
+        }
       }
  catch (      IOException iex2) {
       }
+      scannerId=-1L;
     }
-    rootScanned=true;
-    numMetaRegions=metaRegions;
-    try {
-      Thread.sleep(metaRescanInterval);
-    }
- catch (    InterruptedException e) {
-    }
+  }
+  rootScanned=true;
+  try {
+    Thread.sleep(metaRescanInterval);
+  }
+ catch (  InterruptedException e) {
   }
 }

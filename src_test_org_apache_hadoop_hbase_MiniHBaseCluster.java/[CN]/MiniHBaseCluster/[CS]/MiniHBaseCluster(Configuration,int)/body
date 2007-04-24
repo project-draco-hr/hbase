@@ -1,0 +1,59 @@
+{
+  this.conf=conf;
+  try {
+    try {
+      if (System.getProperty("test.build.data") == null) {
+        File testDir=new File(new File("").getAbsolutePath(),"build/contrib/hbase/test");
+        String dir=testDir.getAbsolutePath();
+        System.out.println(dir);
+        System.setProperty("test.build.data",dir);
+      }
+      this.cluster=new MiniDFSCluster(this.conf,2,true,(String[])null);
+      this.fs=FileSystem.get(conf);
+      this.parentdir=new Path(conf.get(HREGION_DIR,DEFAULT_HREGION_DIR));
+      fs.mkdirs(parentdir);
+    }
+ catch (    Throwable e) {
+      System.err.println("Mini DFS cluster failed to start");
+      e.printStackTrace();
+      throw e;
+    }
+    if (this.conf.get(MASTER_ADDRESS) == null) {
+      this.conf.set(MASTER_ADDRESS,"localhost:0");
+    }
+    this.master=new HMasterRunner();
+    this.masterThread=new Thread(master,"HMaster");
+    masterThread.start();
+    while (!master.isCrashed() && !master.isInitialized()) {
+      try {
+        System.err.println("Waiting for HMaster to initialize...");
+        Thread.sleep(1000);
+      }
+ catch (      InterruptedException e) {
+      }
+      if (master.isCrashed()) {
+        throw new RuntimeException("HMaster crashed");
+      }
+    }
+    this.conf.set(MASTER_ADDRESS,master.getHMasterAddress().toString());
+    if (this.conf.get(REGIONSERVER_ADDRESS) == null) {
+      this.conf.set(REGIONSERVER_ADDRESS,"localhost:0");
+    }
+    startRegionServers(this.conf,nRegionNodes);
+    while (!master.isCrashed() && !master.isUp()) {
+      try {
+        System.err.println("Waiting for Mini HBase cluster to start...");
+        Thread.sleep(1000);
+      }
+ catch (      InterruptedException e) {
+      }
+      if (master.isCrashed()) {
+        throw new RuntimeException("HMaster crashed");
+      }
+    }
+  }
+ catch (  Throwable e) {
+    deleteFile(new File(System.getProperty("test.build.data"),"dfs"));
+    throw new RuntimeException("Mini HBase cluster did not start");
+  }
+}

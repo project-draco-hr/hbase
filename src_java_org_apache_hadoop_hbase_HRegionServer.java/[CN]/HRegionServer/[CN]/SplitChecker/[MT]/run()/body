@@ -2,12 +2,12 @@
   while (!stopRequested) {
     long startTime=System.currentTimeMillis();
     Vector<HRegion> checkSplit=new Vector<HRegion>();
-    locking.obtainReadLock();
+    locker.readLock().lock();
     try {
       checkSplit.addAll(regions.values());
     }
   finally {
-      locking.releaseReadLock();
+      locker.readLock().unlock();
     }
     Vector<SplitRegion> toSplit=new Vector<SplitRegion>();
     for (Iterator<HRegion> it=checkSplit.iterator(); it.hasNext(); ) {
@@ -24,14 +24,16 @@
     }
     for (Iterator<SplitRegion> it=toSplit.iterator(); it.hasNext(); ) {
       SplitRegion r=it.next();
-      locking.obtainWriteLock();
+      locker.writeLock().lock();
       regions.remove(r.region.getRegionName());
-      locking.releaseWriteLock();
+      locker.writeLock().unlock();
       HRegion[] newRegions=null;
       try {
         Text oldRegion=r.region.getRegionName();
+        LOG.info("splitting region: " + oldRegion);
         newRegions=r.region.closeAndSplit(r.midKey);
         Text tableToUpdate=(oldRegion.find(META_TABLE_NAME.toString()) == 0) ? ROOT_TABLE_NAME : META_TABLE_NAME;
+        LOG.debug("region split complete. updating meta");
         client.openTable(tableToUpdate);
         long lockid=client.startUpdate(oldRegion);
         client.delete(lockid,META_COL_REGIONINFO);
@@ -46,7 +48,9 @@
           client.put(lockid,META_COL_REGIONINFO,bytes.toByteArray());
           client.commit(lockid);
         }
+        LOG.debug("reporting region split to master");
         reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
+        LOG.info("region split successful. old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
         newRegions[0].close();
         newRegions[1].close();
       }
@@ -55,11 +59,13 @@
         continue;
       }
     }
-    long endTime=System.currentTimeMillis();
-    try {
-      Thread.sleep(splitCheckFrequency - (endTime - startTime));
-    }
- catch (    InterruptedException iex) {
+    long waitTime=splitCheckFrequency - (System.currentTimeMillis() - startTime);
+    if (waitTime > 0) {
+      try {
+        Thread.sleep(waitTime);
+      }
+ catch (      InterruptedException iex) {
+      }
     }
   }
 }

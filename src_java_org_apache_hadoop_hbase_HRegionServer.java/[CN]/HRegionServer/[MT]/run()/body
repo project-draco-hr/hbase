@@ -8,10 +8,12 @@
     }
  catch (    IOException e) {
       waitTime=msgInterval - (System.currentTimeMillis() - lastMsg);
-      try {
-        Thread.sleep(waitTime);
-      }
- catch (      InterruptedException iex) {
+      if (waitTime > 0) {
+        try {
+          Thread.sleep(waitTime);
+        }
+ catch (        InterruptedException iex) {
+        }
       }
       continue;
     }
@@ -25,20 +27,42 @@ synchronized (outboundMsgs) {
         try {
           HMsg msgs[]=hbaseMaster.regionServerReport(info,outboundArray);
           lastMsg=System.currentTimeMillis();
-          if (!processMessages(msgs)) {
+synchronized (toDo) {
+            boolean restartOrStop=false;
+            for (int i=0; i < msgs.length; i++) {
+switch (msgs[i].getMsg()) {
+case HMsg.MSG_CALL_SERVER_STARTUP:
+                closeAllRegions();
+              restartOrStop=true;
             break;
-          }
-        }
- catch (        IOException e) {
-          e.printStackTrace();
-        }
-      }
-      waitTime=msgInterval - (System.currentTimeMillis() - lastMsg);
-      try {
-        Thread.sleep(waitTime);
-      }
- catch (      InterruptedException iex) {
-      }
-    }
-  }
+case HMsg.MSG_REGIONSERVER_ALREADY_RUNNING:
+          stop();
+        restartOrStop=true;
+      break;
+default :
+    toDo.add(msgs[i]);
+}
+}
+if (toDo.size() > 0) {
+toDo.notifyAll();
+}
+if (restartOrStop) {
+break;
+}
+}
+}
+ catch (IOException e) {
+e.printStackTrace();
+}
+}
+waitTime=msgInterval - (System.currentTimeMillis() - lastMsg);
+if (waitTime > 0) {
+try {
+Thread.sleep(waitTime);
+}
+ catch (InterruptedException iex) {
+}
+}
+}
+}
 }

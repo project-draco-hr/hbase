@@ -1,51 +1,76 @@
 {
   HRegionInterface server=null;
-  HScannerInterface scanner=null;
+  long scannerId=-1L;
+  LOG.debug("scanning meta region: " + region.regionName);
   try {
     server=client.getHRegionConnection(region.server);
-    scanner=server.openScanner(region.regionName,cols,firstRow);
+    scannerId=server.openScanner(region.regionName,cols,firstRow);
   }
  catch (  IOException iex) {
     try {
-      close();
+      if (scannerId != -1L) {
+        server.close(scannerId);
+        scannerId=-1L;
+      }
+      stop();
     }
  catch (    IOException iex2) {
     }
     return;
   }
+  DataInputBuffer inbuf=new DataInputBuffer();
   try {
-    HStoreKey key=new HStoreKey();
-    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-    DataInputBuffer inbuf=new DataInputBuffer();
-    while (scanner.next(key,results)) {
-      byte hRegionInfoBytes[]=results.get(META_COL_REGIONINFO);
-      inbuf.reset(hRegionInfoBytes,hRegionInfoBytes.length);
+    while (true) {
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      HStoreKey key=new HStoreKey();
+      LabelledData[] values=server.next(scannerId,key);
+      if (values.length == 0) {
+        break;
+      }
+      for (int i=0; i < values.length; i++) {
+        results.put(values[i].getLabel(),values[i].getData().get());
+      }
+      byte bytes[]=results.get(META_COL_REGIONINFO);
+      if (bytes == null || bytes.length == 0) {
+        LOG.fatal("no value for " + META_COL_REGIONINFO);
+        stop();
+      }
+      inbuf.reset(bytes,bytes.length);
       HRegionInfo info=new HRegionInfo();
       info.readFields(inbuf);
-      byte serverBytes[]=results.get(META_COL_SERVER);
-      String serverName=new String(serverBytes,UTF8_ENCODING);
-      byte startCodeBytes[]=results.get(META_COL_STARTCODE);
-      long startCode=Long.decode(new String(startCodeBytes,UTF8_ENCODING));
-      HServerInfo storedInfo=null;
-synchronized (serversToServerInfo) {
-        storedInfo=serversToServerInfo.get(serverName);
-        if (storedInfo == null || storedInfo.getStartCode() != startCode) {
-synchronized (unassignedRegions) {
-            unassignedRegions.put(info.regionName,info);
-            assignAttempts.put(info.regionName,0L);
-          }
-        }
+      String serverName=null;
+      bytes=results.get(META_COL_SERVER);
+      if (bytes != null && bytes.length != 0) {
+        serverName=new String(bytes,UTF8_ENCODING);
       }
-      results.clear();
+      long startCode=-1L;
+      bytes=results.get(META_COL_STARTCODE);
+      if (bytes != null && bytes.length != 0) {
+        startCode=Long.valueOf(new String(bytes,UTF8_ENCODING));
+      }
+      HServerInfo storedInfo=null;
+      if (serverName != null) {
+        serversToServerInfo.get(serverName);
+      }
+      if (storedInfo == null || storedInfo.getStartCode() != startCode) {
+        unassignedRegions.put(info.regionName,info);
+        assignAttempts.put(info.regionName,0L);
+        LOG.debug("region unassigned: " + info.regionName);
+      }
     }
   }
  catch (  Exception iex) {
+    iex.printStackTrace();
   }
  finally {
     try {
-      scanner.close();
+      if (scannerId != -1L) {
+        server.close(scannerId);
+      }
     }
  catch (    IOException iex2) {
+      iex2.printStackTrace();
     }
+    scannerId=-1L;
   }
 }

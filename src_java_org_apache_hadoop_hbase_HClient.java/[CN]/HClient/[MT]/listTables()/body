@@ -5,28 +5,36 @@
     loadMetaFromRoot(META_TABLE_NAME);
     metaTables=tablesToServers.get(META_TABLE_NAME);
   }
-  for (Iterator<TableInfo> i=metaTables.values().iterator(); i.hasNext(); ) {
-    TableInfo t=i.next();
+  for (Iterator<TableInfo> it=metaTables.values().iterator(); it.hasNext(); ) {
+    TableInfo t=it.next();
     HRegionInterface server=getHRegionConnection(t.serverAddress);
-    HScannerInterface scanner=null;
+    long scannerId=-1L;
     try {
-      scanner=server.openScanner(t.regionInfo.regionName,metaColumns,startRow);
+      scannerId=server.openScanner(t.regionInfo.regionName,metaColumns,startRow);
       HStoreKey key=new HStoreKey();
-      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
       DataInputBuffer inbuf=new DataInputBuffer();
-      while (scanner.next(key,results)) {
-        byte infoBytes[]=(byte[])results.get(ROOT_COL_REGIONINFO);
-        inbuf.reset(infoBytes,infoBytes.length);
-        HRegionInfo info=new HRegionInfo();
-        info.readFields(inbuf);
-        if (info.startKey.getLength() == 0) {
-          uniqueTables.add(info.tableDesc);
+      while (true) {
+        LabelledData[] values=server.next(scannerId,key);
+        if (values.length == 0) {
+          break;
         }
-        results.clear();
+        for (int i=0; i < values.length; i++) {
+          if (values[i].getLabel().equals(META_COL_REGIONINFO)) {
+            byte[] bytes=values[i].getData().get();
+            inbuf.reset(bytes,bytes.length);
+            HRegionInfo info=new HRegionInfo();
+            info.readFields(inbuf);
+            if (info.startKey.getLength() == 0) {
+              uniqueTables.add(info.tableDesc);
+            }
+          }
+        }
       }
     }
   finally {
-      scanner.close();
+      if (scannerId != -1L) {
+        server.close(scannerId);
+      }
     }
   }
   return (HTableDescriptor[])uniqueTables.toArray(new HTableDescriptor[uniqueTables.size()]);

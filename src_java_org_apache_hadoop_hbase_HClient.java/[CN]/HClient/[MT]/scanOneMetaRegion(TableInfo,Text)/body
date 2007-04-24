@@ -1,26 +1,34 @@
 {
   HRegionInterface server=getHRegionConnection(t.serverAddress);
-  HScannerInterface scanner=null;
+  long scannerId=-1L;
   try {
-    scanner=server.openScanner(t.regionInfo.regionName,metaColumns,tableName);
-    HStoreKey key=new HStoreKey();
-    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+    scannerId=server.openScanner(t.regionInfo.regionName,metaColumns,tableName);
     DataInputBuffer inbuf=new DataInputBuffer();
-    while (scanner.next(key,results)) {
-      byte hRegionInfoBytes[]=results.get(META_COL_REGIONINFO);
-      inbuf.reset(hRegionInfoBytes,hRegionInfoBytes.length);
+    while (true) {
+      HStoreKey key=new HStoreKey();
+      LabelledData[] values=server.next(scannerId,key);
+      if (values.length == 0) {
+        break;
+      }
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      for (int i=0; i < values.length; i++) {
+        results.put(values[i].getLabel(),values[i].getData().get());
+      }
       HRegionInfo regionInfo=new HRegionInfo();
+      byte[] bytes=results.get(META_COL_REGIONINFO);
+      inbuf.reset(bytes,bytes.length);
       regionInfo.readFields(inbuf);
       if (!regionInfo.tableDesc.getName().equals(tableName)) {
         break;
       }
-      byte serverBytes[]=results.get(META_COL_SERVER);
-      String serverName=new String(serverBytes,UTF8_ENCODING);
+      bytes=results.get(META_COL_SERVER);
+      String serverName=new String(bytes,UTF8_ENCODING);
       tableServers.put(regionInfo.startKey,new TableInfo(regionInfo,new HServerAddress(serverName)));
-      results.clear();
     }
   }
   finally {
-    scanner.close();
+    if (scannerId != -1L) {
+      server.close(scannerId);
+    }
   }
 }
