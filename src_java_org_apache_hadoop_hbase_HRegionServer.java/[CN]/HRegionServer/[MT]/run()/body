@@ -4,15 +4,29 @@
     long lastMsg=0;
     long waitTime;
     try {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Telling master we are up");
+      }
       hbaseMaster.regionServerStartup(info);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Done telling master we are up");
+      }
     }
  catch (    IOException e) {
-      waitTime=msgInterval - (System.currentTimeMillis() - lastMsg);
+      waitTime=stopRequested ? 0 : msgInterval - (System.currentTimeMillis() - lastMsg);
       if (waitTime > 0) {
-        try {
-          Thread.sleep(waitTime);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Sleep");
         }
- catch (        InterruptedException iex) {
+synchronized (this) {
+          try {
+            Thread.sleep(waitTime);
+          }
+ catch (          InterruptedException iex) {
+          }
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Wake");
         }
       }
       continue;
@@ -28,25 +42,39 @@ synchronized (outboundMsgs) {
           HMsg msgs[]=hbaseMaster.regionServerReport(info,outboundArray);
           lastMsg=System.currentTimeMillis();
 synchronized (toDo) {
-            boolean restartOrStop=false;
-            for (int i=0; i < msgs.length; i++) {
+            boolean restart=false;
+            for (int i=0; i < msgs.length && !stopRequested && !restart; i++) {
 switch (msgs[i].getMsg()) {
 case HMsg.MSG_CALL_SERVER_STARTUP:
-                closeAllRegions();
-              restartOrStop=true;
-            break;
-case HMsg.MSG_REGIONSERVER_ALREADY_RUNNING:
-          stop();
-        restartOrStop=true;
-      break;
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("Got call server startup message");
+                }
+              toDo.clear();
+            closeAllRegions();
+          restart=true;
+        break;
+case HMsg.MSG_REGIONSERVER_STOP:
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Got regionserver stop message");
+      }
+    toDo.clear();
+  closeAllRegions();
+stopRequested=true;
+break;
 default :
-    toDo.add(msgs[i]);
+if (LOG.isDebugEnabled()) {
+LOG.debug("Got default message");
+}
+toDo.add(msgs[i]);
 }
 }
 if (toDo.size() > 0) {
+if (LOG.isDebugEnabled()) {
+LOG.debug("notify on todo");
+}
 toDo.notifyAll();
 }
-if (restartOrStop) {
+if (restart || stopRequested) {
 break;
 }
 }
@@ -55,14 +83,40 @@ break;
 e.printStackTrace();
 }
 }
-waitTime=msgInterval - (System.currentTimeMillis() - lastMsg);
+waitTime=stopRequested ? 0 : msgInterval - (System.currentTimeMillis() - lastMsg);
 if (waitTime > 0) {
+if (LOG.isDebugEnabled()) {
+LOG.debug("Sleep");
+}
+synchronized (this) {
 try {
 Thread.sleep(waitTime);
 }
  catch (InterruptedException iex) {
 }
 }
+if (LOG.isDebugEnabled()) {
+LOG.debug("Wake");
 }
+}
+}
+}
+try {
+LOG.info("stopping server at: " + address.toString());
+this.logRollerThread.interrupt();
+this.cacheFlusherThread.interrupt();
+this.splitCheckerThread.interrupt();
+this.worker.stop();
+this.server.stop();
+closeAllRegions();
+log.close();
+leases.close();
+join();
+}
+ catch (IOException e) {
+e.printStackTrace();
+}
+if (LOG.isDebugEnabled()) {
+LOG.debug("main thread exiting");
 }
 }

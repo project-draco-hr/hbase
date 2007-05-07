@@ -1,0 +1,31 @@
+{
+  this.conf=conf;
+  FileSystem fs=FileSystem.get(conf);
+  this.parentdir=new Path(parentdirName);
+  if (!fs.exists(parentdir)) {
+    throw new FileNotFoundException(parentdirName);
+  }
+  if (!fs.isDirectory(parentdir)) {
+    throw new IOException(parentdirName + " not a directory");
+  }
+  Path[] regiondirs=fs.listPaths(parentdir,new PathFilter(){
+    public boolean accept(    Path path){
+      Matcher m=REGION_NAME_PARSER.matcher(path.getName());
+      return m != null && m.matches();
+    }
+  }
+);
+  this.infos=new ArrayList<HRegionInfo>();
+  for (  Path d : regiondirs) {
+    Matcher m=REGION_NAME_PARSER.matcher(d.getName());
+    if (m == null || !m.matches()) {
+      throw new IOException("Unparseable region dir name");
+    }
+    String tableName=m.group(1);
+    String endKey=m.group(2);
+    long regionid=Long.parseLong(m.group(3));
+    HTableDescriptor desc=getTableDescriptor(fs,d,tableName);
+    HRegionInfo info=new HRegionInfo(regionid,desc,new Text(),(endKey == null || endKey.length() == 0) ? new Text() : new Text(endKey));
+    infos.add(info);
+  }
+}

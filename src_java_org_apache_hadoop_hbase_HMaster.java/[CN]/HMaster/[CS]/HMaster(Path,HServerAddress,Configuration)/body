@@ -9,7 +9,7 @@
   }
   Path rootRegionDir=HStoreFile.getHRegionDir(dir,HGlobals.rootRegionInfo.regionName);
   if (!fs.exists(rootRegionDir)) {
-    LOG.debug("bootstrap: creating root and meta regions");
+    LOG.info("bootstrap: creating ROOT and first META regions");
     try {
       HRegion root=createNewHRegion(HGlobals.rootTableDesc,0L);
       HRegion meta=createNewHRegion(HGlobals.metaTableDesc,1L);
@@ -21,10 +21,11 @@
       e.printStackTrace();
     }
   }
+  this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
   this.maxRegionOpenTime=conf.getLong("hbase.hbasemaster.maxregionopen",30 * 1000);
   this.msgQueue=new Vector<PendingOperation>();
   this.serverLeases=new Leases(conf.getLong("hbase.master.lease.period",30 * 1000),conf.getLong("hbase.master.lease.thread.wakefrequency",15 * 1000));
-  this.server=RPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.hregionserver.handler.count",10),false,conf);
+  this.server=RPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
   this.address=new HServerAddress(server.getListenerAddress());
   conf.set(MASTER_ADDRESS,address.toString());
   this.client=new HClient(conf);
@@ -39,24 +40,11 @@
   this.allMetaRegionsScanned=false;
   this.metaScanner=new MetaScanner();
   this.metaScannerThread=new Thread(metaScanner,"HMaster.metaScanner");
-  this.clientProcessor=new ClientProcessor();
-  this.clientProcessorThread=new Thread(clientProcessor,"HMaster.clientProcessor");
   this.unassignedRegions=Collections.synchronizedSortedMap(new TreeMap<Text,HRegionInfo>());
   this.unassignedRegions.put(HGlobals.rootRegionInfo.regionName,HGlobals.rootRegionInfo);
   this.assignAttempts=Collections.synchronizedSortedMap(new TreeMap<Text,Long>());
   this.assignAttempts.put(HGlobals.rootRegionInfo.regionName,0L);
   this.killList=Collections.synchronizedSortedMap(new TreeMap<String,TreeMap<Text,HRegionInfo>>());
-  this.serversToServerInfo=Collections.synchronizedSortedMap(new TreeMap<String,HServerInfo>());
   this.closed=false;
-  try {
-    this.rootScannerThread.start();
-    this.metaScannerThread.start();
-    this.clientProcessorThread.start();
-    this.server.start();
-  }
- catch (  IOException e) {
-    this.closed=true;
-    throw e;
-  }
-  LOG.info("HMaster started");
+  LOG.info("HMaster initialized on " + address.toString());
 }

@@ -1,49 +1,68 @@
 {
-  Text[] columns={META_COLUMN_FAMILY};
+  if (!isMasterRunning()) {
+    throw new IllegalStateException(MASTER_NOT_RUNNING);
+  }
   metaScanner.waitForMetaScan();
-  for (Iterator<MetaRegion> it=knownMetaRegions.tailMap(tableName).values().iterator(); it.hasNext(); ) {
-    long clientId=rand.nextLong();
+  Text firstMetaRegion=null;
+  if (knownMetaRegions.size() == 1) {
+    firstMetaRegion=knownMetaRegions.firstKey();
+  }
+ else   if (knownMetaRegions.containsKey(tableName)) {
+    firstMetaRegion=tableName;
+  }
+ else {
+    firstMetaRegion=knownMetaRegions.headMap(tableName).lastKey();
+  }
+  for (Iterator<MetaRegion> it=knownMetaRegions.tailMap(firstMetaRegion).values().iterator(); it.hasNext(); ) {
     MetaRegion m=it.next();
     HRegionInterface server=client.getHRegionConnection(m.server);
+    Vector<Text> rowsToDelete=new Vector<Text>();
     long scannerId=-1L;
     try {
-      scannerId=server.openScanner(m.regionName,columns,tableName);
-      Vector<Text> rowsToDelete=new Vector<Text>();
+      scannerId=server.openScanner(m.regionName,METACOLUMNS,tableName);
       DataInputBuffer inbuf=new DataInputBuffer();
+      byte[] bytes;
       while (true) {
         LabelledData[] values=null;
         HStoreKey key=new HStoreKey();
         values=server.next(scannerId,key);
-        if (values.length == 0) {
+        if (values == null || values.length == 0) {
           break;
         }
         TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
         for (int i=0; i < values.length; i++) {
-          results.put(values[i].getLabel(),values[i].getData().get());
+          bytes=new byte[values[i].getData().getSize()];
+          System.arraycopy(values[i].getData().get(),0,bytes,0,bytes.length);
+          results.put(values[i].getLabel(),bytes);
         }
-        byte bytes[]=results.get(META_COL_REGIONINFO);
+        bytes=results.get(COL_REGIONINFO);
+        if (bytes == null || bytes.length == 0) {
+          break;
+        }
         inbuf.reset(bytes,bytes.length);
         HRegionInfo info=new HRegionInfo();
         info.readFields(inbuf);
         if (info.tableDesc.getName().compareTo(tableName) > 0) {
           break;
         }
-        String serverName=new String(results.get(META_COL_SERVER),UTF8_ENCODING);
-        long startCode=Long.valueOf(new String(results.get(META_COL_STARTCODE),UTF8_ENCODING));
-        HServerInfo s=serversToServerInfo.get(serverName);
-        if (s != null && s.getStartCode() == startCode) {
-          TreeMap<Text,HRegionInfo> regionsToKill=killList.get(serverName);
-          if (regionsToKill == null) {
-            regionsToKill=new TreeMap<Text,HRegionInfo>();
+        rowsToDelete.add(info.regionName);
+        bytes=results.get(COL_SERVER);
+        if (bytes != null && bytes.length != 0) {
+          String serverName=new String(bytes,UTF8_ENCODING);
+          bytes=results.get(COL_STARTCODE);
+          if (bytes != null && bytes.length != 0) {
+            long startCode=Long.valueOf(new String(bytes,UTF8_ENCODING));
+            HServerInfo s=serversToServerInfo.get(serverName);
+            if (s != null && s.getStartCode() == startCode) {
+              TreeMap<Text,HRegionInfo> regionsToKill=killList.get(serverName);
+              if (regionsToKill == null) {
+                regionsToKill=new TreeMap<Text,HRegionInfo>();
+              }
+              regionsToKill.put(info.regionName,info);
+              killList.put(serverName,regionsToKill);
+            }
           }
-          regionsToKill.put(info.regionName,info);
-          killList.put(serverName,regionsToKill);
         }
-      }
-      for (Iterator<Text> row=rowsToDelete.iterator(); row.hasNext(); ) {
-        long lockid=server.startUpdate(m.regionName,clientId,row.next());
-        server.delete(m.regionName,clientId,lockid,columns[0]);
-        server.commit(m.regionName,clientId,lockid);
       }
     }
  catch (    IOException e) {
@@ -60,6 +79,25 @@
       }
       scannerId=-1L;
     }
+    for (Iterator<Text> row=rowsToDelete.iterator(); row.hasNext(); ) {
+      Text rowName=row.next();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("deleting columns in row: " + rowName);
+      }
+      try {
+        long clientId=rand.nextLong();
+        long lockid=server.startUpdate(m.regionName,clientId,rowName);
+        server.delete(m.regionName,clientId,lockid,COL_REGIONINFO);
+        server.delete(m.regionName,clientId,lockid,COL_SERVER);
+        server.delete(m.regionName,clientId,lockid,COL_STARTCODE);
+        server.commit(m.regionName,clientId,lockid);
+      }
+ catch (      Exception e) {
+        e.printStackTrace();
+      }
+    }
   }
-  LOG.debug("deleted table: " + tableName);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("deleted table: " + tableName);
+  }
 }

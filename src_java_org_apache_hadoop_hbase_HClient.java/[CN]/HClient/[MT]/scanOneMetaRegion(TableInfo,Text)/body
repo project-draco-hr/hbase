@@ -1,30 +1,49 @@
 {
   HRegionInterface server=getHRegionConnection(t.serverAddress);
+  int servers=0;
   long scannerId=-1L;
   try {
-    scannerId=server.openScanner(t.regionInfo.regionName,metaColumns,tableName);
+    scannerId=server.openScanner(t.regionInfo.regionName,META_COLUMNS,tableName);
     DataInputBuffer inbuf=new DataInputBuffer();
     while (true) {
+      HRegionInfo regionInfo=null;
+      String serverAddress=null;
       HStoreKey key=new HStoreKey();
       LabelledData[] values=server.next(scannerId,key);
       if (values.length == 0) {
+        if (servers == 0) {
+          throw new NoSuchElementException("table '" + tableName + "' does not exist");
+        }
         break;
       }
+      byte[] bytes=null;
       TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
       for (int i=0; i < values.length; i++) {
-        results.put(values[i].getLabel(),values[i].getData().get());
+        bytes=new byte[values[i].getData().getSize()];
+        System.arraycopy(values[i].getData().get(),0,bytes,0,bytes.length);
+        results.put(values[i].getLabel(),bytes);
       }
-      HRegionInfo regionInfo=new HRegionInfo();
-      byte[] bytes=results.get(META_COL_REGIONINFO);
+      regionInfo=new HRegionInfo();
+      bytes=results.get(COL_REGIONINFO);
       inbuf.reset(bytes,bytes.length);
       regionInfo.readFields(inbuf);
       if (!regionInfo.tableDesc.getName().equals(tableName)) {
         break;
       }
-      bytes=results.get(META_COL_SERVER);
-      String serverName=new String(bytes,UTF8_ENCODING);
-      tableServers.put(regionInfo.startKey,new TableInfo(regionInfo,new HServerAddress(serverName)));
+      bytes=results.get(COL_SERVER);
+      if (bytes == null || bytes.length == 0) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("no server address for " + regionInfo.toString());
+        }
+        servers=0;
+        this.tableServers.clear();
+        break;
+      }
+      servers+=1;
+      serverAddress=new String(bytes,UTF8_ENCODING);
+      this.tableServers.put(regionInfo.startKey,new TableInfo(regionInfo,new HServerAddress(serverAddress)));
     }
+    return servers;
   }
   finally {
     if (scannerId != -1L) {

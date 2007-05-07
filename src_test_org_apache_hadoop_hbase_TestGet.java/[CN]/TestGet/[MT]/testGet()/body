@@ -1,0 +1,85 @@
+{
+  MiniDFSCluster cluster=null;
+  try {
+    if (System.getProperty("test.build.data") == null) {
+      String dir=new File(new File("").getAbsolutePath(),"build/contrib/hbase/test").getAbsolutePath();
+      System.out.println(dir);
+      System.setProperty("test.build.data",dir);
+    }
+    Configuration conf=new HBaseConfiguration();
+    Environment.getenv();
+    if (Environment.debugging) {
+      Logger rootLogger=Logger.getRootLogger();
+      rootLogger.setLevel(Level.WARN);
+      ConsoleAppender consoleAppender=null;
+      for (Enumeration<Appender> e=(Enumeration<Appender>)rootLogger.getAllAppenders(); e.hasMoreElements(); ) {
+        Appender a=e.nextElement();
+        if (a instanceof ConsoleAppender) {
+          consoleAppender=(ConsoleAppender)a;
+          break;
+        }
+      }
+      if (consoleAppender != null) {
+        Layout layout=consoleAppender.getLayout();
+        if (layout instanceof PatternLayout) {
+          PatternLayout consoleLayout=(PatternLayout)layout;
+          consoleLayout.setConversionPattern("%d %-5p [%t] %l: %m%n");
+        }
+      }
+      Logger.getLogger("org.apache.hadoop.hbase").setLevel(Environment.logLevel);
+    }
+    cluster=new MiniDFSCluster(conf,2,true,(String[])null);
+    FileSystem fs=cluster.getFileSystem();
+    Path dir=new Path("/hbase");
+    fs.mkdirs(dir);
+    HTableDescriptor desc=new HTableDescriptor("test",1);
+    desc.addFamily(CONTENTS);
+    desc.addFamily(HConstants.COLUMN_FAMILY);
+    HRegionInfo info=new HRegionInfo(0L,desc,null,null);
+    Path regionDir=HStoreFile.getHRegionDir(dir,info.regionName);
+    fs.mkdirs(regionDir);
+    HLog log=new HLog(fs,new Path(regionDir,"log"),conf);
+    HRegion r=new HRegion(dir,log,fs,conf,info,null,null);
+    long lockid=r.startUpdate(ROW_KEY);
+    ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+    DataOutputStream s=new DataOutputStream(bytes);
+    CONTENTS.write(s);
+    r.put(lockid,CONTENTS,new BytesWritable(bytes.toByteArray()));
+    bytes.reset();
+    HGlobals.rootRegionInfo.write(s);
+    r.put(lockid,HConstants.COL_REGIONINFO,new BytesWritable(bytes.toByteArray()));
+    r.commit(lockid);
+    lockid=r.startUpdate(ROW_KEY);
+    r.put(lockid,HConstants.COL_SERVER,new BytesWritable(new HServerAddress("foo.bar.com:1234").toString().getBytes(HConstants.UTF8_ENCODING)));
+    r.put(lockid,HConstants.COL_STARTCODE,new BytesWritable(String.valueOf(lockid).getBytes(HConstants.UTF8_ENCODING)));
+    r.put(lockid,new Text(HConstants.COLUMN_FAMILY + "region"),new BytesWritable("region".getBytes(HConstants.UTF8_ENCODING)));
+    r.commit(lockid);
+    verifyGet(r);
+    r.close();
+    log.rollWriter();
+    r=new HRegion(dir,log,fs,conf,info,null,null);
+    dumpRegion(r);
+    verifyGet(r);
+    lockid=r.startUpdate(ROW_KEY);
+    r.put(lockid,new Text(HConstants.COLUMN_FAMILY + "region"),new BytesWritable("region2".getBytes()));
+    r.put(lockid,HConstants.COL_SERVER,new BytesWritable(new HServerAddress("bar.foo.com:4321").toString().getBytes(HConstants.UTF8_ENCODING)));
+    r.put(lockid,new Text(HConstants.COLUMN_FAMILY + "junk"),new BytesWritable("junk".getBytes()));
+    r.commit(lockid);
+    verifyGet(r);
+    r.close();
+    log.rollWriter();
+    r=new HRegion(dir,log,fs,conf,info,null,null);
+    dumpRegion(r);
+    verifyGet(r);
+    r.close();
+  }
+ catch (  IOException e) {
+    e.printStackTrace();
+    throw e;
+  }
+ finally {
+    if (cluster != null) {
+      cluster.shutdown();
+    }
+  }
+}

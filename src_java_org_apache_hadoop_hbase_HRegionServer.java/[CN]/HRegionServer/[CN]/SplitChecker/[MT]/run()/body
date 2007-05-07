@@ -33,22 +33,26 @@
         LOG.info("splitting region: " + oldRegion);
         newRegions=r.region.closeAndSplit(r.midKey);
         Text tableToUpdate=(oldRegion.find(META_TABLE_NAME.toString()) == 0) ? ROOT_TABLE_NAME : META_TABLE_NAME;
-        LOG.debug("region split complete. updating meta");
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("region split complete. updating meta");
+        }
         client.openTable(tableToUpdate);
         long lockid=client.startUpdate(oldRegion);
-        client.delete(lockid,META_COL_REGIONINFO);
-        client.delete(lockid,META_COL_SERVER);
-        client.delete(lockid,META_COL_STARTCODE);
+        client.delete(lockid,COL_REGIONINFO);
+        client.delete(lockid,COL_SERVER);
+        client.delete(lockid,COL_STARTCODE);
         client.commit(lockid);
         for (int i=0; i < newRegions.length; i++) {
           ByteArrayOutputStream bytes=new ByteArrayOutputStream();
           DataOutputStream out=new DataOutputStream(bytes);
           newRegions[i].getRegionInfo().write(out);
           lockid=client.startUpdate(newRegions[i].getRegionName());
-          client.put(lockid,META_COL_REGIONINFO,bytes.toByteArray());
+          client.put(lockid,COL_REGIONINFO,bytes.toByteArray());
           client.commit(lockid);
         }
-        LOG.debug("reporting region split to master");
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("reporting region split to master");
+        }
         reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
         LOG.info("region split successful. old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
         newRegions[0].close();
@@ -59,13 +63,22 @@
         continue;
       }
     }
-    long waitTime=splitCheckFrequency - (System.currentTimeMillis() - startTime);
+    long waitTime=stopRequested ? 0 : splitCheckFrequency - (System.currentTimeMillis() - startTime);
     if (waitTime > 0) {
       try {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Sleep splitChecker");
+        }
         Thread.sleep(waitTime);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Wake splitChecker");
+        }
       }
  catch (      InterruptedException iex) {
       }
     }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("splitChecker exiting");
   }
 }

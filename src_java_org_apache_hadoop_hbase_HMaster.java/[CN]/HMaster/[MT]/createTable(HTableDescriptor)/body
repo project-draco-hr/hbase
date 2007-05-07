@@ -1,11 +1,19 @@
 {
+  if (!isMasterRunning()) {
+    throw new IllegalStateException(MASTER_NOT_RUNNING);
+  }
   HRegionInfo newRegion=new HRegionInfo(rand.nextLong(),desc,null,null);
   metaScanner.waitForMetaScan();
-  Text metaStartRow=knownMetaRegions.headMap(newRegion.regionName).lastKey();
-  MetaRegion m=knownMetaRegions.get(metaStartRow);
+  MetaRegion m=null;
+  if (knownMetaRegions.containsKey(newRegion.regionName)) {
+    m=knownMetaRegions.get(newRegion.regionName);
+  }
+ else {
+    m=knownMetaRegions.get(knownMetaRegions.headMap(newRegion.regionName).lastKey());
+  }
   Text metaRegionName=m.regionName;
   HRegionInterface server=client.getHRegionConnection(m.server);
-  BytesWritable bytes=server.get(metaRegionName,desc.getName(),META_COL_REGIONINFO);
+  BytesWritable bytes=server.get(metaRegionName,desc.getName(),COL_REGIONINFO);
   if (bytes != null && bytes.getSize() != 0) {
     byte[] infoBytes=bytes.get();
     DataInputBuffer inbuf=new DataInputBuffer();
@@ -24,10 +32,12 @@
   info.write(s);
   long clientId=rand.nextLong();
   long lockid=server.startUpdate(metaRegionName,clientId,regionName);
-  server.put(metaRegionName,clientId,lockid,META_COL_REGIONINFO,new BytesWritable(byteValue.toByteArray()));
+  server.put(metaRegionName,clientId,lockid,COL_REGIONINFO,new BytesWritable(byteValue.toByteArray()));
   server.commit(metaRegionName,clientId,lockid);
   r.close();
   unassignedRegions.put(regionName,info);
   assignAttempts.put(regionName,0L);
-  LOG.debug("created table " + desc.getName());
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("created table " + desc.getName());
+  }
 }

@@ -9,7 +9,9 @@
   fs.mkdirs(mapdir);
   this.loginfodir=HStoreFile.getInfoDir(dir,regionName,colFamily);
   fs.mkdirs(loginfodir);
-  LOG.debug("starting HStore for " + regionName + "/"+ colFamily);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("starting HStore for " + regionName + "/"+ colFamily);
+  }
   this.compactdir=new Path(dir,COMPACTION_DIR);
   Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,colFamily);
   if (fs.exists(curCompactStore)) {
@@ -31,7 +33,9 @@
       }
     }
   }
-  LOG.debug("reading reconstructionLog");
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("reading reconstructionLog");
+  }
   if (reconstructionLog != null && fs.exists(reconstructionLog)) {
     long maxSeqIdInLog=-1;
     TreeMap<HStoreKey,BytesWritable> reconstructedCache=new TreeMap<HStoreKey,BytesWritable>();
@@ -44,6 +48,13 @@
         if (key.getLogSeqNum() <= maxSeqID) {
           continue;
         }
+        Text column=val.getColumn();
+        if (!key.getRegionName().equals(this.regionName) || column.equals(HLog.METACOLUMN) || HStoreKey.extractFamily(column).equals(this.colFamily)) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Passing on edit " + key.getRegionName() + ", "+ key.getRegionName()+ ", "+ column.toString()+ ": "+ new String(val.getVal().get()));
+          }
+          continue;
+        }
         reconstructedCache.put(new HStoreKey(key.getRow(),val.getColumn(),val.getTimestamp()),val.getVal());
       }
     }
@@ -51,14 +62,18 @@
       login.close();
     }
     if (reconstructedCache.size() > 0) {
-      LOG.debug("flushing reconstructionCache");
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("flushing reconstructionCache");
+      }
       flushCacheHelper(reconstructedCache,maxSeqIdInLog + 1,true);
     }
   }
   if (mapFiles.size() >= 1) {
     compactHelper(true);
   }
-  LOG.debug("starting map readers");
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("starting map readers");
+  }
   for (Iterator<Long> it=mapFiles.keySet().iterator(); it.hasNext(); ) {
     Long key=it.next().longValue();
     HStoreFile hsf=mapFiles.get(key);

@@ -1,0 +1,68 @@
+{
+  Thread.currentThread().setName("HMaster");
+  try {
+    this.rootScannerThread.start();
+    this.metaScannerThread.start();
+    this.server.start();
+  }
+ catch (  IOException e) {
+    this.closed=true;
+    e.printStackTrace();
+  }
+  for (PendingOperation op=null; !closed; ) {
+synchronized (msgQueue) {
+      while (msgQueue.size() == 0 && serversToServerInfo.size() != 0) {
+        try {
+          msgQueue.wait(threadWakeFrequency);
+        }
+ catch (        InterruptedException iex) {
+        }
+      }
+      if (msgQueue.size() == 0 || closed) {
+        continue;
+      }
+      op=msgQueue.remove(msgQueue.size() - 1);
+    }
+    try {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Processing " + op.toString());
+      }
+      op.process();
+    }
+ catch (    Exception ex) {
+      msgQueue.insertElementAt(op,0);
+    }
+  }
+  rootScannerThread.interrupt();
+  metaScannerThread.interrupt();
+  server.stop();
+  serverLeases.close();
+  try {
+    fs.close();
+    client.close();
+  }
+ catch (  IOException iex) {
+    iex.printStackTrace();
+  }
+  try {
+    rootScannerThread.join();
+  }
+ catch (  Exception iex) {
+    iex.printStackTrace();
+  }
+  try {
+    metaScannerThread.join();
+  }
+ catch (  Exception iex) {
+    iex.printStackTrace();
+  }
+  try {
+    server.join();
+  }
+ catch (  InterruptedException iex) {
+    iex.printStackTrace();
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("HMaster main thread exiting");
+  }
+}

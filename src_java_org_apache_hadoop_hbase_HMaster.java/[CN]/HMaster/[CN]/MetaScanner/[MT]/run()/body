@@ -1,45 +1,71 @@
 {
-  while ((!closed)) {
+  while (!closed) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Running META scanner");
+    }
     MetaRegion region=null;
-    while (region == null) {
+    while (region == null && !closed) {
 synchronized (metaRegionsToScan) {
         if (metaRegionsToScan.size() != 0) {
           region=metaRegionsToScan.remove(0);
         }
         if (region == null) {
           try {
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("MetaScanner going into wait");
+            }
             metaRegionsToScan.wait();
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("MetaScanner woke up");
+            }
           }
  catch (          InterruptedException e) {
           }
         }
       }
     }
-    scanRegion(region);
     if (closed) {
-      break;
+      continue;
     }
-    knownMetaRegions.put(region.startKey,region);
-    if (rootScanned && knownMetaRegions.size() == numMetaRegions) {
-      LOG.debug("all meta regions scanned");
-      allMetaRegionsScanned=true;
-      metaRegionsScanned();
-    }
-    do {
-      try {
-        Thread.sleep(metaRescanInterval);
+    try {
+      scanRegion(region);
+      knownMetaRegions.put(region.startKey,region);
+      if (rootScanned && knownMetaRegions.size() == numMetaRegions) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("all meta regions scanned");
+        }
+        allMetaRegionsScanned=true;
+        metaRegionsScanned();
       }
- catch (      InterruptedException ex) {
+      do {
+        try {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Sleep for meta rescan interval");
+          }
+          Thread.sleep(metaRescanInterval);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Sleep for meta rescan interval");
+          }
+        }
+ catch (        InterruptedException ex) {
+        }
+        if (!allMetaRegionsScanned || closed) {
+          break;
+        }
+        Vector<MetaRegion> v=new Vector<MetaRegion>();
+        v.addAll(knownMetaRegions.values());
+        for (Iterator<MetaRegion> i=v.iterator(); i.hasNext(); ) {
+          scanRegion(i.next());
+        }
       }
-      if (!allMetaRegionsScanned) {
-        break;
-      }
-      Vector<MetaRegion> v=new Vector<MetaRegion>();
-      v.addAll(knownMetaRegions.values());
-      for (Iterator<MetaRegion> i=v.iterator(); i.hasNext(); ) {
-        scanRegion(i.next());
-      }
-    }
  while (true);
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+      closed=true;
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("META scanner exiting");
   }
 }

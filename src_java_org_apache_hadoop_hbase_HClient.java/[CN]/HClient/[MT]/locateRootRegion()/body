@@ -1,17 +1,19 @@
 {
-  if (master == null) {
-    HServerAddress masterLocation=new HServerAddress(this.conf.get(MASTER_ADDRESS));
-    master=(HMasterInterface)RPC.getProxy(HMasterInterface.class,HMasterInterface.versionID,masterLocation.getInetSocketAddress(),conf);
-  }
-  int tries=0;
+  checkMaster();
   HServerAddress rootRegionLocation=null;
-  do {
+  for (int tries=0; rootRegionLocation == null && tries < numRetries; tries++) {
     int localTimeouts=0;
     while (rootRegionLocation == null && localTimeouts < numTimeouts) {
       rootRegionLocation=master.findRootRegion();
       if (rootRegionLocation == null) {
         try {
-          Thread.sleep(clientTimeout);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Sleeping. Waiting for root region.");
+          }
+          Thread.sleep(this.clientTimeout);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Wake. Retry finding root region.");
+          }
         }
  catch (        InterruptedException iex) {
         }
@@ -23,16 +25,15 @@
     }
     HRegionInterface rootRegion=getHRegionConnection(rootRegionLocation);
     if (rootRegion.getRegionInfo(HGlobals.rootRegionInfo.regionName) != null) {
-      tableServers=new TreeMap<Text,TableInfo>();
-      tableServers.put(startRow,new TableInfo(HGlobals.rootRegionInfo,rootRegionLocation));
-      tablesToServers.put(ROOT_TABLE_NAME,tableServers);
+      this.tableServers=new TreeMap<Text,TableInfo>();
+      this.tableServers.put(EMPTY_START_ROW,new TableInfo(HGlobals.rootRegionInfo,rootRegionLocation));
+      this.tablesToServers.put(ROOT_TABLE_NAME,this.tableServers);
       break;
     }
     rootRegionLocation=null;
   }
- while (rootRegionLocation == null && tries++ < numRetries);
   if (rootRegionLocation == null) {
-    closed=true;
+    this.closed=true;
     throw new IOException("unable to locate root region server");
   }
 }
