@@ -2,6 +2,27 @@
   if (this.master != null) {
     return;
   }
-  HServerAddress masterLocation=new HServerAddress(this.conf.get(MASTER_ADDRESS));
-  this.master=(HMasterInterface)RPC.getProxy(HMasterInterface.class,HMasterInterface.versionID,masterLocation.getInetSocketAddress(),this.conf);
+  for (int tries=0; this.master == null && tries < numRetries; tries++) {
+    HServerAddress masterLocation=new HServerAddress(this.conf.get(MASTER_ADDRESS));
+    try {
+      HMasterInterface tryMaster=(HMasterInterface)RPC.getProxy(HMasterInterface.class,HMasterInterface.versionID,masterLocation.getInetSocketAddress(),this.conf);
+      if (tryMaster.isMasterRunning()) {
+        this.master=tryMaster;
+        break;
+      }
+    }
+ catch (    IOException e) {
+      if (tries == numRetries - 1) {
+        break;
+      }
+    }
+    try {
+      Thread.sleep(this.clientTimeout);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  if (this.master == null) {
+    throw new IllegalStateException("Master is not running");
+  }
 }
