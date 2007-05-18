@@ -2,11 +2,11 @@
   this.conf=conf;
   try {
     try {
-      if (System.getProperty("test.build.data") == null) {
+      if (System.getProperty(StaticTestEnvironment.TEST_DIRECTORY_KEY) == null) {
         File testDir=new File(new File("").getAbsolutePath(),"build/contrib/hbase/test");
         String dir=testDir.getAbsolutePath();
         LOG.info("Setting test.build.data to " + dir);
-        System.setProperty("test.build.data",dir);
+        System.setProperty(StaticTestEnvironment.TEST_DIRECTORY_KEY,dir);
       }
       if (miniHdfsFilesystem) {
         this.cluster=new MiniDFSCluster(this.conf,2,true,(String[])null);
@@ -22,44 +22,20 @@
     if (this.conf.get(MASTER_ADDRESS) == null) {
       this.conf.set(MASTER_ADDRESS,"localhost:0");
     }
-    this.masterRunner=new HMasterRunner();
-    this.masterRunnerThread=new Thread(masterRunner,"masterRunner");
+    this.master=new HMaster(conf);
+    this.masterThread=new Thread(this.master,"HMaster");
     LOG.info("Starting HMaster");
-    masterRunnerThread.start();
-    while (!masterRunner.isCrashed() && !masterRunner.isInitialized()) {
-      try {
-        LOG.info("...waiting for HMaster to initialize...");
-        Thread.sleep(1000);
-      }
- catch (      InterruptedException e) {
-      }
-      if (masterRunner.isCrashed()) {
-        throw new RuntimeException("HMaster crashed");
-      }
-    }
-    LOG.info("HMaster started.");
-    String address=masterRunner.getHMasterAddress().toString();
+    masterThread.start();
+    String address=master.getMasterAddress().toString();
     this.conf.set(MASTER_ADDRESS,address);
     if (this.conf.get(REGIONSERVER_ADDRESS) == null) {
       this.conf.set(REGIONSERVER_ADDRESS,"localhost:0");
     }
     LOG.info("Starting HRegionServers");
     startRegionServers(this.conf,nRegionNodes);
-    LOG.info("HRegionServers running");
-    while (!masterRunner.isCrashed() && !masterRunner.isUp()) {
-      try {
-        LOG.info("Waiting for Mini HBase cluster to start...");
-        Thread.sleep(1000);
-      }
- catch (      InterruptedException e) {
-      }
-      if (masterRunner.isCrashed()) {
-        throw new RuntimeException("HMaster crashed");
-      }
-    }
   }
  catch (  Throwable e) {
-    deleteFile(new File(System.getProperty("test.build.data"),"dfs"));
-    throw new RuntimeException("Mini HBase cluster did not start");
+    e.printStackTrace();
+    shutdown();
   }
 }

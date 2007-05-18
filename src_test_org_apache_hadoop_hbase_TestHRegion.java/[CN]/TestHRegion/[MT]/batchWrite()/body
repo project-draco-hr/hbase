@@ -1,0 +1,56 @@
+{
+  if (!StaticTestEnvironment.debugging) {
+    return;
+  }
+  long totalFlush=0;
+  long totalCompact=0;
+  long totalLog=0;
+  long startTime=System.currentTimeMillis();
+  int valsize=1000;
+  for (int k=FIRST_ROW; k <= N_ROWS; k++) {
+    String randstr1="" + System.currentTimeMillis();
+    StringBuffer buf1=new StringBuffer("val_" + k + "__");
+    while (buf1.length() < valsize) {
+      buf1.append(randstr1);
+    }
+    long writeid=region.startUpdate(new Text("row_" + k));
+    region.put(writeid,CONTENTS_BODY,new BytesWritable(buf1.toString().getBytes()));
+    region.commit(writeid);
+    if (k > 0 && k % (N_ROWS / 100) == 0) {
+      System.out.println("Flushing write #" + k);
+      long flushStart=System.currentTimeMillis();
+      region.flushcache(false);
+      long flushEnd=System.currentTimeMillis();
+      totalFlush+=(flushEnd - flushStart);
+      if (k % (N_ROWS / 10) == 0) {
+        System.out.print("Rolling log...");
+        long logStart=System.currentTimeMillis();
+        log.rollWriter();
+        long logEnd=System.currentTimeMillis();
+        totalLog+=(logEnd - logStart);
+        System.out.println("  elapsed time: " + ((logEnd - logStart) / 1000.0));
+      }
+    }
+  }
+  long startCompact=System.currentTimeMillis();
+  if (region.compactStores()) {
+    totalCompact=System.currentTimeMillis() - startCompact;
+    System.out.println("Region compacted - elapsedTime: " + (totalCompact / 1000.0));
+  }
+ else {
+    System.out.println("No compaction required.");
+  }
+  long endTime=System.currentTimeMillis();
+  long totalElapsed=(endTime - startTime);
+  System.out.println();
+  System.out.println("Batch-write complete.");
+  System.out.println("Wrote " + N_ROWS + " rows, each of ~"+ valsize+ " bytes");
+  System.out.println("Total flush-time: " + (totalFlush / 1000.0));
+  System.out.println("Total compact-time: " + (totalCompact / 1000.0));
+  System.out.println("Total log-time: " + (totalLog / 1000.0));
+  System.out.println("Total time elapsed: " + (totalElapsed / 1000.0));
+  System.out.println("Total time, rows/second: " + (N_ROWS / (totalElapsed / 1000.0)));
+  System.out.println("Adjusted time (not including flush, compact, or log): " + ((totalElapsed - totalFlush - totalCompact- totalLog) / 1000.0));
+  System.out.println("Adjusted time, rows/second: " + (N_ROWS / ((totalElapsed - totalFlush - totalCompact- totalLog) / 1000.0)));
+  System.out.println();
+}

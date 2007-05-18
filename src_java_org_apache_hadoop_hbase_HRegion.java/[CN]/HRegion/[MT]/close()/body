@@ -1,39 +1,45 @@
 {
-  boolean shouldClose=false;
+  lock.obtainWriteLock();
+  try {
+    boolean shouldClose=false;
 synchronized (writestate) {
-    if (writestate.closed) {
-      LOG.info("region " + this.regionInfo.regionName + " closed");
-      return new Vector<HStoreFile>();
-    }
-    while (writestate.writesOngoing) {
-      try {
-        writestate.wait();
+      if (writestate.closed) {
+        LOG.info("region " + this.regionInfo.regionName + " closed");
+        return new Vector<HStoreFile>();
       }
- catch (      InterruptedException iex) {
+      while (writestate.writesOngoing) {
+        try {
+          writestate.wait();
+        }
+ catch (        InterruptedException iex) {
+        }
       }
+      writestate.writesOngoing=true;
+      shouldClose=true;
     }
-    writestate.writesOngoing=true;
-    shouldClose=true;
-  }
-  if (!shouldClose) {
-    return null;
-  }
+    if (!shouldClose) {
+      return null;
+    }
  else {
-    LOG.info("closing region " + this.regionInfo.regionName);
-    Vector<HStoreFile> allHStoreFiles=internalFlushcache();
-    for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
-      HStore store=it.next();
-      store.close();
-    }
-    try {
-      return allHStoreFiles;
-    }
+      LOG.info("closing region " + this.regionInfo.regionName);
+      Vector<HStoreFile> allHStoreFiles=internalFlushcache();
+      for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
+        HStore store=it.next();
+        store.close();
+      }
+      try {
+        return allHStoreFiles;
+      }
   finally {
 synchronized (writestate) {
-        writestate.closed=true;
-        writestate.writesOngoing=false;
+          writestate.closed=true;
+          writestate.writesOngoing=false;
+        }
+        LOG.info("region " + this.regionInfo.regionName + " closed");
       }
-      LOG.info("region " + this.regionInfo.regionName + " closed");
     }
+  }
+  finally {
+    lock.releaseWriteLock();
   }
 }

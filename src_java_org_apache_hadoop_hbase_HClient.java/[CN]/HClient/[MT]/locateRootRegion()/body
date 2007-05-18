@@ -24,11 +24,28 @@
       throw new IOException("Timed out trying to locate root region");
     }
     HRegionInterface rootRegion=getHRegionConnection(rootRegionLocation);
-    if (rootRegion.getRegionInfo(HGlobals.rootRegionInfo.regionName) != null) {
+    try {
+      rootRegion.getRegionInfo(HGlobals.rootRegionInfo.regionName);
       this.tableServers=new TreeMap<Text,TableInfo>();
       this.tableServers.put(EMPTY_START_ROW,new TableInfo(HGlobals.rootRegionInfo,rootRegionLocation));
       this.tablesToServers.put(ROOT_TABLE_NAME,this.tableServers);
       break;
+    }
+ catch (    NotServingRegionException e) {
+      if (tries == numRetries - 1) {
+        break;
+      }
+      try {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Root region location changed. Sleeping.");
+        }
+        Thread.sleep(this.clientTimeout);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Wake. Retry finding root region.");
+        }
+      }
+ catch (      InterruptedException iex) {
+      }
     }
     rootRegionLocation=null;
   }

@@ -1,9 +1,27 @@
 {
-  TableInfo info=getTableInfo(row);
-  BytesWritable[] values=getHRegionConnection(info.serverAddress).get(info.regionInfo.regionName,row,column,timestamp,numVersions);
-  ArrayList<byte[]> bytes=new ArrayList<byte[]>();
-  for (int i=0; i < values.length; i++) {
-    bytes.add(values[i].get());
+  TableInfo info=null;
+  BytesWritable[] values=null;
+  for (int tries=0; tries < numRetries && info == null; tries++) {
+    info=getTableInfo(row);
+    try {
+      values=getHRegionConnection(info.serverAddress).get(info.regionInfo.regionName,row,column,timestamp,numVersions);
+    }
+ catch (    NotServingRegionException e) {
+      if (tries == numRetries - 1) {
+        throw e;
+      }
+      findRegion(info);
+      info=null;
+    }
   }
-  return bytes.toArray(new byte[values.length][]);
+  if (values != null) {
+    ArrayList<byte[]> bytes=new ArrayList<byte[]>();
+    for (int i=0; i < values.length; i++) {
+      byte[] value=new byte[values[i].getSize()];
+      System.arraycopy(values[i].get(),0,value,0,value.length);
+      bytes.add(value);
+    }
+    return bytes.toArray(new byte[values.length][]);
+  }
+  return null;
 }

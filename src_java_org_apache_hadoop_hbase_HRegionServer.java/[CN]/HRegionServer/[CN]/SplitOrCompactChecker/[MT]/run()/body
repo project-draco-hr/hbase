@@ -10,56 +10,51 @@ synchronized (splitOrCompactLock) {
   finally {
         lock.releaseReadLock();
       }
-      Vector<SplitRegion> toSplit=new Vector<SplitRegion>();
-      Vector<HRegion> toCompact=new Vector<HRegion>();
-      for (Iterator<HRegion> it=regionsToCheck.iterator(); it.hasNext(); ) {
-        HRegion cur=it.next();
-        Text midKey=new Text();
-        if (cur.needsCompaction()) {
-          toCompact.add(cur);
-        }
- else         if (cur.needsSplit(midKey)) {
-          toSplit.add(new SplitRegion(cur,midKey));
-        }
-      }
       try {
-        for (Iterator<HRegion> it=toCompact.iterator(); it.hasNext(); ) {
-          it.next().compactStores();
-        }
-        for (Iterator<SplitRegion> it=toSplit.iterator(); it.hasNext(); ) {
-          SplitRegion r=it.next();
-          lock.obtainWriteLock();
-          regions.remove(r.region.getRegionName());
-          lock.releaseWriteLock();
-          HRegion[] newRegions=null;
-          Text oldRegion=r.region.getRegionName();
-          LOG.info("splitting region: " + oldRegion);
-          newRegions=r.region.closeAndSplit(r.midKey);
-          Text tableToUpdate=(oldRegion.find(META_TABLE_NAME.toString()) == 0) ? ROOT_TABLE_NAME : META_TABLE_NAME;
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("region split complete. updating meta");
+        for (Iterator<HRegion> it=regionsToCheck.iterator(); it.hasNext(); ) {
+          HRegion cur=it.next();
+          if (cur.isClosed()) {
+            continue;
           }
-          client.openTable(tableToUpdate);
-          long lockid=client.startUpdate(oldRegion);
-          client.delete(lockid,COL_REGIONINFO);
-          client.delete(lockid,COL_SERVER);
-          client.delete(lockid,COL_STARTCODE);
-          client.commit(lockid);
-          for (int i=0; i < newRegions.length; i++) {
-            ByteArrayOutputStream bytes=new ByteArrayOutputStream();
-            DataOutputStream out=new DataOutputStream(bytes);
-            newRegions[i].getRegionInfo().write(out);
-            lockid=client.startUpdate(newRegions[i].getRegionName());
-            client.put(lockid,COL_REGIONINFO,bytes.toByteArray());
-            client.commit(lockid);
+          if (cur.needsCompaction()) {
+            if (cur.compactStores()) {
+              Text midKey=new Text();
+              if (cur.needsSplit(midKey)) {
+                Text oldRegion=cur.getRegionName();
+                LOG.info("splitting region: " + oldRegion);
+                HRegion[] newRegions=cur.closeAndSplit(midKey,this);
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("region split complete. updating meta");
+                }
+                Text tableToUpdate=(oldRegion.find(META_TABLE_NAME.toString()) == 0) ? ROOT_TABLE_NAME : META_TABLE_NAME;
+                client.openTable(tableToUpdate);
+                long lockid=client.startUpdate(oldRegion);
+                client.delete(lockid,COL_REGIONINFO);
+                client.delete(lockid,COL_SERVER);
+                client.delete(lockid,COL_STARTCODE);
+                client.commit(lockid);
+                for (int i=0; i < newRegions.length; i++) {
+                  ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+                  DataOutputStream out=new DataOutputStream(bytes);
+                  newRegions[i].getRegionInfo().write(out);
+                  lockid=client.startUpdate(newRegions[i].getRegionName());
+                  client.put(lockid,COL_REGIONINFO,bytes.toByteArray());
+                  client.put(lockid,COL_SERVER,info.getServerAddress().toString().getBytes(UTF8_ENCODING));
+                  client.put(lockid,COL_STARTCODE,String.valueOf(info.getStartCode()).getBytes(UTF8_ENCODING));
+                  client.commit(lockid);
+                }
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("reporting region split to master");
+                }
+                reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
+                LOG.info("region split successful. old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
+                lock.obtainWriteLock();
+                regions.put(newRegions[0].getRegionName(),newRegions[0]);
+                regions.put(newRegions[1].getRegionName(),newRegions[1]);
+                lock.releaseWriteLock();
+              }
+            }
           }
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("reporting region split to master");
-          }
-          reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
-          LOG.info("region split successful. old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
-          newRegions[0].close();
-          newRegions[1].close();
         }
       }
  catch (      IOException e) {

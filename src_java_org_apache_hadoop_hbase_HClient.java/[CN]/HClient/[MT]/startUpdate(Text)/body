@@ -1,16 +1,26 @@
 {
-  TableInfo info=getTableInfo(row);
-  long lockid;
-  try {
-    this.currentServer=getHRegionConnection(info.serverAddress);
-    this.currentRegion=info.regionInfo.regionName;
-    this.clientid=rand.nextLong();
-    lockid=currentServer.startUpdate(this.currentRegion,this.clientid,row);
-  }
- catch (  IOException e) {
-    this.currentServer=null;
-    this.currentRegion=null;
-    throw e;
+  TableInfo info=null;
+  long lockid=-1L;
+  for (int tries=0; tries < numRetries && info == null; tries++) {
+    info=getTableInfo(row);
+    try {
+      this.currentServer=getHRegionConnection(info.serverAddress);
+      this.currentRegion=info.regionInfo.regionName;
+      this.clientid=rand.nextLong();
+      lockid=currentServer.startUpdate(this.currentRegion,this.clientid,row);
+    }
+ catch (    NotServingRegionException e) {
+      if (tries == numRetries - 1) {
+        throw e;
+      }
+      findRegion(info);
+      info=null;
+    }
+catch (    IOException e) {
+      this.currentServer=null;
+      this.currentRegion=null;
+      throw e;
+    }
   }
   return lockid;
 }

@@ -1,0 +1,117 @@
+{
+  Text[] cols=new Text[]{new Text(ANCHORNUM + "[0-9]+"),new Text(CONTENTS_BASIC)};
+  long startTime=System.currentTimeMillis();
+  HInternalScannerInterface s=region.getScanner(cols,new Text());
+  try {
+    int contentsFetched=0;
+    int anchorFetched=0;
+    HStoreKey curKey=new HStoreKey();
+    TreeMap<Text,BytesWritable> curVals=new TreeMap<Text,BytesWritable>();
+    int k=0;
+    while (s.next(curKey,curVals)) {
+      for (Iterator<Text> it=curVals.keySet().iterator(); it.hasNext(); ) {
+        Text col=it.next();
+        BytesWritable val=curVals.get(col);
+        byte[] bytes=new byte[val.getSize()];
+        System.arraycopy(val.get(),0,bytes,0,bytes.length);
+        String curval=new String(bytes).trim();
+        if (col.compareTo(CONTENTS_BASIC) == 0) {
+          assertTrue("Error at:" + curKey.getRow() + "/"+ curKey.getTimestamp()+ ", Value for "+ col+ " should start with: "+ CONTENTSTR+ ", but was fetched as: "+ curval,curval.startsWith(CONTENTSTR));
+          contentsFetched++;
+        }
+ else         if (col.toString().startsWith(ANCHORNUM)) {
+          assertTrue("Error at:" + curKey.getRow() + "/"+ curKey.getTimestamp()+ ", Value for "+ col+ " should start with: "+ ANCHORSTR+ ", but was fetched as: "+ curval,curval.startsWith(ANCHORSTR));
+          anchorFetched++;
+        }
+ else {
+          System.out.println(col);
+        }
+      }
+      curVals.clear();
+      k++;
+    }
+    assertEquals("Expected " + NUM_VALS + " "+ CONTENTS_BASIC+ " values, but fetched "+ contentsFetched,NUM_VALS,contentsFetched);
+    assertEquals("Expected " + NUM_VALS + " "+ ANCHORNUM+ " values, but fetched "+ anchorFetched,NUM_VALS,anchorFetched);
+    System.out.println("Scanned " + NUM_VALS + " rows from disk. Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
+  }
+  finally {
+    s.close();
+  }
+  cols=new Text[]{CONTENTS_FIRSTCOL,ANCHOR_SECONDCOL};
+  startTime=System.currentTimeMillis();
+  s=region.getScanner(cols,new Text());
+  try {
+    int numFetched=0;
+    HStoreKey curKey=new HStoreKey();
+    TreeMap<Text,BytesWritable> curVals=new TreeMap<Text,BytesWritable>();
+    int k=0;
+    while (s.next(curKey,curVals)) {
+      for (Iterator<Text> it=curVals.keySet().iterator(); it.hasNext(); ) {
+        Text col=it.next();
+        BytesWritable val=curVals.get(col);
+        byte[] bytes=new byte[val.getSize()];
+        System.arraycopy(val.get(),0,bytes,0,bytes.length);
+        int curval=Integer.parseInt(new String(bytes).trim());
+        for (int j=0; j < cols.length; j++) {
+          if (col.compareTo(cols[j]) == 0) {
+            assertEquals("Value for " + col + " should be: "+ k+ ", but was fetched as: "+ curval,curval,k);
+            numFetched++;
+          }
+        }
+      }
+      curVals.clear();
+      k++;
+    }
+    assertEquals("Inserted " + numInserted + " values, but fetched "+ numFetched,numInserted,numFetched);
+    System.out.println("Scanned " + (numFetched / 2) + " rows from disk. Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
+  }
+  finally {
+    s.close();
+  }
+  if (StaticTestEnvironment.debugging) {
+    startTime=System.currentTimeMillis();
+    s=region.getScanner(new Text[]{CONTENTS_BODY},new Text());
+    try {
+      int numFetched=0;
+      HStoreKey curKey=new HStoreKey();
+      TreeMap<Text,BytesWritable> curVals=new TreeMap<Text,BytesWritable>();
+      int k=0;
+      while (s.next(curKey,curVals)) {
+        for (Iterator<Text> it=curVals.keySet().iterator(); it.hasNext(); ) {
+          Text col=it.next();
+          BytesWritable val=curVals.get(col);
+          assertTrue(col.compareTo(CONTENTS_BODY) == 0);
+          assertNotNull(val);
+          numFetched++;
+        }
+        curVals.clear();
+        k++;
+      }
+      assertEquals("Inserted " + N_ROWS + " values, but fetched "+ numFetched,N_ROWS,numFetched);
+      System.out.println("Scanned " + N_ROWS + " rows from disk. Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
+    }
+  finally {
+      s.close();
+    }
+  }
+  cols=new Text[]{new Text("anchor:")};
+  startTime=System.currentTimeMillis();
+  s=region.getScanner(cols,new Text());
+  try {
+    int fetched=0;
+    HStoreKey curKey=new HStoreKey();
+    TreeMap<Text,BytesWritable> curVals=new TreeMap<Text,BytesWritable>();
+    while (s.next(curKey,curVals)) {
+      for (Iterator<Text> it=curVals.keySet().iterator(); it.hasNext(); ) {
+        it.next();
+        fetched++;
+      }
+      curVals.clear();
+    }
+    assertEquals("Inserted " + (NUM_VALS + numInserted / 2) + " values, but fetched "+ fetched,(NUM_VALS + numInserted / 2),fetched);
+    System.out.println("Scanned " + fetched + " rows from disk. Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
+  }
+  finally {
+    s.close();
+  }
+}

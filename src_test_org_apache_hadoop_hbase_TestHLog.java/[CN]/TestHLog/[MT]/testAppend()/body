@@ -1,0 +1,56 @@
+{
+  Path dir=getUnitTestdir(getName());
+  FileSystem fs=FileSystem.get(this.conf);
+  if (fs.exists(dir)) {
+    fs.delete(dir);
+  }
+  final int COL_COUNT=10;
+  final Text regionName=new Text("regionname");
+  final Text tableName=new Text("tablename");
+  final Text row=new Text("row");
+  Reader reader=null;
+  HLog log=new HLog(fs,dir,this.conf);
+  try {
+    TreeMap<Text,BytesWritable> cols=new TreeMap<Text,BytesWritable>();
+    for (int i=0; i < COL_COUNT; i++) {
+      cols.put(new Text(Integer.toString(i)),new BytesWritable(new byte[]{(byte)(i + '0')}));
+    }
+    long timestamp=System.currentTimeMillis();
+    log.append(regionName,tableName,row,cols,timestamp);
+    long logSeqId=log.startCacheFlush();
+    log.completeCacheFlush(regionName,tableName,logSeqId);
+    log.close();
+    Path filename=log.computeFilename(log.filenum - 1);
+    log=null;
+    reader=new SequenceFile.Reader(fs,filename,conf);
+    HLogKey key=new HLogKey();
+    HLogEdit val=new HLogEdit();
+    for (int i=0; i < COL_COUNT; i++) {
+      reader.next(key,val);
+      assertEquals(key.getRegionName(),regionName);
+      assertEquals(key.getTablename(),tableName);
+      assertEquals(key.getRow(),row);
+      assertEquals(val.getVal().get()[0],(byte)(i + '0'));
+      System.out.println(key + " " + val);
+    }
+    while (reader.next(key,val)) {
+      assertEquals(key.getRegionName(),regionName);
+      assertEquals(key.getTablename(),tableName);
+      assertEquals(key.getRow(),HLog.METAROW);
+      assertEquals(val.getColumn(),HLog.METACOLUMN);
+      assertEquals(0,val.getVal().compareTo(COMPLETE_CACHEFLUSH));
+      System.out.println(key + " " + val);
+    }
+  }
+  finally {
+    if (log != null) {
+      log.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+    if (fs.exists(dir)) {
+      fs.delete(dir);
+    }
+  }
+}

@@ -10,7 +10,20 @@
   }
   try {
     this.server=getHRegionConnection(this.regions[currentRegion].serverAddress);
-    this.scannerId=this.server.openScanner(this.regions[currentRegion].regionInfo.regionName,this.columns,this.startRow);
+    for (int tries=0; tries < numRetries; tries++) {
+      TableInfo info=this.regions[currentRegion];
+      try {
+        this.scannerId=this.server.openScanner(info.regionInfo.regionName,this.columns,currentRegion == 0 ? this.startRow : EMPTY_START_ROW);
+        break;
+      }
+ catch (      NotServingRegionException e) {
+        if (tries == numRetries - 1) {
+          throw e;
+        }
+        findRegion(info);
+        loadRegions();
+      }
+    }
   }
  catch (  IOException e) {
     close();
