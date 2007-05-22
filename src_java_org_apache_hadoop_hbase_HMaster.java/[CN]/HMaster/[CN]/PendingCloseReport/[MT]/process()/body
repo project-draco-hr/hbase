@@ -1,30 +1,41 @@
 {
-  metaScanner.waitForMetaScan();
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("region closed: " + regionInfo.regionName);
-  }
-  Text metaRegionName;
-  HRegionInterface server;
-  if (rootRegion) {
-    metaRegionName=HGlobals.rootRegionInfo.regionName;
-    waitForRootRegion();
-    server=client.getHRegionConnection(rootRegionLocation);
-  }
- else {
-    MetaRegion r=null;
-    if (knownMetaRegions.containsKey(regionInfo.regionName)) {
-      r=knownMetaRegions.get(regionInfo.regionName);
+  for (int tries=0; tries < numRetries; tries++) {
+    metaScanner.waitForMetaScan();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("region closed: " + regionInfo.regionName);
+    }
+    Text metaRegionName;
+    HRegionInterface server;
+    if (rootRegion) {
+      metaRegionName=HGlobals.rootRegionInfo.regionName;
+      waitForRootRegion();
+      server=client.getHRegionConnection(rootRegionLocation);
     }
  else {
-      r=knownMetaRegions.get(knownMetaRegions.headMap(regionInfo.regionName).lastKey());
+      MetaRegion r=null;
+      if (knownMetaRegions.containsKey(regionInfo.regionName)) {
+        r=knownMetaRegions.get(regionInfo.regionName);
+      }
+ else {
+        r=knownMetaRegions.get(knownMetaRegions.headMap(regionInfo.regionName).lastKey());
+      }
+      metaRegionName=r.regionName;
+      server=client.getHRegionConnection(r.server);
     }
-    metaRegionName=r.regionName;
-    server=client.getHRegionConnection(r.server);
+    try {
+      long lockid=server.startUpdate(metaRegionName,clientId,regionInfo.regionName);
+      server.delete(metaRegionName,clientId,lockid,COL_SERVER);
+      server.delete(metaRegionName,clientId,lockid,COL_STARTCODE);
+      server.commit(metaRegionName,clientId,lockid);
+      break;
+    }
+ catch (    NotServingRegionException e) {
+      if (tries == numRetries - 1) {
+        throw e;
+      }
+      continue;
+    }
   }
-  long lockid=server.startUpdate(metaRegionName,clientId,regionInfo.regionName);
-  server.delete(metaRegionName,clientId,lockid,COL_SERVER);
-  server.delete(metaRegionName,clientId,lockid,COL_STARTCODE);
-  server.commit(metaRegionName,clientId,lockid);
   if (reassignRegion) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("reassign region: " + regionInfo.regionName);

@@ -3,11 +3,20 @@
   TreeMap<Text,HRegionInfo> regions=new TreeMap<Text,HRegionInfo>();
   DataInputBuffer inbuf=new DataInputBuffer();
   try {
-    LabelledData[] values=null;
     while (true) {
+      LabelledData[] values=null;
       HStoreKey key=new HStoreKey();
-      values=server.next(scannerId,key);
-      if (values.length == 0) {
+      try {
+        values=server.next(scannerId,key);
+      }
+ catch (      NotServingRegionException e) {
+        throw e;
+      }
+catch (      IOException e) {
+        LOG.error(e);
+        break;
+      }
+      if (values == null || values.length == 0) {
         break;
       }
       TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
@@ -19,7 +28,13 @@
       if (bytes == null || bytes.length == 0) {
         continue;
       }
-      serverName=new String(bytes,UTF8_ENCODING);
+      try {
+        serverName=new String(bytes,UTF8_ENCODING);
+      }
+ catch (      UnsupportedEncodingException e) {
+        LOG.error(e);
+        break;
+      }
       if (deadServer.compareTo(serverName) != 0) {
         continue;
       }
@@ -27,7 +42,14 @@
       if (bytes == null || bytes.length == 0) {
         continue;
       }
-      long startCode=Long.valueOf(new String(bytes,UTF8_ENCODING));
+      long startCode=-1L;
+      try {
+        startCode=Long.valueOf(new String(bytes,UTF8_ENCODING));
+      }
+ catch (      UnsupportedEncodingException e) {
+        LOG.error(e);
+        break;
+      }
       if (oldStartCode != startCode) {
         continue;
       }
@@ -37,7 +59,13 @@
       }
       inbuf.reset(bytes,bytes.length);
       HRegionInfo info=new HRegionInfo();
-      info.readFields(inbuf);
+      try {
+        info.readFields(inbuf);
+      }
+ catch (      IOException e) {
+        LOG.error(e);
+        break;
+      }
       if (LOG.isDebugEnabled()) {
         LOG.debug(serverName + " was serving " + info.regionName);
       }
@@ -51,7 +79,7 @@
         server.close(scannerId);
       }
  catch (      IOException e) {
-        e.printStackTrace();
+        LOG.error(e);
       }
     }
     scannerId=-1L;

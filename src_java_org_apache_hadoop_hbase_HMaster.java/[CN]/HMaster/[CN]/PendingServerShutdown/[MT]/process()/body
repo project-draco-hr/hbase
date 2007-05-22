@@ -2,15 +2,40 @@
   if (LOG.isDebugEnabled()) {
     LOG.debug("server shutdown: " + deadServer);
   }
-  waitForRootRegion();
-  HRegionInterface server=client.getHRegionConnection(rootRegionLocation);
-  long scannerId=server.openScanner(HGlobals.rootRegionInfo.regionName,columns,startRow);
-  scanMetaRegion(server,scannerId,HGlobals.rootRegionInfo.regionName);
-  metaScanner.waitForMetaScan();
-  for (Iterator<MetaRegion> i=knownMetaRegions.values().iterator(); i.hasNext(); ) {
-    MetaRegion r=i.next();
-    server=client.getHRegionConnection(r.server);
-    scannerId=server.openScanner(r.regionName,columns,startRow);
-    scanMetaRegion(server,scannerId,r.regionName);
+  HRegionInterface server=null;
+  long scannerId=-1L;
+  for (int tries=0; tries < numRetries; tries++) {
+    waitForRootRegion();
+    server=client.getHRegionConnection(rootRegionLocation);
+    scannerId=-1L;
+    try {
+      scannerId=server.openScanner(HGlobals.rootRegionInfo.regionName,columns,startRow);
+      scanMetaRegion(server,scannerId,HGlobals.rootRegionInfo.regionName);
+      break;
+    }
+ catch (    NotServingRegionException e) {
+      if (tries == numRetries - 1) {
+        throw e;
+      }
+    }
+  }
+  for (int tries=0; tries < numRetries; tries++) {
+    try {
+      metaScanner.waitForMetaScan();
+      for (Iterator<MetaRegion> i=knownMetaRegions.values().iterator(); i.hasNext(); ) {
+        server=null;
+        scannerId=-1L;
+        MetaRegion r=i.next();
+        server=client.getHRegionConnection(r.server);
+        scannerId=server.openScanner(r.regionName,columns,startRow);
+        scanMetaRegion(server,scannerId,r.regionName);
+      }
+      break;
+    }
+ catch (    NotServingRegionException e) {
+      if (tries == numRetries - 1) {
+        throw e;
+      }
+    }
   }
 }

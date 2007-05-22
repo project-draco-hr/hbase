@@ -1,31 +1,41 @@
 {
-  metaScanner.waitForMetaScan();
-  if (LOG.isDebugEnabled()) {
-    LOG.debug(regionName + " open on " + new String(serverAddress.get(),UTF8_ENCODING));
-  }
-  Text metaRegionName;
-  HRegionInterface server;
-  if (rootRegion) {
-    metaRegionName=HGlobals.rootRegionInfo.regionName;
-    waitForRootRegion();
-    server=client.getHRegionConnection(rootRegionLocation);
-  }
- else {
-    MetaRegion r=null;
-    if (knownMetaRegions.containsKey(regionName)) {
-      r=knownMetaRegions.get(regionName);
+  for (int tries=0; tries < numRetries; tries++) {
+    metaScanner.waitForMetaScan();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(regionName + " open on " + new String(serverAddress.get(),UTF8_ENCODING));
+    }
+    Text metaRegionName;
+    HRegionInterface server;
+    if (rootRegion) {
+      metaRegionName=HGlobals.rootRegionInfo.regionName;
+      waitForRootRegion();
+      server=client.getHRegionConnection(rootRegionLocation);
     }
  else {
-      r=knownMetaRegions.get(knownMetaRegions.headMap(regionName).lastKey());
+      MetaRegion r=null;
+      if (knownMetaRegions.containsKey(regionName)) {
+        r=knownMetaRegions.get(regionName);
+      }
+ else {
+        r=knownMetaRegions.get(knownMetaRegions.headMap(regionName).lastKey());
+      }
+      metaRegionName=r.regionName;
+      server=client.getHRegionConnection(r.server);
     }
-    metaRegionName=r.regionName;
-    server=client.getHRegionConnection(r.server);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("updating row " + regionName + " in table "+ metaRegionName);
+    }
+    try {
+      long lockid=server.startUpdate(metaRegionName,clientId,regionName);
+      server.put(metaRegionName,clientId,lockid,COL_SERVER,serverAddress);
+      server.put(metaRegionName,clientId,lockid,COL_STARTCODE,startCode);
+      server.commit(metaRegionName,clientId,lockid);
+      break;
+    }
+ catch (    NotServingRegionException e) {
+      if (tries == numRetries - 1) {
+        throw e;
+      }
+    }
   }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("updating row " + regionName + " in table "+ metaRegionName);
-  }
-  long lockid=server.startUpdate(metaRegionName,clientId,regionName);
-  server.put(metaRegionName,clientId,lockid,COL_SERVER,serverAddress);
-  server.put(metaRegionName,clientId,lockid,COL_STARTCODE,startCode);
-  server.commit(metaRegionName,clientId,lockid);
 }
