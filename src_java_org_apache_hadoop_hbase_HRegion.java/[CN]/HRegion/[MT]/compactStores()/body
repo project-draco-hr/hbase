@@ -1,6 +1,6 @@
 {
   boolean shouldCompact=false;
-  lock.readLock().lock();
+  lock.obtainReadLock();
   try {
 synchronized (writestate) {
       if ((!writestate.writesOngoing) && writestate.writesEnabled && (!writestate.closed)&& recentCommits > MIN_COMMITS_FOR_COMPACTION) {
@@ -10,30 +10,28 @@ synchronized (writestate) {
     }
   }
   finally {
-    lock.readLock().unlock();
+    lock.releaseReadLock();
   }
   if (!shouldCompact) {
     LOG.info("not compacting region " + this.regionInfo.regionName);
     return false;
   }
- else {
-    lock.writeLock().lock();
-    try {
-      LOG.info("starting compaction on region " + this.regionInfo.regionName);
-      for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
-        HStore store=it.next();
-        store.compact();
-      }
-      LOG.info("compaction completed on region " + this.regionInfo.regionName);
-      return true;
+  lock.obtainWriteLock();
+  try {
+    LOG.info("starting compaction on region " + this.regionInfo.regionName);
+    for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
+      HStore store=it.next();
+      store.compact();
     }
+    LOG.info("compaction completed on region " + this.regionInfo.regionName);
+    return true;
+  }
   finally {
 synchronized (writestate) {
-        writestate.writesOngoing=false;
-        recentCommits=0;
-        writestate.notifyAll();
-      }
-      lock.writeLock().unlock();
+      writestate.writesOngoing=false;
+      recentCommits=0;
+      writestate.notifyAll();
     }
+    lock.releaseWriteLock();
   }
 }
