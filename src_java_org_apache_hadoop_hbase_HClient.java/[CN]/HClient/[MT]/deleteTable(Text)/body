@@ -1,5 +1,64 @@
 {
+  checkReservedTableName(tableName);
   checkMaster();
-  locateRootRegion();
-  this.master.deleteTable(tableName);
+  TableInfo firstMetaServer=getFirstMetaServerForTable(tableName);
+  try {
+    this.master.deleteTable(tableName);
+  }
+ catch (  RemoteException e) {
+    handleRemoteException(e);
+  }
+  HRegionInterface server=getHRegionConnection(firstMetaServer.serverAddress);
+  DataInputBuffer inbuf=new DataInputBuffer();
+  HStoreKey key=new HStoreKey();
+  HRegionInfo info=new HRegionInfo();
+  for (int tries=0; tries < numRetries; tries++) {
+    long scannerId=-1L;
+    try {
+      scannerId=server.openScanner(firstMetaServer.regionInfo.regionName,REGIONINFO,tableName);
+      LabelledData[] values=server.next(scannerId,key);
+      if (values == null || values.length == 0) {
+        break;
+      }
+      boolean found=false;
+      for (int j=0; j < values.length; j++) {
+        if (values[j].getLabel().equals(COL_REGIONINFO)) {
+          byte[] bytes=new byte[values[j].getData().getSize()];
+          System.arraycopy(values[j].getData().get(),0,bytes,0,bytes.length);
+          inbuf.reset(bytes,bytes.length);
+          info.readFields(inbuf);
+          if (info.tableDesc.getName().equals(tableName)) {
+            found=true;
+          }
+        }
+      }
+      if (!found) {
+        break;
+      }
+    }
+  finally {
+      if (scannerId != -1L) {
+        try {
+          server.close(scannerId);
+        }
+ catch (        Exception e) {
+          LOG.warn(e);
+        }
+      }
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Sleep. Waiting for first region to be deleted from " + tableName);
+    }
+    try {
+      Thread.sleep(clientTimeout);
+    }
+ catch (    InterruptedException e) {
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Wake. Waiting for first region to be deleted from " + tableName);
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("table deleted " + tableName);
+  }
 }

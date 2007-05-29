@@ -50,14 +50,18 @@ assignAttempts.put(region.regionName,0L);
 }
  else {
 boolean reassignRegion=true;
-if (regionsToKill.containsKey(region.regionName)) {
-  regionsToKill.remove(region.regionName);
-  unassignedRegions.remove(region.regionName);
-  assignAttempts.remove(region.regionName);
+boolean deleteRegion=false;
+if (killedRegions.remove(region.regionName)) {
   reassignRegion=false;
 }
+if (regionsToDelete.remove(region.regionName)) {
+  reassignRegion=false;
+  deleteRegion=true;
+}
+unassignedRegions.remove(region.regionName);
+assignAttempts.remove(region.regionName);
 synchronized (msgQueue) {
-  msgQueue.add(new PendingCloseReport(region,reassignRegion));
+  msgQueue.add(new PendingCloseReport(region,reassignRegion,deleteRegion));
   msgQueue.notifyAll();
 }
 }
@@ -75,8 +79,9 @@ throw new IOException("Impossible state during msg processing.  Instruction: " +
 }
 }
 if (regionsToKill != null) {
-for (Iterator<HRegionInfo> i=regionsToKill.values().iterator(); i.hasNext(); ) {
-returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_AND_DELETE,i.next()));
+for (HRegionInfo i : regionsToKill.values()) {
+returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE,i));
+killedRegions.add(i.regionName);
 }
 }
 if (unassignedRegions.size() > 0) {

@@ -1,0 +1,76 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("processing unserved regions");
+  }
+  for (  HRegionInfo i : unservedRegions) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("updating columns in row: " + i.regionName);
+    }
+    lockid=-1L;
+    clientId=rand.nextLong();
+    try {
+      lockid=server.startUpdate(m.regionName,clientId,i.regionName);
+      updateRegionInfo(server,m.regionName,i);
+      server.delete(m.regionName,clientId,lockid,COL_SERVER);
+      server.delete(m.regionName,clientId,lockid,COL_STARTCODE);
+      server.commit(m.regionName,clientId,lockid);
+      lockid=-1L;
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("updated columns in row: " + i.regionName);
+      }
+    }
+ catch (    NotServingRegionException e) {
+      throw e;
+    }
+catch (    IOException e) {
+      LOG.error("column update failed in row: " + i.regionName);
+      LOG.error(e);
+    }
+ finally {
+      try {
+        if (lockid != -1L) {
+          server.abort(m.regionName,clientId,lockid);
+        }
+      }
+ catch (      IOException iex) {
+        LOG.error(iex);
+      }
+    }
+    if (online) {
+      if (!unassignedRegions.containsKey(i.regionName)) {
+        unassignedRegions.put(i.regionName,i);
+        assignAttempts.put(i.regionName,0L);
+      }
+    }
+ else {
+      unassignedRegions.remove(i.regionName);
+      assignAttempts.remove(i.regionName);
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("processing regions currently being served");
+  }
+  for (  Map.Entry<String,TreeSet<HRegionInfo>> e : servedRegions.entrySet()) {
+    String serverName=e.getKey();
+    if (online) {
+      continue;
+    }
+    TreeMap<Text,HRegionInfo> localKillList=killList.get(serverName);
+    if (localKillList == null) {
+      localKillList=new TreeMap<Text,HRegionInfo>();
+    }
+    for (    HRegionInfo i : e.getValue()) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("adding region " + i.regionName + " to local kill list");
+      }
+      localKillList.put(i.regionName,i);
+    }
+    if (localKillList != null && localKillList.size() > 0) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("inserted local kill list into kill list for server " + serverName);
+      }
+      killList.put(serverName,localKillList);
+    }
+  }
+  servedRegions.clear();
+}

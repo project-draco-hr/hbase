@@ -1,0 +1,93 @@
+{
+  this.dir=dir;
+  this.regionName=regionName;
+  this.family=family;
+  this.familyName=HStoreKey.extractFamily(this.family.getName());
+  this.compression=SequenceFile.CompressionType.NONE;
+  if (family.getCompression() != HColumnDescriptor.CompressionType.NONE) {
+    if (family.getCompression() == HColumnDescriptor.CompressionType.BLOCK) {
+      this.compression=SequenceFile.CompressionType.BLOCK;
+    }
+ else     if (family.getCompression() == HColumnDescriptor.CompressionType.RECORD) {
+      this.compression=SequenceFile.CompressionType.RECORD;
+    }
+ else {
+      assert(false);
+    }
+  }
+  this.fs=fs;
+  this.conf=conf;
+  this.mapdir=HStoreFile.getMapDir(dir,regionName,familyName);
+  fs.mkdirs(mapdir);
+  this.loginfodir=HStoreFile.getInfoDir(dir,regionName,familyName);
+  fs.mkdirs(loginfodir);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("starting HStore for " + regionName + "/"+ familyName);
+  }
+  this.compactdir=new Path(dir,COMPACTION_DIR);
+  Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,familyName);
+  if (fs.exists(curCompactStore)) {
+    processReadyCompaction();
+    fs.delete(curCompactStore);
+  }
+  Vector<HStoreFile> hstoreFiles=HStoreFile.loadHStoreFiles(conf,dir,regionName,familyName,fs);
+  for (Iterator<HStoreFile> it=hstoreFiles.iterator(); it.hasNext(); ) {
+    HStoreFile hsf=it.next();
+    mapFiles.put(hsf.loadInfo(fs),hsf);
+  }
+  long maxSeqID=-1;
+  for (Iterator<HStoreFile> it=hstoreFiles.iterator(); it.hasNext(); ) {
+    HStoreFile hsf=it.next();
+    long seqid=hsf.loadInfo(fs);
+    if (seqid > 0) {
+      if (seqid > maxSeqID) {
+        maxSeqID=seqid;
+      }
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("reading reconstructionLog");
+  }
+  if (reconstructionLog != null && fs.exists(reconstructionLog)) {
+    long maxSeqIdInLog=-1;
+    TreeMap<HStoreKey,BytesWritable> reconstructedCache=new TreeMap<HStoreKey,BytesWritable>();
+    SequenceFile.Reader login=new SequenceFile.Reader(fs,reconstructionLog,conf);
+    try {
+      HLogKey key=new HLogKey();
+      HLogEdit val=new HLogEdit();
+      while (login.next(key,val)) {
+        maxSeqIdInLog=Math.max(maxSeqIdInLog,key.getLogSeqNum());
+        if (key.getLogSeqNum() <= maxSeqID) {
+          continue;
+        }
+        Text column=val.getColumn();
+        if (!key.getRegionName().equals(this.regionName) || column.equals(HLog.METACOLUMN) || HStoreKey.extractFamily(column).equals(this.familyName)) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Passing on edit " + key.getRegionName() + ", "+ key.getRegionName()+ ", "+ column.toString()+ ": "+ new String(val.getVal().get()));
+          }
+          continue;
+        }
+        reconstructedCache.put(new HStoreKey(key.getRow(),val.getColumn(),val.getTimestamp()),val.getVal());
+      }
+    }
+  finally {
+      login.close();
+    }
+    if (reconstructedCache.size() > 0) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("flushing reconstructionCache");
+      }
+      flushCacheHelper(reconstructedCache,maxSeqIdInLog + 1,true);
+    }
+  }
+  if (mapFiles.size() >= 1) {
+    compactHelper(true);
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("starting map readers");
+  }
+  for (  Map.Entry<Long,HStoreFile> e : mapFiles.entrySet()) {
+    maps.put(e.getKey(),new MapFile.Reader(fs,e.getValue().getMapFilePath().toString(),conf));
+  }
+  LOG.info("HStore online for " + this.regionName + "/"+ this.familyName);
+}

@@ -1,5 +1,5 @@
 {
-  Vector<HStoreKey> toDoList=new Vector<HStoreKey>();
+  Vector<ToDoEntry> toDoList=new Vector<ToDoEntry>();
   TreeMap<Text,HRegionInfo> regions=new TreeMap<Text,HRegionInfo>();
   DataInputBuffer inbuf=new DataInputBuffer();
   try {
@@ -21,7 +21,9 @@ catch (      IOException e) {
       }
       TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
       for (int i=0; i < values.length; i++) {
-        results.put(values[i].getLabel(),values[i].getData().get());
+        byte[] bytes=new byte[values[i].getData().getSize()];
+        System.arraycopy(values[i].getData().get(),0,bytes,0,bytes.length);
+        results.put(values[i].getLabel(),bytes);
       }
       byte[] bytes=results.get(COL_SERVER);
       String serverName=null;
@@ -69,8 +71,27 @@ catch (      IOException e) {
       if (LOG.isDebugEnabled()) {
         LOG.debug(serverName + " was serving " + info.regionName);
       }
-      toDoList.add(key);
-      regions.put(info.regionName,info);
+      ToDoEntry todo=new ToDoEntry(key,info);
+      toDoList.add(todo);
+      if (killList.containsKey(deadServer)) {
+        TreeMap<Text,HRegionInfo> regionsToKill=killList.get(deadServer);
+        if (regionsToKill.containsKey(info.regionName)) {
+          regionsToKill.remove(info.regionName);
+          killList.put(deadServer,regionsToKill);
+          unassignedRegions.remove(info.regionName);
+          assignAttempts.remove(info.regionName);
+          if (regionsToDelete.contains(info.regionName)) {
+            regionsToDelete.remove(info.regionName);
+            todo.deleteRegion=true;
+          }
+ else {
+            todo.regionOffline=true;
+          }
+        }
+      }
+ else {
+        regions.put(info.regionName,info);
+      }
     }
   }
   finally {
@@ -84,13 +105,23 @@ catch (      IOException e) {
     }
   }
   for (int i=0; i < toDoList.size(); i++) {
-    long lockid=server.startUpdate(regionName,clientId,toDoList.get(i).getRow());
+    ToDoEntry e=toDoList.get(i);
+    long lockid=server.startUpdate(regionName,clientId,e.key.getRow());
+    if (e.deleteRegion) {
+      server.delete(regionName,clientId,lockid,COL_REGIONINFO);
+    }
+ else     if (e.regionOffline) {
+      e.info.offLine=true;
+      ByteArrayOutputStream byteValue=new ByteArrayOutputStream();
+      DataOutputStream s=new DataOutputStream(byteValue);
+      e.info.write(s);
+      server.put(regionName,clientId,lockid,COL_REGIONINFO,new BytesWritable(byteValue.toByteArray()));
+    }
     server.delete(regionName,clientId,lockid,COL_SERVER);
     server.delete(regionName,clientId,lockid,COL_STARTCODE);
     server.commit(regionName,clientId,lockid);
   }
-  for (Iterator<Map.Entry<Text,HRegionInfo>> i=regions.entrySet().iterator(); i.hasNext(); ) {
-    Map.Entry<Text,HRegionInfo> e=i.next();
+  for (  Map.Entry<Text,HRegionInfo> e : regions.entrySet()) {
     Text region=e.getKey();
     HRegionInfo regionInfo=e.getValue();
     unassignedRegions.put(region,regionInfo);

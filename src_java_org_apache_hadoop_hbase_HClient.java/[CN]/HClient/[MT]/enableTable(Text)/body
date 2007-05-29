@@ -1,0 +1,63 @@
+{
+  checkReservedTableName(tableName);
+  checkMaster();
+  TableInfo firstMetaServer=getFirstMetaServerForTable(tableName);
+  try {
+    this.master.enableTable(tableName);
+  }
+ catch (  RemoteException e) {
+    handleRemoteException(e);
+  }
+  HRegionInterface server=getHRegionConnection(firstMetaServer.serverAddress);
+  DataInputBuffer inbuf=new DataInputBuffer();
+  HStoreKey key=new HStoreKey();
+  HRegionInfo info=new HRegionInfo();
+  for (int tries=0; tries < numRetries; tries++) {
+    int valuesfound=0;
+    long scannerId=-1L;
+    try {
+      scannerId=server.openScanner(firstMetaServer.regionInfo.regionName,REGIONINFO,tableName);
+      LabelledData[] values=server.next(scannerId,key);
+      if (values == null || values.length == 0) {
+        if (valuesfound == 0) {
+          throw new NoSuchElementException("table " + tableName + " not found");
+        }
+      }
+      valuesfound+=1;
+      boolean isenabled=false;
+      for (int j=0; j < values.length; j++) {
+        if (values[j].getLabel().equals(COL_REGIONINFO)) {
+          byte[] bytes=new byte[values[j].getData().getSize()];
+          System.arraycopy(values[j].getData().get(),0,bytes,0,bytes.length);
+          inbuf.reset(bytes,bytes.length);
+          info.readFields(inbuf);
+          isenabled=!info.offLine;
+        }
+      }
+      if (isenabled) {
+        break;
+      }
+    }
+  finally {
+      if (scannerId != -1L) {
+        try {
+          server.close(scannerId);
+        }
+ catch (        Exception e) {
+          LOG.warn(e);
+        }
+      }
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Sleep. Waiting for first region to be enabled from " + tableName);
+    }
+    try {
+      Thread.sleep(clientTimeout);
+    }
+ catch (    InterruptedException e) {
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Wake. Waiting for first region to be enabled from " + tableName);
+    }
+  }
+}
