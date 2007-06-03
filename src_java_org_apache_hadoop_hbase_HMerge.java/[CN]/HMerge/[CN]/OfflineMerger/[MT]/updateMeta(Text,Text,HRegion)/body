@@ -1,0 +1,52 @@
+{
+  HRegion root=new HRegion(dir,hlog,fs,conf,HGlobals.rootRegionInfo,null,null);
+  Text[] regionsToDelete={oldRegion1,oldRegion2};
+  for (int r=0; r < regionsToDelete.length; r++) {
+    long lockid=-1L;
+    try {
+      lockid=root.startUpdate(regionsToDelete[r]);
+      root.delete(lockid,COL_REGIONINFO);
+      root.delete(lockid,COL_SERVER);
+      root.delete(lockid,COL_STARTCODE);
+      root.commit(lockid);
+      lockid=-1L;
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("updated columns in row: " + regionsToDelete[r]);
+      }
+    }
+  finally {
+      try {
+        if (lockid != -1L) {
+          root.abort(lockid);
+        }
+      }
+ catch (      IOException iex) {
+        LOG.error(iex);
+      }
+    }
+  }
+  ByteArrayOutputStream byteValue=new ByteArrayOutputStream();
+  DataOutputStream s=new DataOutputStream(byteValue);
+  newRegion.getRegionInfo().offLine=true;
+  newRegion.getRegionInfo().write(s);
+  long lockid=-1L;
+  try {
+    lockid=root.startUpdate(newRegion.getRegionName());
+    root.put(lockid,COL_REGIONINFO,new BytesWritable(byteValue.toByteArray()));
+    root.commit(lockid);
+    lockid=-1L;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("updated columns in row: " + newRegion.getRegionName());
+    }
+  }
+  finally {
+    try {
+      if (lockid != -1L) {
+        root.abort(lockid);
+      }
+    }
+ catch (    IOException iex) {
+      LOG.error(iex);
+    }
+  }
+}

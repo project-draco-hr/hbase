@@ -1,0 +1,54 @@
+{
+  Text[] regionsToDelete={oldRegion1,oldRegion2};
+  for (int r=0; r < regionsToDelete.length; r++) {
+    if (regionsToDelete[r].equals(latestRegion.regionName)) {
+      latestRegion=null;
+    }
+    long lockid=-1L;
+    try {
+      lockid=client.startUpdate(regionsToDelete[r]);
+      client.delete(lockid,COL_REGIONINFO);
+      client.delete(lockid,COL_SERVER);
+      client.delete(lockid,COL_STARTCODE);
+      client.commit(lockid);
+      lockid=-1L;
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("updated columns in row: " + regionsToDelete[r]);
+      }
+    }
+  finally {
+      try {
+        if (lockid != -1L) {
+          client.abort(lockid);
+        }
+      }
+ catch (      IOException iex) {
+        LOG.error(iex);
+      }
+    }
+  }
+  ByteArrayOutputStream byteValue=new ByteArrayOutputStream();
+  DataOutputStream s=new DataOutputStream(byteValue);
+  newRegion.getRegionInfo().offLine=true;
+  newRegion.getRegionInfo().write(s);
+  long lockid=-1L;
+  try {
+    lockid=client.startUpdate(newRegion.getRegionName());
+    client.put(lockid,COL_REGIONINFO,byteValue.toByteArray());
+    client.commit(lockid);
+    lockid=-1L;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("updated columns in row: " + newRegion.getRegionName());
+    }
+  }
+  finally {
+    try {
+      if (lockid != -1L) {
+        client.abort(lockid);
+      }
+    }
+ catch (    IOException iex) {
+      LOG.error(iex);
+    }
+  }
+}
