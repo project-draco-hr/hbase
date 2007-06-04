@@ -5,14 +5,13 @@ synchronized (splitOrCompactLock) {
       Vector<HRegion> regionsToCheck=new Vector<HRegion>();
       lock.readLock().lock();
       try {
-        regionsToCheck.addAll(regions.values());
+        regionsToCheck.addAll(onlineRegions.values());
       }
   finally {
         lock.readLock().unlock();
       }
       try {
-        for (Iterator<HRegion> it=regionsToCheck.iterator(); it.hasNext(); ) {
-          HRegion cur=it.next();
+        for (        HRegion cur : regionsToCheck) {
           if (cur.isClosed()) {
             continue;
           }
@@ -20,78 +19,27 @@ synchronized (splitOrCompactLock) {
             if (cur.compactStores()) {
               Text midKey=new Text();
               if (cur.needsSplit(midKey)) {
-                Text oldRegion=cur.getRegionName();
-                LOG.info("splitting region: " + oldRegion);
-                HRegion[] newRegions=cur.closeAndSplit(midKey,this);
-                if (LOG.isDebugEnabled()) {
-                  LOG.debug("region split complete. updating meta");
-                }
-                Text tableToUpdate=(oldRegion.find(META_TABLE_NAME.toString()) == 0) ? ROOT_TABLE_NAME : META_TABLE_NAME;
-                for (int tries=0; tries < numRetries; tries++) {
-                  try {
-                    client.openTable(tableToUpdate);
-                    long lockid=client.startUpdate(oldRegion);
-                    client.delete(lockid,COL_REGIONINFO);
-                    client.delete(lockid,COL_SERVER);
-                    client.delete(lockid,COL_STARTCODE);
-                    client.commit(lockid);
-                    for (int i=0; i < newRegions.length; i++) {
-                      ByteArrayOutputStream bytes=new ByteArrayOutputStream();
-                      DataOutputStream out=new DataOutputStream(bytes);
-                      newRegions[i].getRegionInfo().write(out);
-                      lockid=client.startUpdate(newRegions[i].getRegionName());
-                      client.put(lockid,COL_REGIONINFO,bytes.toByteArray());
-                      client.put(lockid,COL_SERVER,info.getServerAddress().toString().getBytes(UTF8_ENCODING));
-                      client.put(lockid,COL_STARTCODE,String.valueOf(info.getStartCode()).getBytes(UTF8_ENCODING));
-                      client.commit(lockid);
-                    }
-                    if (LOG.isDebugEnabled()) {
-                      LOG.debug("reporting region split to master");
-                    }
-                    reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
-                    LOG.info("region split successful. old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
-                    lock.writeLock().lock();
-                    try {
-                      regions.put(newRegions[0].getRegionName(),newRegions[0]);
-                      regions.put(newRegions[1].getRegionName(),newRegions[1]);
-                    }
-  finally {
-                      lock.writeLock().unlock();
-                    }
-                  }
- catch (                  NotServingRegionException e) {
-                    if (tries == numRetries - 1) {
-                      throw e;
-                    }
-                    continue;
-                  }
-                  break;
-                }
+                split(cur,midKey);
               }
             }
           }
         }
       }
  catch (      IOException e) {
-        LOG.error(e);
+        LOG.error("What happens if this fails? Are we toast?",e);
       }
     }
-    long waitTime=stopRequested ? 0 : splitOrCompactCheckFrequency - (System.currentTimeMillis() - startTime);
+    if (stopRequested) {
+      continue;
+    }
+    long waitTime=splitOrCompactCheckFrequency - (System.currentTimeMillis() - startTime);
     if (waitTime > 0) {
       try {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Sleep splitOrCompactChecker");
-        }
         Thread.sleep(waitTime);
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Wake splitOrCompactChecker");
-        }
       }
  catch (      InterruptedException iex) {
       }
     }
   }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("splitOrCompactChecker exiting");
-  }
+  LOG.info("splitOrCompactChecker exiting");
 }

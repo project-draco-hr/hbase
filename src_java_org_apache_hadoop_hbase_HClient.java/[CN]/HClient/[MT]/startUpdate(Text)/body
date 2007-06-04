@@ -1,26 +1,25 @@
 {
-  TableInfo info=null;
-  long lockid=-1L;
-  for (int tries=0; tries < numRetries && info == null; tries++) {
-    info=getTableInfo(row);
-    try {
-      this.currentServer=getHRegionConnection(info.serverAddress);
-      this.currentRegion=info.regionInfo.regionName;
-      this.clientid=rand.nextLong();
-      lockid=currentServer.startUpdate(this.currentRegion,this.clientid,row);
-    }
- catch (    NotServingRegionException e) {
-      if (tries == numRetries - 1) {
-        throw e;
+  StartUpdateInterface implementation=new StartUpdateInterface(){
+    private RegionLocation info=null;
+    private int attempts=0;
+    public long startUpdate() throws IOException {
+      this.attempts++;
+      if (this.info != null) {
+        LOG.info("Retry of startUpdate.  Attempt " + this.attempts + " for row "+ row);
+        try {
+          findRegion(info);
+        }
+ catch (        RegionNotFoundException e) {
+        }
       }
-      findRegion(info);
-      info=null;
-    }
-catch (    IOException e) {
-      this.currentServer=null;
-      this.currentRegion=null;
-      throw e;
+      this.info=getRegionLocation(row);
+      currentServer=getHRegionConnection(info.serverAddress);
+      currentRegion=info.regionInfo.regionName;
+      clientid=rand.nextLong();
+      return currentServer.startUpdate(currentRegion,clientid,row);
     }
   }
-  return lockid;
+;
+  StartUpdateInterface retryProxy=(StartUpdateInterface)RetryProxy.create(StartUpdateInterface.class,implementation,getRetryPolicy());
+  return retryProxy.startUpdate();
 }

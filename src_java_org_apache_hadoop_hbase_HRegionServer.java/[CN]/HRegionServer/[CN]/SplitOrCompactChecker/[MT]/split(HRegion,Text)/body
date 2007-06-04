@@ -1,0 +1,33 @@
+{
+  final Text oldRegion=region.getRegionName();
+  final HRegion[] newRegions=region.closeAndSplit(midKey,this);
+  final Text tableToUpdate=(oldRegion.find(META_TABLE_NAME.toString()) == 0) ? ROOT_TABLE_NAME : META_TABLE_NAME;
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Updating " + tableToUpdate + " with region split info");
+  }
+  UpdateMetaInterface implementation=new UpdateMetaInterface(){
+    public boolean update() throws IOException {
+      HRegion.removeRegionFromMETA(client,tableToUpdate,region.getRegionName());
+      for (int i=0; i < newRegions.length; i++) {
+        HRegion.addRegionToMETA(client,tableToUpdate,newRegions[i],info.getServerAddress(),info.getStartCode());
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Reporting region split to master");
+      }
+      reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
+      LOG.info("region split, META update, and report to master all" + " successful. Old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
+      lock.writeLock().lock();
+      try {
+        onlineRegions.put(newRegions[0].getRegionName(),newRegions[0]);
+        onlineRegions.put(newRegions[1].getRegionName(),newRegions[1]);
+      }
+  finally {
+        lock.writeLock().unlock();
+      }
+      return true;
+    }
+  }
+;
+  UpdateMetaInterface retryProxy=(UpdateMetaInterface)RetryProxy.create(UpdateMetaInterface.class,implementation,client.getRetryPolicy());
+  retryProxy.update();
+}
