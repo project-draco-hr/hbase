@@ -1,67 +1,53 @@
 {
-  for (HMsg msg=null; !stopRequested; ) {
+  for (ToDoEntry e=null; !stopRequested; ) {
 synchronized (toDo) {
       while (toDo.size() == 0 && !stopRequested) {
         try {
           if (LOG.isDebugEnabled()) {
             LOG.debug("Wait on todo");
           }
-          toDo.wait();
+          toDo.wait(threadWakeFrequency);
           if (LOG.isDebugEnabled()) {
             LOG.debug("Wake on todo");
           }
         }
- catch (        InterruptedException e) {
+ catch (        InterruptedException ex) {
         }
       }
       if (stopRequested) {
         continue;
       }
-      msg=toDo.remove(0);
+      e=toDo.removeFirst();
     }
     try {
-switch (msg.getMsg()) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(e.msg.toString());
+      }
+switch (e.msg.getMsg()) {
 case HMsg.MSG_REGION_OPEN:
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("MSG_REGION_OPEN");
-        }
-      openRegion(msg.getRegionInfo());
-    break;
+        openRegion(e.msg.getRegionInfo());
+      break;
 case HMsg.MSG_REGION_CLOSE:
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("MSG_REGION_CLOSE");
-  }
-closeRegion(msg.getRegionInfo(),true);
-break;
-case HMsg.MSG_REGION_MERGE:
-if (LOG.isDebugEnabled()) {
-LOG.debug("MSG_REGION_MERGE");
-}
-throw new IOException("TODO: need to figure out merge");
-case HMsg.MSG_CALL_SERVER_STARTUP:
-if (LOG.isDebugEnabled()) {
-LOG.debug("MSG_CALL_SERVER_STARTUP");
-}
-closeAllRegions();
-continue;
-case HMsg.MSG_REGIONSERVER_STOP:
-if (LOG.isDebugEnabled()) {
-LOG.debug("MSG_REGIONSERVER_STOP");
-}
-stopRequested=true;
-continue;
+    closeRegion(e.msg.getRegionInfo(),true);
+  break;
 case HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT:
-if (LOG.isDebugEnabled()) {
-LOG.debug("MSG_REGION_CLOSE_WITHOUT_REPORT");
-}
-closeRegion(msg.getRegionInfo(),false);
+closeRegion(e.msg.getRegionInfo(),false);
 break;
 default :
-throw new IOException("Impossible state during msg processing.  Instruction: " + msg);
+throw new AssertionError("Impossible state during msg processing.  Instruction: " + e.msg.toString());
 }
 }
- catch (IOException e) {
-LOG.error(e);
+ catch (IOException ie) {
+if (e.tries < numRetries) {
+LOG.warn(ie);
+e.tries++;
+synchronized (toDo) {
+toDo.addLast(e);
+}
+}
+ else {
+LOG.error("unable to process message: " + e.msg.toString(),ie);
+}
 }
 }
 LOG.info("worker thread exiting");

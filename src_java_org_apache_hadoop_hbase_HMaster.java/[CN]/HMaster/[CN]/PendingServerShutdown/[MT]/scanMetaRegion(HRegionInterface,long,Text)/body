@@ -4,10 +4,9 @@
   DataInputBuffer inbuf=new DataInputBuffer();
   try {
     while (true) {
-      LabelledData[] values=null;
-      HStoreKey key=new HStoreKey();
+      KeyedData[] values=null;
       try {
-        values=server.next(scannerId,key);
+        values=server.next(scannerId);
       }
  catch (      NotServingRegionException e) {
         throw e;
@@ -20,12 +19,22 @@ catch (      IOException e) {
         break;
       }
       TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      Text row=null;
+      byte[] bytes=null;
       for (int i=0; i < values.length; i++) {
-        byte[] bytes=new byte[values[i].getData().getSize()];
+        if (row == null) {
+          row=values[i].getKey().getRow();
+        }
+ else {
+          if (!row.equals(values[i].getKey().getRow())) {
+            LOG.error("Multiple rows in same scanner result set. firstRow=" + row + ", currentRow="+ values[i].getKey().getRow());
+          }
+        }
+        bytes=new byte[values[i].getData().getSize()];
         System.arraycopy(values[i].getData().get(),0,bytes,0,bytes.length);
-        results.put(values[i].getLabel(),bytes);
+        results.put(values[i].getKey().getColumn(),bytes);
       }
-      byte[] bytes=results.get(COL_SERVER);
+      bytes=results.get(COL_SERVER);
       String serverName=null;
       if (bytes == null || bytes.length == 0) {
         continue;
@@ -37,7 +46,7 @@ catch (      IOException e) {
         LOG.error(e);
         break;
       }
-      if (deadServer.compareTo(serverName) != 0) {
+      if (deadServerName.compareTo(serverName) != 0) {
         continue;
       }
       bytes=results.get(COL_STARTCODE);
@@ -69,15 +78,18 @@ catch (      IOException e) {
         break;
       }
       if (LOG.isDebugEnabled()) {
-        LOG.debug(serverName + " was serving " + info.regionName);
+        LOG.debug(serverName + " was serving " + info.toString());
       }
-      ToDoEntry todo=new ToDoEntry(key,info);
+      if (info.tableDesc.getName().equals(META_TABLE_NAME)) {
+        allMetaRegionsScanned=false;
+      }
+      ToDoEntry todo=new ToDoEntry(row,info);
       toDoList.add(todo);
-      if (killList.containsKey(deadServer)) {
-        TreeMap<Text,HRegionInfo> regionsToKill=killList.get(deadServer);
+      if (killList.containsKey(deadServerName)) {
+        TreeMap<Text,HRegionInfo> regionsToKill=killList.get(deadServerName);
         if (regionsToKill.containsKey(info.regionName)) {
           regionsToKill.remove(info.regionName);
-          killList.put(deadServer,regionsToKill);
+          killList.put(deadServerName,regionsToKill);
           unassignedRegions.remove(info.regionName);
           assignAttempts.remove(info.regionName);
           if (regionsToDelete.contains(info.regionName)) {
@@ -106,7 +118,7 @@ catch (      IOException e) {
   }
   for (int i=0; i < toDoList.size(); i++) {
     ToDoEntry e=toDoList.get(i);
-    long lockid=server.startUpdate(regionName,clientId,e.key.getRow());
+    long lockid=server.startUpdate(regionName,clientId,e.row);
     if (e.deleteRegion) {
       server.delete(regionName,clientId,lockid,COL_REGIONINFO);
     }

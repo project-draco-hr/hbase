@@ -1,13 +1,25 @@
 {
   String s=serverInfo.getServerAddress().toString().trim();
   Text serverLabel=new Text(s);
-  if (closed || msgs.length == 1 && msgs[0].getMsg() == HMsg.MSG_REPORT_EXITING) {
-    if (serversToServerInfo.remove(s) != null) {
-      LOG.debug("Cancelling lease for " + serverLabel);
-      serverLeases.cancelLease(serverLabel,serverLabel);
-    }
+  if (closed) {
+    cancelLease(s,serverLabel);
     HMsg returnMsgs[]={new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
     return returnMsgs;
+  }
+  if (msgs.length > 0 && msgs[0].getMsg() == HMsg.MSG_REPORT_EXITING) {
+    cancelLease(s,serverLabel);
+    for (int i=1; i < msgs.length; i++) {
+      HRegionInfo info=msgs[i].getRegionInfo();
+      if (info.tableDesc.getName().equals(ROOT_TABLE_NAME)) {
+        rootRegionLocation=null;
+      }
+ else       if (info.tableDesc.getName().equals(META_TABLE_NAME)) {
+        allMetaRegionsScanned=false;
+      }
+      unassignedRegions.put(info.regionName,info);
+      assignAttempts.put(info.regionName,0L);
+    }
+    return new HMsg[0];
   }
   HServerInfo storedInfo=serversToServerInfo.get(s);
   if (storedInfo == null) {

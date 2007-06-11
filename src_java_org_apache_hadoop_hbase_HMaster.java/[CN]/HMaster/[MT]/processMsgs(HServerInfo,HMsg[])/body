@@ -8,7 +8,7 @@ case HMsg.MSG_REPORT_OPEN:
       HRegionInfo regionInfo=unassignedRegions.get(region.regionName);
     if (regionInfo == null) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("region server " + info.getServerAddress().toString() + "should not have opened region "+ region.regionName);
+        LOG.debug("region server " + info.getServerAddress().toString() + " should not have opened region "+ region.regionName);
       }
       returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
     }
@@ -16,6 +16,7 @@ case HMsg.MSG_REPORT_OPEN:
       if (LOG.isDebugEnabled()) {
         LOG.debug(info.getServerAddress().toString() + " serving " + region.regionName);
       }
+      pendingRegions.add(region.regionName);
       unassignedRegions.remove(region.regionName);
       assignAttempts.remove(region.regionName);
       if (region.regionName.compareTo(HGlobals.rootRegionInfo.regionName) == 0) {
@@ -23,7 +24,7 @@ case HMsg.MSG_REPORT_OPEN:
         rootRegionIsAvailable();
         break;
       }
- else       if (region.regionName.find(META_TABLE_NAME.toString()) == 0) {
+ else       if (region.tableDesc.getName().equals(META_TABLE_NAME)) {
         MetaRegion r=new MetaRegion();
         r.server=info.getServerAddress();
         r.regionName=region.regionName;
@@ -34,7 +35,7 @@ synchronized (metaRegionsToScan) {
         }
       }
 synchronized (msgQueue) {
-        msgQueue.add(new PendingOpenReport(info,region.regionName));
+        msgQueue.addLast(new PendingOpenReport(info,region));
         msgQueue.notifyAll();
       }
     }
@@ -61,7 +62,7 @@ if (regionsToDelete.remove(region.regionName)) {
 unassignedRegions.remove(region.regionName);
 assignAttempts.remove(region.regionName);
 synchronized (msgQueue) {
-  msgQueue.add(new PendingCloseReport(region,reassignRegion,deleteRegion));
+  msgQueue.addLast(new PendingCloseReport(region,reassignRegion,deleteRegion));
   msgQueue.notifyAll();
 }
 }
@@ -70,7 +71,7 @@ case HMsg.MSG_NEW_REGION:
 if (LOG.isDebugEnabled()) {
 LOG.debug("new region " + region.regionName);
 }
-if (region.regionName.find(META_TABLE_NAME.toString()) == 0) {
+if (region.tableDesc.getName().equals(META_TABLE_NAME)) {
 allMetaRegionsScanned=false;
 }
 break;
@@ -88,8 +89,7 @@ if (unassignedRegions.size() > 0) {
 int targetForServer=(int)Math.ceil(unassignedRegions.size() / (1.0 * serversToServerInfo.size()));
 int counter=0;
 long now=System.currentTimeMillis();
-for (Iterator<Text> it=unassignedRegions.keySet().iterator(); it.hasNext(); ) {
-Text curRegionName=it.next();
+for (Text curRegionName : unassignedRegions.keySet()) {
 HRegionInfo regionInfo=unassignedRegions.get(curRegionName);
 long assignedTime=assignAttempts.get(curRegionName);
 if (now - assignedTime > maxRegionOpenTime) {

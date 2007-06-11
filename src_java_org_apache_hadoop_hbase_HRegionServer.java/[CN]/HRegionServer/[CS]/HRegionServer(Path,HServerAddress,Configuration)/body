@@ -1,42 +1,39 @@
 {
   this.stopRequested=false;
-  this.regionDir=regionDir;
+  this.abortRequested=false;
+  this.rootDir=rootDir;
   this.conf=conf;
   this.rand=new Random();
+  this.onlineRegions=Collections.synchronizedSortedMap(new TreeMap<Text,HRegion>());
   this.outboundMsgs=new Vector<HMsg>();
   this.scanners=Collections.synchronizedMap(new TreeMap<Text,HInternalScannerInterface>());
+  this.numRetries=conf.getInt("hbase.client.retries.number",2);
   this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
   this.msgInterval=conf.getLong("hbase.regionserver.msginterval",15 * 1000);
   this.splitOrCompactCheckFrequency=conf.getLong("hbase.regionserver.thread.splitcompactcheckfrequency",60 * 1000);
   this.cacheFlusher=new Flusher();
-  this.cacheFlusherThread=new Thread(cacheFlusher,"HRegionServer.cacheFlusher");
+  this.cacheFlusherThread=new Thread(cacheFlusher);
   this.splitOrCompactChecker=new SplitOrCompactChecker();
-  this.splitOrCompactCheckerThread=new Thread(splitOrCompactChecker,"HRegionServer.splitOrCompactChecker");
-  this.toDo=new Vector<HMsg>();
+  this.splitOrCompactCheckerThread=new Thread(splitOrCompactChecker);
+  this.toDo=new LinkedList<ToDoEntry>();
   this.worker=new Worker();
-  this.workerThread=new Thread(worker,"HRegionServer.worker");
+  this.workerThread=new Thread(worker);
   try {
     this.server=RPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
     this.info=new HServerInfo(new HServerAddress(server.getListenerAddress()),this.rand.nextLong());
     String serverName=this.info.getServerAddress().getBindAddress() + "_" + this.info.getServerAddress().getPort();
-    Path newlogdir=new Path(regionDir,"log" + "_" + serverName);
-    this.oldlogfile=new Path(regionDir,"oldlogfile" + "_" + serverName);
+    Path logdir=new Path(rootDir,"log" + "_" + serverName);
     this.fs=FileSystem.get(conf);
-    HLog.consolidateOldLog(newlogdir,oldlogfile,fs,conf);
-    this.log=new HLog(fs,newlogdir,conf);
+    if (fs.exists(logdir)) {
+      throw new RegionServerRunningException("region server already running at " + this.info.getServerAddress().toString());
+    }
+    this.log=new HLog(fs,logdir,conf);
     this.logRoller=new LogRoller();
-    this.logRollerThread=new Thread(logRoller,"HRegionServer.logRoller");
+    this.logRollerThread=new Thread(logRoller);
     this.hbaseMaster=(HMasterRegionInterface)RPC.waitForProxy(HMasterRegionInterface.class,HMasterRegionInterface.versionID,new HServerAddress(conf.get(MASTER_ADDRESS)).getInetSocketAddress(),conf);
-    this.workerThread.start();
-    this.cacheFlusherThread.start();
-    this.splitOrCompactCheckerThread.start();
-    this.logRollerThread.start();
-    this.leases=new Leases(conf.getLong("hbase.regionserver.lease.period",3 * 60 * 1000),threadWakeFrequency);
-    this.server.start();
   }
  catch (  IOException e) {
     this.stopRequested=true;
     throw e;
   }
-  LOG.info("HRegionServer started at: " + address.toString());
 }

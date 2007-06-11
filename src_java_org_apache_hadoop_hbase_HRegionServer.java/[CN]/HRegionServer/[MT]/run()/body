@@ -1,4 +1,22 @@
 {
+  String threadName=Thread.currentThread().getName();
+  workerThread.setName(threadName + ".worker");
+  workerThread.start();
+  cacheFlusherThread.setName(threadName + ".cacheFlusher");
+  cacheFlusherThread.start();
+  splitOrCompactCheckerThread.setName(threadName + ".splitOrCompactChecker");
+  splitOrCompactCheckerThread.start();
+  logRollerThread.setName(threadName + ".logRoller");
+  logRollerThread.start();
+  leases=new Leases(conf.getLong("hbase.regionserver.lease.period",3 * 60 * 1000),threadWakeFrequency);
+  try {
+    this.server.start();
+    LOG.info("HRegionServer started at: " + info.getServerAddress().toString());
+  }
+ catch (  IOException e) {
+    LOG.error(e);
+    stopRequested=true;
+  }
   while (!stopRequested) {
     long lastMsg=0;
     long waitTime;
@@ -42,33 +60,31 @@ case HMsg.MSG_CALL_SERVER_STARTUP:
                 if (LOG.isDebugEnabled()) {
                   LOG.debug("Got call server startup message");
                 }
-              toDo.clear();
-            closeAllRegions();
-          restart=true;
-        break;
+              closeAllRegions();
+            restart=true;
+          break;
 case HMsg.MSG_REGIONSERVER_STOP:
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Got regionserver stop message");
-      }
-    toDo.clear();
-  closeAllRegions();
-stopRequested=true;
-break;
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Got regionserver stop message");
+        }
+      stopRequested=true;
+    break;
 default :
-if (LOG.isDebugEnabled()) {
-LOG.debug("Got default message");
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Got default message");
+  }
+toDo.addLast(new ToDoEntry(msgs[i]));
 }
-toDo.add(msgs[i]);
 }
+if (restart || stopRequested) {
+toDo.clear();
+break;
 }
 if (toDo.size() > 0) {
 if (LOG.isDebugEnabled()) {
 LOG.debug("notify on todo");
 }
 toDo.notifyAll();
-}
-if (restart || stopRequested) {
-break;
 }
 }
 }
@@ -88,15 +104,9 @@ wait(waitTime);
 }
 }
 }
-try {
-HMsg[] exitMsg={new HMsg(HMsg.MSG_REPORT_EXITING)};
-hbaseMaster.regionServerReport(info,exitMsg);
-}
- catch (IOException e) {
-LOG.warn(e);
-}
-try {
-LOG.info("stopping server at: " + info.getServerAddress().toString());
+this.worker.stop();
+this.server.stop();
+leases.close();
 synchronized (logRollerLock) {
 this.logRollerThread.interrupt();
 }
@@ -106,16 +116,39 @@ this.cacheFlusherThread.interrupt();
 synchronized (splitOrCompactLock) {
 this.splitOrCompactCheckerThread.interrupt();
 }
-this.worker.stop();
-this.server.stop();
-closeAllRegions();
-log.close();
-leases.close();
-join();
+if (abortRequested) {
+try {
+log.rollWriter();
+}
+ catch (IOException e) {
+LOG.warn(e);
+}
+LOG.info("aborting server at: " + info.getServerAddress().toString());
+}
+ else {
+Vector<HRegion> closedRegions=closeAllRegions();
+try {
+log.closeAndDelete();
 }
  catch (IOException e) {
 LOG.error(e);
 }
+try {
+HMsg[] exitMsg=new HMsg[closedRegions.size() + 1];
+exitMsg[0]=new HMsg(HMsg.MSG_REPORT_EXITING);
+int i=1;
+for (HRegion region : closedRegions) {
+exitMsg[i++]=new HMsg(HMsg.MSG_REPORT_CLOSE,region.getRegionInfo());
+}
+LOG.info("telling master that region server is shutting down at: " + info.getServerAddress().toString());
+hbaseMaster.regionServerReport(info,exitMsg);
+}
+ catch (IOException e) {
+LOG.warn(e);
+}
+LOG.info("stopping server at: " + info.getServerAddress().toString());
+}
+join();
 if (LOG.isDebugEnabled()) {
 LOG.debug("main thread exiting");
 }

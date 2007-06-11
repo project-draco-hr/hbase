@@ -1,0 +1,45 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("splitting log files");
+  }
+  Path logfiles[]=fs.listPaths(srcDir);
+  TreeMap<Text,SequenceFile.Writer> logWriters=new TreeMap<Text,SequenceFile.Writer>();
+  try {
+    for (int i=0; i < logfiles.length; i++) {
+      SequenceFile.Reader in=new SequenceFile.Reader(fs,logfiles[i],conf);
+      try {
+        HLogKey key=new HLogKey();
+        HLogEdit val=new HLogEdit();
+        while (in.next(key,val)) {
+          Text regionName=key.getRegionName();
+          SequenceFile.Writer w=logWriters.get(regionName);
+          if (w == null) {
+            Path logfile=new Path(HStoreFile.getHRegionDir(rootDir,regionName),HREGION_OLDLOGFILE_NAME);
+            w=SequenceFile.createWriter(fs,conf,logfile,HLogKey.class,HLogEdit.class);
+            logWriters.put(regionName,w);
+          }
+          w.append(key,val);
+        }
+      }
+  finally {
+        in.close();
+      }
+    }
+  }
+  finally {
+    for (    SequenceFile.Writer w : logWriters.values()) {
+      w.close();
+    }
+  }
+  if (fs.exists(srcDir)) {
+    if (!fs.delete(srcDir)) {
+      LOG.error("Cannot delete: " + srcDir);
+      if (!FileUtil.fullyDelete(new File(srcDir.toString()))) {
+        throw new IOException("Cannot delete: " + srcDir);
+      }
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("log file splitting completed");
+  }
+}

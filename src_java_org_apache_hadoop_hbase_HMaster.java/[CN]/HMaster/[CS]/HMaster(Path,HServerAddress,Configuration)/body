@@ -16,9 +16,9 @@
       HRegion meta=HRegion.createHRegion(1L,HGlobals.metaTableDesc,this.dir,this.conf);
       HRegion.addRegionToMETA(root,meta);
       root.close();
-      root.getLog().close();
+      root.getLog().closeAndDelete();
       meta.close();
-      meta.getLog().close();
+      meta.getLog().closeAndDelete();
     }
  catch (    IOException e) {
       LOG.error(e);
@@ -27,7 +27,7 @@
   this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
   this.numRetries=conf.getInt("hbase.client.retries.number",2);
   this.maxRegionOpenTime=conf.getLong("hbase.hbasemaster.maxregionopen",30 * 1000);
-  this.msgQueue=new Vector<PendingOperation>();
+  this.msgQueue=new LinkedList<PendingOperation>();
   this.serverLeases=new Leases(conf.getLong("hbase.master.lease.period",30 * 1000),conf.getLong("hbase.master.lease.thread.wakefrequency",15 * 1000));
   this.server=RPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
   this.address=new HServerAddress(server.getListenerAddress());
@@ -47,10 +47,11 @@
   this.unassignedRegions=Collections.synchronizedSortedMap(new TreeMap<Text,HRegionInfo>());
   this.unassignedRegions.put(HGlobals.rootRegionInfo.regionName,HGlobals.rootRegionInfo);
   this.assignAttempts=Collections.synchronizedSortedMap(new TreeMap<Text,Long>());
+  this.pendingRegions=Collections.synchronizedSortedSet(new TreeSet<Text>());
   this.assignAttempts.put(HGlobals.rootRegionInfo.regionName,0L);
   this.killList=Collections.synchronizedSortedMap(new TreeMap<String,TreeMap<Text,HRegionInfo>>());
   this.killedRegions=Collections.synchronizedSortedSet(new TreeSet<Text>());
   this.regionsToDelete=Collections.synchronizedSortedSet(new TreeSet<Text>());
   this.closed=false;
-  LOG.info("HMaster initialized on " + address.toString());
+  LOG.info("HMaster initialized on " + this.address.toString());
 }

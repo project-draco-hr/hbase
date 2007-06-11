@@ -2,8 +2,9 @@
   if (LOG.isDebugEnabled()) {
     LOG.debug("Running ROOT scanner");
   }
-  try {
-    while (!closed) {
+  int tries=0;
+  while (!closed && tries < numRetries) {
+    try {
       if (waitForRootRegionOrClose()) {
         continue;
       }
@@ -18,16 +19,24 @@ synchronized (rootScannerLock) {
         }
         rootScanned=true;
       }
-      try {
-        Thread.sleep(metaRescanInterval);
+      tries=0;
+    }
+ catch (    IOException e) {
+      tries++;
+      if (tries < numRetries) {
+        LOG.warn("ROOT scanner",e);
       }
- catch (      InterruptedException e) {
+ else {
+        LOG.error("ROOT scanner",e);
+        closed=true;
+        break;
       }
     }
-  }
- catch (  IOException e) {
-    LOG.error("ROOT scanner",e);
-    closed=true;
+    try {
+      Thread.sleep(metaRescanInterval);
+    }
+ catch (    InterruptedException e) {
+    }
   }
   LOG.info("ROOT scanner exiting");
 }

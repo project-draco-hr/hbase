@@ -11,7 +11,7 @@ synchronized (metaRegionsToScan) {
         }
         if (region == null) {
           try {
-            metaRegionsToScan.wait();
+            metaRegionsToScan.wait(threadWakeFrequency);
           }
  catch (          InterruptedException e) {
           }
@@ -33,6 +33,7 @@ synchronized (metaScannerLock) {
           metaRegionsScanned();
         }
       }
+      int tries=0;
       do {
         try {
           Thread.sleep(metaRescanInterval);
@@ -42,11 +43,23 @@ synchronized (metaScannerLock) {
         if (!allMetaRegionsScanned || closed) {
           break;
         }
+        try {
 synchronized (metaScannerLock) {
-          Vector<MetaRegion> v=new Vector<MetaRegion>();
-          v.addAll(knownMetaRegions.values());
-          for (Iterator<MetaRegion> i=v.iterator(); i.hasNext(); ) {
-            scanRegion(i.next());
+            Vector<MetaRegion> v=new Vector<MetaRegion>();
+            v.addAll(knownMetaRegions.values());
+            for (Iterator<MetaRegion> i=v.iterator(); i.hasNext(); ) {
+              scanRegion(i.next());
+            }
+          }
+          tries=0;
+        }
+ catch (        IOException e) {
+          tries++;
+          if (tries < numRetries) {
+            LOG.warn("META scanner",e);
+          }
+ else {
+            throw e;
           }
         }
       }
