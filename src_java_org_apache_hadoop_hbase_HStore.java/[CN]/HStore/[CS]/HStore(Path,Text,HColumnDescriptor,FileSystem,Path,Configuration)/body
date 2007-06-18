@@ -40,13 +40,11 @@
     fs.delete(curCompactStore);
   }
   Vector<HStoreFile> hstoreFiles=HStoreFile.loadHStoreFiles(conf,dir,regionName,familyName,fs);
-  for (Iterator<HStoreFile> it=hstoreFiles.iterator(); it.hasNext(); ) {
-    HStoreFile hsf=it.next();
-    mapFiles.put(hsf.loadInfo(fs),hsf);
+  for (  HStoreFile hsf : hstoreFiles) {
+    mapFiles.put(Long.valueOf(hsf.loadInfo(fs)),hsf);
   }
   long maxSeqID=-1;
-  for (Iterator<HStoreFile> it=hstoreFiles.iterator(); it.hasNext(); ) {
-    HStoreFile hsf=it.next();
+  for (  HStoreFile hsf : hstoreFiles) {
     long seqid=hsf.loadInfo(fs);
     if (seqid > 0) {
       if (seqid > maxSeqID) {
@@ -54,47 +52,7 @@
       }
     }
   }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("reading reconstructionLog");
-  }
-  if (reconstructionLog != null && fs.exists(reconstructionLog)) {
-    long maxSeqIdInLog=-1;
-    TreeMap<HStoreKey,BytesWritable> reconstructedCache=new TreeMap<HStoreKey,BytesWritable>();
-    SequenceFile.Reader login=new SequenceFile.Reader(fs,reconstructionLog,conf);
-    try {
-      HLogKey key=new HLogKey();
-      HLogEdit val=new HLogEdit();
-      while (login.next(key,val)) {
-        maxSeqIdInLog=Math.max(maxSeqIdInLog,key.getLogSeqNum());
-        if (key.getLogSeqNum() <= maxSeqID) {
-          continue;
-        }
-        Text column=val.getColumn();
-        if (column.equals(HLog.METACOLUMN) || !key.getRegionName().equals(this.regionName) || !HStoreKey.extractFamily(column).equals(this.familyName)) {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Passing on edit " + key.getRegionName() + ", "+ column.toString()+ ": "+ new String(val.getVal().get())+ ", my region: "+ this.regionName+ ", my column: "+ this.familyName);
-          }
-          continue;
-        }
-        byte[] bytes=new byte[val.getVal().getSize()];
-        System.arraycopy(val.getVal().get(),0,bytes,0,bytes.length);
-        HStoreKey k=new HStoreKey(key.getRow(),column,val.getTimestamp());
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Applying edit " + k.toString() + "="+ new String(bytes,UTF8_ENCODING));
-        }
-        reconstructedCache.put(k,new BytesWritable(bytes));
-      }
-    }
-  finally {
-      login.close();
-    }
-    if (reconstructedCache.size() > 0) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("flushing reconstructionCache");
-      }
-      flushCacheHelper(reconstructedCache,maxSeqIdInLog + 1,true);
-    }
-  }
+  doReconstructionLog(reconstructionLog,maxSeqID);
   if (mapFiles.size() >= 1) {
     compactHelper(true);
   }

@@ -1,0 +1,42 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("reading reconstructionLog");
+  }
+  if (reconstructionLog == null || !fs.exists(reconstructionLog)) {
+    return;
+  }
+  long maxSeqIdInLog=-1;
+  TreeMap<HStoreKey,byte[]> reconstructedCache=new TreeMap<HStoreKey,byte[]>();
+  SequenceFile.Reader login=new SequenceFile.Reader(this.fs,reconstructionLog,this.conf);
+  try {
+    HLogKey key=new HLogKey();
+    HLogEdit val=new HLogEdit();
+    while (login.next(key,val)) {
+      maxSeqIdInLog=Math.max(maxSeqIdInLog,key.getLogSeqNum());
+      if (key.getLogSeqNum() <= maxSeqID) {
+        continue;
+      }
+      Text column=val.getColumn();
+      if (column.equals(HLog.METACOLUMN) || !key.getRegionName().equals(this.regionName) || !HStoreKey.extractFamily(column).equals(this.familyName)) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Passing on edit " + key.getRegionName() + ", "+ column.toString()+ ": "+ new String(val.getVal())+ ", my region: "+ this.regionName+ ", my column: "+ this.familyName);
+        }
+        continue;
+      }
+      HStoreKey k=new HStoreKey(key.getRow(),column,val.getTimestamp());
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Applying edit " + k.toString() + "="+ new String(val.getVal(),UTF8_ENCODING));
+      }
+      reconstructedCache.put(k,val.getVal());
+    }
+  }
+  finally {
+    login.close();
+  }
+  if (reconstructedCache.size() > 0) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("flushing reconstructionCache");
+    }
+    flushCacheHelper(reconstructedCache,maxSeqIdInLog + 1,true);
+  }
+}

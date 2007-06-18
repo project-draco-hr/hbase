@@ -1,0 +1,49 @@
+{
+synchronized (flushLock) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("flushing HStore " + this.regionName + "/"+ this.familyName);
+    }
+    HStoreFile flushedFile=HStoreFile.obtainNewHStoreFile(conf,dir,regionName,familyName,fs);
+    Path mapfile=flushedFile.getMapFilePath();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("map file is: " + mapfile.toString());
+    }
+    MapFile.Writer out=getMapFileWriter(mapfile.toString());
+    try {
+      for (      Map.Entry<HStoreKey,byte[]> es : inputCache.entrySet()) {
+        HStoreKey curkey=es.getKey();
+        if (this.familyName.equals(HStoreKey.extractFamily(curkey.getColumn()))) {
+          out.append(curkey,new ImmutableBytesWritable(es.getValue()));
+        }
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("HStore " + this.regionName + "/"+ this.familyName+ " flushed");
+      }
+    }
+  finally {
+      out.close();
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("writing log cache flush id");
+    }
+    flushedFile.writeInfo(fs,logCacheFlushId);
+    if (bloomFilter != null) {
+      flushBloomFilter();
+    }
+    if (addToAvailableMaps) {
+      this.lock.obtainWriteLock();
+      try {
+        Long flushid=Long.valueOf(logCacheFlushId);
+        maps.put(flushid,getMapFileReader(mapfile.toString()));
+        mapFiles.put(flushid,flushedFile);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("HStore available for " + this.regionName + "/"+ this.familyName+ " flush id="+ logCacheFlushId);
+        }
+      }
+  finally {
+        this.lock.releaseWriteLock();
+      }
+    }
+    return getAllMapFiles();
+  }
+}

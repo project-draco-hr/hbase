@@ -2,28 +2,28 @@
   if (numVersions <= 0) {
     throw new IllegalArgumentException("Number of versions must be > 0");
   }
-  Vector<BytesWritable> results=new Vector<BytesWritable>();
+  List<byte[]> results=new ArrayList<byte[]>();
   this.lock.obtainReadLock();
   try {
     MapFile.Reader[] maparray=maps.values().toArray(new MapFile.Reader[maps.size()]);
     for (int i=maparray.length - 1; i >= 0; i--) {
       MapFile.Reader map=maparray[i];
 synchronized (map) {
-        BytesWritable readval=new BytesWritable();
+        ImmutableBytesWritable readval=new ImmutableBytesWritable();
         map.reset();
         HStoreKey readkey=(HStoreKey)map.getClosest(key,readval);
         if (readkey == null) {
           continue;
         }
         if (readkey.matchesRowCol(key)) {
-          results.add(readval);
-          readval=new BytesWritable();
+          results.add(readval.get());
+          readval=new ImmutableBytesWritable();
           while (map.next(readkey,readval) && readkey.matchesRowCol(key)) {
             if (numVersions > 0 && (results.size() >= numVersions)) {
               break;
             }
-            results.add(readval);
-            readval=new BytesWritable();
+            results.add(readval.get());
+            readval=new ImmutableBytesWritable();
           }
         }
       }
@@ -31,7 +31,7 @@ synchronized (map) {
         break;
       }
     }
-    return results.size() == 0 ? null : results.toArray(new BytesWritable[results.size()]);
+    return results.size() == 0 ? null : ImmutableBytesWritable.toArray(results);
   }
   finally {
     this.lock.releaseReadLock();
