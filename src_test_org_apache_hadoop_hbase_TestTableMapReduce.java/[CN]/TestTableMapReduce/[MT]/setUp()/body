@@ -1,0 +1,28 @@
+{
+  super.setUp();
+  rand=new Random();
+  desc=new HTableDescriptor("test");
+  desc.addFamily(new HColumnDescriptor(INPUT_COLUMN));
+  desc.addFamily(new HColumnDescriptor(OUTPUT_COLUMN));
+  dfsCluster=new MiniDFSCluster(conf,1,true,(String[])null);
+  fs=dfsCluster.getFileSystem();
+  dir=new Path("/hbase");
+  fs.mkdirs(dir);
+  HRegion root=createNewHRegion(fs,dir,conf,HGlobals.rootTableDesc,0L,null,null);
+  HRegion meta=createNewHRegion(fs,dir,conf,HGlobals.metaTableDesc,1L,null,null);
+  HRegion.addRegionToMETA(root,meta);
+  HRegion region=createNewHRegion(fs,dir,conf,desc,rand.nextLong(),null,null);
+  HRegion.addRegionToMETA(meta,region);
+  for (int i=0; i < values.length; i++) {
+    long lockid=region.startUpdate(new Text("row_" + String.format("%1$05d",i)));
+    region.put(lockid,TEXT_INPUT_COLUMN,values[i]);
+    region.commit(lockid);
+  }
+  region.close();
+  region.getLog().closeAndDelete();
+  meta.close();
+  meta.getLog().closeAndDelete();
+  root.close();
+  root.getLog().closeAndDelete();
+  hCluster=new MiniHBaseCluster(conf,1,dfsCluster);
+}
