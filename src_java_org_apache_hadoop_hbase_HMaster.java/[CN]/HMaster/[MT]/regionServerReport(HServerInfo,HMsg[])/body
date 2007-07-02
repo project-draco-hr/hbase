@@ -1,25 +1,26 @@
 {
   String s=serverInfo.getServerAddress().toString().trim();
   long serverLabel=getServerLabel(s);
-  if (closed) {
-    cancelLease(s,serverLabel);
-    HMsg returnMsgs[]={new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
-    return returnMsgs;
-  }
   if (msgs.length > 0 && msgs[0].getMsg() == HMsg.MSG_REPORT_EXITING) {
+    LOG.debug("Region server " + s + ": MSG_REPORT_EXITING");
     cancelLease(s,serverLabel);
-    for (int i=1; i < msgs.length; i++) {
-      HRegionInfo info=msgs[i].getRegionInfo();
-      if (info.tableDesc.getName().equals(ROOT_TABLE_NAME)) {
-        rootRegionLocation=null;
+    if (!closed) {
+      for (int i=1; i < msgs.length; i++) {
+        HRegionInfo info=msgs[i].getRegionInfo();
+        if (info.tableDesc.getName().equals(ROOT_TABLE_NAME)) {
+          rootRegionLocation=null;
+        }
+ else         if (info.tableDesc.getName().equals(META_TABLE_NAME)) {
+          allMetaRegionsScanned=false;
+        }
+        unassignedRegions.put(info.regionName,info);
+        assignAttempts.put(info.regionName,Long.valueOf(0L));
       }
- else       if (info.tableDesc.getName().equals(META_TABLE_NAME)) {
-        allMetaRegionsScanned=false;
-      }
-      unassignedRegions.put(info.regionName,info);
-      assignAttempts.put(info.regionName,Long.valueOf(0L));
     }
     return new HMsg[0];
+  }
+  if (closed) {
+    return HMsg.MSG_REGIONSERVER_STOP_IN_ARRAY;
   }
   HServerInfo storedInfo=serversToServerInfo.get(s);
   if (storedInfo == null) {
@@ -34,8 +35,7 @@
     if (LOG.isDebugEnabled()) {
       LOG.debug("region server race condition detected: " + s);
     }
-    HMsg returnMsgs[]={new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
-    return returnMsgs;
+    return HMsg.MSG_REGIONSERVER_STOP_IN_ARRAY;
   }
  else {
     serverLeases.renewLease(serverLabel,serverLabel);
