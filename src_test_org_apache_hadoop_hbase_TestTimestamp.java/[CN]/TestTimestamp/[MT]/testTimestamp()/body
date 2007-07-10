@@ -1,0 +1,80 @@
+{
+  try {
+    client.openTable(TABLE);
+    long lockid=client.startUpdate(ROW);
+    client.put(lockid,COLUMN,VERSION1.getBytes(HConstants.UTF8_ENCODING));
+    client.commit(lockid,T0);
+    lockid=client.startUpdate(ROW);
+    client.put(lockid,COLUMN,LATEST.getBytes(HConstants.UTF8_ENCODING));
+    client.commit(lockid);
+    lockid=client.startUpdate(ROW);
+    client.delete(lockid,COLUMN);
+    client.commit(lockid,T1);
+    byte[] bytes=client.get(ROW,COLUMN);
+    assertTrue(bytes != null && bytes.length != 0);
+    assertTrue(LATEST.equals(new String(bytes,HConstants.UTF8_ENCODING)));
+    byte[][] values=client.get(ROW,COLUMN,T1,3);
+    assertNull(values);
+    values=client.get(ROW,COLUMN,T0,3);
+    assertTrue(values.length == 1 && VERSION1.equals(new String(values[0],HConstants.UTF8_ENCODING)));
+    HRegionServer s=cluster.regionServers.get(0);
+    for (    HRegion r : s.onlineRegions.values()) {
+      r.flushcache(false);
+    }
+    bytes=client.get(ROW,COLUMN);
+    assertTrue(bytes != null && bytes.length != 0);
+    assertTrue(LATEST.equals(new String(bytes,HConstants.UTF8_ENCODING)));
+    values=client.get(ROW,COLUMN,T1,3);
+    assertNull(values);
+    values=client.get(ROW,COLUMN,T0,3);
+    assertTrue(values.length == 1 && VERSION1.equals(new String(values[0],HConstants.UTF8_ENCODING)));
+    values=client.get(ROW,COLUMN,3);
+    assertTrue(values.length == 1 && LATEST.equals(new String(values[0],HConstants.UTF8_ENCODING)));
+    HScannerInterface scanner=client.obtainScanner(COLUMNS,HClient.EMPTY_START_ROW);
+    try {
+      HStoreKey key=new HStoreKey();
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      int count=0;
+      while (scanner.next(key,results)) {
+        count++;
+      }
+      assertEquals(count,1);
+      assertEquals(results.size(),1);
+    }
+  finally {
+      scanner.close();
+    }
+    scanner=client.obtainScanner(COLUMNS,HClient.EMPTY_START_ROW,T1);
+    try {
+      HStoreKey key=new HStoreKey();
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      int count=0;
+      while (scanner.next(key,results)) {
+        count++;
+      }
+      assertEquals(count,0);
+      assertEquals(results.size(),0);
+    }
+  finally {
+      scanner.close();
+    }
+    scanner=client.obtainScanner(COLUMNS,HClient.EMPTY_START_ROW,T0);
+    try {
+      HStoreKey key=new HStoreKey();
+      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      int count=0;
+      while (scanner.next(key,results)) {
+        count++;
+      }
+      assertEquals(count,0);
+      assertEquals(results.size(),0);
+    }
+  finally {
+      scanner.close();
+    }
+  }
+ catch (  Exception e) {
+    e.printStackTrace();
+    fail();
+  }
+}

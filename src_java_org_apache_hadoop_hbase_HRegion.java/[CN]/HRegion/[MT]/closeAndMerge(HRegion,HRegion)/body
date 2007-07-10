@@ -1,25 +1,26 @@
 {
+  HRegion a=srcA;
+  HRegion b=srcB;
   if (srcA.getStartKey() == null) {
     if (srcB.getStartKey() == null) {
       throw new IOException("Cannot merge two regions with null start key");
     }
   }
  else   if ((srcB.getStartKey() == null) || (srcA.getStartKey().compareTo(srcB.getStartKey()) > 0)) {
-    HRegion tmp=srcA;
-    srcA=srcB;
-    srcB=tmp;
+    a=srcB;
+    b=srcA;
   }
-  if (!srcA.getEndKey().equals(srcB.getStartKey())) {
+  if (!a.getEndKey().equals(b.getStartKey())) {
     throw new IOException("Cannot merge non-adjacent regions");
   }
-  FileSystem fs=srcA.getFilesystem();
-  Configuration conf=srcA.getConf();
-  HTableDescriptor tabledesc=srcA.getTableDesc();
-  HLog log=srcA.getLog();
-  Path rootDir=srcA.getRootDir();
-  Text startKey=srcA.getStartKey();
-  Text endKey=srcB.getEndKey();
-  Path merges=new Path(srcA.getRegionDir(),MERGEDIR);
+  FileSystem fs=a.getFilesystem();
+  Configuration conf=a.getConf();
+  HTableDescriptor tabledesc=a.getTableDesc();
+  HLog log=a.getLog();
+  Path rootDir=a.getRootDir();
+  Text startKey=a.getStartKey();
+  Text endKey=b.getEndKey();
+  Path merges=new Path(a.getRegionDir(),MERGEDIR);
   if (!fs.exists(merges)) {
     fs.mkdirs(merges);
   }
@@ -28,10 +29,10 @@
   if (fs.exists(newRegionDir)) {
     throw new IOException("Cannot merge; target file collision at " + newRegionDir);
   }
-  LOG.info("starting merge of regions: " + srcA.getRegionName() + " and "+ srcB.getRegionName()+ " new region start key is '"+ (startKey == null ? "" : startKey)+ "', end key is '"+ (endKey == null ? "" : endKey)+ "'");
+  LOG.info("starting merge of regions: " + a.getRegionName() + " and "+ b.getRegionName()+ " new region start key is '"+ (startKey == null ? "" : startKey)+ "', end key is '"+ (endKey == null ? "" : endKey)+ "'");
   TreeSet<HStoreFile> alreadyMerged=new TreeSet<HStoreFile>();
   TreeMap<Text,Vector<HStoreFile>> filesToMerge=new TreeMap<Text,Vector<HStoreFile>>();
-  for (  HStoreFile src : srcA.flushcache(true)) {
+  for (  HStoreFile src : a.flushcache(true)) {
     Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
     if (v == null) {
       v=new Vector<HStoreFile>();
@@ -39,7 +40,7 @@
     }
     v.add(src);
   }
-  for (  HStoreFile src : srcB.flushcache(true)) {
+  for (  HStoreFile src : b.flushcache(true)) {
     Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
     if (v == null) {
       v=new Vector<HStoreFile>();
@@ -58,10 +59,10 @@
     alreadyMerged.addAll(srcFiles);
   }
   if (LOG.isDebugEnabled()) {
-    LOG.debug("flushing changes since start of merge for region " + srcA.getRegionName());
+    LOG.debug("flushing changes since start of merge for region " + a.getRegionName());
   }
   filesToMerge.clear();
-  for (  HStoreFile src : srcA.close()) {
+  for (  HStoreFile src : a.close()) {
     if (!alreadyMerged.contains(src)) {
       Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
       if (v == null) {
@@ -72,9 +73,9 @@
     }
   }
   if (LOG.isDebugEnabled()) {
-    LOG.debug("flushing changes since start of merge for region " + srcB.getRegionName());
+    LOG.debug("flushing changes since start of merge for region " + b.getRegionName());
   }
-  for (  HStoreFile src : srcB.close()) {
+  for (  HStoreFile src : b.close()) {
     if (!alreadyMerged.contains(src)) {
       Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
       if (v == null) {
