@@ -1,0 +1,38 @@
+{
+  Configuration conf=new HBaseConfiguration();
+  HClient client=new HClient(conf);
+  ConsoleReader reader=new ConsoleReader();
+  reader.setBellEnabled(conf.getBoolean("hbaseshell.jline.bell.enabled",DEFAULT_BELL_ENABLED));
+  HelpManager help=new HelpManager();
+  help.printVersion();
+  StringBuilder queryStr=new StringBuilder();
+  String extendedLine;
+  while ((extendedLine=reader.readLine(getPrompt(queryStr))) != null) {
+    if (isEndOfCommand(extendedLine)) {
+      queryStr.append(" " + extendedLine);
+      long start=System.currentTimeMillis();
+      Parser parser=new Parser(queryStr.toString());
+      ReturnMsg rs=null;
+      try {
+        Command cmd=parser.terminatedCommand();
+        if (cmd != null) {
+          rs=cmd.execute(client);
+        }
+      }
+ catch (      ParseException pe) {
+        String[] msg=pe.getMessage().split("[\n]");
+        System.out.println("Syntax error : Type 'help' for usage: " + msg[0]);
+      }
+catch (      TokenMgrError te) {
+        System.out.println("Lexical error : Type 'help' for usage.");
+      }
+      long end=System.currentTimeMillis();
+      if (rs != null && rs.getType() > -1)       System.out.println(rs.getMsg() + executeTime((rs.getType() == 1),start,end));
+      queryStr=new StringBuilder();
+    }
+ else {
+      queryStr.append(" " + extendedLine);
+    }
+  }
+  System.out.println();
+}
