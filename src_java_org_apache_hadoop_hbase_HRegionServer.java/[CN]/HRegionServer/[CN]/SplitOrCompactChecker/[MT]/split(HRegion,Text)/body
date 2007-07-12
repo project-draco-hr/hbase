@@ -5,29 +5,45 @@
   if (LOG.isDebugEnabled()) {
     LOG.debug("Updating " + tableToUpdate + " with region split info");
   }
-  UpdateMetaInterface implementation=new UpdateMetaInterface(){
-    public boolean update() throws IOException {
+  for (int tries=0; tries < numRetries; tries++) {
+    try {
       HRegion.removeRegionFromMETA(client,tableToUpdate,region.getRegionName());
-      for (int i=0; i < newRegions.length; i++) {
-        HRegion.addRegionToMETA(client,tableToUpdate,newRegions[i],serverInfo.getServerAddress(),serverInfo.getStartCode());
+    }
+ catch (    IOException e) {
+      if (tries == numRetries - 1) {
+        if (e instanceof RemoteException) {
+          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+        }
+        throw e;
       }
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Reporting region split to master");
-      }
-      reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
-      LOG.info("region split, META update, and report to master all" + " successful. Old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
-      lock.writeLock().lock();
-      try {
-        onlineRegions.put(newRegions[0].getRegionName(),newRegions[0]);
-        onlineRegions.put(newRegions[1].getRegionName(),newRegions[1]);
-      }
-  finally {
-        lock.writeLock().unlock();
-      }
-      return true;
     }
   }
-;
-  UpdateMetaInterface retryProxy=(UpdateMetaInterface)RetryProxy.create(UpdateMetaInterface.class,implementation,client.getRetryPolicy());
-  retryProxy.update();
+  for (int i=0; i < newRegions.length; i++) {
+    for (int tries=0; tries < numRetries; tries++) {
+      try {
+        HRegion.addRegionToMETA(client,tableToUpdate,newRegions[i],serverInfo.getServerAddress(),serverInfo.getStartCode());
+      }
+ catch (      IOException e) {
+        if (tries == numRetries - 1) {
+          if (e instanceof RemoteException) {
+            e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+          }
+          throw e;
+        }
+      }
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Reporting region split to master");
+  }
+  reportSplit(newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
+  LOG.info("region split, META update, and report to master all" + " successful. Old region=" + oldRegion + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
+  lock.writeLock().lock();
+  try {
+    onlineRegions.put(newRegions[0].getRegionName(),newRegions[0]);
+    onlineRegions.put(newRegions[1].getRegionName(),newRegions[1]);
+  }
+  finally {
+    lock.writeLock().unlock();
+  }
 }
