@@ -1,43 +1,66 @@
 {
-  HClient client=new HClient(conf);
+  final HClient client=new HClient(conf);
+  String msg=null;
   try {
     client.createTable(HGlobals.rootTableDesc);
   }
  catch (  IllegalArgumentException e) {
+    msg=e.toString();
   }
-catch (  Exception e) {
-    System.err.println("Unexpected exception");
-    e.printStackTrace();
-    fail();
-  }
+  assertTrue("Unexcepted exception message " + msg,msg != null && msg.startsWith(IllegalArgumentException.class.getName()) && msg.contains(HGlobals.rootTableDesc.getName().toString()));
+  msg=null;
   try {
     client.createTable(HGlobals.metaTableDesc);
   }
  catch (  IllegalArgumentException e) {
+    msg=e.toString();
   }
-catch (  Exception e) {
-    System.err.println("Unexpected exception");
-    e.printStackTrace();
-    fail();
-  }
-  HTableDescriptor desc=new HTableDescriptor("test");
+  assertTrue("Unexcepted exception message " + msg,msg != null && msg.startsWith(IllegalArgumentException.class.getName()) && msg.contains(HGlobals.metaTableDesc.getName().toString()));
+  msg=null;
+  HTableDescriptor desc=new HTableDescriptor(getName());
   desc.addFamily(new HColumnDescriptor(HConstants.COLUMN_FAMILY.toString()));
+  client.createTable(desc);
   try {
     client.createTable(desc);
   }
- catch (  Exception e) {
-    System.err.println("Unexpected exception");
-    e.printStackTrace();
-    fail();
+ catch (  TableExistsException e) {
+    msg=e.getMessage();
   }
-  try {
-    client.createTable(desc);
+  assertTrue("Unexpected exception message " + msg,msg != null && msg.contains(getName()));
+  final HTableDescriptor threadDesc=new HTableDescriptor("threaded-" + getName());
+  threadDesc.addFamily(new HColumnDescriptor(HConstants.COLUMN_FAMILY.toString()));
+  int count=10;
+  Thread[] threads=new Thread[count];
+  final AtomicInteger successes=new AtomicInteger(0);
+  final AtomicInteger failures=new AtomicInteger(0);
+  for (int i=0; i < count; i++) {
+    threads[i]=new Thread(Integer.toString(i)){
+      @Override public void run(){
+        try {
+          client.createTable(threadDesc);
+          successes.incrementAndGet();
+        }
+ catch (        TableExistsException e) {
+          failures.incrementAndGet();
+        }
+catch (        IOException e) {
+        }
+      }
+    }
+;
   }
- catch (  IOException e) {
+  for (int i=0; i < count; i++) {
+    threads[i].start();
   }
-catch (  Exception e) {
-    System.err.println("Unexpected exception");
-    e.printStackTrace();
-    fail();
+  for (int i=0; i < count; i++) {
+    while (threads[i].isAlive()) {
+      try {
+        Thread.sleep(1000);
+      }
+ catch (      InterruptedException e) {
+      }
+    }
   }
+  assertTrue(successes.get() == 1);
+  assertTrue(failures.get() == (count - 1));
 }
