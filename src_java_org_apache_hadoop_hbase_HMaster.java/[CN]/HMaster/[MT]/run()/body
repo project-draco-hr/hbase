@@ -18,18 +18,13 @@
     LOG.error(e);
   }
   for (PendingOperation op=null; !closed; ) {
-synchronized (msgQueue) {
-      while (msgQueue.size() == 0 && !closed) {
-        try {
-          msgQueue.wait(threadWakeFrequency);
-        }
- catch (        InterruptedException iex) {
-        }
-      }
-      if (closed) {
-        continue;
-      }
-      op=msgQueue.removeFirst();
+    try {
+      op=msgQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
+    }
+ catch (    InterruptedException e) {
+    }
+    if (op == null || closed) {
+      continue;
     }
     try {
       if (LOG.isDebugEnabled()) {
@@ -47,8 +42,11 @@ synchronized (msgQueue) {
         }
       }
       LOG.warn(ex);
-synchronized (msgQueue) {
-        msgQueue.addLast(op);
+      try {
+        msgQueue.put(op);
+      }
+ catch (      InterruptedException e) {
+        throw new RuntimeException("Putting into msgQueue was interrupted.",e);
       }
     }
   }
