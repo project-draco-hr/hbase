@@ -1,10 +1,10 @@
 {
 synchronized (compactLock) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("started compaction of " + this.regionName + "/"+ this.familyName);
-    }
     Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,familyName);
     fs.mkdirs(curCompactStore);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("started compaction of " + mapFiles.size() + " files in "+ curCompactStore.toString());
+    }
     try {
       Vector<HStoreFile> toCompactFiles=null;
       this.lock.obtainWriteLock();
@@ -23,13 +23,10 @@ synchronized (compactLock) {
           }
         }
       }
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("max sequence id: " + maxSeenSeqID);
-      }
       HStoreFile compactedOutputFile=new HStoreFile(conf,compactdir,regionName,familyName,-1);
       if (toCompactFiles.size() == 1) {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("nothing to compact for " + this.regionName + "/"+ this.familyName);
+          LOG.debug("nothing to compact for " + this.storeName);
         }
         HStoreFile hsf=toCompactFiles.elementAt(0);
         if (hsf.loadInfo(fs) == -1) {
@@ -43,16 +40,12 @@ synchronized (compactLock) {
         ImmutableBytesWritable[] vals=new ImmutableBytesWritable[toCompactFiles.size()];
         boolean[] done=new boolean[toCompactFiles.size()];
         int pos=0;
-        for (Iterator<HStoreFile> it=toCompactFiles.iterator(); it.hasNext(); ) {
-          HStoreFile hsf=it.next();
+        for (        HStoreFile hsf : toCompactFiles) {
           readers[pos]=getMapFileReader(hsf.getMapFilePath().toString());
           keys[pos]=new HStoreKey();
           vals[pos]=new ImmutableBytesWritable();
           done[pos]=false;
           pos++;
-        }
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("processing HStoreFile readers");
         }
         int numDone=0;
         for (int i=0; i < readers.length; i++) {
@@ -100,15 +93,12 @@ synchronized (compactLock) {
             numDone++;
           }
         }
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("all HStores processed");
-        }
       }
   finally {
         compactedOut.close();
       }
       if (LOG.isDebugEnabled()) {
-        LOG.debug("writing new compacted HStore");
+        LOG.debug("writing new compacted HStore to " + compactedOutputFile.getMapFilePath().toString());
       }
       if ((!deleteSequenceInfo) && maxSeenSeqID >= 0) {
         compactedOutputFile.writeInfo(fs,maxSeenSeqID);
@@ -131,9 +121,6 @@ synchronized (compactLock) {
       Path doneFile=new Path(curCompactStore,COMPACTION_DONE);
       (new DataOutputStream(fs.create(doneFile))).close();
       processReadyCompaction();
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("compaction complete for " + this.regionName + "/"+ this.familyName);
-      }
     }
   finally {
       fs.delete(compactdir);

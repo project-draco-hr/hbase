@@ -1,40 +1,29 @@
 {
-  Vector<HStoreFile> allHStoreFiles=new Vector<HStoreFile>();
+  long startTime=-1;
   if (LOG.isDebugEnabled()) {
-    LOG.debug("flushing cache for region " + this.regionInfo.regionName);
-  }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("starting memcache snapshot");
+    startTime=System.currentTimeMillis();
+    LOG.debug("Started memcache flush for region " + this.regionInfo.regionName + ". Size "+ StringUtils.humanReadableInt(this.memcache.getSize()));
   }
   HMemcache.Snapshot retval=memcache.snapshotMemcacheForLog(log);
-  TreeMap<HStoreKey,byte[]> memcacheSnapshot=retval.memcacheSnapshot;
-  if (memcacheSnapshot == null) {
-    for (    HStore hstore : stores.values()) {
-      Vector<HStoreFile> hstoreFiles=hstore.getAllMapFiles();
-      allHStoreFiles.addAll(0,hstoreFiles);
-    }
-    return allHStoreFiles;
+  if (retval == null || retval.memcacheSnapshot == null) {
+    return getAllStoreFiles();
   }
   long logCacheFlushId=retval.sequenceId;
   if (LOG.isDebugEnabled()) {
-    LOG.debug("flushing memcache to HStores");
+    LOG.debug("Snapshotted memcache for region " + this.regionInfo.regionName + ". Sequence id "+ retval.sequenceId);
   }
-  for (Iterator<HStore> it=stores.values().iterator(); it.hasNext(); ) {
-    HStore hstore=it.next();
-    Vector<HStoreFile> hstoreFiles=hstore.flushCache(memcacheSnapshot,logCacheFlushId);
+  Vector<HStoreFile> allHStoreFiles=new Vector<HStoreFile>();
+  for (  HStore hstore : stores.values()) {
+    Vector<HStoreFile> hstoreFiles=hstore.flushCache(retval.memcacheSnapshot,retval.sequenceId);
     allHStoreFiles.addAll(0,hstoreFiles);
   }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("writing flush cache complete to log");
-  }
   log.completeCacheFlush(this.regionInfo.regionName,regionInfo.tableDesc.getName(),logCacheFlushId);
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("deleting memcache snapshot");
-  }
   memcache.deleteSnapshot();
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("cache flush complete for region " + this.regionInfo.regionName);
+synchronized (this) {
+    notifyAll();
   }
-  this.commitsSinceFlush=0;
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Finished memcache flush for region " + this.regionInfo.regionName + " in "+ (System.currentTimeMillis() - startTime)+ "ms");
+  }
   return allHStoreFiles;
 }

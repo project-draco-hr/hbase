@@ -2,7 +2,7 @@
   if (((regionInfo.startKey.getLength() != 0) && (regionInfo.startKey.compareTo(midKey) > 0)) || ((regionInfo.endKey.getLength() != 0) && (regionInfo.endKey.compareTo(midKey) < 0))) {
     throw new IOException("Region splitkey must lie within region " + "boundaries.");
   }
-  LOG.info("Splitting region " + this.regionInfo.regionName);
+  long startTime=System.currentTimeMillis();
   Path splits=new Path(regiondir,SPLITDIR);
   if (!fs.exists(splits)) {
     fs.mkdirs(splits);
@@ -16,29 +16,23 @@
   if (fs.exists(dirA) || fs.exists(dirB)) {
     throw new IOException("Cannot split; target file collision at " + dirA + " or "+ dirB);
   }
-  TreeSet<HStoreFile> alreadySplit=new TreeSet<HStoreFile>();
-  Vector<HStoreFile> hstoreFilesToSplit=flushcache(true);
-  for (  HStoreFile hsf : hstoreFilesToSplit) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Splitting HStore " + hsf.getRegionName() + "/"+ hsf.getColFamily()+ "/"+ hsf.fileId());
-    }
-    HStoreFile dstA=new HStoreFile(conf,splits,regionAInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
-    HStoreFile dstB=new HStoreFile(conf,splits,regionBInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
-    hsf.splitStoreFile(midKey,dstA,dstB,fs,conf);
-    alreadySplit.add(hsf);
-  }
   listener.closing(this.getRegionName());
+  LOG.debug("Starting wait on row locks.");
   waitOnRowLocks();
+  LOG.debug("Calling flushcache inside closeAndSplit");
+  Vector<HStoreFile> hstoreFilesToSplit=flushcache(true);
+  if (hstoreFilesToSplit == null) {
+    throw new NullPointerException("Flushcache did not return any files");
+  }
+  TreeSet<HStoreFile> alreadySplit=new TreeSet<HStoreFile>();
+  for (  HStoreFile hsf : hstoreFilesToSplit) {
+    alreadySplit.add(splitStoreFile(hsf,splits,regionAInfo,regionBInfo,midKey));
+  }
   hstoreFilesToSplit=close();
   listener.closed(this.getRegionName());
   for (  HStoreFile hsf : hstoreFilesToSplit) {
     if (!alreadySplit.contains(hsf)) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Splitting HStore " + hsf.getRegionName() + "/"+ hsf.getColFamily()+ "/"+ hsf.fileId());
-      }
-      HStoreFile dstA=new HStoreFile(conf,splits,regionAInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
-      HStoreFile dstB=new HStoreFile(conf,splits,regionBInfo.regionName,hsf.getColFamily(),Math.abs(rand.nextLong()));
-      hsf.splitStoreFile(midKey,dstA,dstB,fs,conf);
+      splitStoreFile(hsf,splits,regionAInfo,regionBInfo,midKey);
     }
   }
   HRegion regionA=new HRegion(rootDir,log,fs,conf,regionAInfo,dirA);
@@ -48,6 +42,6 @@
   HRegion regions[]=new HRegion[2];
   regions[0]=regionA;
   regions[1]=regionB;
-  LOG.info("Region split of " + this.regionInfo.regionName + " complete. "+ "New regions are: "+ regions[0].getRegionName()+ ", "+ regions[1].getRegionName());
+  LOG.info("Region split of " + this.regionInfo.regionName + " complete. "+ "New regions are: "+ regions[0].getRegionName()+ ", "+ regions[1].getRegionName()+ ". Took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
   return regions;
 }

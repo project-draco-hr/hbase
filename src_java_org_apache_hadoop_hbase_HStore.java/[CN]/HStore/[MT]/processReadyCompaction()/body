@@ -4,10 +4,11 @@
   try {
     Path doneFile=new Path(curCompactStore,COMPACTION_DONE);
     if (!fs.exists(doneFile)) {
+      LOG.warn("Redoing a failed compaction");
       return;
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("compaction starting");
+      LOG.debug("Process ready compaction starting");
     }
     Vector<HStoreFile> toCompactFiles=new Vector<HStoreFile>();
     Path filesToReplace=new Path(curCompactStore,COMPACTION_TO_REPLACE);
@@ -24,7 +25,7 @@
       in.close();
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("loaded files to be deleted");
+      LOG.debug("loaded " + toCompactFiles.size() + " file(s) to be deleted");
     }
     Iterator<HStoreFile> it2=mapFiles.values().iterator();
     for (Iterator<MapFile.Reader> it=maps.values().iterator(); it.hasNext(); ) {
@@ -41,28 +42,21 @@
         it.remove();
       }
     }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("unloaded existing MapFiles");
-    }
-    for (Iterator<HStoreFile> it=toCompactFiles.iterator(); it.hasNext(); ) {
-      HStoreFile hsf=it.next();
+    for (    HStoreFile hsf : toCompactFiles) {
       fs.delete(hsf.getMapFilePath());
       fs.delete(hsf.getInfoFilePath());
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("old files deleted");
-    }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("moving new MapFile into place");
+      LOG.debug("old file(s) deleted");
     }
     HStoreFile compactedFile=new HStoreFile(conf,compactdir,regionName,familyName,-1);
     HStoreFile finalCompactedFile=HStoreFile.obtainNewHStoreFile(conf,dir,regionName,familyName,fs);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("moving " + compactedFile.getMapFilePath().toString() + " to "+ finalCompactedFile.getMapFilePath().toString());
+    }
     fs.rename(compactedFile.getMapFilePath(),finalCompactedFile.getMapFilePath());
     fs.rename(compactedFile.getInfoFilePath(),finalCompactedFile.getInfoFilePath());
     Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("loading new TreeMap");
-    }
     mapFiles.put(orderVal,finalCompactedFile);
     maps.put(orderVal,getMapFileReader(finalCompactedFile.getMapFilePath().toString()));
   }

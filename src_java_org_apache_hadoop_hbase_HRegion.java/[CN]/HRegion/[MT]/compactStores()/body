@@ -1,29 +1,32 @@
 {
   boolean shouldCompact=false;
+  if (this.closed.get()) {
+    return shouldCompact;
+  }
   lock.obtainReadLock();
   try {
 synchronized (writestate) {
-      if ((!writestate.writesOngoing) && writestate.writesEnabled && (!writestate.closed)&& recentCommits > MIN_COMMITS_FOR_COMPACTION) {
+      if ((!writestate.writesOngoing) && writestate.writesEnabled) {
         writestate.writesOngoing=true;
         shouldCompact=true;
       }
     }
     if (!shouldCompact) {
-      LOG.info("not compacting region " + this.regionInfo);
+      LOG.info("NOT compacting region " + this.regionInfo.getRegionName().toString());
       return false;
     }
-    LOG.info("starting compaction on region " + this.regionInfo);
+    long startTime=System.currentTimeMillis();
+    LOG.info("starting compaction on region " + this.regionInfo.getRegionName().toString());
     for (    HStore store : stores.values()) {
       store.compact();
     }
-    LOG.info("compaction completed on region " + this.regionInfo);
+    LOG.info("compaction completed on region " + this.regionInfo.getRegionName().toString() + ". Took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
     return true;
   }
   finally {
     lock.releaseReadLock();
 synchronized (writestate) {
       writestate.writesOngoing=false;
-      recentCommits=0;
       writestate.notifyAll();
     }
   }
