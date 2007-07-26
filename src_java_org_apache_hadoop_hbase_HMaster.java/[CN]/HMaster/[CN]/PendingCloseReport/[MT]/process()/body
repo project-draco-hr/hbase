@@ -1,31 +1,34 @@
 {
   for (int tries=0; tries < numRetries; tries++) {
-    if (metaScanner.waitForMetaScanOrClose()) {
-      return;
-    }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("region closed: " + regionInfo.regionName);
-    }
+    LOG.info("region closed: " + regionInfo.regionName);
     Text metaRegionName;
     HRegionInterface server;
+    if (closed) {
+      return true;
+    }
     if (rootRegion) {
-      metaRegionName=HGlobals.rootRegionInfo.regionName;
-      if (waitForRootRegionOrClose()) {
-        return;
+      if (rootRegionLocation == null || !rootScanned) {
+        return false;
       }
+      metaRegionName=HGlobals.rootRegionInfo.regionName;
       server=client.getHRegionConnection(rootRegionLocation);
+      onlineMetaRegions.remove(regionInfo.getStartKey());
     }
  else {
+      if (!rootScanned || numberOfMetaRegions.get() != onlineMetaRegions.size()) {
+        return false;
+      }
       MetaRegion r=null;
-      if (knownMetaRegions.containsKey(regionInfo.regionName)) {
-        r=knownMetaRegions.get(regionInfo.regionName);
+      if (onlineMetaRegions.containsKey(regionInfo.getRegionName())) {
+        r=onlineMetaRegions.get(regionInfo.getRegionName());
       }
  else {
-        r=knownMetaRegions.get(knownMetaRegions.headMap(regionInfo.regionName).lastKey());
+        r=onlineMetaRegions.get(onlineMetaRegions.headMap(regionInfo.getRegionName()).lastKey());
       }
       metaRegionName=r.regionName;
       server=client.getHRegionConnection(r.server);
     }
+    long clientId=rand.nextLong();
     try {
       long lockid=server.startUpdate(metaRegionName,clientId,regionInfo.regionName);
       if (deleteRegion) {
@@ -54,9 +57,7 @@
     }
   }
   if (reassignRegion) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("reassign region: " + regionInfo.regionName);
-    }
+    LOG.info("reassign region: " + regionInfo.regionName);
     unassignedRegions.put(regionInfo.regionName,regionInfo);
     assignAttempts.put(regionInfo.regionName,Long.valueOf(0L));
   }
@@ -73,4 +74,5 @@
       throw e;
     }
   }
+  return true;
 }

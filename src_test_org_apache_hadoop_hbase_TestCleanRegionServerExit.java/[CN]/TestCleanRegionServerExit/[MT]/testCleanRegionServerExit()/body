@@ -1,15 +1,31 @@
 {
+  this.client.openTable(HConstants.META_TABLE_NAME);
+  String tableName=getName();
+  HTableDescriptor desc=new HTableDescriptor(tableName);
+  desc.addFamily(new HColumnDescriptor(HConstants.COLUMN_FAMILY.toString()));
+  this.client.createTable(desc);
+  this.client.openTable(new Text(tableName));
+  Text row=new Text("row1");
+  long lockid=client.startUpdate(row);
+  client.put(lockid,HConstants.COLUMN_FAMILY,tableName.getBytes(HConstants.UTF8_ENCODING));
+  client.commit(lockid);
+  this.cluster.startRegionServer();
+  this.cluster.stopRegionServer(0);
+  this.cluster.waitOnRegionServer(0);
+  HScannerInterface scanner=client.obtainScanner(HConstants.COLUMN_FAMILY_ARRAY,new Text());
   try {
-    this.client.openTable(HConstants.META_TABLE_NAME);
-    this.client.createTable(new HTableDescriptor(getName()));
-    HRegionServer hsr=this.cluster.regionServers.get(0);
-    Thread hrst=this.cluster.regionThreads.get(0);
-    this.cluster.startRegionServer();
-    hsr.stop();
-    hrst.join();
+    HStoreKey key=new HStoreKey();
+    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+    while (scanner.next(key,results)) {
+      assertTrue(key.getRow().equals(row));
+      assertEquals(1,results.size());
+      byte[] bytes=results.get(HConstants.COLUMN_FAMILY);
+      assertNotNull(bytes);
+      assertTrue(tableName.equals(new String(bytes,HConstants.UTF8_ENCODING)));
+    }
+    System.out.println("Success!");
   }
- catch (  Exception e) {
-    e.printStackTrace();
-    fail();
+  finally {
+    scanner.close();
   }
 }

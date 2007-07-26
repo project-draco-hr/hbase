@@ -1,13 +1,11 @@
 {
-  boolean scannedRegion=false;
   HRegionInterface regionServer=null;
   long scannerId=-1L;
-  if (LOG.isDebugEnabled()) {
-    LOG.debug(Thread.currentThread().getName() + " scanning meta region " + region.regionName);
-  }
+  LOG.info(Thread.currentThread().getName() + " scanning meta region " + region.regionName);
   try {
     regionServer=client.getHRegionConnection(region.server);
     scannerId=regionServer.openScanner(region.regionName,METACOLUMNS,FIRST_ROW,System.currentTimeMillis(),null);
+    int numberOfRegionsFound=0;
     while (true) {
       TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
       KeyedData[] values=regionServer.next(scannerId);
@@ -24,18 +22,25 @@
         LOG.debug(Thread.currentThread().getName() + " scanner: " + Long.valueOf(scannerId)+ " regioninfo: {"+ info.toString()+ "}, server: "+ serverName+ ", startCode: "+ startCode);
       }
       checkAssigned(info,serverName,startCode);
-      scannedRegion=true;
+      numberOfRegionsFound+=1;
+    }
+    if (rootRegion) {
+      numberOfMetaRegions.set(numberOfRegionsFound);
     }
   }
- catch (  UnknownScannerException e) {
-    scannerId=-1L;
+ catch (  IOException e) {
+    if (e instanceof RemoteException) {
+      e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+      if (e instanceof UnknownScannerException) {
+        scannerId=-1L;
+      }
+    }
+    throw e;
   }
  finally {
     try {
-      if (scannerId != -1L) {
-        if (regionServer != null) {
-          regionServer.close(scannerId);
-        }
+      if (scannerId != -1L && regionServer != null) {
+        regionServer.close(scannerId);
       }
     }
  catch (    IOException e) {
@@ -45,8 +50,5 @@
       LOG.error(e);
     }
   }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug(Thread.currentThread().getName() + " scan of meta region " + region.regionName+ " complete");
-  }
-  return scannedRegion;
+  LOG.info(Thread.currentThread().getName() + " scan of meta region " + region.regionName+ " complete");
 }

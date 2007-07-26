@@ -1,0 +1,58 @@
+{
+  checkMaster();
+  HServerAddress rootRegionLocation=null;
+  for (int tries=0; tries < numRetries; tries++) {
+    int localTimeouts=0;
+    while (rootRegionLocation == null && localTimeouts < numRetries) {
+      rootRegionLocation=master.findRootRegion();
+      if (rootRegionLocation == null) {
+        try {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Sleeping. Waiting for root region.");
+          }
+          Thread.sleep(pause);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Wake. Retry finding root region.");
+          }
+        }
+ catch (        InterruptedException iex) {
+        }
+        localTimeouts++;
+      }
+    }
+    if (rootRegionLocation == null) {
+      throw new NoServerForRegionException("Timed out trying to locate root region");
+    }
+    HRegionInterface rootRegion=getHRegionConnection(rootRegionLocation);
+    try {
+      rootRegion.getRegionInfo(HGlobals.rootRegionInfo.regionName);
+      break;
+    }
+ catch (    IOException e) {
+      if (tries == numRetries - 1) {
+        if (e instanceof RemoteException) {
+          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+        }
+        throw e;
+      }
+      try {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Root region location changed. Sleeping.");
+        }
+        Thread.sleep(pause);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Wake. Retry finding root region.");
+        }
+      }
+ catch (      InterruptedException iex) {
+      }
+    }
+    rootRegionLocation=null;
+  }
+  if (rootRegionLocation == null) {
+    throw new NoServerForRegionException("unable to locate root region server");
+  }
+  TreeMap<Text,RegionLocation> rootServer=new TreeMap<Text,RegionLocation>();
+  rootServer.put(EMPTY_START_ROW,new RegionLocation(HGlobals.rootRegionInfo,rootRegionLocation));
+  return rootServer;
+}

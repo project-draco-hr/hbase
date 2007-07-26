@@ -1,5 +1,5 @@
 {
-  Vector<HMsg> returnMsgs=new Vector<HMsg>();
+  ArrayList<HMsg> returnMsgs=new ArrayList<HMsg>();
   TreeMap<Text,HRegionInfo> regionsToKill=killList.remove(info.getServerAddress().toString());
   for (int i=0; i < incomingMsgs.length; i++) {
     HRegionInfo region=incomingMsgs[i].getRegionInfo();
@@ -13,27 +13,14 @@ case HMsg.MSG_REPORT_OPEN:
       returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
     }
  else {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(info.getServerAddress().toString() + " serving " + region.regionName);
-      }
-      pendingRegions.add(region.regionName);
+      LOG.info(info.getServerAddress().toString() + " serving " + region.regionName);
       unassignedRegions.remove(region.regionName);
       assignAttempts.remove(region.regionName);
       if (region.regionName.compareTo(HGlobals.rootRegionInfo.regionName) == 0) {
         rootRegionLocation=new HServerAddress(info.getServerAddress());
-        rootRegionIsAvailable();
         break;
       }
- else       if (region.tableDesc.getName().equals(META_TABLE_NAME)) {
-        MetaRegion r=new MetaRegion();
-        r.server=info.getServerAddress();
-        r.regionName=region.regionName;
-        r.startKey=region.startKey;
-synchronized (metaRegionsToScan) {
-          metaRegionsToScan.add(r);
-          metaRegionsToScan.notifyAll();
-        }
-      }
+      pendingRegions.add(region.regionName);
       try {
         msgQueue.put(new PendingOpenReport(info,region));
       }
@@ -43,9 +30,7 @@ synchronized (metaRegionsToScan) {
     }
   break;
 case HMsg.MSG_REPORT_CLOSE:
-if (LOG.isDebugEnabled()) {
-  LOG.debug(info.getServerAddress().toString() + " no longer serving " + region.regionName);
-}
+LOG.info(info.getServerAddress().toString() + " no longer serving " + region.regionName);
 if (region.regionName.compareTo(HGlobals.rootRegionInfo.regionName) == 0) {
 rootRegionLocation=null;
 unassignedRegions.put(region.regionName,region);
@@ -71,12 +56,15 @@ try {
 }
 }
 break;
-case HMsg.MSG_NEW_REGION:
-if (LOG.isDebugEnabled()) {
-LOG.debug("new region " + region.regionName);
-}
+case HMsg.MSG_REPORT_SPLIT:
+HRegionInfo newRegionA=incomingMsgs[++i].getRegionInfo();
+HRegionInfo newRegionB=incomingMsgs[++i].getRegionInfo();
+LOG.info("region " + region.regionName + " split. New regions are: "+ newRegionA.regionName+ ", "+ newRegionB.regionName);
 if (region.tableDesc.getName().equals(META_TABLE_NAME)) {
-allMetaRegionsScanned=false;
+onlineMetaRegions.remove(region.getStartKey());
+onlineMetaRegions.put(newRegionA.getStartKey(),new MetaRegion(info.getServerAddress(),newRegionA.getRegionName(),newRegionA.getStartKey()));
+onlineMetaRegions.put(newRegionB.getStartKey(),new MetaRegion(info.getServerAddress(),newRegionB.getRegionName(),newRegionB.getStartKey()));
+numberOfMetaRegions.incrementAndGet();
 }
 break;
 default :
@@ -97,9 +85,7 @@ for (Text curRegionName : unassignedRegions.keySet()) {
 HRegionInfo regionInfo=unassignedRegions.get(curRegionName);
 long assignedTime=assignAttempts.get(curRegionName);
 if (now - assignedTime > maxRegionOpenTime) {
-if (LOG.isDebugEnabled()) {
-LOG.debug("assigning region " + regionInfo.regionName + " to server "+ info.getServerAddress().toString());
-}
+LOG.info("assigning region " + regionInfo.regionName + " to server "+ info.getServerAddress().toString());
 returnMsgs.add(new HMsg(HMsg.MSG_REGION_OPEN,regionInfo));
 assignAttempts.put(curRegionName,Long.valueOf(now));
 counter++;
