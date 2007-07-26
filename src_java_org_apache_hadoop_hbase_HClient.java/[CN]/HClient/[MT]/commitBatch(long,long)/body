@@ -1,0 +1,38 @@
+{
+  BatchUpdate u=batch.get();
+  if (u == null) {
+    throw new IllegalStateException("no batch update in progress");
+  }
+  if (u.getLockid() != lockid) {
+    throw new IllegalArgumentException("invalid lock id " + lockid);
+  }
+  try {
+    for (int tries=0; tries < numRetries; tries++) {
+      RegionLocation r=getRegionLocation(u.getRow());
+      HRegionInterface server=getHRegionConnection(r.serverAddress);
+      try {
+        server.batchUpdate(r.getRegionInfo().getRegionName(),timestamp,u);
+        break;
+      }
+ catch (      IOException e) {
+        if (tries < numRetries - 1) {
+          reloadCurrentTable(r);
+        }
+ else {
+          if (e instanceof RemoteException) {
+            e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+          }
+          throw e;
+        }
+      }
+      try {
+        Thread.sleep(pause);
+      }
+ catch (      InterruptedException e) {
+      }
+    }
+  }
+  finally {
+    batch.set(null);
+  }
+}
