@@ -1,0 +1,30 @@
+{
+synchronized (this.masterLock) {
+    for (int tries=0; !this.masterChecked && this.master == null && tries < numRetries; tries++) {
+      HServerAddress masterLocation=new HServerAddress(this.conf.get(MASTER_ADDRESS,DEFAULT_MASTER_ADDRESS));
+      try {
+        HMasterInterface tryMaster=(HMasterInterface)RPC.getProxy(HMasterInterface.class,HMasterInterface.versionID,masterLocation.getInetSocketAddress(),this.conf);
+        if (tryMaster.isMasterRunning()) {
+          this.master=tryMaster;
+          break;
+        }
+      }
+ catch (      IOException e) {
+        if (tries == numRetries - 1) {
+          break;
+        }
+        LOG.info("Attempt " + tries + " of "+ this.numRetries+ " failed with <"+ e+ ">. Retrying after sleep of "+ this.pause);
+      }
+      try {
+        Thread.sleep(this.pause);
+      }
+ catch (      InterruptedException e) {
+      }
+    }
+    this.masterChecked=true;
+  }
+  if (this.master == null) {
+    throw new MasterNotRunningException();
+  }
+  return this.master;
+}

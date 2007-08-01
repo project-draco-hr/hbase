@@ -1,0 +1,39 @@
+{
+  if (currentLockId != -1L || batch != null) {
+    throw new IllegalStateException("update in progress");
+  }
+  for (int tries=0; tries < numRetries; tries++) {
+    IOException e=null;
+    HRegionLocation info=getRegionLocation(row);
+    try {
+      currentServer=connection.getHRegionConnection(info.getServerAddress());
+      currentRegion=info.getRegionInfo().getRegionName();
+      clientid=rand.nextLong();
+      currentLockId=currentServer.startUpdate(currentRegion,clientid,row);
+      break;
+    }
+ catch (    IOException ex) {
+      e=ex;
+    }
+    if (tries < numRetries - 1) {
+      try {
+        Thread.sleep(this.pause);
+      }
+ catch (      InterruptedException ex) {
+      }
+      try {
+        tableServers=connection.reloadTableServers(tableName);
+      }
+ catch (      IOException ex) {
+        e=ex;
+      }
+    }
+ else {
+      if (e instanceof RemoteException) {
+        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+      }
+      throw e;
+    }
+  }
+  return currentLockId;
+}

@@ -1,0 +1,44 @@
+{
+  if (this.scannerId != -1L) {
+    this.server.close(this.scannerId);
+    this.scannerId=-1L;
+  }
+  this.currentRegion+=1;
+  if (this.currentRegion == this.regions.length()) {
+    close();
+    return false;
+  }
+  try {
+    for (int tries=0; tries < numRetries; tries++) {
+      HRegionLocation r=this.regions.get(currentRegion);
+      this.server=connection.getHRegionConnection(r.getServerAddress());
+      try {
+        if (this.filter == null) {
+          this.scannerId=this.server.openScanner(r.getRegionInfo().getRegionName(),this.columns,currentRegion == 0 ? this.startRow : EMPTY_START_ROW,scanTime,null);
+        }
+ else {
+          this.scannerId=this.server.openScanner(r.getRegionInfo().getRegionName(),this.columns,currentRegion == 0 ? this.startRow : EMPTY_START_ROW,scanTime,filter);
+        }
+        break;
+      }
+ catch (      IOException e) {
+        if (tries == numRetries - 1) {
+          if (e instanceof RemoteException) {
+            e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+          }
+          throw e;
+        }
+        tableServers=connection.reloadTableServers(tableName);
+        loadRegions();
+      }
+    }
+  }
+ catch (  IOException e) {
+    close();
+    if (e instanceof RemoteException) {
+      e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+    }
+    throw e;
+  }
+  return true;
+}
