@@ -9,29 +9,29 @@ synchronized (tableInCreation) {
   try {
     MetaRegion m=(onlineMetaRegions.containsKey(newRegion.regionName)) ? onlineMetaRegions.get(newRegion.regionName) : onlineMetaRegions.get(onlineMetaRegions.headMap(newRegion.getTableDesc().getName()).lastKey());
     Text metaRegionName=m.regionName;
-    HRegionInterface connection=client.getHRegionConnection(m.server);
-    long scannerid=connection.openScanner(metaRegionName,new Text[]{COL_REGIONINFO},tableName,System.currentTimeMillis(),null);
+    HRegionInterface r=connection.getHRegionConnection(m.server);
+    long scannerid=r.openScanner(metaRegionName,new Text[]{COL_REGIONINFO},tableName,System.currentTimeMillis(),null);
     try {
-      KeyedData[] data=connection.next(scannerid);
+      KeyedData[] data=r.next(scannerid);
       if (data != null && data.length > 0 && HRegionInfo.getTableNameFromRegionName(data[0].getKey().getRow()).equals(tableName)) {
         throw new TableExistsException(tableName.toString());
       }
     }
   finally {
-      connection.close(scannerid);
+      r.close(scannerid);
     }
-    HRegion r=HRegion.createHRegion(newRegion.regionId,newRegion.getTableDesc(),this.dir,this.conf);
-    HRegionInfo info=r.getRegionInfo();
-    Text regionName=r.getRegionName();
+    HRegion region=HRegion.createHRegion(newRegion.regionId,newRegion.getTableDesc(),this.dir,this.conf);
+    HRegionInfo info=region.getRegionInfo();
+    Text regionName=region.getRegionName();
     ByteArrayOutputStream byteValue=new ByteArrayOutputStream();
     DataOutputStream s=new DataOutputStream(byteValue);
     info.write(s);
     long clientId=rand.nextLong();
-    long lockid=connection.startUpdate(metaRegionName,clientId,regionName);
-    connection.put(metaRegionName,clientId,lockid,COL_REGIONINFO,byteValue.toByteArray());
-    connection.commit(metaRegionName,clientId,lockid,System.currentTimeMillis());
-    r.close();
-    r.getLog().closeAndDelete();
+    long lockid=r.startUpdate(metaRegionName,clientId,regionName);
+    r.put(metaRegionName,clientId,lockid,COL_REGIONINFO,byteValue.toByteArray());
+    r.commit(metaRegionName,clientId,lockid,System.currentTimeMillis());
+    region.close();
+    region.getLog().closeAndDelete();
     unassignedRegions.put(regionName,info);
     assignAttempts.put(regionName,Long.valueOf(0L));
   }
