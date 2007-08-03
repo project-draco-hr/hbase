@@ -1,0 +1,50 @@
+{
+  HTableDescriptor tableAdesc=new HTableDescriptor(tableAname.toString());
+  tableAdesc.addFamily(column);
+  HTableDescriptor tableBdesc=new HTableDescriptor(tableBname.toString());
+  tableBdesc.addFamily(column);
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  admin.createTable(tableAdesc);
+  admin.createTable(tableBdesc);
+  byte[] value="value".getBytes(UTF8_ENCODING);
+  HTable a=new HTable(conf,tableAname);
+  long lockid=a.startBatchUpdate(row);
+  a.put(lockid,COLUMN_FAMILY,value);
+  a.commit(lockid);
+  HTable newA=new HTable(conf,tableAname);
+  HTable b=new HTable(conf,tableBname);
+  HScannerInterface s=newA.obtainScanner(COLUMN_FAMILY_ARRAY,EMPTY_START_ROW);
+  try {
+    HStoreKey key=new HStoreKey();
+    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+    while (s.next(key,results)) {
+      lockid=b.startBatchUpdate(key.getRow());
+      for (      Map.Entry<Text,byte[]> e : results.entrySet()) {
+        b.put(lockid,e.getKey(),e.getValue());
+      }
+      b.commit(lockid);
+    }
+  }
+  finally {
+    s.close();
+  }
+  a.close();
+  try {
+    a.get(row,COLUMN_FAMILY);
+    fail();
+  }
+ catch (  IllegalStateException e) {
+  }
+catch (  Exception e) {
+    e.printStackTrace();
+    fail();
+  }
+  try {
+    HTable anotherA=new HTable(conf,tableAname);
+    anotherA.get(row,COLUMN_FAMILY);
+  }
+ catch (  Exception e) {
+    e.printStackTrace();
+    fail();
+  }
+}
