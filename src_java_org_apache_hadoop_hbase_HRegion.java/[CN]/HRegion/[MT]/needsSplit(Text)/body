@@ -1,21 +1,17 @@
 {
   lock.obtainReadLock();
   try {
-    Text key=new Text();
-    long maxSize=0;
-    long aggregateSize=0;
-    for (    HStore store : stores.values()) {
-      long size=store.getLargestFileSize(key);
-      aggregateSize+=size;
-      if (size > maxSize) {
-        maxSize=size;
-        midKey.set(key);
-      }
-    }
+    HStore.HStoreSize biggest=largestHStore(midKey);
     long triggerSize=this.desiredMaxFileSize + (this.desiredMaxFileSize / 2);
-    boolean split=(maxSize >= triggerSize || aggregateSize >= triggerSize);
+    boolean split=(biggest.getAggregate() >= triggerSize);
     if (split) {
-      LOG.info("Splitting " + getRegionName().toString() + " because largest file is "+ StringUtils.humanReadableInt(maxSize)+ ", aggregate size is "+ StringUtils.humanReadableInt(aggregateSize)+ " and desired size is "+ StringUtils.humanReadableInt(this.desiredMaxFileSize));
+      if (!biggest.isSplitable()) {
+        LOG.warn("Region " + getRegionName().toString() + " is NOT splitable though its aggregate size is "+ StringUtils.humanReadableInt(biggest.getAggregate())+ " and desired size is "+ StringUtils.humanReadableInt(this.desiredMaxFileSize));
+        split=false;
+      }
+ else {
+        LOG.info("Splitting " + getRegionName().toString() + " because largest aggregate size is "+ StringUtils.humanReadableInt(biggest.getAggregate())+ " and desired size is "+ StringUtils.humanReadableInt(this.desiredMaxFileSize));
+      }
     }
     return split;
   }

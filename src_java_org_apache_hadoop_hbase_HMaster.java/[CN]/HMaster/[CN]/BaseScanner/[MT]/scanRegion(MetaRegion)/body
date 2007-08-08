@@ -1,7 +1,8 @@
 {
   HRegionInterface regionServer=null;
   long scannerId=-1L;
-  LOG.info(Thread.currentThread().getName() + " scanning meta region " + region.regionName);
+  LOG.info(Thread.currentThread().getName() + " scanning meta region " + region.regionName+ " on "+ region.server.toString());
+  Map<HRegionInfo,TreeMap<Text,byte[]>> splitParents=new HashMap<HRegionInfo,TreeMap<Text,byte[]>>();
   try {
     regionServer=connection.getHRegionConnection(region.server);
     scannerId=regionServer.openScanner(region.regionName,METACOLUMNS,FIRST_ROW,System.currentTimeMillis(),null);
@@ -22,6 +23,9 @@
         LOG.debug(Thread.currentThread().getName() + " scanner: " + Long.valueOf(scannerId)+ " regioninfo: {"+ info.toString()+ "}, server: "+ serverName+ ", startCode: "+ startCode);
       }
       checkAssigned(info,serverName,startCode);
+      if (isSplitParent(info)) {
+        splitParents.put(info,results);
+      }
       numberOfRegionsFound+=1;
     }
     if (rootRegion) {
@@ -47,7 +51,13 @@
       if (e instanceof RemoteException) {
         e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
       }
-      LOG.error(e);
+      LOG.error("Closing scanner",e);
+    }
+  }
+  if (splitParents.size() > 0) {
+    for (    Map.Entry<HRegionInfo,TreeMap<Text,byte[]>> e : splitParents.entrySet()) {
+      TreeMap<Text,byte[]> results=e.getValue();
+      cleanupSplits(e.getKey(),HRegion.getSplit(results,HRegion.COL_SPLITA),HRegion.getSplit(results,HRegion.COL_SPLITB));
     }
   }
   LOG.info(Thread.currentThread().getName() + " scan of meta region " + region.regionName+ " complete");

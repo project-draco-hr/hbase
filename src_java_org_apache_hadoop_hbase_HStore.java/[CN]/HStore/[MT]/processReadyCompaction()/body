@@ -7,9 +7,6 @@
       LOG.warn("Redoing a failed compaction");
       return;
     }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Process ready compaction starting");
-    }
     Vector<HStoreFile> toCompactFiles=new Vector<HStoreFile>();
     Path filesToReplace=new Path(curCompactStore,COMPACTION_TO_REPLACE);
     DataInputStream in=new DataInputStream(fs.open(filesToReplace));
@@ -24,41 +21,32 @@
   finally {
       in.close();
     }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("loaded " + toCompactFiles.size() + " file(s) to be deleted");
-    }
-    Iterator<HStoreFile> it2=mapFiles.values().iterator();
-    for (Iterator<MapFile.Reader> it=maps.values().iterator(); it.hasNext(); ) {
-      MapFile.Reader curReader=it.next();
-      HStoreFile curMapFile=it2.next();
-      if (toCompactFiles.contains(curMapFile)) {
-        curReader.close();
-        it.remove();
+    Vector<Long> keys=new Vector<Long>(toCompactFiles.size());
+    for (    Map.Entry<Long,HStoreFile> e : storefiles.entrySet()) {
+      if (toCompactFiles.contains(e.getValue())) {
+        keys.add(e.getKey());
       }
     }
-    for (Iterator<HStoreFile> it=mapFiles.values().iterator(); it.hasNext(); ) {
-      HStoreFile curMapFile=it.next();
-      if (toCompactFiles.contains(curMapFile)) {
-        it.remove();
+    for (    Long key : keys) {
+      MapFile.Reader reader=this.readers.remove(key);
+      if (reader != null) {
+        reader.close();
       }
-    }
-    for (    HStoreFile hsf : toCompactFiles) {
-      fs.delete(hsf.getMapFilePath());
-      fs.delete(hsf.getInfoFilePath());
+      HStoreFile hsf=this.storefiles.remove(key);
+      hsf.delete();
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("old file(s) deleted");
+      LOG.debug("deleted " + toCompactFiles.size() + " old file(s)");
     }
     HStoreFile compactedFile=new HStoreFile(conf,compactdir,regionName,familyName,-1);
     HStoreFile finalCompactedFile=HStoreFile.obtainNewHStoreFile(conf,dir,regionName,familyName,fs);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("moving " + compactedFile.getMapFilePath().toString() + " to "+ finalCompactedFile.getMapFilePath().toString());
+      LOG.debug("moving " + compactedFile.toString() + " in "+ compactdir.toString()+ " to "+ finalCompactedFile.toString()+ " in "+ dir.toString());
     }
-    fs.rename(compactedFile.getMapFilePath(),finalCompactedFile.getMapFilePath());
-    fs.rename(compactedFile.getInfoFilePath(),finalCompactedFile.getInfoFilePath());
+    compactedFile.rename(this.fs,finalCompactedFile);
     Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
-    mapFiles.put(orderVal,finalCompactedFile);
-    maps.put(orderVal,getMapFileReader(finalCompactedFile.getMapFilePath().toString()));
+    this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.bloomFilter));
+    this.storefiles.put(orderVal,finalCompactedFile);
   }
   finally {
     this.lock.releaseWriteLock();

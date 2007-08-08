@@ -1,0 +1,30 @@
+{
+  HStoreFile hsf=new HStoreFile(this.conf,this.dir,new Text(getName()),new Text("colfamily"),1234567890L);
+  MapFile.Writer writer=hsf.getWriter(this.fs,SequenceFile.CompressionType.NONE,null);
+  writeStoreFile(writer);
+  MapFile.Reader reader=hsf.getReader(this.fs,null);
+  HStoreKey midkey=new HStoreKey(((HStoreKey)reader.midKey()).getRow());
+  HStoreKey hsk=new HStoreKey();
+  reader.finalKey(hsk);
+  Text finalKey=hsk.getRow();
+  HStoreFile.Reference reference=new HStoreFile.Reference(hsf.getRegionName(),hsf.getFileId(),midkey,HStoreFile.Range.top);
+  HStoreFile refHsf=new HStoreFile(this.conf,new Path(DIR,getName()),new Text(getName() + "_reference"),hsf.getColFamily(),456,reference);
+  refHsf.writeReferenceFiles(this.fs);
+  assertTrue(this.fs.exists(refHsf.getMapFilePath()));
+  assertTrue(this.fs.exists(refHsf.getInfoFilePath()));
+  HStoreFile.Reference otherReference=HStoreFile.readSplitInfo(refHsf.getInfoFilePath(),this.fs);
+  assertEquals(reference.getRegionName().toString(),otherReference.getRegionName().toString());
+  assertEquals(reference.getFileId(),otherReference.getFileId());
+  assertEquals(reference.getMidkey().toString(),otherReference.getMidkey().toString());
+  MapFile.Reader halfReader=refHsf.getReader(this.fs,null);
+  HStoreKey key=new HStoreKey();
+  ImmutableBytesWritable value=new ImmutableBytesWritable();
+  boolean first=true;
+  while (halfReader.next(key,value)) {
+    if (first) {
+      assertEquals(key.getRow().toString(),midkey.getRow().toString());
+      first=false;
+    }
+  }
+  assertEquals(key.getRow().toString(),finalKey.toString());
+}

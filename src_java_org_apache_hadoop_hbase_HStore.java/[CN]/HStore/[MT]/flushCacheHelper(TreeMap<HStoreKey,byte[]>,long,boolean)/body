@@ -1,16 +1,17 @@
 {
 synchronized (flushLock) {
     HStoreFile flushedFile=HStoreFile.obtainNewHStoreFile(conf,dir,regionName,familyName,fs);
-    Path mapfile=flushedFile.getMapFilePath();
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Flushing to " + mapfile.toString());
-    }
-    MapFile.Writer out=getMapFileWriter(mapfile.toString());
+    String name=flushedFile.toString();
+    MapFile.Writer out=flushedFile.getWriter(this.fs,this.compression,this.bloomFilter);
+    int count=0;
+    int total=0;
     try {
       for (      Map.Entry<HStoreKey,byte[]> es : inputCache.entrySet()) {
         HStoreKey curkey=es.getKey();
+        total++;
         if (this.familyName.equals(HStoreKey.extractFamily(curkey.getColumn()))) {
           out.append(curkey,new ImmutableBytesWritable(es.getValue()));
+          count++;
         }
       }
     }
@@ -25,10 +26,10 @@ synchronized (flushLock) {
       this.lock.obtainWriteLock();
       try {
         Long flushid=Long.valueOf(logCacheFlushId);
-        maps.put(flushid,getMapFileReader(mapfile.toString()));
-        mapFiles.put(flushid,flushedFile);
+        this.readers.put(flushid,flushedFile.getReader(this.fs,this.bloomFilter));
+        this.storefiles.put(flushid,flushedFile);
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Added " + mapfile.toString() + " with flush id "+ logCacheFlushId+ " and size "+ StringUtils.humanReadableInt(mapfile.getFileSystem(this.conf).getContentLength(mapfile)));
+          LOG.debug("Added " + name + " with sequence id "+ logCacheFlushId+ " and size "+ StringUtils.humanReadableInt(flushedFile.length()));
         }
       }
   finally {

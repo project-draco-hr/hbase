@@ -1,0 +1,83 @@
+{
+  MapFile.Reader top=null;
+  MapFile.Reader bottom=null;
+  HStoreKey key=new HStoreKey();
+  ImmutableBytesWritable value=new ImmutableBytesWritable();
+  String previous=null;
+  try {
+    bottom=new HStoreFile.HalfMapFileReader(this.fs,p.toString(),this.conf,HStoreFile.Range.bottom,midkey);
+    boolean first=true;
+    while (bottom.next(key,value)) {
+      previous=key.toString();
+      if (first) {
+        first=false;
+        LOG.info("First in bottom: " + previous);
+      }
+      assertTrue(key.compareTo(midkey) < 0);
+    }
+    LOG.info("Last in bottom: " + previous.toString());
+    top=new HStoreFile.HalfMapFileReader(this.fs,p.toString(),this.conf,HStoreFile.Range.top,midkey);
+    first=true;
+    while (top.next(key,value)) {
+      assertTrue(key.compareTo(midkey) >= 0);
+      if (first) {
+        first=false;
+        assertEquals(((HStoreKey)midkey).getRow().toString(),key.getRow().toString());
+        LOG.info("First in top: " + key.toString());
+      }
+    }
+    LOG.info("Last in top: " + key.toString());
+    top.getClosest(midkey,value);
+    assertEquals(new String(value.get()),((HStoreKey)midkey).getRow().toString());
+    midkey=new HStoreKey(new Text("   "));
+    bottom=new HStoreFile.HalfMapFileReader(this.fs,p.toString(),this.conf,HStoreFile.Range.bottom,midkey);
+    assertFalse(bottom.next(key,value));
+    top=new HStoreFile.HalfMapFileReader(this.fs,p.toString(),this.conf,HStoreFile.Range.top,midkey);
+    first=true;
+    while (top.next(key,value)) {
+      assertTrue(key.compareTo(midkey) >= 0);
+      if (first) {
+        first=false;
+        LOG.info("First top when key < bottom: " + key.toString());
+        String tmp=key.getRow().toString();
+        for (int i=0; i < tmp.length(); i++) {
+          assertTrue(tmp.charAt(i) == 'a');
+        }
+      }
+    }
+    LOG.info("Last top when key < bottom: " + key.toString());
+    String tmp=key.getRow().toString();
+    for (int i=0; i < tmp.length(); i++) {
+      assertTrue(tmp.charAt(i) == 'z');
+    }
+    midkey=new HStoreKey(new Text("|||"));
+    bottom=new HStoreFile.HalfMapFileReader(this.fs,p.toString(),this.conf,HStoreFile.Range.bottom,midkey);
+    first=true;
+    while (bottom.next(key,value)) {
+      if (first) {
+        first=false;
+        LOG.info("First bottom when key > top: " + key.toString());
+        tmp=key.getRow().toString();
+        for (int i=0; i < tmp.length(); i++) {
+          assertTrue(tmp.charAt(i) == 'a');
+        }
+      }
+    }
+    LOG.info("Last bottom when key > top: " + key.toString());
+    tmp=key.getRow().toString();
+    for (int i=0; i < tmp.length(); i++) {
+      assertTrue(tmp.charAt(i) == 'z');
+    }
+    top=new HStoreFile.HalfMapFileReader(this.fs,p.toString(),this.conf,HStoreFile.Range.top,midkey);
+    assertFalse(top.next(key,value));
+  }
+  finally {
+    if (top != null) {
+      top.close();
+    }
+    if (bottom != null) {
+      bottom.close();
+    }
+    fs.delete(p);
+  }
+}

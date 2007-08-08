@@ -12,7 +12,7 @@
         if (e instanceof RemoteException) {
           e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
         }
-        LOG.error(e);
+        LOG.error("Shutdown scanning of meta region",e);
         break;
       }
       if (values == null || values.length == 0) {
@@ -31,53 +31,32 @@
         }
         results.put(values[i].getKey().getColumn(),values[i].getData());
       }
-      byte[] bytes=results.get(COL_SERVER);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("shutdown scanner looking at " + row.toString());
+      }
       String serverName=null;
-      if (bytes == null || bytes.length == 0) {
-        continue;
-      }
       try {
-        serverName=new String(bytes,UTF8_ENCODING);
+        serverName=Keying.bytesToString(results.get(COL_SERVER));
       }
  catch (      UnsupportedEncodingException e) {
-        LOG.error(e);
+        LOG.error("Server name",e);
         break;
       }
-      if (deadServerName.compareTo(serverName) != 0) {
+      if (serverName != null && serverName.length() > 0 && deadServerName.compareTo(serverName) != 0) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Server name " + serverName + " is not same as "+ deadServerName+ ": Passing");
+        }
         continue;
       }
-      bytes=results.get(COL_STARTCODE);
-      if (bytes == null || bytes.length == 0) {
-        continue;
-      }
-      long startCode=-1L;
+      HRegionInfo info=null;
       try {
-        startCode=Long.valueOf(new String(bytes,UTF8_ENCODING)).longValue();
-      }
- catch (      UnsupportedEncodingException e) {
-        LOG.error(e);
-        break;
-      }
-      if (oldStartCode != startCode) {
-        continue;
-      }
-      bytes=results.get(COL_REGIONINFO);
-      if (bytes == null || bytes.length == 0) {
-        throw new IOException("no value for " + COL_REGIONINFO);
-      }
-      inbuf.reset(bytes,bytes.length);
-      HRegionInfo info=new HRegionInfo();
-      try {
-        info.readFields(inbuf);
+        info=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),new HRegionInfo());
       }
  catch (      IOException e) {
-        if (e instanceof RemoteException) {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
-        LOG.error(e);
+        LOG.error("Read fields",e);
         break;
       }
-      LOG.info(serverName + " was serving " + info.toString());
+      LOG.info(info.getRegionName() + " was on shutdown server <" + serverName+ "> (or server is null). Marking unassigned if "+ "meta and clearing pendingRegions");
       if (info.tableDesc.getName().equals(META_TABLE_NAME)) {
         onlineMetaRegions.remove(info.getStartKey());
       }
@@ -101,6 +80,7 @@
       }
  else {
         regions.put(info.regionName,info);
+        pendingRegions.remove(info.getRegionName());
       }
     }
   }
@@ -113,7 +93,7 @@
         if (e instanceof RemoteException) {
           e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
         }
-        LOG.error(e);
+        LOG.error("Closing scanner",e);
       }
     }
   }

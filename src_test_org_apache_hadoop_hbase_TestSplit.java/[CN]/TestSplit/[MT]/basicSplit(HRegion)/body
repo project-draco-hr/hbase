@@ -1,0 +1,43 @@
+{
+  addContent(region,COLFAMILY_NAME3);
+  region.internalFlushcache();
+  Text midkey=new Text();
+  assertTrue(region.needsSplit(midkey));
+  HRegion[] regions=split(region);
+  byte[] b=new byte[]{FIRST_CHAR,FIRST_CHAR,FIRST_CHAR};
+  assertGet(regions[0],COLFAMILY_NAME3,new Text(b));
+  assertGet(regions[1],COLFAMILY_NAME3,midkey);
+  assertScan(regions[0],COLFAMILY_NAME3,new Text(b));
+  assertScan(regions[1],COLFAMILY_NAME3,midkey);
+  Text[] midkeys=new Text[regions.length];
+  for (int i=0; i < regions.length; i++) {
+    midkeys[i]=new Text();
+    assertFalse(regions[i].needsSplit(midkeys[i]));
+    for (int j=0; j < 2; j++) {
+      addContent(regions[i],COLFAMILY_NAME3);
+    }
+    addContent(regions[i],COLFAMILY_NAME2);
+    addContent(regions[i],COLFAMILY_NAME1);
+    regions[i].internalFlushcache();
+  }
+  for (int i=0; i < regions.length; i++) {
+    midkeys[i]=new Text();
+    assertFalse(regions[i].needsSplit(midkeys[i]));
+  }
+  for (int i=0; i < regions.length; i++) {
+    assertTrue(regions[i].compactStores());
+  }
+  TreeMap<String,HRegion> sortedMap=new TreeMap<String,HRegion>();
+  for (int i=0; i < regions.length; i++) {
+    HRegion[] rs=split(regions[i]);
+    for (int j=0; j < rs.length; j++) {
+      sortedMap.put(rs[j].getRegionName().toString(),rs[j]);
+    }
+  }
+  LOG.info("Made 4 regions");
+  int interval=(LAST_CHAR - FIRST_CHAR) / 3;
+  for (  HRegion r : sortedMap.values()) {
+    assertGet(r,COLFAMILY_NAME3,new Text(new String(b)));
+    b[0]+=interval;
+  }
+}

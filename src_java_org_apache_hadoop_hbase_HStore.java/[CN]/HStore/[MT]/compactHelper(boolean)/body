@@ -3,13 +3,13 @@ synchronized (compactLock) {
     Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,familyName);
     fs.mkdirs(curCompactStore);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("started compaction of " + mapFiles.size() + " files in "+ curCompactStore.toString());
+      LOG.debug("started compaction of " + storefiles.size() + " files in "+ curCompactStore.toString());
     }
     try {
       Vector<HStoreFile> toCompactFiles=null;
       this.lock.obtainWriteLock();
       try {
-        toCompactFiles=new Vector<HStoreFile>(mapFiles.values());
+        toCompactFiles=new Vector<HStoreFile>(storefiles.values());
       }
   finally {
         this.lock.releaseWriteLock();
@@ -33,24 +33,24 @@ synchronized (compactLock) {
           return;
         }
       }
-      MapFile.Writer compactedOut=getMapFileWriter(compactedOutputFile.getMapFilePath().toString());
+      MapFile.Writer compactedOut=compactedOutputFile.getWriter(this.fs,this.compression,this.bloomFilter);
       try {
-        MapFile.Reader[] readers=new MapFile.Reader[toCompactFiles.size()];
+        MapFile.Reader[] rdrs=new MapFile.Reader[toCompactFiles.size()];
         HStoreKey[] keys=new HStoreKey[toCompactFiles.size()];
         ImmutableBytesWritable[] vals=new ImmutableBytesWritable[toCompactFiles.size()];
         boolean[] done=new boolean[toCompactFiles.size()];
         int pos=0;
         for (        HStoreFile hsf : toCompactFiles) {
-          readers[pos]=getMapFileReader(hsf.getMapFilePath().toString());
+          rdrs[pos]=hsf.getReader(this.fs,this.bloomFilter);
           keys[pos]=new HStoreKey();
           vals[pos]=new ImmutableBytesWritable();
           done[pos]=false;
           pos++;
         }
         int numDone=0;
-        for (int i=0; i < readers.length; i++) {
-          readers[i].reset();
-          done[i]=!readers[i].next(keys[i],vals[i]);
+        for (int i=0; i < rdrs.length; i++) {
+          rdrs[i].reset();
+          done[i]=!rdrs[i].next(keys[i],vals[i]);
           if (done[i]) {
             numDone++;
           }
@@ -60,7 +60,7 @@ synchronized (compactLock) {
         Text lastColumn=new Text();
         while (numDone < done.length) {
           int smallestKey=-1;
-          for (int i=0; i < readers.length; i++) {
+          for (int i=0; i < rdrs.length; i++) {
             if (done[i]) {
               continue;
             }
@@ -87,9 +87,9 @@ synchronized (compactLock) {
           }
           lastRow.set(sk.getRow());
           lastColumn.set(sk.getColumn());
-          if (!readers[smallestKey].next(keys[smallestKey],vals[smallestKey])) {
+          if (!rdrs[smallestKey].next(keys[smallestKey],vals[smallestKey])) {
             done[smallestKey]=true;
-            readers[smallestKey].close();
+            rdrs[smallestKey].close();
             numDone++;
           }
         }
@@ -98,7 +98,7 @@ synchronized (compactLock) {
         compactedOut.close();
       }
       if (LOG.isDebugEnabled()) {
-        LOG.debug("writing new compacted HStore to " + compactedOutputFile.getMapFilePath().toString());
+        LOG.debug("writing new compacted HStore " + compactedOutputFile);
       }
       if ((!deleteSequenceInfo) && maxSeenSeqID >= 0) {
         compactedOutputFile.writeInfo(fs,maxSeenSeqID);

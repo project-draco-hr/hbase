@@ -1,47 +1,41 @@
 {
-  if (((regionInfo.startKey.getLength() != 0) && (regionInfo.startKey.compareTo(midKey) > 0)) || ((regionInfo.endKey.getLength() != 0) && (regionInfo.endKey.compareTo(midKey) < 0))) {
-    throw new IOException("Region splitkey must lie within region " + "boundaries.");
-  }
+  checkMidKey(midKey);
   long startTime=System.currentTimeMillis();
-  Path splits=new Path(regiondir,SPLITDIR);
-  if (!fs.exists(splits)) {
-    fs.mkdirs(splits);
+  Path splits=getSplitsDir();
+  HRegionInfo regionAInfo=new HRegionInfo(Math.abs(rand.nextLong()),this.regionInfo.tableDesc,this.regionInfo.startKey,midKey);
+  Path dirA=getSplitRegionDir(splits,regionAInfo.regionName);
+  if (fs.exists(dirA)) {
+    throw new IOException("Cannot split; target file collision at " + dirA);
   }
-  long regionAId=Math.abs(rand.nextLong());
-  HRegionInfo regionAInfo=new HRegionInfo(regionAId,regionInfo.tableDesc,regionInfo.startKey,midKey);
-  long regionBId=Math.abs(rand.nextLong());
-  HRegionInfo regionBInfo=new HRegionInfo(regionBId,regionInfo.tableDesc,midKey,null);
-  Path dirA=HStoreFile.getHRegionDir(splits,regionAInfo.regionName);
-  Path dirB=HStoreFile.getHRegionDir(splits,regionBInfo.regionName);
-  if (fs.exists(dirA) || fs.exists(dirB)) {
-    throw new IOException("Cannot split; target file collision at " + dirA + " or "+ dirB);
+  HRegionInfo regionBInfo=new HRegionInfo(Math.abs(rand.nextLong()),this.regionInfo.tableDesc,midKey,null);
+  Path dirB=getSplitRegionDir(splits,regionBInfo.regionName);
+  if (this.fs.exists(dirB)) {
+    throw new IOException("Cannot split; target file collision at " + dirB);
   }
-  listener.closing(this.getRegionName());
-  LOG.debug("Starting wait on row locks.");
-  waitOnRowLocks();
-  LOG.debug("Calling flushcache inside closeAndSplit");
-  Vector<HStoreFile> hstoreFilesToSplit=flushcache(true);
+  if (listener != null) {
+    listener.closing(getRegionName());
+  }
+  Vector<HStoreFile> hstoreFilesToSplit=close();
   if (hstoreFilesToSplit == null) {
-    throw new NullPointerException("Flushcache did not return any files");
+    LOG.warn("Close came back null (Implement abort of close?)");
   }
-  TreeSet<HStoreFile> alreadySplit=new TreeSet<HStoreFile>();
-  for (  HStoreFile hsf : hstoreFilesToSplit) {
-    alreadySplit.add(splitStoreFile(hsf,splits,regionAInfo,regionBInfo,midKey));
+  if (listener != null) {
+    listener.closed(this.getRegionName());
   }
-  hstoreFilesToSplit=close();
-  listener.closed(this.getRegionName());
-  for (  HStoreFile hsf : hstoreFilesToSplit) {
-    if (!alreadySplit.contains(hsf)) {
-      splitStoreFile(hsf,splits,regionAInfo,regionBInfo,midKey);
-    }
+  for (  HStoreFile h : hstoreFilesToSplit) {
+    HStoreFile.Reference aReference=new HStoreFile.Reference(getRegionName(),h.getFileId(),new HStoreKey(midKey),HStoreFile.Range.bottom);
+    HStoreFile a=new HStoreFile(this.conf,splits,regionAInfo.regionName,h.getColFamily(),Math.abs(rand.nextLong()),aReference);
+    HStoreFile.Reference bReference=new HStoreFile.Reference(getRegionName(),h.getFileId(),new HStoreKey(midKey),HStoreFile.Range.top);
+    HStoreFile b=new HStoreFile(this.conf,splits,regionBInfo.regionName,h.getColFamily(),Math.abs(rand.nextLong()),bReference);
+    h.splitStoreFile(a,b,this.fs);
   }
   HRegion regionA=new HRegion(rootDir,log,fs,conf,regionAInfo,dirA);
   HRegion regionB=new HRegion(rootDir,log,fs,conf,regionBInfo,dirB);
-  fs.delete(splits);
-  fs.delete(regiondir);
-  HRegion regions[]=new HRegion[2];
-  regions[0]=regionA;
-  regions[1]=regionB;
-  LOG.info("Region split of " + this.regionInfo.regionName + " complete. "+ "New regions are: "+ regions[0].getRegionName()+ ", "+ regions[1].getRegionName()+ ". Took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
+  boolean deleted=fs.delete(splits);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Cleaned up " + splits.toString() + " "+ deleted);
+  }
+  HRegion regions[]=new HRegion[]{regionA,regionB};
+  LOG.info("Region split of " + this.regionInfo.regionName + " complete; "+ "new regions: "+ regions[0].getRegionName()+ ", "+ regions[1].getRegionName()+ ". Split took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
   return regions;
 }
