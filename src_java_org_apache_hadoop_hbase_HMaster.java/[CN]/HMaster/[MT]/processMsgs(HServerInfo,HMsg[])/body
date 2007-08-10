@@ -1,6 +1,7 @@
 {
   ArrayList<HMsg> returnMsgs=new ArrayList<HMsg>();
-  TreeMap<Text,HRegionInfo> regionsToKill=killList.remove(info.getServerAddress().toString());
+  String serverName=info.getServerAddress().toString();
+  HashMap<Text,HRegionInfo> regionsToKill=killList.remove(serverName);
   for (int i=0; i < incomingMsgs.length; i++) {
     HRegionInfo region=incomingMsgs[i].getRegionInfo();
 switch (incomingMsgs[i].getMsg()) {
@@ -17,7 +18,10 @@ case HMsg.MSG_REPORT_OPEN:
       unassignedRegions.remove(region.regionName);
       assignAttempts.remove(region.regionName);
       if (region.regionName.compareTo(HGlobals.rootRegionInfo.regionName) == 0) {
-        rootRegionLocation=new HServerAddress(info.getServerAddress());
+synchronized (rootRegionLocation) {
+          rootRegionLocation.set(new HServerAddress(info.getServerAddress()));
+          rootRegionLocation.notifyAll();
+        }
         break;
       }
       pendingRegions.add(region.regionName);
@@ -32,7 +36,7 @@ case HMsg.MSG_REPORT_OPEN:
 case HMsg.MSG_REPORT_CLOSE:
 LOG.info(info.getServerAddress().toString() + " no longer serving " + region.regionName);
 if (region.regionName.compareTo(HGlobals.rootRegionInfo.regionName) == 0) {
-rootRegionLocation=null;
+rootRegionLocation.set(null);
 unassignedRegions.put(region.regionName,region);
 assignAttempts.put(region.regionName,Long.valueOf(0L));
 }
@@ -77,23 +81,6 @@ returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE,i));
 killedRegions.add(i.regionName);
 }
 }
-if (unassignedRegions.size() > 0) {
-int targetForServer=(int)Math.ceil(unassignedRegions.size() / (1.0 * serversToServerInfo.size()));
-int counter=0;
-long now=System.currentTimeMillis();
-for (Text curRegionName : unassignedRegions.keySet()) {
-HRegionInfo regionInfo=unassignedRegions.get(curRegionName);
-long assignedTime=assignAttempts.get(curRegionName);
-if (now - assignedTime > maxRegionOpenTime) {
-LOG.info("assigning region " + regionInfo.regionName + " to server "+ info.getServerAddress().toString());
-returnMsgs.add(new HMsg(HMsg.MSG_REGION_OPEN,regionInfo));
-assignAttempts.put(curRegionName,Long.valueOf(now));
-counter++;
-}
-if (counter >= targetForServer) {
-break;
-}
-}
-}
+assignRegions(info,serverName,returnMsgs);
 return returnMsgs.toArray(new HMsg[returnMsgs.size()]);
 }

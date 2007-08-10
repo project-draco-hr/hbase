@@ -24,7 +24,7 @@
       if (e instanceof RemoteException) {
         e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
       }
-      LOG.error("",e);
+      LOG.error("bootstrap",e);
     }
   }
   this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
@@ -37,7 +37,7 @@
   conf.set(MASTER_ADDRESS,address.toString());
   this.connection=HConnectionManager.getConnection(conf);
   this.metaRescanInterval=conf.getLong("hbase.master.meta.thread.rescanfrequency",60 * 1000);
-  this.rootRegionLocation=null;
+  this.rootRegionLocation=new AtomicReference<HServerAddress>();
   this.rootScanned=false;
   this.rootScanner=new RootScanner();
   this.rootScannerThread=new Thread(rootScanner,"HMaster.rootScanner");
@@ -47,14 +47,17 @@
   this.initialMetaScanComplete=false;
   this.metaScanner=new MetaScanner();
   this.metaScannerThread=new Thread(metaScanner,"HMaster.metaScanner");
-  this.unassignedRegions=Collections.synchronizedSortedMap(new TreeMap<Text,HRegionInfo>());
+  this.unassignedRegions=Collections.synchronizedMap(new HashMap<Text,HRegionInfo>());
   this.unassignedRegions.put(HGlobals.rootRegionInfo.regionName,HGlobals.rootRegionInfo);
-  this.assignAttempts=Collections.synchronizedSortedMap(new TreeMap<Text,Long>());
-  this.pendingRegions=Collections.synchronizedSortedSet(new TreeSet<Text>());
+  this.assignAttempts=Collections.synchronizedMap(new HashMap<Text,Long>());
   this.assignAttempts.put(HGlobals.rootRegionInfo.regionName,Long.valueOf(0L));
-  this.killList=Collections.synchronizedSortedMap(new TreeMap<String,TreeMap<Text,HRegionInfo>>());
-  this.killedRegions=Collections.synchronizedSortedSet(new TreeSet<Text>());
-  this.regionsToDelete=Collections.synchronizedSortedSet(new TreeSet<Text>());
+  this.pendingRegions=Collections.synchronizedSet(new HashSet<Text>());
+  this.killList=Collections.synchronizedMap(new HashMap<String,HashMap<Text,HRegionInfo>>());
+  this.killedRegions=Collections.synchronizedSet(new HashSet<Text>());
+  this.regionsToDelete=Collections.synchronizedSet(new HashSet<Text>());
+  this.serversToServerInfo=new HashMap<String,HServerInfo>();
+  this.loadToServers=new TreeMap<HServerLoad,Set<String>>();
+  this.serversToLoad=new HashMap<String,HServerLoad>();
   this.closed=false;
   LOG.info("HMaster initialized on " + this.address.toString());
 }

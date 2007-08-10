@@ -1,14 +1,14 @@
 {
-  String s=serverInfo.getServerAddress().toString().trim();
-  long serverLabel=getServerLabel(s);
+  String serverName=serverInfo.getServerAddress().toString().trim();
+  long serverLabel=getServerLabel(serverName);
   if (msgs.length > 0 && msgs[0].getMsg() == HMsg.MSG_REPORT_EXITING) {
-    if (cancelLease(s,serverLabel)) {
-      LOG.info("Region server " + s + ": MSG_REPORT_EXITING");
+    if (cancelLease(serverName,serverLabel)) {
+      LOG.info("Region server " + serverName + ": MSG_REPORT_EXITING");
       if (!closed) {
         for (int i=1; i < msgs.length; i++) {
           HRegionInfo info=msgs[i].getRegionInfo();
           if (info.tableDesc.getName().equals(ROOT_TABLE_NAME)) {
-            rootRegionLocation=null;
+            rootRegionLocation.set(null);
           }
  else           if (info.tableDesc.getName().equals(META_TABLE_NAME)) {
             onlineMetaRegions.remove(info.getStartKey());
@@ -23,22 +23,42 @@
   if (closed) {
     return new HMsg[]{new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
   }
-  HServerInfo storedInfo=serversToServerInfo.get(s);
+  HServerInfo storedInfo;
+synchronized (serversToServerInfo) {
+    storedInfo=serversToServerInfo.get(serverName);
+  }
   if (storedInfo == null) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("received server report from unknown server: " + s);
+      LOG.debug("received server report from unknown server: " + serverName);
     }
     return new HMsg[]{new HMsg(HMsg.MSG_CALL_SERVER_STARTUP)};
   }
  else   if (storedInfo.getStartCode() != serverInfo.getStartCode()) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("region server race condition detected: " + s);
+      LOG.debug("region server race condition detected: " + serverName);
     }
+    cancelLease(serverName,serverLabel);
     return new HMsg[]{new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
   }
  else {
     serverLeases.renewLease(serverLabel,serverLabel);
-    serversToServerInfo.put(s,serverInfo);
+synchronized (serversToServerInfo) {
+      serversToServerInfo.put(serverName,serverInfo);
+      HServerLoad load=serversToLoad.get(serverName);
+      if (load != null && !load.equals(serverInfo.getLoad())) {
+        Set<String> servers=loadToServers.get(load);
+        servers.remove(serverName);
+        loadToServers.put(load,servers);
+      }
+      load=serverInfo.getLoad();
+      serversToLoad.put(serverName,load);
+      Set<String> servers=loadToServers.get(load);
+      if (servers == null) {
+        servers=new HashSet<String>();
+      }
+      servers.add(serverName);
+      loadToServers.put(load,servers);
+    }
     return processMsgs(serverInfo,msgs);
   }
 }

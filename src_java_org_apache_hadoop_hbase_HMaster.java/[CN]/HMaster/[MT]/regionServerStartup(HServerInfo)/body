@@ -2,7 +2,18 @@
   String s=serverInfo.getServerAddress().toString().trim();
   HServerInfo storedInfo=null;
   LOG.info("received start message from: " + s);
-  storedInfo=serversToServerInfo.remove(s);
+synchronized (serversToServerInfo) {
+    storedInfo=serversToServerInfo.remove(s);
+    HServerLoad load=serversToLoad.remove(s);
+    if (load != null) {
+      Set<String> servers=loadToServers.get(load);
+      if (servers != null) {
+        servers.remove(s);
+        loadToServers.put(load,servers);
+      }
+    }
+    serversToServerInfo.notifyAll();
+  }
   if (storedInfo != null && !closed) {
     try {
       msgQueue.put(new PendingServerShutdown(storedInfo));
@@ -11,12 +22,20 @@
       throw new RuntimeException("Putting into msgQueue was interrupted.",e);
     }
   }
-  serversToServerInfo.put(s,serverInfo);
+synchronized (serversToServerInfo) {
+    HServerLoad load=new HServerLoad();
+    serverInfo.setLoad(load);
+    serversToServerInfo.put(s,serverInfo);
+    serversToLoad.put(s,load);
+    Set<String> servers=loadToServers.get(load);
+    if (servers == null) {
+      servers=new HashSet<String>();
+    }
+    servers.add(s);
+    loadToServers.put(load,servers);
+  }
   if (!closed) {
     long serverLabel=getServerLabel(s);
-    if (LOG.isTraceEnabled()) {
-      LOG.trace("Created lease for " + serverLabel);
-    }
     serverLeases.createLease(serverLabel,serverLabel,new ServerExpirer(s));
   }
 }

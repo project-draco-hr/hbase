@@ -1,9 +1,21 @@
 {
   boolean leaseCancelled=false;
-  if (serversToServerInfo.remove(serverName) != null) {
-    LOG.info("Cancelling lease for " + serverName);
-    serverLeases.cancelLease(serverLabel,serverLabel);
-    leaseCancelled=true;
+synchronized (serversToServerInfo) {
+    HServerInfo info=serversToServerInfo.remove(serverName);
+    if (info != null) {
+      LOG.info("Cancelling lease for " + serverName);
+      serverLeases.cancelLease(serverLabel,serverLabel);
+      leaseCancelled=true;
+      HServerLoad load=serversToLoad.remove(serverName);
+      if (load != null) {
+        Set<String> servers=loadToServers.get(load);
+        if (servers != null) {
+          servers.remove(serverName);
+          loadToServers.put(load,servers);
+        }
+      }
+    }
+    serversToServerInfo.notifyAll();
   }
   return leaseCancelled;
 }
