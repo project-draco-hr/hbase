@@ -5,7 +5,6 @@
     long scannerId=-1L;
     try {
       scannerId=server.openScanner(t.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,tableName,System.currentTimeMillis(),null);
-      DataInputBuffer inbuf=new DataInputBuffer();
       while (true) {
         HRegionInfo regionInfo=null;
         String serverAddress=null;
@@ -25,16 +24,14 @@
           results.put(values[i].getKey().getColumn(),values[i].getData());
         }
         regionInfo=new HRegionInfo();
-        bytes=results.get(COL_REGIONINFO);
-        inbuf.reset(bytes,bytes.length);
-        regionInfo.readFields(inbuf);
+        regionInfo=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),regionInfo);
         if (!regionInfo.tableDesc.getName().equals(tableName)) {
           if (LOG.isDebugEnabled()) {
             LOG.debug("Found " + servers.size() + " servers for table "+ tableName);
           }
           break;
         }
-        if (regionInfo.offLine) {
+        if (regionInfo.isOffline() && !regionInfo.isSplit()) {
           throw new IllegalStateException("table offline: " + tableName);
         }
         bytes=results.get(COL_SERVER);
@@ -45,7 +42,7 @@
           servers.clear();
           break;
         }
-        serverAddress=new String(bytes,UTF8_ENCODING);
+        serverAddress=Writables.bytesToString(bytes);
         servers.put(regionInfo.startKey,new HRegionLocation(regionInfo,new HServerAddress(serverAddress)));
       }
     }

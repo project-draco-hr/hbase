@@ -1,0 +1,27 @@
+{
+  boolean result=false;
+  for (  Text family : split.getTableDesc().families().keySet()) {
+    Path p=HStoreFile.getMapDir(fs.makeQualified(dir),split.getRegionName(),HStoreKey.extractFamily(family));
+    Path[] ps=fs.listPaths(p,new PathFilter(){
+      public boolean accept(      Path path){
+        return HStoreFile.isReference(path);
+      }
+    }
+);
+    if (ps != null && ps.length > 0) {
+      result=true;
+      break;
+    }
+  }
+  if (result) {
+    return result;
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug(split.getRegionName().toString() + " no longer has references to " + regionName.toString());
+  }
+  BatchUpdate b=new BatchUpdate();
+  long lockid=b.startUpdate(regionName);
+  b.delete(lockid,column);
+  server.batchUpdate(metaRegionName,System.currentTimeMillis(),b);
+  return result;
+}

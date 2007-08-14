@@ -1,49 +1,35 @@
 {
   final HRegionInfo oldRegionInfo=region.getRegionInfo();
   final HRegion[] newRegions=region.closeAndSplit(midKey,this);
-  final Text tableToUpdate=region.getRegionInfo().tableDesc.getName().equals(META_TABLE_NAME) ? ROOT_TABLE_NAME : META_TABLE_NAME;
-  LOG.info("Updating " + tableToUpdate + " with region split info");
-  for (int tries=0; tries < numRetries; tries++) {
-    try {
-      HRegion.writeSplitToMETA(conf,tableToUpdate,region.getRegionName(),newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
-      break;
+  HTable t=null;
+  if (region.getRegionInfo().tableDesc.getName().equals(META_TABLE_NAME)) {
+    if (root == null) {
+      root=new HTable(conf,ROOT_TABLE_NAME);
     }
- catch (    IOException e) {
-      if (tries == numRetries - 1) {
-        if (e instanceof RemoteException) {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
-        throw e;
-      }
-    }
+    t=root;
   }
-  for (int i=0; i < newRegions.length; i++) {
-    for (int tries=0; tries < numRetries; tries++) {
-      try {
-        HRegion.addRegionToMETA(conf,tableToUpdate,newRegions[i],serverInfo.getServerAddress(),serverInfo.getStartCode());
-        break;
-      }
- catch (      IOException e) {
-        if (tries == numRetries - 1) {
-          if (e instanceof RemoteException) {
-            e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-          }
-          throw e;
-        }
-      }
+ else {
+    if (meta == null) {
+      meta=new HTable(conf,META_TABLE_NAME);
     }
+    t=meta;
+  }
+  LOG.info("Updating " + t.getTableName() + " with region split info");
+  long lockid=t.startBatchUpdate(oldRegionInfo.getRegionName());
+  oldRegionInfo.offLine=true;
+  oldRegionInfo.split=true;
+  t.put(lockid,COL_REGIONINFO,Writables.getBytes(oldRegionInfo));
+  t.put(lockid,COL_SPLITA,Writables.getBytes(newRegions[0].getRegionInfo()));
+  t.put(lockid,COL_SPLITB,Writables.getBytes(newRegions[1].getRegionInfo()));
+  t.commitBatch(lockid);
+  for (int i=0; i < newRegions.length; i++) {
+    lockid=t.startBatchUpdate(newRegions[i].getRegionName());
+    t.put(lockid,COL_REGIONINFO,Writables.getBytes(newRegions[i].getRegionInfo()));
+    t.commitBatch(lockid);
   }
   if (LOG.isDebugEnabled()) {
     LOG.debug("Reporting region split to master");
   }
   reportSplit(oldRegionInfo,newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
   LOG.info("region split, META update, and report to master all" + " successful. Old region=" + oldRegionInfo.getRegionName() + ", new regions: "+ newRegions[0].getRegionName()+ ", "+ newRegions[1].getRegionName());
-  lock.writeLock().lock();
-  try {
-    onlineRegions.put(newRegions[0].getRegionName(),newRegions[0]);
-    onlineRegions.put(newRegions[1].getRegionName(),newRegions[1]);
-  }
-  finally {
-    lock.writeLock().unlock();
-  }
 }

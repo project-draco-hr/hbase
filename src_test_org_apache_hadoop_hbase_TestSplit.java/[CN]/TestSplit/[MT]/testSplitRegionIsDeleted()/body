@@ -1,8 +1,10 @@
 {
-  final int timeout=60;
-  this.conf.set(HConstants.HBASE_DIR,this.testDir.toString());
-  MiniHBaseCluster.MasterThread masterThread=MiniHBaseCluster.startMaster(this.conf);
-  List<MiniHBaseCluster.RegionServerThread> regionServerThreads=MiniHBaseCluster.startRegionServers(this.conf,1);
+  final int retries=10;
+  this.testDir=null;
+  this.fs=null;
+  MiniHBaseCluster cluster=new MiniHBaseCluster(conf,1);
+  Path testDir=cluster.regionThreads.get(0).getRegionServer().rootDir;
+  FileSystem fs=cluster.getDFSCluster().getFileSystem();
   HTable meta=null;
   HTable t=null;
   try {
@@ -13,13 +15,10 @@
     t=new HTable(this.conf,new Text(getName()));
     addContent(t,COLFAMILY_NAME3);
     HRegionInfo hri=t.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
-    HRegion r=null;
-synchronized (regionServerThreads) {
-      r=regionServerThreads.get(0).getRegionServer().onlineRegions.get(hri.getRegionName());
-    }
+    HRegion r=cluster.regionThreads.get(0).getRegionServer().onlineRegions.get(hri.getRegionName());
     r.flushcache(false);
-    for (int i=0; i < timeout && (count(meta,HConstants.COLUMN_FAMILY_STR) <= count); i++) {
-      Thread.sleep(1000);
+    for (int i=0; i < retries && (count(meta,HConstants.COLUMN_FAMILY_STR) <= count); i++) {
+      Thread.sleep(5000);
     }
     int oldCount=count;
     count=count(meta,HConstants.COLUMN_FAMILY_STR);
@@ -28,37 +27,55 @@ synchronized (regionServerThreads) {
     }
     HRegionInfo parent=getSplitParent(meta);
     assertTrue(parent.isOffline());
-    Path parentDir=HRegion.getRegionDir(this.testDir,parent.getRegionName());
-    assertTrue(this.fs.exists(parentDir));
+    Path parentDir=HRegion.getRegionDir(testDir,parent.getRegionName());
+    assertTrue(fs.exists(parentDir));
     LOG.info("Split happened and parent " + parent.getRegionName() + " is "+ "offline");
+    for (int i=0; i < retries; i++) {
+      try {
+        HScannerInterface s=t.obtainScanner(new Text[]{new Text(COLFAMILY_NAME3)},HConstants.EMPTY_START_ROW);
+        try {
+          HStoreKey key=new HStoreKey();
+          TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+          s.next(key,results);
+          break;
+        }
+  finally {
+          s.close();
+        }
+      }
+ catch (      NotServingRegionException x) {
+        Thread.sleep(5000);
+      }
+    }
     LOG.info("Starting compaction");
-synchronized (regionServerThreads) {
-      for (      MiniHBaseCluster.RegionServerThread thread : regionServerThreads) {
-        SortedMap<Text,HRegion> regions=thread.getRegionServer().onlineRegions;
-        for (int i=0; i < 10; i++) {
-          try {
-            for (            HRegion online : regions.values()) {
-              if (online.getRegionName().toString().startsWith(getName())) {
-                online.compactStores();
-              }
+    for (    MiniHBaseCluster.RegionServerThread thread : cluster.regionThreads) {
+      SortedMap<Text,HRegion> regions=thread.getRegionServer().onlineRegions;
+      for (int i=0; i < 10; i++) {
+        try {
+          for (          HRegion online : regions.values()) {
+            if (online.getRegionName().toString().startsWith(getName())) {
+              online.compactStores();
             }
-            break;
           }
- catch (          ConcurrentModificationException e) {
-            LOG.warn("Retrying because ..." + e.toString() + " -- one or "+ "two should be fine");
-            continue;
-          }
+          break;
+        }
+ catch (        ConcurrentModificationException e) {
+          LOG.warn("Retrying because ..." + e.toString() + " -- one or "+ "two should be fine");
+          continue;
         }
       }
     }
     LOG.info("Waiting on parent " + parent.getRegionName() + " to disappear");
-    for (int i=0; i < timeout && getSplitParent(meta) != null; i++) {
-      Thread.sleep(1000);
+    for (int i=0; i < retries && getSplitParent(meta) != null; i++) {
+      Thread.sleep(5000);
     }
     assertTrue(getSplitParent(meta) == null);
-    assertFalse(this.fs.exists(parentDir));
+    for (int i=0; i < retries && fs.exists(parentDir); i++) {
+      Thread.sleep(5000);
+    }
+    assertFalse(fs.exists(parentDir));
   }
   finally {
-    MiniHBaseCluster.shutdown(masterThread,regionServerThreads);
+    cluster.shutdown();
   }
 }
