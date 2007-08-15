@@ -9,24 +9,24 @@ synchronized (tableInCreation) {
   try {
     MetaRegion m=(onlineMetaRegions.containsKey(newRegion.regionName) ? onlineMetaRegions.get(newRegion.regionName) : onlineMetaRegions.get(onlineMetaRegions.headMap(newRegion.getTableDesc().getName()).lastKey()));
     Text metaRegionName=m.regionName;
-    HRegionInterface r=connection.getHRegionConnection(m.server);
-    long scannerid=r.openScanner(metaRegionName,COL_REGIONINFO_ARRAY,tableName,System.currentTimeMillis(),null);
+    HRegionInterface server=connection.getHRegionConnection(m.server);
+    long scannerid=server.openScanner(metaRegionName,COL_REGIONINFO_ARRAY,tableName,System.currentTimeMillis(),null);
     try {
-      KeyedData[] data=r.next(scannerid);
+      KeyedData[] data=server.next(scannerid);
       if (data != null && data.length > 0 && HRegionInfo.getTableNameFromRegionName(data[0].getKey().getRow()).equals(tableName)) {
         throw new TableExistsException(tableName.toString());
       }
     }
   finally {
-      r.close(scannerid);
+      server.close(scannerid);
     }
     HRegion region=HRegion.createHRegion(newRegion,this.dir,this.conf,null);
     HRegionInfo info=region.getRegionInfo();
     Text regionName=region.getRegionName();
-    long clientId=rand.nextLong();
-    long lockid=r.startUpdate(metaRegionName,clientId,regionName);
-    r.put(metaRegionName,clientId,lockid,COL_REGIONINFO,Writables.getBytes(info));
-    r.commit(metaRegionName,clientId,lockid,System.currentTimeMillis());
+    BatchUpdate b=new BatchUpdate();
+    long lockid=b.startUpdate(regionName);
+    b.put(lockid,COL_REGIONINFO,Writables.getBytes(info));
+    server.batchUpdate(metaRegionName,System.currentTimeMillis(),b);
     region.close();
     region.getLog().closeAndDelete();
     unassignedRegions.put(regionName,info);

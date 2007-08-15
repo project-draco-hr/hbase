@@ -12,36 +12,32 @@
     if (LOG.isDebugEnabled()) {
       LOG.debug("updating columns in row: " + i.regionName);
     }
-    lockid=-1L;
-    clientId=rand.nextLong();
-    try {
-      lockid=server.startUpdate(m.regionName,clientId,i.regionName);
-      updateRegionInfo(server,m.regionName,i);
-      server.delete(m.regionName,clientId,lockid,COL_SERVER);
-      server.delete(m.regionName,clientId,lockid,COL_STARTCODE);
-      server.commit(m.regionName,clientId,lockid,System.currentTimeMillis());
-      lockid=-1L;
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("updated columns in row: " + i.regionName);
-      }
-    }
- catch (    IOException e) {
-      if (e instanceof RemoteException) {
-        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-      }
-      LOG.error("column update failed in row: " + i.regionName,e);
-    }
- finally {
+    BatchUpdate b=new BatchUpdate();
+    lockid=b.startUpdate(i.regionName);
+    updateRegionInfo(b,i);
+    b.delete(lockid,COL_SERVER);
+    b.delete(lockid,COL_STARTCODE);
+    for (int tries=0; tries < numRetries; tries++) {
       try {
-        if (lockid != -1L) {
-          server.abort(m.regionName,clientId,lockid);
+        server.batchUpdate(m.regionName,System.currentTimeMillis(),b);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("updated columns in row: " + i.regionName);
+        }
+        break;
+      }
+ catch (      IOException e) {
+        if (tries == numRetries - 1) {
+          if (e instanceof RemoteException) {
+            e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+          }
+          LOG.error("column update failed in row: " + i.regionName,e);
+          break;
         }
       }
- catch (      IOException iex) {
-        if (iex instanceof RemoteException) {
-          iex=RemoteExceptionHandler.decodeRemoteException((RemoteException)iex);
-        }
-        LOG.error("",iex);
+      try {
+        Thread.sleep(threadWakeFrequency);
+      }
+ catch (      InterruptedException e) {
       }
     }
     if (online) {

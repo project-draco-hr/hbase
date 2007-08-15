@@ -1,32 +1,28 @@
 {
-  long lockid=-1L;
-  long clientId=rand.nextLong();
-  try {
-    lockid=server.startUpdate(regionName,clientId,i.regionName);
-    server.put(regionName,clientId,lockid,COL_REGIONINFO,Writables.getBytes(i));
-    server.commit(regionName,clientId,lockid,System.currentTimeMillis());
-    lockid=-1L;
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("updated columns in row: " + i.regionName);
-    }
-  }
- catch (  Exception e) {
-    if (e instanceof RemoteException) {
-      e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-    }
-    LOG.error("column update failed in row: " + i.regionName,e);
-  }
- finally {
-    if (lockid != -1L) {
-      try {
-        server.abort(regionName,clientId,lockid);
+  BatchUpdate b=new BatchUpdate();
+  long lockid=b.startUpdate(i.regionName);
+  b.put(lockid,COL_REGIONINFO,Writables.getBytes(i));
+  for (int tries=0; tries < numRetries; tries++) {
+    try {
+      server.batchUpdate(regionName,System.currentTimeMillis(),b);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("updated columns in row: " + i.regionName);
       }
- catch (      IOException iex) {
-        if (iex instanceof RemoteException) {
-          iex=RemoteExceptionHandler.decodeRemoteException((RemoteException)iex);
+      break;
+    }
+ catch (    IOException e) {
+      if (tries == numRetries - 1) {
+        if (e instanceof RemoteException) {
+          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
         }
-        LOG.error("",iex);
+        LOG.error("column update failed in row: " + i.regionName,e);
+        break;
       }
+    }
+    try {
+      Thread.sleep(threadWakeFrequency);
+    }
+ catch (    InterruptedException e) {
     }
   }
 }
