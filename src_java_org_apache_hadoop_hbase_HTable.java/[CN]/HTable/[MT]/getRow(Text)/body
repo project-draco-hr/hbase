@@ -1,6 +1,6 @@
 {
   checkClosed();
-  KeyedData[] value=null;
+  MapWritable value=null;
   for (int tries=0; tries < numRetries; tries++) {
     HRegionLocation r=getRegionLocation(row);
     HRegionInterface server=connection.getHRegionConnection(r.getServerAddress());
@@ -9,11 +9,14 @@
       break;
     }
  catch (    IOException e) {
+      if (e instanceof RemoteException) {
+        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+      }
       if (tries == numRetries - 1) {
-        if (e instanceof RemoteException) {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
         throw e;
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("reloading table servers because: " + e.getMessage());
       }
       tableServers=connection.reloadTableServers(tableName);
     }
@@ -23,10 +26,11 @@
  catch (    InterruptedException x) {
     }
   }
-  TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-  if (value != null && value.length != 0) {
-    for (int i=0; i < value.length; i++) {
-      results.put(value[i].getKey().getColumn(),value[i].getData());
+  SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+  if (value != null && value.size() != 0) {
+    for (    Map.Entry<WritableComparable,Writable> e : value.entrySet()) {
+      HStoreKey key=(HStoreKey)e.getKey();
+      results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
     }
   }
   return results;

@@ -3,7 +3,7 @@
   TreeMap<Text,HRegionInfo> regions=new TreeMap<Text,HRegionInfo>();
   try {
     while (true) {
-      KeyedData[] values=null;
+      MapWritable values=null;
       try {
         values=server.next(scannerId);
       }
@@ -14,21 +14,23 @@
         LOG.error("Shutdown scanning of meta region",e);
         break;
       }
-      if (values == null || values.length == 0) {
+      if (values == null || values.size() == 0) {
         break;
       }
-      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
       Text row=null;
-      for (int i=0; i < values.length; i++) {
+      for (      Map.Entry<WritableComparable,Writable> e : values.entrySet()) {
+        HStoreKey key=(HStoreKey)e.getKey();
+        Text thisRow=key.getRow();
         if (row == null) {
-          row=values[i].getKey().getRow();
+          row=thisRow;
         }
  else {
-          if (!row.equals(values[i].getKey().getRow())) {
-            LOG.error("Multiple rows in same scanner result set. firstRow=" + row + ", currentRow="+ values[i].getKey().getRow());
+          if (!row.equals(thisRow)) {
+            LOG.error("Multiple rows in same scanner result set. firstRow=" + row + ", currentRow="+ thisRow);
           }
         }
-        results.put(values[i].getKey().getColumn(),values[i].getData());
+        results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
       }
       if (LOG.isDebugEnabled() && row != null) {
         LOG.debug("shutdown scanner looking at " + row.toString());

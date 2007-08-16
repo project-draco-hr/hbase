@@ -6,8 +6,8 @@
     try {
       scannerId=server.openScanner(t.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,tableName,System.currentTimeMillis(),null);
       while (true) {
-        KeyedData[] values=server.next(scannerId);
-        if (values.length == 0) {
+        MapWritable values=server.next(scannerId);
+        if (values == null || values.size() == 0) {
           if (servers.size() == 0) {
             throw new TableNotFoundException("table '" + tableName + "' does not exist in "+ t);
           }
@@ -16,9 +16,10 @@
           }
           break;
         }
-        TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-        for (int i=0; i < values.length; i++) {
-          results.put(values[i].getKey().getColumn(),values[i].getData());
+        SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+        for (        Map.Entry<WritableComparable,Writable> e : values.entrySet()) {
+          HStoreKey key=(HStoreKey)e.getKey();
+          results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
         }
         byte[] bytes=results.get(COL_REGIONINFO);
         if (bytes == null || bytes.length == 0) {
@@ -35,7 +36,10 @@
           }
           break;
         }
-        if (regionInfo.isOffline() && !regionInfo.isSplit()) {
+        if (regionInfo.isSplit()) {
+          continue;
+        }
+        if (regionInfo.isOffline()) {
           throw new IllegalStateException("table offline: " + tableName);
         }
         bytes=results.get(COL_SERVER);

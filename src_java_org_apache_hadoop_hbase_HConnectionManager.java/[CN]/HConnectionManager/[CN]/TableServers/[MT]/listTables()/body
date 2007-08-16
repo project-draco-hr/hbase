@@ -1,19 +1,21 @@
 {
-  TreeSet<HTableDescriptor> uniqueTables=new TreeSet<HTableDescriptor>();
+  HashSet<HTableDescriptor> uniqueTables=new HashSet<HTableDescriptor>();
   SortedMap<Text,HRegionLocation> metaTables=getTableServers(META_TABLE_NAME);
   for (  HRegionLocation t : metaTables.values()) {
     HRegionInterface server=getHRegionConnection(t.getServerAddress());
     long scannerId=-1L;
     try {
       scannerId=server.openScanner(t.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
+      HRegionInfo info=new HRegionInfo();
       while (true) {
-        KeyedData[] values=server.next(scannerId);
-        if (values.length == 0) {
+        MapWritable values=server.next(scannerId);
+        if (values == null || values.size() == 0) {
           break;
         }
-        for (int i=0; i < values.length; i++) {
-          if (values[i].getKey().getColumn().equals(COL_REGIONINFO)) {
-            HRegionInfo info=(HRegionInfo)Writables.getWritable(values[i].getData(),new HRegionInfo());
+        for (        Map.Entry<WritableComparable,Writable> e : values.entrySet()) {
+          HStoreKey key=(HStoreKey)e.getKey();
+          if (key.getColumn().equals(COL_REGIONINFO)) {
+            info=(HRegionInfo)Writables.getWritable(((ImmutableBytesWritable)e.getValue()).get(),info);
             if (info.startKey.getLength() == 0) {
               uniqueTables.add(info.tableDesc);
             }

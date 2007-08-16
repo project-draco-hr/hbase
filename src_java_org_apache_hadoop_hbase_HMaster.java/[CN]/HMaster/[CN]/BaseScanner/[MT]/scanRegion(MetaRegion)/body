@@ -2,19 +2,20 @@
   HRegionInterface regionServer=null;
   long scannerId=-1L;
   LOG.info(Thread.currentThread().getName() + " scanning meta region " + region.regionName+ " on "+ region.server.toString());
-  Map<HRegionInfo,TreeMap<Text,byte[]>> splitParents=new HashMap<HRegionInfo,TreeMap<Text,byte[]>>();
+  Map<HRegionInfo,SortedMap<Text,byte[]>> splitParents=new HashMap<HRegionInfo,SortedMap<Text,byte[]>>();
   try {
     regionServer=connection.getHRegionConnection(region.server);
     scannerId=regionServer.openScanner(region.regionName,COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
     int numberOfRegionsFound=0;
     while (true) {
-      TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-      KeyedData[] values=regionServer.next(scannerId);
-      if (values.length == 0) {
+      SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      MapWritable values=regionServer.next(scannerId);
+      if (values == null || values.size() == 0) {
         break;
       }
-      for (int i=0; i < values.length; i++) {
-        results.put(values[i].getKey().getColumn(),values[i].getData());
+      for (      Map.Entry<WritableComparable,Writable> e : values.entrySet()) {
+        HStoreKey key=(HStoreKey)e.getKey();
+        results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
       }
       HRegionInfo info=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),new HRegionInfo());
       String serverName=Writables.bytesToString(results.get(COL_SERVER));
@@ -55,8 +56,8 @@
     }
   }
   if (splitParents.size() > 0) {
-    for (    Map.Entry<HRegionInfo,TreeMap<Text,byte[]>> e : splitParents.entrySet()) {
-      TreeMap<Text,byte[]> results=e.getValue();
+    for (    Map.Entry<HRegionInfo,SortedMap<Text,byte[]>> e : splitParents.entrySet()) {
+      SortedMap<Text,byte[]> results=e.getValue();
       cleanupSplits(region.regionName,regionServer,e.getKey(),(HRegionInfo)Writables.getWritable(results.get(COL_SPLITA),new HRegionInfo()),(HRegionInfo)Writables.getWritable(results.get(COL_SPLITB),new HRegionInfo()));
     }
   }
