@@ -1,43 +1,31 @@
 {
   if (isClosed()) {
     LOG.info("region " + this.regionInfo.regionName + " already closed");
-    return new Vector<HStoreFile>();
+    return null;
   }
   lock.obtainWriteLock();
   try {
-    boolean shouldClose=false;
 synchronized (writestate) {
-      while (writestate.writesOngoing) {
+      while (writestate.compacting || writestate.flushing) {
         try {
           writestate.wait();
         }
  catch (        InterruptedException iex) {
         }
       }
-      writestate.writesOngoing=true;
-      shouldClose=true;
-    }
-    if (!shouldClose) {
-      return null;
+      writestate.writesEnabled=false;
     }
     waitOnRowLocks();
-    Vector<HStoreFile> allHStoreFiles=null;
     if (!abort) {
-      allHStoreFiles=internalFlushcache();
+      internalFlushcache();
     }
+    Vector<HStoreFile> result=new Vector<HStoreFile>();
     for (    HStore store : stores.values()) {
-      store.close();
+      result.addAll(store.close());
     }
-    try {
-      return allHStoreFiles;
-    }
-  finally {
-synchronized (writestate) {
-        writestate.writesOngoing=false;
-      }
-      this.closed.set(true);
-      LOG.info("closed " + this.regionInfo.regionName);
-    }
+    this.closed.set(true);
+    LOG.info("closed " + this.regionInfo.regionName);
+    return result;
   }
   finally {
     lock.releaseWriteLock();

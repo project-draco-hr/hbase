@@ -30,65 +30,10 @@
     throw new IOException("Cannot merge; target file collision at " + newRegionDir);
   }
   LOG.info("starting merge of regions: " + a.getRegionName() + " and "+ b.getRegionName()+ " into new region "+ newRegionInfo.toString());
-  TreeSet<HStoreFile> alreadyMerged=new TreeSet<HStoreFile>();
-  TreeMap<Text,Vector<HStoreFile>> filesToMerge=new TreeMap<Text,Vector<HStoreFile>>();
-  for (  HStoreFile src : a.flushcache(true)) {
-    Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
-    if (v == null) {
-      v=new Vector<HStoreFile>();
-      filesToMerge.put(src.getColFamily(),v);
-    }
-    v.add(src);
-  }
-  for (  HStoreFile src : b.flushcache(true)) {
-    Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
-    if (v == null) {
-      v=new Vector<HStoreFile>();
-      filesToMerge.put(src.getColFamily(),v);
-    }
-    v.add(src);
-  }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("merging stores");
-  }
-  for (  Map.Entry<Text,Vector<HStoreFile>> es : filesToMerge.entrySet()) {
-    Text colFamily=es.getKey();
-    Vector<HStoreFile> srcFiles=es.getValue();
-    HStoreFile dst=new HStoreFile(conf,merges,newRegionInfo.regionName,colFamily,Math.abs(rand.nextLong()));
-    dst.mergeStoreFiles(srcFiles,fs,conf);
-    alreadyMerged.addAll(srcFiles);
-  }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("flushing changes since start of merge for region " + a.getRegionName());
-  }
-  filesToMerge.clear();
-  for (  HStoreFile src : a.close()) {
-    if (!alreadyMerged.contains(src)) {
-      Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
-      if (v == null) {
-        v=new Vector<HStoreFile>();
-        filesToMerge.put(src.getColFamily(),v);
-      }
-      v.add(src);
-    }
-  }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("flushing changes since start of merge for region " + b.getRegionName());
-  }
-  for (  HStoreFile src : b.close()) {
-    if (!alreadyMerged.contains(src)) {
-      Vector<HStoreFile> v=filesToMerge.get(src.getColFamily());
-      if (v == null) {
-        v=new Vector<HStoreFile>();
-        filesToMerge.put(src.getColFamily(),v);
-      }
-      v.add(src);
-    }
-  }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("merging changes since start of merge");
-  }
-  for (  Map.Entry<Text,Vector<HStoreFile>> es : filesToMerge.entrySet()) {
+  Map<Text,Vector<HStoreFile>> byFamily=new TreeMap<Text,Vector<HStoreFile>>();
+  byFamily=filesByFamily(byFamily,a.close());
+  byFamily=filesByFamily(byFamily,b.close());
+  for (  Map.Entry<Text,Vector<HStoreFile>> es : byFamily.entrySet()) {
     Text colFamily=es.getKey();
     Vector<HStoreFile> srcFiles=es.getValue();
     HStoreFile dst=new HStoreFile(conf,merges,newRegionInfo.regionName,colFamily,Math.abs(rand.nextLong()));

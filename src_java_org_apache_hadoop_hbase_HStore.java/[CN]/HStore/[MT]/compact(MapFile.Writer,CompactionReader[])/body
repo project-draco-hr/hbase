@@ -1,0 +1,57 @@
+{
+  HStoreKey[] keys=new HStoreKey[rdrs.length];
+  ImmutableBytesWritable[] vals=new ImmutableBytesWritable[rdrs.length];
+  boolean[] done=new boolean[rdrs.length];
+  for (int i=0; i < rdrs.length; i++) {
+    keys[i]=new HStoreKey();
+    vals[i]=new ImmutableBytesWritable();
+    done[i]=false;
+  }
+  int numDone=0;
+  for (int i=0; i < rdrs.length; i++) {
+    rdrs[i].reset();
+    done[i]=!rdrs[i].next(keys[i],vals[i]);
+    if (done[i]) {
+      numDone++;
+    }
+  }
+  int timesSeen=0;
+  Text lastRow=new Text();
+  Text lastColumn=new Text();
+  while (numDone < done.length) {
+    int smallestKey=-1;
+    for (int i=0; i < rdrs.length; i++) {
+      if (done[i]) {
+        continue;
+      }
+      if (smallestKey < 0) {
+        smallestKey=i;
+      }
+ else {
+        if (keys[i].compareTo(keys[smallestKey]) < 0) {
+          smallestKey=i;
+        }
+      }
+    }
+    HStoreKey sk=keys[smallestKey];
+    if (lastRow.equals(sk.getRow()) && lastColumn.equals(sk.getColumn())) {
+      timesSeen++;
+    }
+ else {
+      timesSeen=1;
+    }
+    if (timesSeen <= family.getMaxVersions()) {
+      if (sk.getRow().getLength() != 0 && sk.getColumn().getLength() != 0) {
+        compactedOut.append(sk,vals[smallestKey]);
+      }
+    }
+    lastRow.set(sk.getRow());
+    lastColumn.set(sk.getColumn());
+    if (!rdrs[smallestKey].next(keys[smallestKey],vals[smallestKey])) {
+      done[smallestKey]=true;
+      rdrs[smallestKey].close();
+      rdrs[smallestKey]=null;
+      numDone++;
+    }
+  }
+}

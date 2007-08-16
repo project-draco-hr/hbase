@@ -4,10 +4,15 @@ synchronized (flushLock) {
     String name=flushedFile.toString();
     MapFile.Writer out=flushedFile.getWriter(this.fs,this.compression,this.bloomFilter);
     try {
-      for (      Map.Entry<HStoreKey,byte[]> es : inputCache.entrySet()) {
-        HStoreKey curkey=es.getKey();
-        if (this.familyName.equals(HStoreKey.extractFamily(curkey.getColumn()))) {
-          out.append(curkey,new ImmutableBytesWritable(es.getValue()));
+      if (this.conf.getBoolean("hbase.hstore.compact.on.flush",false) && this.storefiles.size() > 0) {
+        compact(out,inputCache.entrySet().iterator(),this.readers.get(this.storefiles.firstKey()));
+      }
+ else {
+        for (        Map.Entry<HStoreKey,byte[]> es : inputCache.entrySet()) {
+          HStoreKey curkey=es.getKey();
+          if (this.familyName.equals(HStoreKey.extractFamily(curkey.getColumn()))) {
+            out.append(curkey,new ImmutableBytesWritable(es.getValue()));
+          }
         }
       }
     }
@@ -32,6 +37,6 @@ synchronized (flushLock) {
         this.lock.releaseWriteLock();
       }
     }
-    return getAllMapFiles();
+    return;
   }
 }

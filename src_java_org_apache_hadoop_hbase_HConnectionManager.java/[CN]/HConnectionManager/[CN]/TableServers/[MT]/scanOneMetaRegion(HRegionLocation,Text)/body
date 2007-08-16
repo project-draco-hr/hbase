@@ -6,25 +6,29 @@
     try {
       scannerId=server.openScanner(t.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,tableName,System.currentTimeMillis(),null);
       while (true) {
-        HRegionInfo regionInfo=null;
-        String serverAddress=null;
         KeyedData[] values=server.next(scannerId);
         if (values.length == 0) {
           if (servers.size() == 0) {
             throw new TableNotFoundException("table '" + tableName + "' does not exist in "+ t);
           }
           if (LOG.isDebugEnabled()) {
-            LOG.debug("Found " + servers.size() + " server(s) for "+ "location: "+ t+ " for tablename "+ tableName);
+            LOG.debug("Found " + servers.size() + " server(s) for "+ tableName+ " at "+ t);
           }
           break;
         }
-        byte[] bytes=null;
         TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
         for (int i=0; i < values.length; i++) {
           results.put(values[i].getKey().getColumn(),values[i].getData());
         }
-        regionInfo=new HRegionInfo();
-        regionInfo=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),regionInfo);
+        byte[] bytes=results.get(COL_REGIONINFO);
+        if (bytes == null || bytes.length == 0) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(COL_REGIONINFO.toString() + " came back empty: " + results.toString());
+          }
+          servers.clear();
+          break;
+        }
+        HRegionInfo regionInfo=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),new HRegionInfo());
         if (!regionInfo.tableDesc.getName().equals(tableName)) {
           if (LOG.isDebugEnabled()) {
             LOG.debug("Found " + servers.size() + " servers for table "+ tableName);
@@ -42,7 +46,7 @@
           servers.clear();
           break;
         }
-        serverAddress=Writables.bytesToString(bytes);
+        String serverAddress=Writables.bytesToString(bytes);
         servers.put(regionInfo.startKey,new HRegionLocation(regionInfo,new HServerAddress(serverAddress)));
       }
     }

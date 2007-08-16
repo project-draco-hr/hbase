@@ -27,23 +27,31 @@
         keys.add(e.getKey());
       }
     }
+    Vector<HStoreFile> toDelete=new Vector<HStoreFile>(keys.size());
     for (    Long key : keys) {
       MapFile.Reader reader=this.readers.remove(key);
       if (reader != null) {
         reader.close();
       }
       HStoreFile hsf=this.storefiles.remove(key);
-      hsf.delete();
-    }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("deleted " + toCompactFiles.size() + " old file(s)");
+      toDelete.add(hsf);
     }
     HStoreFile compactedFile=new HStoreFile(conf,compactdir,regionName,familyName,-1);
     HStoreFile finalCompactedFile=HStoreFile.obtainNewHStoreFile(conf,dir,regionName,familyName,fs);
     if (LOG.isDebugEnabled()) {
       LOG.debug("moving " + compactedFile.toString() + " in "+ compactdir.toString()+ " to "+ finalCompactedFile.toString()+ " in "+ dir.toString());
     }
-    compactedFile.rename(this.fs,finalCompactedFile);
+    if (!compactedFile.rename(this.fs,finalCompactedFile)) {
+      LOG.error("Failed move of compacted file " + finalCompactedFile.toString());
+      return;
+    }
+    for (    HStoreFile hsf : toDelete) {
+      if (hsf.getFileId() == finalCompactedFile.getFileId()) {
+        LOG.warn("Weird. File to delete has same name as one we are " + "about to delete (skipping): " + hsf.getFileId());
+        continue;
+      }
+      hsf.delete();
+    }
     Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
     this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.bloomFilter));
     this.storefiles.put(orderVal,finalCompactedFile);

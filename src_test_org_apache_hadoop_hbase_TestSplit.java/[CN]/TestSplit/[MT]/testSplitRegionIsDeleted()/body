@@ -1,10 +1,8 @@
 {
   final int retries=10;
-  this.testDir=null;
-  this.fs=null;
-  MiniHBaseCluster cluster=new MiniHBaseCluster(conf,1);
-  Path testDir=cluster.regionThreads.get(0).getRegionServer().rootDir;
-  FileSystem fs=cluster.getDFSCluster().getFileSystem();
+  MiniHBaseCluster cluster=new MiniHBaseCluster(conf,1,true);
+  Path d=cluster.regionThreads.get(0).getRegionServer().rootDir;
+  FileSystem fs=(cluster.getDFSCluster() == null) ? this.localFs : cluster.getDFSCluster().getFileSystem();
   HTable meta=null;
   HTable t=null;
   try {
@@ -13,7 +11,7 @@
     meta=new HTable(this.conf,HConstants.META_TABLE_NAME);
     int count=count(meta,HConstants.COLUMN_FAMILY_STR);
     t=new HTable(this.conf,new Text(getName()));
-    addContent(t,COLFAMILY_NAME3);
+    addContent(new HTableLoader(t),COLFAMILY_NAME3);
     HRegionInfo hri=t.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
     HRegion r=cluster.regionThreads.get(0).getRegionServer().onlineRegions.get(hri.getRegionName());
     r.flushcache(false);
@@ -27,7 +25,7 @@
     }
     HRegionInfo parent=getSplitParent(meta);
     assertTrue(parent.isOffline());
-    Path parentDir=HRegion.getRegionDir(testDir,parent.getRegionName());
+    Path parentDir=HRegion.getRegionDir(d,parent.getRegionName());
     assertTrue(fs.exists(parentDir));
     LOG.info("Split happened and parent " + parent.getRegionName() + " is "+ "offline");
     for (int i=0; i < retries; i++) {
@@ -53,7 +51,7 @@
       for (int i=0; i < 10; i++) {
         try {
           for (          HRegion online : regions.values()) {
-            if (online.getRegionName().toString().startsWith(getName())) {
+            if (online.getTableDesc().getName().toString().equals(getName())) {
               online.compactStores();
             }
           }
