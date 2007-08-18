@@ -1,10 +1,14 @@
 {
   boolean result=false;
+  HRegionInfo split=Writables.getHRegionInfoOrNull(rowContent.get(splitColumn));
+  if (split == null) {
+    return result;
+  }
   for (  Text family : split.getTableDesc().families().keySet()) {
     Path p=HStoreFile.getMapDir(fs.makeQualified(dir),split.getRegionName(),HStoreKey.extractFamily(family));
     Path[] ps=fs.listPaths(p,new PathFilter(){
-      public boolean accept(      Path p){
-        return HStoreFile.isReference(p);
+      public boolean accept(      Path path){
+        return HStoreFile.isReference(path);
       }
     }
 );
@@ -17,11 +21,11 @@
     return result;
   }
   if (LOG.isDebugEnabled()) {
-    LOG.debug(split.getRegionName().toString() + " no longer has references to " + regionName.toString());
+    LOG.debug(split.getRegionName().toString() + " no longer has references to " + parent.toString());
   }
   BatchUpdate b=new BatchUpdate();
-  long lockid=b.startUpdate(regionName);
-  b.delete(lockid,column);
-  server.batchUpdate(metaRegionName,System.currentTimeMillis(),b);
+  long lockid=b.startUpdate(parent);
+  b.delete(lockid,splitColumn);
+  srvr.batchUpdate(metaRegionName,System.currentTimeMillis(),b);
   return result;
 }
