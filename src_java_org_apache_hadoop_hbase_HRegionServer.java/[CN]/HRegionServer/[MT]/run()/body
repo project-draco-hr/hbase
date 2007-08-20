@@ -9,6 +9,7 @@
   logRollerThread.setName(threadName + ".logRoller");
   logRollerThread.start();
   leases=new Leases(conf.getLong("hbase.regionserver.lease.period",3 * 60 * 1000),threadWakeFrequency);
+  boolean masterRequestedStop=false;
   try {
     this.server.start();
     LOG.info("HRegionServer started at: " + serverInfo.getServerAddress().toString());
@@ -78,14 +79,15 @@ case HMsg.MSG_REGIONSERVER_STOP:
       if (LOG.isDebugEnabled()) {
         LOG.debug("Got regionserver stop message");
       }
-    stopRequested=true;
-  break;
+    masterRequestedStop=true;
+  stopRequested=true;
+break;
 default :
 try {
-  toDo.put(new ToDoEntry(msgs[i]));
+toDo.put(new ToDoEntry(msgs[i]));
 }
  catch (InterruptedException e) {
-  throw new RuntimeException("Putting into msgQueue was interrupted.",e);
+throw new RuntimeException("Putting into msgQueue was interrupted.",e);
 }
 }
 }
@@ -166,6 +168,7 @@ e=ex;
 LOG.error("",e);
 }
 try {
+if (!masterRequestedStop) {
 HMsg[] exitMsg=new HMsg[closedRegions.size() + 1];
 exitMsg[0]=new HMsg(HMsg.MSG_REPORT_EXITING);
 int i=1;
@@ -174,6 +177,7 @@ exitMsg[i++]=new HMsg(HMsg.MSG_REPORT_CLOSE,region.getRegionInfo());
 }
 LOG.info("telling master that region server is shutting down at: " + serverInfo.getServerAddress().toString());
 hbaseMaster.regionServerReport(serverInfo,exitMsg);
+}
 }
  catch (IOException e) {
 if (e instanceof RemoteException) {
