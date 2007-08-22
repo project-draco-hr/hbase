@@ -1,7 +1,22 @@
 {
   LOG.info("process shutdown of server " + deadServer + ": logSplit: "+ this.logSplit+ ", rootChecked: "+ this.rootChecked+ ", rootRescanned: "+ this.rootRescanned+ ", numberOfMetaRegions: "+ numberOfMetaRegions.get()+ ", onlineMetaRegions.size(): "+ onlineMetaRegions.size());
   if (!logSplit) {
-    HLog.splitLog(dir,new Path(dir,"log" + "_" + deadServer.getBindAddress() + "_"+ deadServer.getPort()),fs,conf);
+    StringBuilder dirName=new StringBuilder("log_");
+    dirName.append(deadServer.getBindAddress());
+    dirName.append("_");
+    dirName.append(deadServer.getPort());
+    Path logdir=new Path(dir,dirName.toString());
+    if (fs.exists(logdir)) {
+      if (!splitLogLock.tryLock()) {
+        return false;
+      }
+      try {
+        HLog.splitLog(dir,logdir,fs,conf);
+      }
+  finally {
+        splitLogLock.unlock();
+      }
+    }
     logSplit=true;
   }
   if (!rootChecked) {
