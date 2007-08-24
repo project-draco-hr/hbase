@@ -1,5 +1,5 @@
 {
-  Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,familyName);
+  Path curCompactStore=HStoreFile.getHStoreDir(this.compactionDir,regionName,familyName);
   this.lock.obtainWriteLock();
   try {
     Path doneFile=new Path(curCompactStore,COMPACTION_DONE);
@@ -21,40 +21,39 @@
   finally {
       in.close();
     }
-    Vector<Long> keys=new Vector<Long>(toCompactFiles.size());
-    for (    Map.Entry<Long,HStoreFile> e : storefiles.entrySet()) {
-      if (toCompactFiles.contains(e.getValue())) {
-        keys.add(e.getKey());
-      }
-    }
-    Vector<HStoreFile> toDelete=new Vector<HStoreFile>(keys.size());
-    for (    Long key : keys) {
-      MapFile.Reader reader=this.readers.remove(key);
-      if (reader != null) {
-        reader.close();
-      }
-      HStoreFile hsf=this.storefiles.remove(key);
-      toDelete.add(hsf);
-    }
-    HStoreFile compactedFile=new HStoreFile(conf,compactdir,regionName,familyName,-1);
+    HStoreFile compactedFile=new HStoreFile(conf,this.compactionDir,regionName,familyName,-1);
     HStoreFile finalCompactedFile=HStoreFile.obtainNewHStoreFile(conf,dir,regionName,familyName,fs);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("moving " + compactedFile.toString() + " in "+ compactdir.toString()+ " to "+ finalCompactedFile.toString()+ " in "+ dir.toString());
+      LOG.debug("moving " + compactedFile.toString() + " in "+ this.compactionDir.toString()+ " to "+ finalCompactedFile.toString()+ " in "+ dir.toString());
     }
     if (!compactedFile.rename(this.fs,finalCompactedFile)) {
       LOG.error("Failed move of compacted file " + finalCompactedFile.toString());
       return;
     }
-    for (    HStoreFile hsf : toDelete) {
-      if (hsf.getFileId() == finalCompactedFile.getFileId()) {
-        LOG.warn("Weird. File to delete has same name as one we are " + "about to delete (skipping): " + hsf.getFileId());
+    Vector<Long> toDelete=new Vector<Long>(toCompactFiles.size());
+    for (    Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
+      if (!toCompactFiles.contains(e.getValue())) {
         continue;
       }
-      hsf.delete();
+      Long key=e.getKey();
+      MapFile.Reader reader=this.readers.remove(key);
+      if (reader != null) {
+        reader.close();
+      }
+      toDelete.add(key);
     }
-    Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
-    this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.bloomFilter));
-    this.storefiles.put(orderVal,finalCompactedFile);
+    try {
+      for (      Long key : toDelete) {
+        HStoreFile hsf=this.storefiles.remove(key);
+        hsf.delete();
+      }
+      Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
+      this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.bloomFilter));
+      this.storefiles.put(orderVal,finalCompactedFile);
+    }
+  finally {
+      LOG.warn("Failed replacing compacted files.  Compacted fle is " + finalCompactedFile.toString() + ".  Files replaced are "+ toCompactFiles.toString()+ " some of which may have been removed");
+    }
   }
   finally {
     this.lock.releaseWriteLock();

@@ -1,20 +1,19 @@
 {
   long maxId=maxSeenSeqID;
 synchronized (compactLock) {
-    Path curCompactStore=HStoreFile.getHStoreDir(compactdir,regionName,familyName);
+    Path curCompactStore=HStoreFile.getHStoreDir(this.compactionDir,regionName,familyName);
     if (LOG.isDebugEnabled()) {
       LOG.debug("started compaction of " + storefiles.size() + " files in "+ curCompactStore.toString());
     }
+    if (this.fs.exists(curCompactStore)) {
+      LOG.warn("Cleaning up a previous incomplete compaction at " + curCompactStore.toString());
+      if (!this.fs.delete(curCompactStore)) {
+        LOG.warn("Deleted returned false on " + curCompactStore.toString());
+      }
+    }
     try {
-      Vector<HStoreFile> toCompactFiles=null;
-      this.lock.obtainWriteLock();
-      try {
-        toCompactFiles=new Vector<HStoreFile>(storefiles.values());
-      }
-  finally {
-        this.lock.releaseWriteLock();
-      }
-      HStoreFile compactedOutputFile=new HStoreFile(conf,compactdir,regionName,familyName,-1);
+      Vector<HStoreFile> toCompactFiles=getFilesToCompact();
+      HStoreFile compactedOutputFile=new HStoreFile(conf,this.compactionDir,regionName,familyName,-1);
       if (toCompactFiles.size() < 1 || (toCompactFiles.size() == 1 && !toCompactFiles.get(0).isReference())) {
         if (LOG.isDebugEnabled()) {
           LOG.debug("nothing to compact for " + this.storeName);
@@ -24,7 +23,9 @@ synchronized (compactLock) {
         }
         return;
       }
-      fs.mkdirs(curCompactStore);
+      if (!fs.mkdirs(curCompactStore)) {
+        LOG.warn("Mkdir on " + curCompactStore.toString() + " failed");
+      }
       if (maxId == -1) {
         for (        HStoreFile hsf : toCompactFiles) {
           long seqid=hsf.loadInfo(fs);
@@ -64,8 +65,10 @@ synchronized (compactLock) {
       processReadyCompaction();
     }
   finally {
-      if (fs.exists(compactdir)) {
-        fs.delete(compactdir);
+      if (this.fs.exists(curCompactStore.getParent())) {
+        if (!this.fs.delete(curCompactStore.getParent())) {
+          LOG.warn("Delete returned false deleting " + curCompactStore.getParent().toString());
+        }
       }
     }
   }
