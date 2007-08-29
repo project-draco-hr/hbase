@@ -1,0 +1,63 @@
+{
+  assertTrue(conf.getLong("hbase.hregion.max.filesize",HConstants.DEFAULT_MAX_FILE_SIZE) <= 1024 * 1024);
+  final int retries=10;
+  Path d=cluster.regionThreads.get(0).getRegionServer().rootDir;
+  FileSystem fs=(cluster.getDFSCluster() == null) ? localFs : cluster.getDFSCluster().getFileSystem();
+  assertTrue(fs != null);
+  HTable meta=new HTable(conf,HConstants.META_TABLE_NAME);
+  int count=count(meta,HConstants.COLUMN_FAMILY_STR);
+  HTable t=new HTable(conf,new Text(tableName));
+  addContent(new HTableLoader(t),columnName);
+  HRegionInfo hri=t.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
+  HRegion r=cluster.regionThreads.get(0).getRegionServer().onlineRegions.get(hri.getRegionName());
+  r.flushcache(false);
+  for (int i=0; i < retries && (count(meta,HConstants.COLUMN_FAMILY_STR) <= count); i++) {
+    try {
+      Thread.sleep(5000);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  int oldCount=count;
+  count=count(meta,HConstants.COLUMN_FAMILY_STR);
+  if (count <= oldCount) {
+    throw new IOException("Failed waiting on splits to show up");
+  }
+  Map<Text,byte[]> data=getSplitParentInfo(meta,hri);
+  HRegionInfo parent=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_REGIONINFO));
+  assertTrue(parent.isOffline());
+  assertTrue(parent.isSplit());
+  HRegionInfo splitA=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITA));
+  HRegionInfo splitB=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITB));
+  Path parentDir=HRegion.getRegionDir(d,parent.getRegionName());
+  assertTrue(fs.exists(parentDir));
+  LOG.info("Split happened. Parent is " + parent.getRegionName() + " and daughters are "+ splitA.getRegionName()+ ", "+ splitB.getRegionName());
+  recalibrate(t,new Text(columnName),retries);
+  compact(cluster,splitA);
+  while (getSplitParentInfo(meta,parent).size() == 3) {
+    try {
+      Thread.sleep(5000);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  LOG.info("Parent split returned " + getSplitParentInfo(meta,parent).keySet().toString());
+  compact(cluster,splitB);
+  LOG.info("Waiting on parent " + parent.getRegionName() + " to disappear");
+  for (int i=0; i < retries && getSplitParentInfo(meta,parent) != null; i++) {
+    try {
+      Thread.sleep(5000);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  assertTrue(getSplitParentInfo(meta,parent) == null);
+  for (int i=0; i < retries && fs.exists(parentDir); i++) {
+    try {
+      Thread.sleep(5000);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  assertFalse(fs.exists(parentDir));
+}

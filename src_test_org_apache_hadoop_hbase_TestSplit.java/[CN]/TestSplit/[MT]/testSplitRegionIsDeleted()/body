@@ -1,53 +1,9 @@
 {
-  final int retries=10;
   MiniHBaseCluster cluster=new MiniHBaseCluster(conf,1,true);
-  Path d=cluster.regionThreads.get(0).getRegionServer().rootDir;
-  FileSystem fs=(cluster.getDFSCluster() == null) ? this.localFs : cluster.getDFSCluster().getFileSystem();
-  HTable meta=null;
-  HTable t=null;
   try {
     HBaseAdmin admin=new HBaseAdmin(this.conf);
     admin.createTable(createTableDescriptor(getName()));
-    meta=new HTable(this.conf,HConstants.META_TABLE_NAME);
-    int count=count(meta,HConstants.COLUMN_FAMILY_STR);
-    t=new HTable(this.conf,new Text(getName()));
-    addContent(new HTableLoader(t),COLFAMILY_NAME3);
-    HRegionInfo hri=t.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
-    HRegion r=cluster.regionThreads.get(0).getRegionServer().onlineRegions.get(hri.getRegionName());
-    r.flushcache(false);
-    for (int i=0; i < retries && (count(meta,HConstants.COLUMN_FAMILY_STR) <= count); i++) {
-      Thread.sleep(5000);
-    }
-    int oldCount=count;
-    count=count(meta,HConstants.COLUMN_FAMILY_STR);
-    if (count <= oldCount) {
-      throw new IOException("Failed waiting on splits to show up");
-    }
-    Map<Text,byte[]> data=getSplitParentInfo(meta,hri);
-    HRegionInfo parent=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_REGIONINFO));
-    assertTrue(parent.isOffline());
-    assertTrue(parent.isSplit());
-    HRegionInfo splitA=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITA));
-    HRegionInfo splitB=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITB));
-    Path parentDir=HRegion.getRegionDir(d,parent.getRegionName());
-    assertTrue(fs.exists(parentDir));
-    LOG.info("Split happened. Parent is " + parent.getRegionName() + " and daughters are "+ splitA.getRegionName()+ ", "+ splitB.getRegionName());
-    recalibrate(t,new Text(COLFAMILY_NAME3),retries);
-    compact(cluster,splitA);
-    while (getSplitParentInfo(meta,parent).size() == 3) {
-      Thread.sleep(5000);
-    }
-    LOG.info("Parent split returned " + getSplitParentInfo(meta,parent).keySet().toString());
-    compact(cluster,splitB);
-    LOG.info("Waiting on parent " + parent.getRegionName() + " to disappear");
-    for (int i=0; i < retries && getSplitParentInfo(meta,parent) != null; i++) {
-      Thread.sleep(5000);
-    }
-    assertTrue(getSplitParentInfo(meta,parent) == null);
-    for (int i=0; i < retries && fs.exists(parentDir); i++) {
-      Thread.sleep(5000);
-    }
-    assertFalse(fs.exists(parentDir));
+    MultiRegionTable.makeMultiRegionTable(conf,cluster,this.localFs,getName(),COLFAMILY_NAME3);
   }
   finally {
     cluster.shutdown();

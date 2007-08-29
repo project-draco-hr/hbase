@@ -1,0 +1,25 @@
+{
+  HTableDescriptor desc=new HTableDescriptor(MULTI_REGION_TABLE_NAME);
+  desc.addFamily(new HColumnDescriptor(INPUT_COLUMN));
+  desc.addFamily(new HColumnDescriptor(OUTPUT_COLUMN));
+  HBaseAdmin admin=new HBaseAdmin(this.conf);
+  admin.createTable(desc);
+  MultiRegionTable.makeMultiRegionTable(conf,hCluster,null,MULTI_REGION_TABLE_NAME,INPUT_COLUMN);
+  HTable table=new HTable(conf,new Text(MULTI_REGION_TABLE_NAME));
+  Text[] startKeys=table.getStartKeys();
+  assertTrue(startKeys.length > 1);
+  @SuppressWarnings("deprecation") MiniMRCluster mrCluster=new MiniMRCluster(2,fs.getUri().toString(),1);
+  try {
+    JobConf jobConf=new JobConf(conf,TestTableMapReduce.class);
+    jobConf.setJobName("process column contents");
+    jobConf.setNumMapTasks(2);
+    jobConf.setNumReduceTasks(1);
+    TableMap.initJob(MULTI_REGION_TABLE_NAME,INPUT_COLUMN,ProcessContentsMapper.class,jobConf);
+    IdentityTableReduce.initJob(MULTI_REGION_TABLE_NAME,IdentityTableReduce.class,jobConf);
+    JobClient.runJob(jobConf);
+  }
+  finally {
+    mrCluster.shutdown();
+  }
+  verify(conf,MULTI_REGION_TABLE_NAME);
+}
