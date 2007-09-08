@@ -2,7 +2,7 @@
   while (!stopRequested) {
     long startTime=System.currentTimeMillis();
 synchronized (splitOrCompactLock) {
-      Vector<HRegion> regionsToCheck=new Vector<HRegion>();
+      ArrayList<HRegion> regionsToCheck=new ArrayList<HRegion>();
       lock.readLock().lock();
       try {
         regionsToCheck.addAll(onlineRegions.values());
@@ -10,11 +10,11 @@ synchronized (splitOrCompactLock) {
   finally {
         lock.readLock().unlock();
       }
-      try {
-        for (        HRegion cur : regionsToCheck) {
-          if (cur.isClosed()) {
-            continue;
-          }
+      for (      HRegion cur : regionsToCheck) {
+        if (cur.isClosed()) {
+          continue;
+        }
+        try {
           if (cur.needsCompaction()) {
             cur.compactStores();
           }
@@ -23,9 +23,12 @@ synchronized (splitOrCompactLock) {
             split(cur,midKey);
           }
         }
-      }
- catch (      IOException e) {
-        LOG.error("What happens if this fails? Are we toast?",e);
+ catch (        IOException e) {
+          LOG.error("Split or compaction failed",e);
+          if (!checkFileSystem()) {
+            break;
+          }
+        }
       }
     }
     if (stopRequested) {

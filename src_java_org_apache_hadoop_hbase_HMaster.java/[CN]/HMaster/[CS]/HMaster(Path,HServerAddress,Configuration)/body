@@ -4,28 +4,35 @@
   this.conf=conf;
   this.fs=FileSystem.get(conf);
   this.rand=new Random();
-  if (!fs.exists(dir)) {
-    fs.mkdirs(dir);
-  }
   Path rootRegionDir=HRegion.getRegionDir(dir,HGlobals.rootRegionInfo.regionName);
   LOG.info("Root region dir: " + rootRegionDir.toString());
-  if (!fs.exists(rootRegionDir)) {
-    LOG.info("bootstrap: creating ROOT and first META regions");
-    try {
-      HRegion root=HRegion.createHRegion(HGlobals.rootRegionInfo,this.dir,this.conf,null);
-      HRegion meta=HRegion.createHRegion(new HRegionInfo(1L,HGlobals.metaTableDesc,null,null),this.dir,this.conf,null);
-      HRegion.addRegionToMETA(root,meta);
-      root.close();
-      root.getLog().closeAndDelete();
-      meta.close();
-      meta.getLog().closeAndDelete();
+  try {
+    if (!fs.exists(dir)) {
+      fs.mkdirs(dir);
     }
- catch (    IOException e) {
-      if (e instanceof RemoteException) {
-        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+    if (!fs.exists(rootRegionDir)) {
+      LOG.info("bootstrap: creating ROOT and first META regions");
+      try {
+        HRegion root=HRegion.createHRegion(HGlobals.rootRegionInfo,this.dir,this.conf,null);
+        HRegion meta=HRegion.createHRegion(new HRegionInfo(1L,HGlobals.metaTableDesc,null,null),this.dir,this.conf,null);
+        HRegion.addRegionToMETA(root,meta);
+        root.close();
+        root.getLog().closeAndDelete();
+        meta.close();
+        meta.getLog().closeAndDelete();
       }
-      LOG.error("bootstrap",e);
+ catch (      IOException e) {
+        if (e instanceof RemoteException) {
+          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+        }
+        LOG.error("bootstrap",e);
+        throw e;
+      }
     }
+  }
+ catch (  IOException e) {
+    LOG.fatal("Not starting HMaster because:",e);
+    return;
   }
   this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
   this.numRetries=conf.getInt("hbase.client.retries.number",2);
@@ -37,7 +44,6 @@
   conf.set(MASTER_ADDRESS,address.toString());
   this.connection=HConnectionManager.getConnection(conf);
   this.metaRescanInterval=conf.getLong("hbase.master.meta.thread.rescanfrequency",60 * 1000);
-  this.rootRegionLocation=new AtomicReference<HServerAddress>();
   this.rootScanned=false;
   this.rootScanner=new RootScanner();
   this.rootScannerThread=new Thread(rootScanner,"HMaster.rootScanner");

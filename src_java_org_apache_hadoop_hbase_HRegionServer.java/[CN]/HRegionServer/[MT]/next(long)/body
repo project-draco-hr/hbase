@@ -1,27 +1,33 @@
 {
   requestCount.incrementAndGet();
-  String scannerName=String.valueOf(scannerId);
-  HInternalScannerInterface s=scanners.get(scannerName);
-  if (s == null) {
-    throw new UnknownScannerException("Name: " + scannerName);
-  }
-  leases.renewLease(scannerId,scannerId);
-  MapWritable values=new MapWritable();
-  HStoreKey key=new HStoreKey();
-  TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-  while (s.next(key,results)) {
-    for (    Map.Entry<Text,byte[]> e : results.entrySet()) {
-      HStoreKey k=new HStoreKey(key.getRow(),e.getKey(),key.getTimestamp());
-      byte[] val=e.getValue();
-      if (HGlobals.deleteBytes.compareTo(val) == 0) {
-        continue;
+  try {
+    String scannerName=String.valueOf(scannerId);
+    HInternalScannerInterface s=scanners.get(scannerName);
+    if (s == null) {
+      throw new UnknownScannerException("Name: " + scannerName);
+    }
+    leases.renewLease(scannerId,scannerId);
+    MapWritable values=new MapWritable();
+    HStoreKey key=new HStoreKey();
+    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+    while (s.next(key,results)) {
+      for (      Map.Entry<Text,byte[]> e : results.entrySet()) {
+        HStoreKey k=new HStoreKey(key.getRow(),e.getKey(),key.getTimestamp());
+        byte[] val=e.getValue();
+        if (HGlobals.deleteBytes.compareTo(val) == 0) {
+          continue;
+        }
+        values.put(k,new ImmutableBytesWritable(val));
       }
-      values.put(k,new ImmutableBytesWritable(val));
+      if (values.size() > 0) {
+        break;
+      }
+      results.clear();
     }
-    if (values.size() > 0) {
-      break;
-    }
-    results.clear();
+    return values;
   }
-  return values;
+ catch (  IOException e) {
+    checkFileSystem();
+    throw e;
+  }
 }
