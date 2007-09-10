@@ -1,0 +1,22 @@
+{
+  Text row=getRowFromLock(lockid);
+  if (row == null) {
+    throw new LockException("No write lock for lockid " + lockid);
+  }
+synchronized (row) {
+    Long lid=Long.valueOf(lockid);
+    TreeMap<Text,byte[]> updatesByColumn=this.targetColumns.get(lid);
+    long now=System.currentTimeMillis();
+    for (    Map.Entry<Text,byte[]> e : updatesByColumn.entrySet()) {
+      if (HGlobals.deleteBytes.equals(e.getValue())) {
+        deleteMultiple(row,e.getKey(),LATEST_TIMESTAMP,1);
+        continue;
+      }
+      TreeMap<Text,byte[]> putEdit=new TreeMap<Text,byte[]>();
+      putEdit.put(e.getKey(),e.getValue());
+      update(row,now,putEdit);
+    }
+    this.targetColumns.remove(lid);
+    releaseRowLock(row);
+  }
+}

@@ -1,48 +1,62 @@
 {
-  HLog hlog=new HLog(this.localFs,this.testDir,this.conf);
-  HTableDescriptor htd=createTableDescriptor(getName());
-  HRegionInfo hri=new HRegionInfo(1,htd,null,null);
-  final HRegion r=new HRegion(testDir,hlog,this.localFs,this.conf,hri,null);
-  try {
+  createStoreFile(r);
+  assertFalse(r.needsCompaction());
+  for (int i=0; i < COMPACTION_THRESHOLD; i++) {
     createStoreFile(r);
-    assertFalse(r.needsCompaction());
-    int compactionThreshold=this.conf.getInt("hbase.hstore.compactionThreshold",3);
-    for (int i=0; i < compactionThreshold; i++) {
-      createStoreFile(r);
-    }
-    assertTrue(r.needsCompaction());
-    addContent(new HRegionLoader(r),COLFAMILY_NAME1);
-    Thread t1=new Thread(){
-      @Override public void run(){
-        try {
-          r.flushcache(false);
-        }
- catch (        IOException e) {
-          e.printStackTrace();
-        }
-      }
-    }
-;
-    Thread t2=new Thread(){
-      @Override public void run(){
-        try {
-          assertTrue(r.compactStores());
-        }
- catch (        IOException e) {
-          e.printStackTrace();
-        }
-      }
-    }
-;
-    t1.setDaemon(true);
-    t1.start();
-    t2.setDaemon(true);
-    t2.start();
-    t1.join();
-    t2.join();
   }
-  finally {
-    r.close();
-    hlog.closeAndDelete();
+  assertTrue(r.needsCompaction());
+  addContent(new HRegionIncommon(r),COLUMN_FAMILY);
+  byte[][] bytes=this.r.get(STARTROW,COLUMN_FAMILY_TEXT,100);
+  assertTrue(bytes.length >= 5);
+  final HRegion region=this.r;
+  Thread t1=new Thread(){
+    @Override public void run(){
+      try {
+        region.flushcache(false);
+      }
+ catch (      IOException e) {
+        e.printStackTrace();
+      }
+    }
+  }
+;
+  Thread t2=new Thread(){
+    @Override public void run(){
+      try {
+        assertTrue(region.compactStores());
+      }
+ catch (      IOException e) {
+        e.printStackTrace();
+      }
+    }
+  }
+;
+  t1.setDaemon(true);
+  t1.start();
+  t2.setDaemon(true);
+  t2.start();
+  t1.join();
+  t2.join();
+  byte[] secondRowBytes=new byte[START_KEY_BYTES.length];
+  System.arraycopy(START_KEY_BYTES,0,secondRowBytes,0,START_KEY_BYTES.length);
+  secondRowBytes[START_KEY_BYTES.length - 1]++;
+  Text secondRow=new Text(secondRowBytes);
+  bytes=this.r.get(secondRow,COLUMN_FAMILY_TEXT,100);
+  assertTrue(bytes.length == 4);
+  this.r.deleteAll(STARTROW,COLUMN_FAMILY_TEXT,System.currentTimeMillis());
+  assertNull(this.r.get(STARTROW,COLUMN_FAMILY_TEXT,100));
+  this.r.flushcache(false);
+  assertNull(this.r.get(STARTROW,COLUMN_FAMILY_TEXT,100));
+  assertTrue(this.r.needsCompaction());
+  this.r.compactStores();
+  bytes=this.r.get(STARTROW,COLUMN_FAMILY_TEXT,100);
+  assertNull(bytes);
+  for (  MapFile.Reader reader : this.r.stores.get(COLUMN_FAMILY_TEXT_MINUS_COLON).readers.values()) {
+    reader.reset();
+    HStoreKey key=new HStoreKey();
+    ImmutableBytesWritable val=new ImmutableBytesWritable();
+    while (reader.next(key,val)) {
+      assertFalse(key.getRow().equals(STARTROW));
+    }
   }
 }
