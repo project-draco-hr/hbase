@@ -1,8 +1,8 @@
 {
   int tries=0;
-  while (!closed && tries < numRetries) {
+  while (!closed.get() && tries < numRetries) {
 synchronized (rootRegionLocation) {
-      while (!closed && rootRegionLocation.get() == null) {
+      while (!closed.get() && rootRegionLocation.get() == null) {
         try {
           rootRegionLocation.wait();
         }
@@ -10,7 +10,7 @@ synchronized (rootRegionLocation) {
         }
       }
     }
-    if (closed) {
+    if (closed.get()) {
       continue;
     }
     try {
@@ -20,14 +20,7 @@ synchronized (rootScannerLock) {
       break;
     }
  catch (    IOException e) {
-      if (e instanceof RemoteException) {
-        try {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
- catch (        IOException ex) {
-          e=ex;
-        }
-      }
+      e=RemoteExceptionHandler.checkIOException(e);
       tries+=1;
       if (tries == 1) {
         LOG.warn("Scan ROOT region",e);
@@ -35,19 +28,15 @@ synchronized (rootScannerLock) {
  else {
         LOG.error("Scan ROOT region",e);
         if (tries == numRetries - 1) {
-          checkFileSystem();
+          if (checkFileSystem()) {
+            continue;
+          }
         }
       }
     }
 catch (    Exception e) {
       LOG.error("Unexpected exception",e);
     }
-    if (!closed) {
-      try {
-        Thread.sleep(threadWakeFrequency);
-      }
- catch (      InterruptedException e) {
-      }
-    }
+    sleeper.sleep();
   }
 }

@@ -1,5 +1,4 @@
 {
-  this.closed=true;
   this.fsOk=true;
   this.dir=dir;
   this.conf=conf;
@@ -23,9 +22,7 @@
         meta.getLog().closeAndDelete();
       }
  catch (      IOException e) {
-        if (e instanceof RemoteException) {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
+        e=RemoteExceptionHandler.checkIOException(e);
         LOG.error("bootstrap",e);
         throw e;
       }
@@ -35,25 +32,23 @@
     LOG.fatal("Not starting HMaster because:",e);
     throw e;
   }
-  this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
+  this.threadWakeFrequency=conf.getInt(THREAD_WAKE_FREQUENCY,10 * 1000);
   this.numRetries=conf.getInt("hbase.client.retries.number",2);
   this.maxRegionOpenTime=conf.getLong("hbase.hbasemaster.maxregionopen",30 * 1000);
   this.msgQueue=new LinkedBlockingQueue<PendingOperation>();
-  this.serverLeases=new Leases(conf.getLong("hbase.master.lease.period",30 * 1000),conf.getLong("hbase.master.lease.thread.wakefrequency",15 * 1000));
+  this.serverLeases=new Leases(conf.getInt("hbase.master.lease.period",30 * 1000),conf.getInt("hbase.master.lease.thread.wakefrequency",15 * 1000));
   this.server=RPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
   this.address=new HServerAddress(server.getListenerAddress());
   conf.set(MASTER_ADDRESS,address.toString());
   this.connection=HConnectionManager.getConnection(conf);
-  this.metaRescanInterval=conf.getLong("hbase.master.meta.thread.rescanfrequency",60 * 1000);
+  this.metaRescanInterval=conf.getInt("hbase.master.meta.thread.rescanfrequency",60 * 1000);
   this.rootScanned=false;
-  this.rootScanner=new RootScanner();
-  this.rootScannerThread=new Thread(rootScanner,"HMaster.rootScanner");
+  this.rootScannerThread=new RootScanner();
   this.numberOfMetaRegions=new AtomicInteger();
   this.metaRegionsToScan=new LinkedBlockingQueue<MetaRegion>();
   this.onlineMetaRegions=Collections.synchronizedSortedMap(new TreeMap<Text,MetaRegion>());
   this.initialMetaScanComplete=false;
-  this.metaScanner=new MetaScanner();
-  this.metaScannerThread=new Thread(metaScanner,"HMaster.metaScanner");
+  this.metaScannerThread=new MetaScanner();
   this.unassignedRegions=Collections.synchronizedSortedMap(new TreeMap<Text,HRegionInfo>());
   this.unassignedRegions.put(HGlobals.rootRegionInfo.regionName,HGlobals.rootRegionInfo);
   this.assignAttempts=Collections.synchronizedMap(new HashMap<Text,Long>());
@@ -65,6 +60,7 @@
   this.serversToServerInfo=new HashMap<String,HServerInfo>();
   this.loadToServers=new TreeMap<HServerLoad,Set<String>>();
   this.serversToLoad=new HashMap<String,HServerLoad>();
-  this.closed=false;
+  this.sleeper=new Sleeper(this.threadWakeFrequency,this.closed);
+  this.closed.set(false);
   LOG.info("HMaster initialized on " + this.address.toString());
 }

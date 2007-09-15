@@ -1,0 +1,25 @@
+{
+  String n=Thread.currentThread().getName();
+  UncaughtExceptionHandler handler=new UncaughtExceptionHandler(){
+    public void uncaughtException(    Thread t,    Throwable e){
+      abort();
+      LOG.fatal("Set stop flag in " + t.getName(),e);
+    }
+  }
+;
+  Threads.setDaemonThreadRunning(this.cacheFlusherThread,n + ".cacheFlusher",handler);
+  Threads.setDaemonThreadRunning(this.splitOrCompactCheckerThread,n + ".splitOrCompactChecker",handler);
+  Threads.setDaemonThreadRunning(this.logRollerThread,n + ".logRoller",handler);
+  Threads.setDaemonThreadRunning(this.workerThread,n + ".worker",handler);
+  this.leases=new Leases(conf.getInt("hbase.regionserver.lease.period",3 * 60 * 1000),this.threadWakeFrequency);
+  this.leases.setName(n + ".leaseChecker");
+  this.leases.start();
+  try {
+    this.server.start();
+    LOG.info("HRegionServer started at: " + serverInfo.getServerAddress().toString());
+  }
+ catch (  IOException e) {
+    this.stopRequested.set(true);
+    LOG.fatal("Failed start Server",RemoteExceptionHandler.checkIOException(e));
+  }
+}

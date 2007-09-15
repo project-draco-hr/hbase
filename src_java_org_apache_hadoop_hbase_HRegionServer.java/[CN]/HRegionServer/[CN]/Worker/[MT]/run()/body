@@ -1,38 +1,32 @@
 {
-  for (ToDoEntry e=null; !stopRequested; ) {
-    try {
-      e=toDo.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
-    }
- catch (    InterruptedException ex) {
-    }
-    if (e == null || stopRequested) {
-      continue;
-    }
-    try {
-      LOG.info(e.msg.toString());
+  try {
+    for (ToDoEntry e=null; !stopRequested.get(); ) {
+      try {
+        e=toDo.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
+      }
+ catch (      InterruptedException ex) {
+      }
+      if (e == null || stopRequested.get()) {
+        continue;
+      }
+      try {
+        LOG.info(e.msg.toString());
 switch (e.msg.getMsg()) {
 case HMsg.MSG_REGION_OPEN:
-        openRegion(e.msg.getRegionInfo());
-      break;
+          openRegion(e.msg.getRegionInfo());
+        break;
 case HMsg.MSG_REGION_CLOSE:
-    closeRegion(e.msg.getRegionInfo(),true);
-  break;
+      closeRegion(e.msg.getRegionInfo(),true);
+    break;
 case HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT:
-closeRegion(e.msg.getRegionInfo(),false);
+  closeRegion(e.msg.getRegionInfo(),false);
 break;
 default :
 throw new AssertionError("Impossible state during msg processing.  Instruction: " + e.msg.toString());
 }
 }
  catch (IOException ie) {
-if (ie instanceof RemoteException) {
-try {
-ie=RemoteExceptionHandler.decodeRemoteException((RemoteException)ie);
-}
- catch (IOException x) {
-ie=x;
-}
-}
+ie=RemoteExceptionHandler.checkIOException(ie);
 if (e.tries < numRetries) {
 LOG.warn(ie);
 e.tries++;
@@ -51,5 +45,11 @@ break;
 }
 }
 }
+}
+ catch (Throwable t) {
+LOG.fatal("Unhandled exception",t);
+}
+ finally {
 LOG.info("worker thread exiting");
+}
 }

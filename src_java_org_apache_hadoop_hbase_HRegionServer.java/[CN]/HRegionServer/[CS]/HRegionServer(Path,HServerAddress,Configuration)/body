@@ -1,5 +1,4 @@
 {
-  this.stopRequested=false;
   this.abortRequested=false;
   this.fsOk=true;
   this.rootDir=rootDir;
@@ -9,16 +8,14 @@
   this.outboundMsgs=new Vector<HMsg>();
   this.requestCount=new AtomicInteger();
   this.numRetries=conf.getInt("hbase.client.retries.number",2);
-  this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
-  this.msgInterval=conf.getLong("hbase.regionserver.msginterval",3 * 1000);
-  this.splitOrCompactCheckFrequency=conf.getLong("hbase.regionserver.thread.splitcompactcheckfrequency",30 * 1000);
-  this.cacheFlusher=new Flusher();
-  this.cacheFlusherThread=new Thread(cacheFlusher);
-  this.splitOrCompactChecker=new SplitOrCompactChecker();
-  this.splitOrCompactCheckerThread=new Thread(splitOrCompactChecker);
+  this.threadWakeFrequency=conf.getInt(THREAD_WAKE_FREQUENCY,10 * 1000);
+  this.msgInterval=conf.getInt("hbase.regionserver.msginterval",3 * 1000);
+  this.cacheFlusherThread=new Flusher(this.threadWakeFrequency,stopRequested);
+  this.splitOrCompactCheckerThread=new SplitOrCompactChecker(this.stopRequested);
   this.toDo=new LinkedBlockingQueue<ToDoEntry>();
   this.worker=new Worker();
   this.workerThread=new Thread(worker);
+  this.sleeper=new Sleeper(this.msgInterval,this.stopRequested);
   try {
     this.server=RPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
     String realIP=DNS.getDefaultIP(conf.get("dfs.datanode.dns.interface","default"));
@@ -32,15 +29,11 @@
       throw new RegionServerRunningException("region server already " + "running at " + this.serverInfo.getServerAddress().toString() + " because logdir "+ logdir.toString()+ " exists");
     }
     this.log=new HLog(fs,logdir,conf);
-    this.logRoller=new LogRoller();
-    this.logRollerThread=new Thread(logRoller);
+    this.logRollerThread=new LogRoller(this.threadWakeFrequency,stopRequested);
     this.hbaseMaster=(HMasterRegionInterface)RPC.waitForProxy(HMasterRegionInterface.class,HMasterRegionInterface.versionID,new HServerAddress(conf.get(MASTER_ADDRESS)).getInetSocketAddress(),conf);
   }
  catch (  IOException e) {
-    this.stopRequested=true;
-    if (e instanceof RemoteException) {
-      e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-    }
-    throw e;
+    this.stopRequested.set(true);
+    throw RemoteExceptionHandler.checkIOException(e);
   }
 }

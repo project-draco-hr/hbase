@@ -1,129 +1,86 @@
 {
-  String threadName=Thread.currentThread().getName();
-  workerThread.setName(threadName + ".worker");
-  workerThread.start();
-  cacheFlusherThread.setName(threadName + ".cacheFlusher");
-  cacheFlusherThread.start();
-  splitOrCompactCheckerThread.setName(threadName + ".splitOrCompactChecker");
-  splitOrCompactCheckerThread.start();
-  logRollerThread.setName(threadName + ".logRoller");
-  logRollerThread.start();
-  leases=new Leases(conf.getLong("hbase.regionserver.lease.period",3 * 60 * 1000),threadWakeFrequency);
-  leases.start();
+  startAllServices();
   boolean masterRequestedStop=false;
   try {
-    this.server.start();
-    LOG.info("HRegionServer started at: " + serverInfo.getServerAddress().toString());
-  }
- catch (  IOException e) {
-    stopRequested=true;
-    if (e instanceof RemoteException) {
+    while (!stopRequested.get()) {
+      long lastMsg=0;
       try {
-        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+        reportForDuty();
       }
- catch (      IOException ex) {
-        e=ex;
+ catch (      IOException e) {
+        this.sleeper.sleep(lastMsg);
+        continue;
       }
-    }
-    LOG.error("",e);
-  }
-  while (!stopRequested) {
-    long lastMsg=0;
-    long waitTime;
-    try {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Telling master we are up");
-      }
-      requestCount.set(0);
-      serverInfo.setLoad(new HServerLoad(0,onlineRegions.size()));
-      hbaseMaster.regionServerStartup(serverInfo);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Done telling master we are up");
-      }
-    }
- catch (    IOException e) {
-      waitTime=stopRequested ? 0 : msgInterval - (System.currentTimeMillis() - lastMsg);
-      if (waitTime > 0) {
-synchronized (this) {
-          try {
-            wait(waitTime);
-          }
- catch (          InterruptedException e1) {
-          }
-        }
-      }
-      continue;
-    }
-    while (!stopRequested) {
-      if ((System.currentTimeMillis() - lastMsg) >= msgInterval) {
-        HMsg outboundArray[]=null;
+      for (int tries=0; !stopRequested.get(); ) {
+        if ((System.currentTimeMillis() - lastMsg) >= msgInterval) {
+          HMsg outboundArray[]=null;
 synchronized (outboundMsgs) {
-          outboundArray=outboundMsgs.toArray(new HMsg[outboundMsgs.size()]);
-          outboundMsgs.clear();
-        }
-        try {
-          serverInfo.setLoad(new HServerLoad(requestCount.get(),onlineRegions.size()));
-          requestCount.set(0);
-          HMsg msgs[]=hbaseMaster.regionServerReport(serverInfo,outboundArray);
-          lastMsg=System.currentTimeMillis();
-          boolean restart=false;
-          for (int i=0; i < msgs.length && !stopRequested && !restart; i++) {
+            outboundArray=this.outboundMsgs.toArray(new HMsg[outboundMsgs.size()]);
+            this.outboundMsgs.clear();
+          }
+          try {
+            this.serverInfo.setLoad(new HServerLoad(requestCount.get(),onlineRegions.size()));
+            this.requestCount.set(0);
+            HMsg msgs[]=this.hbaseMaster.regionServerReport(serverInfo,outboundArray);
+            lastMsg=System.currentTimeMillis();
+            boolean restart=false;
+            for (int i=0; i < msgs.length && !stopRequested.get() && !restart; i++) {
 switch (msgs[i].getMsg()) {
 case HMsg.MSG_CALL_SERVER_STARTUP:
-              if (LOG.isDebugEnabled()) {
-                LOG.debug("Got call server startup message");
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("Got call server startup message");
+                }
+              if (checkFileSystem()) {
+                closeAllRegions();
+                restart=true;
               }
-            if (fsOk) {
-              closeAllRegions();
-              restart=true;
-            }
-          break;
+            break;
 case HMsg.MSG_REGIONSERVER_STOP:
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Got regionserver stop message");
-        }
-      masterRequestedStop=true;
-    stopRequested=true;
-  break;
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Got regionserver stop message");
+          }
+        masterRequestedStop=true;
+      stopRequested.set(true);
+    break;
 default :
-if (fsOk) {
-  try {
-    toDo.put(new ToDoEntry(msgs[i]));
+  if (fsOk) {
+    try {
+      toDo.put(new ToDoEntry(msgs[i]));
+    }
+ catch (    InterruptedException e) {
+      throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
+    }
   }
- catch (  InterruptedException e) {
-    throw new RuntimeException("Putting into msgQueue was interrupted.",e);
-  }
 }
 }
-}
-if (restart || stopRequested) {
+if (restart || this.stopRequested.get()) {
 toDo.clear();
 break;
 }
+tries=0;
 }
  catch (IOException e) {
-if (e instanceof RemoteException) {
-try {
-e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+e=RemoteExceptionHandler.checkIOException(e);
+if (tries < this.numRetries) {
+LOG.warn("",e);
+tries++;
 }
- catch (IOException ex) {
-e=ex;
+ else {
+LOG.error("Exceeded max retries: " + this.numRetries,e);
+if (!checkFileSystem()) {
+continue;
 }
-}
-LOG.error("",e);
-}
-}
-waitTime=stopRequested ? 0 : msgInterval - (System.currentTimeMillis() - lastMsg);
-if (waitTime > 0) {
-synchronized (this) {
-try {
-wait(waitTime);
-}
- catch (InterruptedException iex) {
+stop();
 }
 }
 }
+this.sleeper.sleep(lastMsg);
 }
+}
+}
+ catch (Throwable t) {
+LOG.fatal("Unhandled exception. Aborting...",t);
+abort();
 }
 leases.closeAfterLeasesExpire();
 this.worker.stop();
@@ -138,21 +95,13 @@ synchronized (splitOrCompactLock) {
 this.splitOrCompactCheckerThread.interrupt();
 }
 if (abortRequested) {
-if (fsOk) {
+if (this.fsOk) {
 try {
 log.close();
 LOG.info("On abort, closed hlog");
 }
  catch (IOException e) {
-if (e instanceof RemoteException) {
-try {
-e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-}
- catch (IOException ex) {
-e=ex;
-}
-}
-LOG.error("Unable to close log in abort",e);
+LOG.error("Unable to close log in abort",RemoteExceptionHandler.checkIOException(e));
 }
 closeAllRegions();
 }
@@ -164,18 +113,10 @@ try {
 log.closeAndDelete();
 }
  catch (IOException e) {
-if (e instanceof RemoteException) {
-try {
-e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-}
- catch (IOException ex) {
-e=ex;
-}
-}
-LOG.error("",e);
+LOG.error("",RemoteExceptionHandler.checkIOException(e));
 }
 try {
-if (!masterRequestedStop) {
+if (!masterRequestedStop && closedRegions != null) {
 HMsg[] exitMsg=new HMsg[closedRegions.size() + 1];
 exitMsg[0]=new HMsg(HMsg.MSG_REPORT_EXITING);
 int i=1;
@@ -187,15 +128,7 @@ hbaseMaster.regionServerReport(serverInfo,exitMsg);
 }
 }
  catch (IOException e) {
-if (e instanceof RemoteException) {
-try {
-e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-}
- catch (IOException ex) {
-e=ex;
-}
-}
-LOG.warn("",e);
+LOG.warn("",RemoteExceptionHandler.checkIOException(e));
 }
 LOG.info("stopping server at: " + serverInfo.getServerAddress().toString());
 }

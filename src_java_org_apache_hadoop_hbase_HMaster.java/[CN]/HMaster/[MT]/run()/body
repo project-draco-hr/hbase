@@ -1,48 +1,51 @@
 {
-  Thread.currentThread().setName("HMaster");
+  final String threadName="HMaster";
+  Thread.currentThread().setName(threadName);
+  startAllServices();
   try {
-    this.serverLeases.start();
-    this.rootScannerThread.start();
-    this.metaScannerThread.start();
-    this.server.start();
-  }
- catch (  IOException e) {
-    if (e instanceof RemoteException) {
+    for (PendingOperation op=null; !closed.get(); ) {
       try {
-        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+        op=msgQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
       }
- catch (      IOException ex) {
-        LOG.warn("thread start",ex);
+ catch (      InterruptedException e) {
       }
-    }
-    this.closed=true;
-    LOG.error("Failed startup",e);
-  }
-  for (PendingOperation op=null; !closed; ) {
-    try {
-      op=msgQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
-    }
- catch (    InterruptedException e) {
-    }
-    if (op == null || closed) {
-      continue;
-    }
-    try {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Main processing loop: " + op.toString());
+      if (op == null || closed.get()) {
+        continue;
       }
-      if (!op.process()) {
-        if (msgQueue.size() == 0) {
+      try {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Main processing loop: " + op.toString());
+        }
+        if (!op.process()) {
+          if (msgQueue.size() == 0) {
+            sleeper.sleep();
+          }
           try {
-            Thread.sleep(threadWakeFrequency);
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("Put " + op.toString() + " back on queue");
+            }
+            msgQueue.put(op);
           }
  catch (          InterruptedException e) {
+            throw new RuntimeException("Putting into msgQueue was interrupted.",e);
           }
         }
-        try {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Put " + op.toString() + " back on queue");
+      }
+ catch (      Exception ex) {
+        if (ex instanceof RemoteException) {
+          try {
+            ex=RemoteExceptionHandler.decodeRemoteException((RemoteException)ex);
           }
+ catch (          IOException e) {
+            ex=e;
+            LOG.warn("main processing loop: " + op.toString(),e);
+          }
+        }
+        if (!checkFileSystem()) {
+          break;
+        }
+        LOG.warn("Processing pending operations: " + op.toString(),ex);
+        try {
           msgQueue.put(op);
         }
  catch (        InterruptedException e) {
@@ -50,27 +53,9 @@
         }
       }
     }
- catch (    Exception ex) {
-      if (ex instanceof RemoteException) {
-        try {
-          ex=RemoteExceptionHandler.decodeRemoteException((RemoteException)ex);
-        }
- catch (        IOException e) {
-          ex=e;
-          LOG.warn("main processing loop: " + op.toString(),e);
-        }
-      }
-      if (!checkFileSystem()) {
-        break;
-      }
-      LOG.warn("Processing pending operations: " + op.toString(),ex);
-      try {
-        msgQueue.put(op);
-      }
- catch (      InterruptedException e) {
-        throw new RuntimeException("Putting into msgQueue was interrupted.",e);
-      }
-    }
+  }
+ catch (  Throwable t) {
+    LOG.fatal("Unhandled exception",t);
   }
   letRegionServersShutdown();
 synchronized (rootScannerLock) {

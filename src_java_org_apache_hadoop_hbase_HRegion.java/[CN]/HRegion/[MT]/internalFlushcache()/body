@@ -9,15 +9,24 @@
     LOG.debug("Finished memcache flush; empty snapshot");
     return;
   }
-  long logCacheFlushId=retval.sequenceId;
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("Snapshotted memcache for region " + this.regionInfo.regionName + " with sequence id "+ retval.sequenceId+ " and entries "+ retval.memcacheSnapshot.size());
+  try {
+    long logCacheFlushId=retval.sequenceId;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Snapshotted memcache for region " + this.regionInfo.regionName + " with sequence id "+ retval.sequenceId+ " and entries "+ retval.memcacheSnapshot.size());
+    }
+    for (    HStore hstore : stores.values()) {
+      hstore.flushCache(retval.memcacheSnapshot,retval.sequenceId);
+    }
+    log.completeCacheFlush(this.regionInfo.regionName,regionInfo.tableDesc.getName(),logCacheFlushId);
   }
-  for (  HStore hstore : stores.values()) {
-    hstore.flushCache(retval.memcacheSnapshot,retval.sequenceId);
+ catch (  IOException e) {
+    LOG.fatal("Interrupted while flushing. Edits lost. FIX! HADOOP-1903",e);
+    log.abort();
+    throw e;
   }
-  log.completeCacheFlush(this.regionInfo.regionName,regionInfo.tableDesc.getName(),logCacheFlushId);
-  memcache.deleteSnapshot();
+ finally {
+    memcache.deleteSnapshot();
+  }
 synchronized (this) {
     notifyAll();
   }

@@ -1,14 +1,10 @@
 {
   int tries=0;
-  while (!closed && tries < numRetries) {
-    while (!closed && !rootScanned && rootRegionLocation.get() == null) {
-      try {
-        Thread.sleep(threadWakeFrequency);
-      }
- catch (      InterruptedException e) {
-      }
+  while (!closed.get() && tries < numRetries) {
+    while (!closed.get() && !rootScanned && rootRegionLocation.get() == null) {
+      sleeper.sleep();
     }
-    if (closed) {
+    if (closed.get()) {
       continue;
     }
     try {
@@ -19,14 +15,7 @@ synchronized (metaScannerLock) {
       break;
     }
  catch (    IOException e) {
-      if (e instanceof RemoteException) {
-        try {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
- catch (        IOException ex) {
-          e=ex;
-        }
-      }
+      e=RemoteExceptionHandler.checkIOException(e);
       tries+=1;
       if (tries == 1) {
         LOG.warn("Scan one META region",e);
@@ -34,19 +23,17 @@ synchronized (metaScannerLock) {
  else {
         LOG.error("Scan one META region",e);
         if (tries == numRetries - 1) {
-          checkFileSystem();
+          if (checkFileSystem()) {
+            if (e instanceof ConnectException) {
+              LOG.debug("Region hosting server is gone.");
+            }
+          }
         }
       }
     }
 catch (    Exception e) {
       LOG.error("Unexpected exception",e);
     }
-    if (!closed) {
-      try {
-        Thread.sleep(threadWakeFrequency);
-      }
- catch (      InterruptedException e) {
-      }
-    }
+    sleeper.sleep();
   }
 }
