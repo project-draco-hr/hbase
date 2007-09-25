@@ -1,10 +1,17 @@
 {
-  if (closed) {
-    throw new IOException("Cannot roll log; log is closed");
-  }
-  cacheFlushLock.lock();
-  try {
+synchronized (rollLock) {
+    Vector<Path> toDeleteList=new Vector<Path>();
 synchronized (this) {
+      if (closed) {
+        throw new IOException("Cannot roll log; log is closed");
+      }
+      while (insideCacheFlush) {
+        try {
+          wait();
+        }
+ catch (        InterruptedException ie) {
+        }
+      }
       if (writer != null) {
         writer.close();
         Path p=computeFilename(filenum - 1);
@@ -12,7 +19,7 @@ synchronized (this) {
           LOG.debug("Closing current log writer " + p.toString() + " to get a new one");
         }
         if (filenum > 0) {
-          outputfiles.put(logSeqNum.get() - 1,p);
+          outputfiles.put(logSeqNum - 1,p);
         }
       }
       Path newPath=computeFilename(filenum++);
@@ -21,25 +28,31 @@ synchronized (this) {
         LOG.debug("new log writer created at " + newPath);
       }
       long oldestOutstandingSeqNum=Long.MAX_VALUE;
-      for (      Long l : lastSeqWritten.values()) {
+      for (      Long l : regionToLastFlush.values()) {
         long curSeqNum=l.longValue();
         if (curSeqNum < oldestOutstandingSeqNum) {
           oldestOutstandingSeqNum=curSeqNum;
         }
       }
-      TreeSet<Long> sequenceNumbers=new TreeSet<Long>();
-      sequenceNumbers.addAll(outputfiles.headMap(oldestOutstandingSeqNum).keySet());
-      for (      Long seq : sequenceNumbers) {
-        Path p=outputfiles.remove(seq);
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("removing old log file " + p.toString());
+      for (Iterator<Long> it=outputfiles.keySet().iterator(); it.hasNext(); ) {
+        long maxSeqNum=it.next().longValue();
+        if (maxSeqNum < oldestOutstandingSeqNum) {
+          Path p=outputfiles.get(maxSeqNum);
+          it.remove();
+          toDeleteList.add(p);
         }
-        fs.delete(p);
+ else {
+          break;
+        }
       }
-      this.numEntries.set(0);
     }
-  }
-  finally {
-    cacheFlushLock.unlock();
+    for (Iterator<Path> it=toDeleteList.iterator(); it.hasNext(); ) {
+      Path p=it.next();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("removing old log file " + p.toString());
+      }
+      fs.delete(p);
+    }
+    this.numEntries.set(0);
   }
 }
