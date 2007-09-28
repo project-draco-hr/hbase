@@ -1,28 +1,40 @@
 {
+  int count=0;
   HScannerInterface scan=null;
   try {
+    ParsedColumns parsedColumns=getColumns(admin,true);
+    Text[] cols=parsedColumns.getColumns().toArray(new Text[]{});
     if (this.timestamp == 0) {
-      scan=table.obtainScanner(getColumns(admin),this.rowKey);
+      scan=table.obtainScanner(cols,this.rowKey);
     }
  else {
-      scan=table.obtainScanner(getColumns(admin),this.rowKey,this.timestamp);
+      scan=table.obtainScanner(cols,this.rowKey,this.timestamp);
     }
     HStoreKey key=new HStoreKey();
     TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-    ConsoleTable.selectHead();
-    int count=0;
+    TableFormatter formatter=TableFormatterFactory.get();
+    formatter.header((parsedColumns.isMultiple()) ? HEADER : HEADER_ROW_CELL);
     while (scan.next(key,results) && checkLimit(count)) {
-      Text rowKey=key.getRow();
+      Text r=key.getRow();
       for (      Text columnKey : results.keySet()) {
-        String cellData=new String(results.get(columnKey),HConstants.UTF8_ENCODING);
-        ConsoleTable.printLine(count,rowKey.toString(),columnKey.toString(),cellData);
+        String cellData=toString(columnKey,results.get(columnKey));
+        if (parsedColumns.isMultiple()) {
+          formatter.row(new String[]{r.toString(),columnKey.toString(),cellData});
+        }
+ else {
+          formatter.row(new String[]{r.toString(),cellData});
+        }
+        count++;
+        if (this.limit > 0 && count >= this.limit) {
+          break;
+        }
       }
-      count++;
     }
-    ConsoleTable.selectFoot();
+    formatter.footer();
     scan.close();
   }
  catch (  IOException e) {
     e.printStackTrace();
   }
+  return count;
 }
