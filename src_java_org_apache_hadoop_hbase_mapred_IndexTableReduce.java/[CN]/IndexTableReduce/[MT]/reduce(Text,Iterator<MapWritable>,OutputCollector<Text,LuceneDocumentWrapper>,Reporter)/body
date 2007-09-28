@@ -1,0 +1,23 @@
+{
+  if (!values.hasNext()) {
+    return;
+  }
+  Document doc=new Document();
+  Field keyField=new Field(indexConf.getRowkeyName(),key.toString(),Field.Store.YES,Field.Index.UN_TOKENIZED);
+  keyField.setOmitNorms(true);
+  doc.add(keyField);
+  while (values.hasNext()) {
+    MapWritable value=values.next();
+    for (    Map.Entry<Writable,Writable> entry : value.entrySet()) {
+      String column=((Text)entry.getKey()).toString();
+      byte[] columnValue=((ImmutableBytesWritable)entry.getValue()).get();
+      Field.Store store=indexConf.isStore(column) ? Field.Store.YES : Field.Store.NO;
+      Field.Index index=indexConf.isIndex(column) ? (indexConf.isTokenize(column) ? Field.Index.TOKENIZED : Field.Index.UN_TOKENIZED) : Field.Index.NO;
+      Field field=new Field(column,new String(columnValue,HConstants.UTF8_ENCODING),store,index);
+      field.setBoost(indexConf.getBoost(column));
+      field.setOmitNorms(indexConf.isOmitNorms(column));
+      doc.add(field);
+    }
+  }
+  output.collect(key,new LuceneDocumentWrapper(doc));
+}

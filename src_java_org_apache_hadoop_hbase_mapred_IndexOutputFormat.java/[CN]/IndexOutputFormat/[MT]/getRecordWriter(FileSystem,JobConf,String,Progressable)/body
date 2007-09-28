@@ -1,0 +1,90 @@
+{
+  final Path perm=new Path(job.getOutputPath(),name);
+  final Path temp=job.getLocalPath("index/_" + Integer.toString(new Random().nextInt()));
+  LOG.info("To index into " + perm);
+  fs.delete(perm);
+  final IndexConfiguration indexConf=new IndexConfiguration();
+  String content=job.get("hbase.index.conf");
+  if (content != null) {
+    indexConf.addFromXML(content);
+  }
+  String analyzerName=indexConf.getAnalyzerName();
+  Analyzer analyzer;
+  try {
+    Class analyzerClass=Class.forName(analyzerName);
+    analyzer=(Analyzer)analyzerClass.newInstance();
+  }
+ catch (  Exception e) {
+    throw new IOException("Error in creating an analyzer object " + analyzerName);
+  }
+  final IndexWriter writer=new IndexWriter(fs.startLocalOutput(perm,temp).toString(),analyzer,true);
+  writer.setMaxBufferedDocs(indexConf.getMaxBufferedDocs());
+  writer.setMaxFieldLength(indexConf.getMaxFieldLength());
+  writer.setMaxMergeDocs(indexConf.getMaxMergeDocs());
+  writer.setMergeFactor(indexConf.getMergeFactor());
+  String similarityName=indexConf.getSimilarityName();
+  if (similarityName != null) {
+    try {
+      Class similarityClass=Class.forName(similarityName);
+      Similarity similarity=(Similarity)similarityClass.newInstance();
+      writer.setSimilarity(similarity);
+    }
+ catch (    Exception e) {
+      throw new IOException("Error in creating a similarty object " + similarityName);
+    }
+  }
+  writer.setUseCompoundFile(indexConf.isUseCompoundFile());
+  return new RecordWriter<Text,LuceneDocumentWrapper>(){
+    private boolean closed;
+    private long docCount=0;
+    public void write(    @SuppressWarnings("unused") Text key,    LuceneDocumentWrapper value) throws IOException {
+      Document doc=value.get();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(" Indexing [" + doc + "]");
+      }
+      writer.addDocument(doc);
+      docCount++;
+      progress.progress();
+    }
+    public void close(    final Reporter reporter) throws IOException {
+      Thread prog=new Thread(){
+        public void run(){
+          while (!closed) {
+            try {
+              reporter.setStatus("closing");
+              Thread.sleep(1000);
+            }
+ catch (            InterruptedException e) {
+              continue;
+            }
+catch (            Throwable e) {
+              return;
+            }
+          }
+        }
+      }
+;
+      try {
+        prog.start();
+        if (indexConf.doOptimize()) {
+          if (LOG.isInfoEnabled()) {
+            LOG.info("Optimizing index.");
+          }
+          writer.optimize();
+        }
+        writer.close();
+        if (LOG.isInfoEnabled()) {
+          LOG.info("Done indexing " + docCount + " docs.");
+        }
+        fs.completeLocalOutput(perm,temp);
+        if (LOG.isInfoEnabled()) {
+          LOG.info("Copy done.");
+        }
+      }
+  finally {
+        closed=true;
+      }
+    }
+  }
+;
+}
