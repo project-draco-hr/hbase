@@ -1,13 +1,17 @@
 {
-  if (this.closed) {
-    return;
+  try {
+    if (this.closed) {
+      return;
+    }
+    writer.append(new HLogKey(regionName,tableName,HLog.METAROW,logSeqId),new HLogEdit(HLog.METACOLUMN,HGlobals.completeCacheFlush.get(),System.currentTimeMillis()));
+    numEntries++;
+    Long seq=lastSeqWritten.get(regionName);
+    if (seq != null && logSeqId >= seq) {
+      lastSeqWritten.remove(regionName);
+    }
   }
-  if (!this.insideCacheFlush) {
-    throw new IOException("Impossible situation: inside " + "completeCacheFlush(), but 'insideCacheFlush' flag is false");
+  finally {
+    cacheFlushLock.unlock();
+    notifyAll();
   }
-  HLogKey key=new HLogKey(regionName,tableName,HLog.METAROW,logSeqId);
-  this.writer.append(key,new HLogEdit(HLog.METACOLUMN,HGlobals.completeCacheFlush.get(),System.currentTimeMillis()));
-  this.numEntries.getAndIncrement();
-  this.regionToLastFlush.put(regionName,Long.valueOf(logSeqId));
-  cleanup();
 }
