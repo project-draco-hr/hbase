@@ -29,17 +29,27 @@ case HMsg.MSG_CALL_SERVER_STARTUP:
                 if (LOG.isDebugEnabled()) {
                   LOG.debug("Got call server startup message");
                 }
-              try {
-                if (checkFileSystem()) {
-                  closeAllRegions();
-                  restart=true;
+              if (checkFileSystem()) {
+                closeAllRegions();
+synchronized (logRollerLock) {
+                  try {
+                    log.closeAndDelete();
+                    serverInfo.setStartCode(rand.nextLong());
+                    log=setupHLog();
+                  }
+ catch (                  IOException e) {
+                    this.abortRequested=true;
+                    this.stopRequested.set(true);
+                    e=RemoteExceptionHandler.checkIOException(e);
+                    LOG.fatal("error restarting server",e);
+                    break;
+                  }
                 }
+                reportForDuty();
+                restart=true;
               }
- catch (              Exception e) {
-                LOG.fatal("file system available check failed. " + "Shutting down server.",e);
-                this.stopRequested.set(true);
-                this.fsOk=false;
-                this.abortRequested=true;
+ else {
+                LOG.fatal("file system available check failed. " + "Shutting down server.");
               }
             break;
 case HMsg.MSG_REGIONSERVER_STOP:
