@@ -1,37 +1,53 @@
 {
   @SuppressWarnings("unused") HTable meta=new HTable(conf,HConstants.META_TABLE_NAME);
-  String tableName=getName();
+  final String tableName=getName();
   HTableDescriptor desc=new HTableDescriptor(tableName);
   desc.addFamily(new HColumnDescriptor(HConstants.COLUMN_FAMILY.toString()));
   HBaseAdmin admin=new HBaseAdmin(conf);
   admin.createTable(desc);
   this.table=new HTable(conf,new Text(tableName));
-  Text row=new Text("row1");
+  final Text row=new Text("row1");
   long lockid=table.startUpdate(row);
   table.put(lockid,HConstants.COLUMN_FAMILY,tableName.getBytes(HConstants.UTF8_ENCODING));
   table.commit(lockid);
   this.cluster.startRegionServer();
   this.cluster.abortRegionServer(0);
   LOG.info(this.cluster.waitOnRegionServer(0) + " has been shutdown");
-  HScannerInterface scanner=null;
-  try {
-    scanner=table.obtainScanner(HConstants.COLUMN_FAMILY_ARRAY,new Text());
-    LOG.info("Obtained scanner " + scanner);
-    HStoreKey key=new HStoreKey();
-    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-    while (scanner.next(key,results)) {
-      assertTrue(key.getRow().equals(row));
-      assertEquals(1,results.size());
-      byte[] bytes=results.get(HConstants.COLUMN_FAMILY);
-      assertNotNull(bytes);
-      assertTrue(tableName.equals(new String(bytes,HConstants.UTF8_ENCODING)));
+  Runnable runnable=new Runnable(){
+    public void run(){
+      HScannerInterface scanner=null;
+      try {
+        scanner=table.obtainScanner(HConstants.COLUMN_FAMILY_ARRAY,new Text());
+        LOG.info("Obtained scanner " + scanner);
+        HStoreKey key=new HStoreKey();
+        TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+        while (scanner.next(key,results)) {
+          assertTrue(key.getRow().equals(row));
+          assertEquals(1,results.size());
+          byte[] bytes=results.get(HConstants.COLUMN_FAMILY);
+          assertNotNull(bytes);
+          assertTrue(tableName.equals(new String(bytes,HConstants.UTF8_ENCODING)));
+        }
+        LOG.info("Success!");
+      }
+ catch (      IOException e) {
+        e.printStackTrace();
+      }
+ finally {
+        if (scanner != null) {
+          LOG.info("Closing scanner " + scanner);
+          try {
+            scanner.close();
+          }
+ catch (          IOException e) {
+            e.printStackTrace();
+          }
+        }
+      }
     }
-    LOG.info("Success!");
   }
-  finally {
-    if (scanner != null) {
-      LOG.info("Closing scanner " + scanner);
-      scanner.close();
-    }
-  }
+;
+  Thread t=new Thread(runnable);
+  t.start();
+  threadDumpingJoin(t);
 }
