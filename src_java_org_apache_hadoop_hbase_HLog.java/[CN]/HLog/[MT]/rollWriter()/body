@@ -1,7 +1,7 @@
 {
   boolean locked=false;
   while (!locked && !closed) {
-    if (cacheFlushLock.tryLock()) {
+    if (this.cacheFlushLock.tryLock()) {
       locked=true;
       break;
     }
@@ -13,40 +13,48 @@
   }
   if (closed) {
     if (locked) {
-      cacheFlushLock.unlock();
+      this.cacheFlushLock.unlock();
     }
     throw new IOException("Cannot roll log; log is closed");
   }
   try {
-    if (writer != null) {
-      writer.close();
+    if (this.writer != null) {
+      this.writer.close();
       Path p=computeFilename(filenum - 1);
       if (LOG.isDebugEnabled()) {
         LOG.debug("Closing current log writer " + p.toString() + " to get a new one");
       }
       if (filenum > 0) {
-synchronized (sequenceLock) {
-          outputfiles.put(logSeqNum - 1,p);
+synchronized (this.sequenceLock) {
+          this.outputfiles.put(Long.valueOf(this.logSeqNum - 1),p);
         }
       }
     }
     Path newPath=computeFilename(filenum++);
-    this.writer=SequenceFile.createWriter(fs,conf,newPath,HLogKey.class,HLogEdit.class);
+    this.writer=SequenceFile.createWriter(this.fs,this.conf,newPath,HLogKey.class,HLogEdit.class);
     LOG.info("new log writer created at " + newPath);
-    TreeSet<Long> sequenceNumbers=new TreeSet<Long>(lastSeqWritten.values());
-    if (sequenceNumbers.size() > 0) {
-      long oldestOutstandingSeqNum=sequenceNumbers.first();
-      sequenceNumbers.clear();
-      sequenceNumbers.addAll(outputfiles.headMap(oldestOutstandingSeqNum).keySet());
-      for (      Long seq : sequenceNumbers) {
-        Path p=outputfiles.remove(seq);
-        LOG.info("removing old log file " + p.toString());
-        fs.delete(p);
+    if (this.outputfiles.size() > 0) {
+      if (this.lastSeqWritten.size() <= 0) {
+        LOG.debug("Last sequence written is empty. Deleting all old hlogs");
+        for (        Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
+          deleteLogFile(e.getValue(),e.getKey());
+        }
+        this.outputfiles.clear();
+      }
+ else {
+        TreeSet<Long> sequenceNumbers=new TreeSet<Long>(this.lastSeqWritten.values());
+        long oldestOutstandingSeqNum=sequenceNumbers.first().longValue();
+        sequenceNumbers.clear();
+        sequenceNumbers.addAll(this.outputfiles.headMap(Long.valueOf(oldestOutstandingSeqNum)).keySet());
+        LOG.debug("Found " + sequenceNumbers.size() + " logs to remove "+ "using oldest outstanding seqnum of "+ oldestOutstandingSeqNum);
+        for (        Long seq : sequenceNumbers) {
+          deleteLogFile(this.outputfiles.remove(seq),seq);
+        }
       }
     }
     this.numEntries=0;
   }
   finally {
-    cacheFlushLock.unlock();
+    this.cacheFlushLock.unlock();
   }
 }
