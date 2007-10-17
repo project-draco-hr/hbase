@@ -9,8 +9,23 @@
   int count=count(meta,tableName);
   HTable t=new HTable(conf,new Text(tableName));
   addContent(new HTableIncommon(t),columnName);
-  HRegionInfo hri=t.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
-  HRegion r=cluster.regionThreads.get(0).getRegionServer().onlineRegions.get(hri.getRegionName());
+  LOG.info("Finished content loading");
+  HRegionInfo hri=null;
+  HRegion r=null;
+  for (int i=0; i < 30; i++) {
+    hri=t.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
+    LOG.info("Region location: " + hri);
+    r=cluster.getRegionThreads().get(0).getRegionServer().onlineRegions.get(hri.getRegionName());
+    if (r != null) {
+      break;
+    }
+    try {
+      Thread.sleep(1000);
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Waiting on region to come online",e);
+    }
+  }
   r.flushcache(false);
   int oldCount=count;
   for (int i=0; i < retries; i++) {
@@ -29,6 +44,7 @@
   }
   Map<Text,byte[]> data=getSplitParentInfo(meta,hri);
   HRegionInfo parent=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_REGIONINFO));
+  LOG.info("Found parent region: " + parent);
   assertTrue(parent.isOffline());
   assertTrue(parent.isSplit());
   HRegionInfo splitA=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITA));
