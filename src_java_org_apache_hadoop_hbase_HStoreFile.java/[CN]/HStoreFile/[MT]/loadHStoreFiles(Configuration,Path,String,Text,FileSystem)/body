@@ -1,0 +1,37 @@
+{
+  Path infodir=HStoreFile.getInfoDir(dir,encodedRegionName,colFamily);
+  Path infofiles[]=fs.listPaths(new Path[]{infodir});
+  Vector<HStoreFile> results=new Vector<HStoreFile>(infofiles.length);
+  Vector<Path> mapfiles=new Vector<Path>(infofiles.length);
+  for (int i=0; i < infofiles.length; i++) {
+    Path p=infofiles[i];
+    Matcher m=REF_NAME_PARSER.matcher(p.getName());
+    boolean isReference=isReference(p,m);
+    long fid=Long.parseLong(m.group(1));
+    HStoreFile curfile=null;
+    if (isReference) {
+      Reference reference=readSplitInfo(infofiles[i],fs);
+      curfile=new HStoreFile(conf,dir,encodedRegionName,colFamily,fid,reference);
+    }
+ else {
+      curfile=new HStoreFile(conf,dir,encodedRegionName,colFamily,fid);
+    }
+    Path mapfile=curfile.getMapFilePath();
+    if (!fs.exists(mapfile)) {
+      fs.delete(curfile.getInfoFilePath());
+      LOG.warn("Mapfile " + mapfile.toString() + " does not exist. "+ "Cleaned up info file.  Continuing...");
+      continue;
+    }
+    results.add(curfile);
+    Path qualified=fs.makeQualified(mapfile);
+    mapfiles.add(qualified);
+  }
+  Path mapdir=HStoreFile.getMapDir(dir,encodedRegionName,colFamily);
+  Path datfiles[]=fs.listPaths(new Path[]{mapdir});
+  for (int i=0; i < datfiles.length; i++) {
+    if (!mapfiles.contains(fs.makeQualified(datfiles[i]))) {
+      fs.delete(datfiles[i]);
+    }
+  }
+  return results;
+}
