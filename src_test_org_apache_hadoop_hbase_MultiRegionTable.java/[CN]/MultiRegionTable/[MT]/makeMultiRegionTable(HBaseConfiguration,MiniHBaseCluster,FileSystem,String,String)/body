@@ -1,6 +1,6 @@
 {
   final int retries=10;
-  final long waitTime=conf.getLong("hbase.master.meta.thread.rescanfrequency",10L * 1000L);
+  final long waitTime=20L * 1000L;
   assertTrue(conf.getLong("hbase.hregion.max.filesize",HConstants.DEFAULT_MAX_FILE_SIZE) <= 1024 * 1024);
   FileSystem fs=(cluster.getDFSCluster() == null) ? localFs : cluster.getDFSCluster().getFileSystem();
   assertNotNull(fs);
@@ -28,7 +28,7 @@
       LOG.warn("Waiting on region to come online",e);
     }
   }
-  r.flushcache(false);
+  r.internalFlushcache(r.snapshotMemcaches());
   int oldCount=count;
   for (int i=0; i < retries; i++) {
     count=count(meta,tableName);
@@ -56,14 +56,19 @@
   LOG.info("Split happened. Parent is " + parent.getRegionName() + " and daughters are "+ splitA.getRegionName()+ ", "+ splitB.getRegionName());
   recalibrate(t,new Text(columnName),retries,waitTime);
   compact(cluster,splitA);
-  while (getSplitParentInfo(meta,parent).size() == 3) {
-    try {
-      Thread.sleep(waitTime);
+  while (true) {
+    data=getSplitParentInfo(meta,parent);
+    if (data == null || data.size() == 3) {
+      try {
+        Thread.sleep(waitTime);
+      }
+ catch (      InterruptedException e) {
+      }
+      continue;
     }
- catch (    InterruptedException e) {
-    }
+    break;
   }
-  LOG.info("Parent split returned " + getSplitParentInfo(meta,parent).keySet().toString());
+  LOG.info("Parent split returned " + data.keySet().toString());
   compact(cluster,splitB);
   LOG.info("Waiting on parent " + parent.getRegionName() + " to disappear");
   for (int i=0; i < retries; i++) {

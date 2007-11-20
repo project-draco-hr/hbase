@@ -3,7 +3,7 @@
     LOG.info("region " + this.regionInfo.getRegionName() + " already closed");
     return null;
   }
-  lock.obtainWriteLock();
+  lock.writeLock().lock();
   try {
 synchronized (writestate) {
       while (writestate.compacting || writestate.flushing) {
@@ -15,9 +15,18 @@ synchronized (writestate) {
       }
       writestate.writesEnabled=false;
     }
+synchronized (activeScannerCount) {
+      while (activeScannerCount.get() != 0) {
+        try {
+          activeScannerCount.wait();
+        }
+ catch (        InterruptedException e) {
+        }
+      }
+    }
     waitOnRowLocks();
     if (!abort) {
-      internalFlushcache();
+      internalFlushcache(snapshotMemcaches());
     }
     Vector<HStoreFile> result=new Vector<HStoreFile>();
     for (    HStore store : stores.values()) {
@@ -28,6 +37,6 @@ synchronized (writestate) {
     return result;
   }
   finally {
-    lock.releaseWriteLock();
+    lock.writeLock().unlock();
   }
 }

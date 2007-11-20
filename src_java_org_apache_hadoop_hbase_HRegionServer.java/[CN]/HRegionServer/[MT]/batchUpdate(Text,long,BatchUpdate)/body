@@ -1,37 +1,12 @@
 {
   checkOpen();
   this.requestCount.incrementAndGet();
-  List<Text> deletes=null;
+  HRegion region=getRegion(regionName);
   try {
-    long lockid=startUpdate(regionName,b.getRow());
-    for (    BatchOperation op : b) {
-switch (op.getOp()) {
-case PUT:
-        put(regionName,lockid,op.getColumn(),op.getValue());
-      break;
-case DELETE:
-    if (timestamp == LATEST_TIMESTAMP) {
-      if (deletes == null) {
-        deletes=new ArrayList<Text>();
-      }
-      deletes.add(op.getColumn());
-    }
- else {
-      delete(regionName,lockid,op.getColumn());
-    }
-  break;
-}
-}
-commit(regionName,lockid,(timestamp == LATEST_TIMESTAMP) ? System.currentTimeMillis() : timestamp);
-if (deletes != null && deletes.size() > 0) {
-HRegion r=getRegion(regionName);
-for (Text column : deletes) {
-r.deleteMultiple(b.getRow(),column,LATEST_TIMESTAMP,1);
-}
-}
-}
- catch (IOException e) {
-checkFileSystem();
-throw e;
-}
+    region.batchUpdate(timestamp,b);
+  }
+ catch (  IOException e) {
+    checkFileSystem();
+    throw e;
+  }
 }

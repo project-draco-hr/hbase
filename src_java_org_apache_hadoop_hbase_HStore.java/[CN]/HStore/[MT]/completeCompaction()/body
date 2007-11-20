@@ -1,0 +1,76 @@
+{
+  Path curCompactStore=HStoreFile.getHStoreDir(this.compactionDir,encodedRegionName,familyName);
+  newScannerLock.writeLock().lock();
+  try {
+synchronized (activeScanners) {
+      while (activeScanners.get() != 0) {
+        try {
+          activeScanners.wait();
+        }
+ catch (        InterruptedException e) {
+        }
+      }
+      this.lock.writeLock().lock();
+    }
+    try {
+      Path doneFile=new Path(curCompactStore,COMPACTION_DONE);
+      if (!fs.exists(doneFile)) {
+        LOG.warn("Redo failed compaction (missing 'done' file)");
+        return;
+      }
+      Vector<HStoreFile> toCompactFiles=new Vector<HStoreFile>();
+      Path filesToReplace=new Path(curCompactStore,COMPACTION_TO_REPLACE);
+      DataInputStream in=new DataInputStream(fs.open(filesToReplace));
+      try {
+        int numfiles=in.readInt();
+        for (int i=0; i < numfiles; i++) {
+          HStoreFile hsf=new HStoreFile(conf);
+          hsf.readFields(in);
+          toCompactFiles.add(hsf);
+        }
+      }
+  finally {
+        in.close();
+      }
+      HStoreFile compactedFile=new HStoreFile(conf,this.compactionDir,encodedRegionName,familyName,-1);
+      HStoreFile finalCompactedFile=HStoreFile.obtainNewHStoreFile(conf,dir,encodedRegionName,familyName,fs);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("moving " + compactedFile.toString() + " in "+ this.compactionDir.toString()+ " to "+ finalCompactedFile.toString()+ " in "+ dir.toString());
+      }
+      if (!compactedFile.rename(this.fs,finalCompactedFile)) {
+        LOG.error("Failed move of compacted file " + finalCompactedFile.toString());
+        return;
+      }
+      Vector<Long> toDelete=new Vector<Long>(toCompactFiles.size());
+      for (      Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
+        if (!toCompactFiles.contains(e.getValue())) {
+          continue;
+        }
+        Long key=e.getKey();
+        MapFile.Reader reader=this.readers.remove(key);
+        if (reader != null) {
+          reader.close();
+        }
+        toDelete.add(key);
+      }
+      try {
+        for (        Long key : toDelete) {
+          HStoreFile hsf=this.storefiles.remove(key);
+          hsf.delete();
+        }
+        Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
+        this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.bloomFilter));
+        this.storefiles.put(orderVal,finalCompactedFile);
+      }
+ catch (      IOException e) {
+        LOG.error("Failed replacing compacted files. Compacted file is " + finalCompactedFile.toString() + ".  Files replaced are "+ toCompactFiles.toString()+ " some of which may have been already removed",e);
+      }
+    }
+  finally {
+      this.lock.writeLock().unlock();
+    }
+  }
+  finally {
+    newScannerLock.writeLock().unlock();
+  }
+}

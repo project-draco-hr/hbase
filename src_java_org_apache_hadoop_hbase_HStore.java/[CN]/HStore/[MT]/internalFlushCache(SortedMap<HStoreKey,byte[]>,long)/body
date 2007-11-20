@@ -1,0 +1,35 @@
+{
+synchronized (flushLock) {
+    HStoreFile flushedFile=HStoreFile.obtainNewHStoreFile(conf,dir,encodedRegionName,familyName,fs);
+    String name=flushedFile.toString();
+    MapFile.Writer out=flushedFile.getWriter(this.fs,this.compression,this.bloomFilter);
+    try {
+      for (      Map.Entry<HStoreKey,byte[]> es : cache.entrySet()) {
+        HStoreKey curkey=es.getKey();
+        if (this.familyName.equals(HStoreKey.extractFamily(curkey.getColumn()))) {
+          out.append(curkey,new ImmutableBytesWritable(es.getValue()));
+        }
+      }
+    }
+  finally {
+      out.close();
+    }
+    flushedFile.writeInfo(fs,logCacheFlushId);
+    if (bloomFilter != null) {
+      flushBloomFilter();
+    }
+    this.lock.writeLock().lock();
+    try {
+      Long flushid=Long.valueOf(logCacheFlushId);
+      this.readers.put(flushid,flushedFile.getReader(this.fs,this.bloomFilter));
+      this.storefiles.put(flushid,flushedFile);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Added " + name + " with sequence id "+ logCacheFlushId+ " and size "+ StringUtils.humanReadableInt(flushedFile.length()));
+      }
+    }
+  finally {
+      this.lock.writeLock().unlock();
+    }
+    return;
+  }
+}
