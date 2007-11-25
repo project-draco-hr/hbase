@@ -4,11 +4,15 @@
   }
 synchronized (updateLock) {
     this.log.append(regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),updatesByColumn);
+    long memcacheSize=0;
     for (    Map.Entry<HStoreKey,byte[]> e : updatesByColumn.entrySet()) {
       HStoreKey key=e.getKey();
       byte[] val=e.getValue();
-      this.memcacheSize.addAndGet(key.getSize() + (val == null ? 0 : val.length));
+      memcacheSize=this.memcacheSize.addAndGet(key.getSize() + (val == null ? 0 : val.length));
       stores.get(HStoreKey.extractFamily(key.getColumn())).add(key,val);
+    }
+    if (this.flushListener != null && memcacheSize > this.memcacheFlushSize) {
+      this.flushListener.flushRequested(this);
     }
   }
 }

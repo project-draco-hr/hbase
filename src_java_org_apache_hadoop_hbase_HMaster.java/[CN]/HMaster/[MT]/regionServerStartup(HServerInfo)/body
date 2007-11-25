@@ -1,9 +1,7 @@
 {
   String s=serverInfo.getServerAddress().toString().trim();
-  HServerInfo storedInfo=null;
   LOG.info("received start message from: " + s);
 synchronized (serversToServerInfo) {
-    storedInfo=serversToServerInfo.remove(s);
     HServerLoad load=serversToLoad.remove(s);
     if (load != null) {
       Set<String> servers=loadToServers.get(load);
@@ -12,13 +10,15 @@ synchronized (serversToServerInfo) {
         loadToServers.put(load,servers);
       }
     }
-    serversToServerInfo.notifyAll();
-  }
-  if (storedInfo != null && !closed.get()) {
-    shutdownQueue.put(new PendingServerShutdown(storedInfo));
-  }
-synchronized (serversToServerInfo) {
-    HServerLoad load=new HServerLoad();
+    HServerInfo storedInfo=serversToServerInfo.remove(s);
+    if (storedInfo != null && !closed.get()) {
+      HServerAddress root=rootRegionLocation.get();
+      if (root != null && root.equals(storedInfo.getServerAddress())) {
+        unassignRootRegion();
+      }
+      shutdownQueue.put(new ProcessServerShutdown(storedInfo));
+    }
+    load=new HServerLoad();
     serverInfo.setLoad(load);
     serversToServerInfo.put(s,serverInfo);
     serversToLoad.put(s,load);
@@ -28,6 +28,7 @@ synchronized (serversToServerInfo) {
     }
     servers.add(s);
     loadToServers.put(load,servers);
+    serversToServerInfo.notifyAll();
   }
   if (!closed.get()) {
     long serverLabel=getServerLabel(s);

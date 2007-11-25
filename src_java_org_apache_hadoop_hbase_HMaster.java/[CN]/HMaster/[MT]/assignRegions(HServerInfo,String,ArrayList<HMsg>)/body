@@ -1,15 +1,22 @@
 {
-  TreeSet<Text> regionsToAssign=getRegionsToAssign();
-  int nRegionsToAssign=regionsToAssign.size();
-  if (nRegionsToAssign <= 0) {
-    return;
-  }
-  if (this.serversToServerInfo.size() == 1) {
-    assignRegionsToOneServer(regionsToAssign,serverName,returnMsgs);
-    return;
-  }
-  HServerLoad thisServersLoad=info.getLoad();
-synchronized (this.serversToServerInfo) {
+  long now=System.currentTimeMillis();
+  SortedSet<Text> regionsToAssign=new TreeSet<Text>();
+synchronized (serversToServerInfo) {
+    for (    Map.Entry<Text,Long> e : this.assignAttempts.entrySet()) {
+      long diff=now - e.getValue().longValue();
+      if (diff > this.maxRegionOpenTime) {
+        regionsToAssign.add(e.getKey());
+      }
+    }
+    int nRegionsToAssign=regionsToAssign.size();
+    if (nRegionsToAssign <= 0) {
+      return;
+    }
+    if (this.serversToServerInfo.size() == 1) {
+      assignRegionsToOneServer(regionsToAssign,serverName,returnMsgs);
+      return;
+    }
+    HServerLoad thisServersLoad=info.getLoad();
     int nregions=regionsPerServer(nRegionsToAssign,thisServersLoad);
     nRegionsToAssign-=nregions;
     if (nRegionsToAssign > 0) {
@@ -42,7 +49,7 @@ synchronized (this.serversToServerInfo) {
  else {
         nregions=nRegionsToAssign;
       }
-      long now=System.currentTimeMillis();
+      now=System.currentTimeMillis();
       for (      Text regionName : regionsToAssign) {
         HRegionInfo regionInfo=this.unassignedRegions.get(regionName);
         LOG.info("assigning region " + regionName + " to server "+ serverName);

@@ -2,27 +2,7 @@
   lock.readLock().lock();
   try {
     if (this.closed.get()) {
-      return;
-    }
-    boolean needFlush=false;
-    long memcacheSize=this.memcacheSize.get();
-    if (memcacheSize > this.memcacheFlushSize) {
-      needFlush=true;
-    }
- else     if (memcacheSize > 0) {
-      if (this.noFlushCount >= this.optionalFlushCount) {
-        LOG.info("Optional flush called " + this.noFlushCount + " times when data present without flushing.  Forcing one.");
-        needFlush=true;
-      }
- else {
-        this.noFlushCount++;
-      }
-    }
-    if (!needFlush) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Cache flush not needed for region " + regionInfo.getRegionName() + ". Cache size="+ memcacheSize+ ", cache flush threshold="+ this.memcacheFlushSize);
-      }
-      return;
+      return false;
     }
 synchronized (writestate) {
       if ((!writestate.flushing) && writestate.writesEnabled) {
@@ -32,16 +12,15 @@ synchronized (writestate) {
         if (LOG.isDebugEnabled()) {
           LOG.debug("NOT flushing memcache for region " + this.regionInfo.getRegionName() + ", flushing="+ writestate.flushing+ ", writesEnabled="+ writestate.writesEnabled);
         }
-        return;
+        return false;
       }
     }
-    this.noFlushCount=0;
     long startTime=-1;
 synchronized (updateLock) {
       startTime=snapshotMemcaches();
     }
     try {
-      internalFlushcache(startTime);
+      return internalFlushcache(startTime);
     }
   finally {
 synchronized (writestate) {

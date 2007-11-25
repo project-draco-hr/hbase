@@ -1,69 +1,55 @@
 {
-  boolean locked=false;
-  while (!locked && !closed) {
-    if (this.cacheFlushLock.tryLock()) {
-      locked=true;
-      break;
-    }
-    try {
-      this.wait(threadWakeFrequency);
-    }
- catch (    InterruptedException e) {
-    }
-  }
-  if (closed) {
-    if (locked) {
-      this.cacheFlushLock.unlock();
-    }
-    throw new IOException("Cannot roll log; log is closed");
-  }
+  this.cacheFlushLock.lock();
   try {
-    if (this.writer != null) {
-      this.writer.close();
-      Path p=computeFilename(filenum - 1);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Closing current log writer " + p.toString() + " to get a new one");
-      }
-      if (filenum > 0) {
-synchronized (this.sequenceLock) {
-          this.outputfiles.put(Long.valueOf(this.logSeqNum - 1),p);
-        }
-      }
+    if (closed) {
+      return;
     }
-    Path newPath=computeFilename(filenum++);
-    this.writer=SequenceFile.createWriter(this.fs,this.conf,newPath,HLogKey.class,HLogEdit.class);
-    LOG.info("new log writer created at " + newPath);
-    if (this.outputfiles.size() > 0) {
-      if (this.lastSeqWritten.size() <= 0) {
-        LOG.debug("Last sequence written is empty. Deleting all old hlogs");
-        for (        Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
-          deleteLogFile(e.getValue(),e.getKey());
-        }
-        this.outputfiles.clear();
-      }
- else {
-        TreeSet<Long> sequenceNumbers=new TreeSet<Long>(this.lastSeqWritten.values());
-        long oldestOutstandingSeqNum=sequenceNumbers.first().longValue();
-        sequenceNumbers.clear();
-        sequenceNumbers.addAll(this.outputfiles.headMap(Long.valueOf(oldestOutstandingSeqNum)).keySet());
+synchronized (updateLock) {
+      if (this.writer != null) {
+        this.writer.close();
+        Path p=computeFilename(filenum - 1);
         if (LOG.isDebugEnabled()) {
-          Text oldestRegion=null;
-          for (          Map.Entry<Text,Long> e : this.lastSeqWritten.entrySet()) {
-            if (e.getValue().longValue() == oldestOutstandingSeqNum) {
-              oldestRegion=e.getKey();
-              break;
+          LOG.debug("Closing current log writer " + p.toString() + " to get a new one");
+        }
+        if (filenum > 0) {
+synchronized (this.sequenceLock) {
+            this.outputfiles.put(Long.valueOf(this.logSeqNum - 1),p);
+          }
+        }
+      }
+      Path newPath=computeFilename(filenum++);
+      this.writer=SequenceFile.createWriter(this.fs,this.conf,newPath,HLogKey.class,HLogEdit.class);
+      LOG.info("new log writer created at " + newPath);
+      if (this.outputfiles.size() > 0) {
+        if (this.lastSeqWritten.size() <= 0) {
+          LOG.debug("Last sequence written is empty. Deleting all old hlogs");
+          for (          Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
+            deleteLogFile(e.getValue(),e.getKey());
+          }
+          this.outputfiles.clear();
+        }
+ else {
+          Long oldestOutstandingSeqNum=Collections.min(this.lastSeqWritten.values());
+          TreeSet<Long> sequenceNumbers=new TreeSet<Long>(this.outputfiles.headMap((oldestOutstandingSeqNum + Long.valueOf(1L))).keySet());
+          if (LOG.isDebugEnabled()) {
+            Text oldestRegion=null;
+            for (            Map.Entry<Text,Long> e : this.lastSeqWritten.entrySet()) {
+              if (e.getValue().longValue() == oldestOutstandingSeqNum) {
+                oldestRegion=e.getKey();
+                break;
+              }
+            }
+            LOG.debug("Found " + sequenceNumbers.size() + " logs to remove "+ "using oldest outstanding seqnum of "+ oldestOutstandingSeqNum+ " from region "+ oldestRegion);
+          }
+          if (sequenceNumbers.size() > 0) {
+            for (            Long seq : sequenceNumbers) {
+              deleteLogFile(this.outputfiles.remove(seq),seq);
             }
           }
-          LOG.debug("Found " + sequenceNumbers.size() + " logs to remove "+ "using oldest outstanding seqnum of "+ oldestOutstandingSeqNum+ " from region "+ oldestRegion);
-        }
-        if (sequenceNumbers.size() > 0) {
-          for (          Long seq : sequenceNumbers) {
-            deleteLogFile(this.outputfiles.remove(seq),seq);
-          }
         }
       }
+      this.numEntries=0;
     }
-    this.numEntries=0;
   }
   finally {
     this.cacheFlushLock.unlock();

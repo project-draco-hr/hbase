@@ -1,0 +1,66 @@
+{
+  while (!stopRequested.get()) {
+    QueueEntry e=null;
+    try {
+      e=flushQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
+    }
+ catch (    InterruptedException ex) {
+      continue;
+    }
+catch (    ConcurrentModificationException ex) {
+      continue;
+    }
+synchronized (cacheFlusherLock) {
+      if (e != null) {
+        try {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("flushing region " + e.getRegion().getRegionName());
+          }
+          if (e.getRegion().flushcache()) {
+            compactor.compactionRequested(e);
+          }
+        }
+ catch (        DroppedSnapshotException ex) {
+          LOG.fatal("Replay of hlog required. Forcing server restart",ex);
+          if (!checkFileSystem()) {
+            break;
+          }
+          HRegionServer.this.stop();
+        }
+catch (        IOException ex) {
+          LOG.error("Cache flush failed for region " + e.getRegion().getRegionName(),RemoteExceptionHandler.checkIOException(ex));
+          if (!checkFileSystem()) {
+            break;
+          }
+        }
+catch (        Exception ex) {
+          LOG.error("Cache flush failed for region " + e.getRegion().getRegionName(),ex);
+          if (!checkFileSystem()) {
+            break;
+          }
+        }
+        e.setExpirationTime(System.currentTimeMillis() + optionalFlushPeriod);
+        flushQueue.add(e);
+      }
+      Set<HRegion> regions=getRegionsToCheck();
+      for (      HRegion r : regions) {
+        e=new QueueEntry(r,r.getLastFlushTime() + optionalFlushPeriod);
+synchronized (flushQueue) {
+          if (!flushQueue.contains(e)) {
+            flushQueue.add(e);
+          }
+        }
+      }
+synchronized (flushQueue) {
+        for (Iterator<QueueEntry> i=flushQueue.iterator(); i.hasNext(); ) {
+          e=i.next();
+          if (!regions.contains(e.getRegion())) {
+            i.remove();
+          }
+        }
+      }
+    }
+  }
+  flushQueue.clear();
+  LOG.info(getName() + " exiting");
+}
