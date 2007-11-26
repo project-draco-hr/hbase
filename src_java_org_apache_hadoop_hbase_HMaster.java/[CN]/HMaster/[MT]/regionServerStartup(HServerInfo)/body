@@ -1,35 +1,32 @@
 {
   String s=serverInfo.getServerAddress().toString().trim();
   LOG.info("received start message from: " + s);
-synchronized (serversToServerInfo) {
-    HServerLoad load=serversToLoad.remove(s);
-    if (load != null) {
-      Set<String> servers=loadToServers.get(load);
-      if (servers != null) {
-        servers.remove(s);
-        loadToServers.put(load,servers);
-      }
-    }
-    HServerInfo storedInfo=serversToServerInfo.remove(s);
-    if (storedInfo != null && !closed.get()) {
-      HServerAddress root=rootRegionLocation.get();
-      if (root != null && root.equals(storedInfo.getServerAddress())) {
-        unassignRootRegion();
-      }
-      shutdownQueue.put(new ProcessServerShutdown(storedInfo));
-    }
-    load=new HServerLoad();
-    serverInfo.setLoad(load);
-    serversToServerInfo.put(s,serverInfo);
-    serversToLoad.put(s,load);
+  HServerLoad load=serversToLoad.remove(s);
+  if (load != null) {
     Set<String> servers=loadToServers.get(load);
-    if (servers == null) {
-      servers=new HashSet<String>();
+    if (servers != null) {
+      servers.remove(s);
+      loadToServers.put(load,servers);
     }
-    servers.add(s);
-    loadToServers.put(load,servers);
-    serversToServerInfo.notifyAll();
   }
+  HServerInfo storedInfo=serversToServerInfo.remove(s);
+  if (storedInfo != null && !closed.get()) {
+    HServerAddress root=rootRegionLocation.get();
+    if (root != null && root.equals(storedInfo.getServerAddress())) {
+      unassignRootRegion();
+    }
+    shutdownQueue.put(new ProcessServerShutdown(storedInfo));
+  }
+  load=new HServerLoad();
+  serverInfo.setLoad(load);
+  serversToServerInfo.put(s,serverInfo);
+  serversToLoad.put(s,load);
+  Set<String> servers=loadToServers.get(load);
+  if (servers == null) {
+    servers=new HashSet<String>();
+  }
+  servers.add(s);
+  loadToServers.put(load,servers);
   if (!closed.get()) {
     long serverLabel=getServerLabel(s);
     serverLeases.createLease(serverLabel,serverLabel,new ServerExpirer(s));

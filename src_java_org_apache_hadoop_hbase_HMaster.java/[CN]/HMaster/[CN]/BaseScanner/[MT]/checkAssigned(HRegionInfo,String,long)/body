@@ -1,13 +1,13 @@
 {
-synchronized (serversToServerInfo) {
-    if (info.isOffline() || killedRegions.contains(info.getRegionName()) || regionsToDelete.contains(info.getRegionName())) {
-      unassignedRegions.remove(info.getRegionName());
-      assignAttempts.remove(info.getRegionName());
-      return;
-    }
-    HServerInfo storedInfo=null;
-    boolean deadServer=false;
-    if (serverName.length() != 0) {
+  if (info.isOffline() || killedRegions.contains(info.getRegionName()) || regionsToDelete.contains(info.getRegionName())) {
+    unassignedRegions.remove(info.getRegionName());
+    assignAttempts.remove(info.getRegionName());
+    return;
+  }
+  HServerInfo storedInfo=null;
+  boolean deadServer=false;
+  if (serverName.length() != 0) {
+synchronized (killList) {
       Map<Text,HRegionInfo> regionsToKill=killList.get(serverName);
       if (regionsToKill != null && regionsToKill.containsKey(info.getRegionName())) {
         if (LOG.isDebugEnabled()) {
@@ -15,43 +15,41 @@ synchronized (serversToServerInfo) {
         }
         return;
       }
-      storedInfo=serversToServerInfo.get(serverName);
-      if (deadServers.contains(serverName)) {
-        deadServer=true;
-      }
     }
+    storedInfo=serversToServerInfo.get(serverName);
+    deadServer=deadServers.contains(serverName);
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Checking " + info.getRegionName() + " is assigned");
+  }
+  if (!deadServer && ((storedInfo != null && storedInfo.getStartCode() != startCode) || (storedInfo == null && !unassignedRegions.containsKey(info.getRegionName()) && !pendingRegions.contains(info.getRegionName())))) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Checking " + info.getRegionName() + " is assigned");
+      LOG.debug("Current assignment of " + info.getRegionName() + " is no good");
     }
-    if (!deadServer && ((storedInfo != null && storedInfo.getStartCode() != startCode) || (storedInfo == null && !unassignedRegions.containsKey(info.getRegionName()) && !pendingRegions.contains(info.getRegionName())))) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Current assignment of " + info.getRegionName() + " is no good");
-      }
-      if (serverName.length() != 0) {
-        StringBuilder dirName=new StringBuilder("log_");
-        dirName.append(serverName.replace(":","_"));
-        Path logDir=new Path(dir,dirName.toString());
-        try {
-          if (fs.exists(logDir)) {
-            splitLogLock.lock();
-            try {
-              HLog.splitLog(dir,logDir,fs,conf);
-            }
+    if (serverName.length() != 0) {
+      StringBuilder dirName=new StringBuilder("log_");
+      dirName.append(serverName.replace(":","_"));
+      Path logDir=new Path(dir,dirName.toString());
+      try {
+        if (fs.exists(logDir)) {
+          splitLogLock.lock();
+          try {
+            HLog.splitLog(dir,logDir,fs,conf);
+          }
   finally {
-              splitLogLock.unlock();
-            }
-          }
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Split " + logDir.toString());
+            splitLogLock.unlock();
           }
         }
- catch (        IOException e) {
-          LOG.warn("unable to split region server log because: ",e);
-          throw e;
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Split " + logDir.toString());
         }
       }
-      unassignedRegions.put(info.getRegionName(),info);
-      assignAttempts.put(info.getRegionName(),Long.valueOf(0L));
+ catch (      IOException e) {
+        LOG.warn("unable to split region server log because: ",e);
+        throw e;
+      }
     }
+    unassignedRegions.put(info.getRegionName(),info);
+    assignAttempts.put(info.getRegionName(),Long.valueOf(0L));
   }
 }

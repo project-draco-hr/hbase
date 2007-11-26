@@ -2,64 +2,61 @@
   ArrayList<HMsg> returnMsgs=new ArrayList<HMsg>();
   String serverName=info.getServerAddress().toString();
   HashMap<Text,HRegionInfo> regionsToKill=null;
-synchronized (serversToServerInfo) {
-    regionsToKill=killList.remove(serverName);
-  }
+  regionsToKill=killList.remove(serverName);
   for (int i=0; i < incomingMsgs.length; i++) {
     HRegionInfo region=incomingMsgs[i].getRegionInfo();
-synchronized (serversToServerInfo) {
 switch (incomingMsgs[i].getMsg()) {
 case HMsg.MSG_REPORT_OPEN:
-        HRegionInfo regionInfo=unassignedRegions.get(region.getRegionName());
-      if (regionInfo == null) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("region server " + info.getServerAddress().toString() + " should not have opened region "+ region.getRegionName());
-        }
-        returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
+      HRegionInfo regionInfo=unassignedRegions.get(region.getRegionName());
+    if (regionInfo == null) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("region server " + info.getServerAddress().toString() + " should not have opened region "+ region.getRegionName());
       }
+      returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
+    }
  else {
-        LOG.info(info.getServerAddress().toString() + " serving " + region.getRegionName());
-        this.unassignedRegions.remove(region.getRegionName());
-        this.assignAttempts.remove(region.getRegionName());
-        if (region.getRegionName().compareTo(HRegionInfo.rootRegionInfo.getRegionName()) == 0) {
+      LOG.info(info.getServerAddress().toString() + " serving " + region.getRegionName());
+      this.unassignedRegions.remove(region.getRegionName());
+      this.assignAttempts.remove(region.getRegionName());
+      if (region.getRegionName().compareTo(HRegionInfo.rootRegionInfo.getRegionName()) == 0) {
 synchronized (rootRegionLocation) {
-            this.rootRegionLocation.set(new HServerAddress(info.getServerAddress()));
-            this.rootRegionLocation.notifyAll();
-          }
-          break;
+          this.rootRegionLocation.set(new HServerAddress(info.getServerAddress()));
+          this.rootRegionLocation.notifyAll();
         }
-        pendingRegions.add(region.getRegionName());
-        try {
-          msgQueue.put(new ProcessRegionOpen(info,region));
-        }
- catch (        InterruptedException e) {
-          throw new RuntimeException("Putting into msgQueue was interrupted.",e);
-        }
+        break;
       }
-    break;
+      pendingRegions.add(region.getRegionName());
+      try {
+        msgQueue.put(new ProcessRegionOpen(info,region));
+      }
+ catch (      InterruptedException e) {
+        throw new RuntimeException("Putting into msgQueue was interrupted.",e);
+      }
+    }
+  break;
 case HMsg.MSG_REPORT_CLOSE:
-  LOG.info(info.getServerAddress().toString() + " no longer serving " + region.getRegionName());
+LOG.info(info.getServerAddress().toString() + " no longer serving " + region.getRegionName());
 if (region.getRegionName().compareTo(HRegionInfo.rootRegionInfo.getRegionName()) == 0) {
-  unassignRootRegion();
+unassignRootRegion();
 }
  else {
-  boolean reassignRegion=true;
-  boolean deleteRegion=false;
-  if (killedRegions.remove(region.getRegionName())) {
-    reassignRegion=false;
-  }
-  if (regionsToDelete.remove(region.getRegionName())) {
-    reassignRegion=false;
-    deleteRegion=true;
-  }
-  unassignedRegions.remove(region.getRegionName());
-  assignAttempts.remove(region.getRegionName());
-  try {
-    msgQueue.put(new ProcessRegionClose(region,reassignRegion,deleteRegion));
-  }
- catch (  InterruptedException e) {
-    throw new RuntimeException("Putting into msgQueue was interrupted.",e);
-  }
+boolean reassignRegion=true;
+boolean deleteRegion=false;
+if (killedRegions.remove(region.getRegionName())) {
+  reassignRegion=false;
+}
+if (regionsToDelete.remove(region.getRegionName())) {
+  reassignRegion=false;
+  deleteRegion=true;
+}
+unassignedRegions.remove(region.getRegionName());
+assignAttempts.remove(region.getRegionName());
+try {
+  msgQueue.put(new ProcessRegionClose(region,reassignRegion,deleteRegion));
+}
+ catch (InterruptedException e) {
+  throw new RuntimeException("Putting into msgQueue was interrupted.",e);
+}
 }
 break;
 case HMsg.MSG_REPORT_SPLIT:
@@ -79,13 +76,10 @@ default :
 throw new IOException("Impossible state during msg processing.  Instruction: " + incomingMsgs[i].getMsg());
 }
 }
-}
-synchronized (serversToServerInfo) {
 if (regionsToKill != null) {
 for (HRegionInfo i : regionsToKill.values()) {
 returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE,i));
 killedRegions.add(i.getRegionName());
-}
 }
 }
 assignRegions(info,serverName,returnMsgs);
