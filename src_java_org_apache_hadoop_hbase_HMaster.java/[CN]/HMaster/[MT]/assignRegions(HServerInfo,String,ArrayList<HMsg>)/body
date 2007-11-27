@@ -1,66 +1,66 @@
 {
-  long now=System.currentTimeMillis();
-  Set<Text> regionsToAssign=new HashSet<Text>();
 synchronized (this.assignAttempts) {
+    long now=System.currentTimeMillis();
+    Set<Text> regionsToAssign=new HashSet<Text>();
     for (    Map.Entry<Text,Long> e : this.assignAttempts.entrySet()) {
       long diff=now - e.getValue().longValue();
       if (diff > this.maxRegionOpenTime) {
         regionsToAssign.add(e.getKey());
       }
     }
-  }
-  int nRegionsToAssign=regionsToAssign.size();
-  if (nRegionsToAssign <= 0) {
-    return;
-  }
-  if (this.serversToServerInfo.size() == 1) {
-    assignRegionsToOneServer(regionsToAssign,serverName,returnMsgs);
-    return;
-  }
-  HServerLoad thisServersLoad=info.getLoad();
-  int nregions=regionsPerServer(nRegionsToAssign,thisServersLoad);
-  nRegionsToAssign-=nregions;
-  if (nRegionsToAssign > 0) {
-    SortedMap<HServerLoad,Set<String>> heavyServers=new TreeMap<HServerLoad,Set<String>>();
+    int nRegionsToAssign=regionsToAssign.size();
+    if (nRegionsToAssign <= 0) {
+      return;
+    }
+    if (this.serversToServerInfo.size() == 1) {
+      assignRegionsToOneServer(regionsToAssign,serverName,returnMsgs);
+      return;
+    }
+    HServerLoad thisServersLoad=info.getLoad();
+    int nregions=regionsPerServer(nRegionsToAssign,thisServersLoad);
+    nRegionsToAssign-=nregions;
+    if (nRegionsToAssign > 0) {
+      SortedMap<HServerLoad,Set<String>> heavyServers=new TreeMap<HServerLoad,Set<String>>();
 synchronized (this.loadToServers) {
-      heavyServers.putAll(this.loadToServers.tailMap(thisServersLoad));
-    }
-    int nservers=0;
-    HServerLoad heavierLoad=null;
-    for (    Map.Entry<HServerLoad,Set<String>> e : heavyServers.entrySet()) {
-      Set<String> servers=e.getValue();
-      nservers+=servers.size();
-      if (e.getKey().compareTo(thisServersLoad) == 0) {
-        nservers-=1;
-        continue;
+        heavyServers.putAll(this.loadToServers.tailMap(thisServersLoad));
       }
-      heavierLoad=e.getKey();
-      break;
-    }
-    nregions=0;
-    if (heavierLoad != null) {
-      for (HServerLoad load=new HServerLoad(thisServersLoad.getNumberOfRequests(),thisServersLoad.getNumberOfRegions()); load.compareTo(heavierLoad) <= 0 && nregions < nRegionsToAssign; load.setNumberOfRegions(load.getNumberOfRegions() + 1), nregions++) {
-      }
-    }
-    if (nregions < nRegionsToAssign) {
-      if (nservers > 0) {
-        nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * nservers));
-      }
- else {
-        nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * serversToServerInfo.size()));
-      }
-    }
- else {
-      nregions=nRegionsToAssign;
-    }
-    now=System.currentTimeMillis();
-    for (    Text regionName : regionsToAssign) {
-      HRegionInfo regionInfo=this.unassignedRegions.get(regionName);
-      LOG.info("assigning region " + regionName + " to server "+ serverName);
-      this.assignAttempts.put(regionName,Long.valueOf(now));
-      returnMsgs.add(new HMsg(HMsg.MSG_REGION_OPEN,regionInfo));
-      if (--nregions <= 0) {
+      int nservers=0;
+      HServerLoad heavierLoad=null;
+      for (      Map.Entry<HServerLoad,Set<String>> e : heavyServers.entrySet()) {
+        Set<String> servers=e.getValue();
+        nservers+=servers.size();
+        if (e.getKey().compareTo(thisServersLoad) == 0) {
+          nservers-=1;
+          continue;
+        }
+        heavierLoad=e.getKey();
         break;
+      }
+      nregions=0;
+      if (heavierLoad != null) {
+        for (HServerLoad load=new HServerLoad(thisServersLoad.getNumberOfRequests(),thisServersLoad.getNumberOfRegions()); load.compareTo(heavierLoad) <= 0 && nregions < nRegionsToAssign; load.setNumberOfRegions(load.getNumberOfRegions() + 1), nregions++) {
+        }
+      }
+      if (nregions < nRegionsToAssign) {
+        if (nservers > 0) {
+          nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * nservers));
+        }
+ else {
+          nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * serversToServerInfo.size()));
+        }
+      }
+ else {
+        nregions=nRegionsToAssign;
+      }
+      now=System.currentTimeMillis();
+      for (      Text regionName : regionsToAssign) {
+        HRegionInfo regionInfo=this.unassignedRegions.get(regionName);
+        LOG.info("assigning region " + regionName + " to server "+ serverName);
+        this.assignAttempts.put(regionName,Long.valueOf(now));
+        returnMsgs.add(new HMsg(HMsg.MSG_REGION_OPEN,regionInfo));
+        if (--nregions <= 0) {
+          break;
+        }
       }
     }
   }
