@@ -1,0 +1,85 @@
+{
+  try {
+    HTableDescriptor desc=new HTableDescriptor(FIRST_RELATION);
+    String[] columns=FIRST_COLUMNS.split(" ");
+    for (int i=0; i < columns.length; i++) {
+      desc.addFamily(new HColumnDescriptor(columns[i]));
+    }
+    HBaseAdmin admin=new HBaseAdmin(this.conf);
+    admin.createTable(desc);
+    HTable table=new HTable(conf,new Text(FIRST_RELATION));
+    for (int j=0; j < 5; j++) {
+      long lockid=table.startUpdate(new Text("rowKey" + j));
+      table.put(lockid,new Text("a:"),Integer.toString(j).getBytes(HConstants.UTF8_ENCODING));
+      table.put(lockid,new Text("b:"),Integer.toString(j).getBytes(HConstants.UTF8_ENCODING));
+      table.put(lockid,new Text("c:"),("joinKey-" + Integer.toString(j)).getBytes(HConstants.UTF8_ENCODING));
+      table.commit(lockid,System.currentTimeMillis());
+    }
+  }
+ catch (  MasterNotRunningException e) {
+    e.printStackTrace();
+  }
+catch (  IOException e) {
+    e.printStackTrace();
+  }
+  try {
+    HTableDescriptor desc=new HTableDescriptor(SECOND_RELATION);
+    String[] columns=SECOND_COLUMNS.split(" ");
+    for (int i=0; i < columns.length; i++) {
+      desc.addFamily(new HColumnDescriptor(columns[i]));
+    }
+    HBaseAdmin admin=new HBaseAdmin(this.conf);
+    admin.createTable(desc);
+    HTable table=new HTable(conf,new Text(SECOND_RELATION));
+    for (int j=0; j < 3; j++) {
+      long lockid=table.startUpdate(new Text("joinKey-" + j));
+      table.put(lockid,new Text("d:"),("s-" + Integer.toString(j)).getBytes(HConstants.UTF8_ENCODING));
+      table.put(lockid,new Text("e:"),("s-" + Integer.toString(j)).getBytes(HConstants.UTF8_ENCODING));
+      table.commit(lockid,System.currentTimeMillis());
+    }
+  }
+ catch (  MasterNotRunningException e) {
+    e.printStackTrace();
+  }
+catch (  IOException e) {
+    e.printStackTrace();
+  }
+  try {
+    HTableDescriptor output=new HTableDescriptor(OUTPUT_TABLE);
+    String[] columns=(FIRST_COLUMNS + " " + SECOND_COLUMNS).split(" ");
+    for (int i=0; i < columns.length; i++) {
+      output.addFamily(new HColumnDescriptor(columns[i]));
+    }
+    HBaseAdmin admin=new HBaseAdmin(this.conf);
+    admin.createTable(output);
+  }
+ catch (  MasterNotRunningException e) {
+    e.printStackTrace();
+  }
+catch (  IOException e) {
+    e.printStackTrace();
+  }
+  MiniMRCluster mrCluster=null;
+  try {
+    mrCluster=new MiniMRCluster(2,fs.getUri().toString(),1);
+    JobConf jobConf=new JobConf(conf,TestTableJoinMapReduce.class);
+    jobConf.setJobName("process table join mapreduce");
+    jobConf.setNumMapTasks(2);
+    jobConf.setNumReduceTasks(1);
+    IndexJoinMap.initJob(FIRST_RELATION,SECOND_RELATION,FIRST_COLUMNS,SECOND_COLUMNS,JOIN_EXPRESSION,IndexJoinMap.class,jobConf);
+    IndexJoinReduce.initJob(OUTPUT_TABLE,IndexJoinReduce.class,jobConf);
+    JobClient.runJob(jobConf);
+  }
+ catch (  IOException e) {
+    e.printStackTrace();
+  }
+ finally {
+    mrCluster.shutdown();
+  }
+  try {
+    verify(conf,OUTPUT_TABLE);
+  }
+ catch (  IOException e) {
+    e.printStackTrace();
+  }
+}
