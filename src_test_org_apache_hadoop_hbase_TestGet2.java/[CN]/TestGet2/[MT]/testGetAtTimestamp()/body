@@ -1,0 +1,36 @@
+{
+  HRegion region=null;
+  HRegionIncommon region_incommon=null;
+  HLog hlog=new HLog(this.miniHdfs.getFileSystem(),this.testDir,this.conf,null);
+  try {
+    HTableDescriptor htd=createTableDescriptor(getName());
+    HRegionInfo hri=new HRegionInfo(htd,null,null);
+    region=new HRegion(this.testDir,hlog,this.miniHdfs.getFileSystem(),this.conf,hri,null,null);
+    region_incommon=new HRegionIncommon(region);
+    long right_now=System.currentTimeMillis();
+    long one_second_ago=right_now - 1000;
+    Text t=new Text("test_row");
+    long lockid=region_incommon.startBatchUpdate(t);
+    region_incommon.put(lockid,COLUMNS[0],"old text".getBytes());
+    region_incommon.commit(lockid,one_second_ago);
+    lockid=region_incommon.startBatchUpdate(t);
+    region_incommon.put(lockid,COLUMNS[0],"new text".getBytes());
+    region_incommon.commit(lockid,right_now);
+    assertCellValueEquals(region,t,COLUMNS[0],right_now,"new text");
+    assertCellValueEquals(region,t,COLUMNS[0],one_second_ago,"old text");
+    region_incommon.flushcache();
+    assertCellValueEquals(region,t,COLUMNS[0],right_now,"new text");
+    assertCellValueEquals(region,t,COLUMNS[0],one_second_ago,"old text");
+  }
+  finally {
+    if (region != null) {
+      try {
+        region.close();
+      }
+ catch (      Exception e) {
+        e.printStackTrace();
+      }
+    }
+    hlog.closeAndDelete();
+  }
+}
