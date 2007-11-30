@@ -1,0 +1,48 @@
+{
+  HTableDescriptor[] tables=this.admin.listTables();
+  HTableDescriptor descriptor=null;
+  for (int i=0; i < tables.length; i++) {
+    if (tables[i].getName().toString().equals(tableName)) {
+      descriptor=tables[i];
+      break;
+    }
+  }
+  if (descriptor == null) {
+    doNotFound(response,"Table not found!");
+  }
+ else {
+    ContentType type=ContentType.getContentType(request.getHeader(ACCEPT));
+switch (type) {
+case XML:
+      setResponseHeader(response,200,ContentType.XML.toString());
+    XMLOutputter outputter=getXMLOutputter(response.getWriter());
+  outputter.startTag("table");
+doElement(outputter,"name",descriptor.getName().toString());
+outputter.startTag("columnfamilies");
+for (Map.Entry<Text,HColumnDescriptor> e : descriptor.getFamilies().entrySet()) {
+outputter.startTag("columnfamily");
+doElement(outputter,"name",e.getKey().toString());
+HColumnDescriptor hcd=e.getValue();
+doElement(outputter,"compression",hcd.getCompression().toString());
+doElement(outputter,"bloomfilter",hcd.getBloomFilter() == null ? "NONE" : hcd.getBloomFilter().toString());
+doElement(outputter,"max-versions",Integer.toString(hcd.getMaxVersions()));
+doElement(outputter,"maximum-cell-size",Integer.toString(hcd.getMaxValueLength()));
+outputter.endTag();
+}
+outputter.endTag();
+outputter.endTag();
+outputter.endDocument();
+outputter.getWriter().close();
+break;
+case PLAIN:
+setResponseHeader(response,200,ContentType.PLAIN.toString());
+PrintWriter out=response.getWriter();
+out.print(descriptor.toString());
+out.close();
+break;
+case MIME:
+default :
+doNotAcceptable(response,"Unsupported Accept Header Content: " + request.getHeader(CONTENT_TYPE));
+}
+}
+}

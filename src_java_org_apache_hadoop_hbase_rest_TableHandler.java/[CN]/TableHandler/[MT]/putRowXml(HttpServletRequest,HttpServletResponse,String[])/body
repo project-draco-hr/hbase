@@ -1,0 +1,44 @@
+{
+  DocumentBuilderFactory docBuilderFactory=DocumentBuilderFactory.newInstance();
+  docBuilderFactory.setIgnoringComments(true);
+  DocumentBuilder builder=null;
+  Document doc=null;
+  String timestamp=pathSegments.length >= 4 ? pathSegments[3] : null;
+  try {
+    builder=docBuilderFactory.newDocumentBuilder();
+    doc=builder.parse(request.getInputStream());
+  }
+ catch (  javax.xml.parsers.ParserConfigurationException e) {
+    throw new ServletException(e);
+  }
+catch (  org.xml.sax.SAXException e) {
+    throw new ServletException(e);
+  }
+  long lock_id=-1;
+  try {
+    Text key=new Text(pathSegments[2]);
+    lock_id=this.table.startUpdate(key);
+    NodeList columns=doc.getElementsByTagName("column");
+    for (int i=0; i < columns.getLength(); i++) {
+      Element column=(Element)columns.item(i);
+      Node name_node=column.getElementsByTagName("name").item(0);
+      Text name=new Text(name_node.getFirstChild().getNodeValue());
+      Node value_node=column.getElementsByTagName("value").item(0);
+      byte[] value=org.apache.hadoop.hbase.util.Base64.decode(value_node.getFirstChild().getNodeValue());
+      this.table.put(lock_id,name,value);
+    }
+    if (timestamp != null) {
+      this.table.commit(lock_id,Long.parseLong(timestamp));
+    }
+ else {
+      this.table.commit(lock_id);
+    }
+    response.setStatus(200);
+  }
+ catch (  Exception e) {
+    if (lock_id != -1) {
+      this.table.abort(lock_id);
+    }
+    throw new ServletException(e);
+  }
+}
