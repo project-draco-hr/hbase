@@ -1,91 +1,71 @@
 {
   HRegionInterface server=getHRegionConnection(t.getServerAddress());
   TreeMap<Text,HRegionLocation> servers=new TreeMap<Text,HRegionLocation>();
-  for (int tries=0; servers.size() == 0 && tries < numRetries; tries++) {
-    long scannerId=-1L;
-    try {
-      scannerId=server.openScanner(t.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,tableName,System.currentTimeMillis(),null);
-      while (true) {
-        MapWritable values=server.next(scannerId);
-        if (values == null || values.size() == 0) {
-          if (servers.size() == 0) {
-            throw new TableNotFoundException("table '" + tableName + "' does not exist in "+ t);
-          }
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Found " + servers.size() + " region(s) for "+ tableName+ " at "+ t);
-          }
-          break;
+  long scannerId=-1L;
+  try {
+    scannerId=server.openScanner(t.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,tableName,System.currentTimeMillis(),null);
+    while (true) {
+      MapWritable values=server.next(scannerId);
+      if (values == null || values.size() == 0) {
+        if (servers.size() == 0) {
+          throw new TableNotFoundException("table '" + tableName + "' does not exist in "+ t);
         }
-        SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-        for (        Map.Entry<Writable,Writable> e : values.entrySet()) {
-          HStoreKey key=(HStoreKey)e.getKey();
-          results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Found " + servers.size() + " region(s) for "+ tableName+ " at "+ t);
         }
-        byte[] bytes=results.get(COL_REGIONINFO);
-        if (bytes == null || bytes.length == 0) {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug(COL_REGIONINFO.toString() + " came back empty: " + results.toString());
-          }
-          servers.clear();
-          break;
-        }
-        HRegionInfo regionInfo=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),new HRegionInfo());
-        if (!regionInfo.getTableDesc().getName().equals(tableName)) {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Found " + servers.size() + " servers for table "+ tableName);
-          }
-          break;
-        }
-        if (regionInfo.isSplit()) {
-          continue;
-        }
-        if (regionInfo.isOffline()) {
-          throw new IllegalStateException("table offline: " + tableName);
-        }
-        bytes=results.get(COL_SERVER);
-        if (bytes == null || bytes.length == 0) {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("no server address for " + regionInfo.toString());
-          }
-          servers.clear();
-          break;
-        }
-        String serverAddress=Writables.bytesToString(bytes);
-        servers.put(regionInfo.getStartKey(),new HRegionLocation(regionInfo,new HServerAddress(serverAddress)));
+        break;
       }
-    }
- catch (    IOException e) {
-      if (tries == numRetries - 1) {
-        if (e instanceof RemoteException) {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
-        throw e;
+      SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      for (      Map.Entry<Writable,Writable> e : values.entrySet()) {
+        HStoreKey key=(HStoreKey)e.getKey();
+        results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
       }
+      byte[] bytes=results.get(COL_REGIONINFO);
+      if (bytes == null || bytes.length == 0) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(COL_REGIONINFO.toString() + " came back empty: " + results.toString());
+        }
+        servers.clear();
+        break;
+      }
+      HRegionInfo regionInfo=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),new HRegionInfo());
+      if (!regionInfo.getTableDesc().getName().equals(tableName)) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Found " + servers.size() + " servers for table "+ tableName);
+        }
+        break;
+      }
+      if (regionInfo.isSplit()) {
+        continue;
+      }
+      if (regionInfo.isOffline()) {
+        throw new IllegalStateException("table offline: " + tableName);
+      }
+      bytes=results.get(COL_SERVER);
+      if (bytes == null || bytes.length == 0) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("no server address for " + regionInfo.toString());
+        }
+        servers.clear();
+        break;
+      }
+      String serverAddress=Writables.bytesToString(bytes);
+      servers.put(regionInfo.getStartKey(),new HRegionLocation(regionInfo,new HServerAddress(serverAddress)));
     }
+  }
+ catch (  IOException e) {
+    if (e instanceof RemoteException) {
+      e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+    }
+    throw e;
+  }
  finally {
-      if (scannerId != -1L) {
-        try {
-          server.close(scannerId);
-        }
- catch (        Exception ex) {
-          LOG.warn(ex);
-        }
-      }
-    }
-    if (servers.size() == 0 && tries == numRetries - 1) {
-      throw new NoServerForRegionException("failed to find server for " + tableName + " after "+ numRetries+ " retries");
-    }
-    if (servers.size() <= 0) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Sleeping. Table " + tableName + " not currently being served.");
-      }
+    if (scannerId != -1L) {
       try {
-        Thread.sleep(pause);
+        server.close(scannerId);
       }
- catch (      InterruptedException ie) {
-      }
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Wake. Retry finding table " + tableName);
+ catch (      Exception ex) {
+        LOG.warn(ex);
       }
     }
   }

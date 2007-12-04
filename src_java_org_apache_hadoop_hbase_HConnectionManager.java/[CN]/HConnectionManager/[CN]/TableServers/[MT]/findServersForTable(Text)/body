@@ -7,35 +7,33 @@
   SortedMap<Text,HRegionLocation> srvrs=new TreeMap<Text,HRegionLocation>();
   if (tableName.equals(ROOT_TABLE_NAME)) {
 synchronized (rootRegionLock) {
-      SortedMap<Text,HRegionLocation> tableServers=this.tablesToServers.get(ROOT_TABLE_NAME);
-      if (tableServers == null) {
-        tableServers=locateRootRegion();
+      srvrs=this.tablesToServers.get(ROOT_TABLE_NAME);
+      if (srvrs == null) {
+        srvrs=locateRootRegion();
       }
-      srvrs.putAll(tableServers);
+      this.tablesToServers.put(tableName,srvrs);
     }
   }
  else   if (tableName.equals(META_TABLE_NAME)) {
 synchronized (metaRegionLock) {
-      if (tablesToServers.get(ROOT_TABLE_NAME) == null) {
-        findServersForTable(ROOT_TABLE_NAME);
-      }
-      SortedMap<Text,HRegionLocation> tableServers=this.tablesToServers.get(META_TABLE_NAME);
-      if (tableServers == null) {
-        for (int tries=0; tries < numRetries; tries++) {
-          try {
-            tableServers=loadMetaFromRoot();
-            break;
-          }
- catch (          IOException e) {
-            if (tries < numRetries - 1) {
-              findServersForTable(ROOT_TABLE_NAME);
-              continue;
-            }
+      SortedMap<Text,HRegionLocation> rootServers=tablesToServers.get(ROOT_TABLE_NAME);
+      for (boolean refindRoot=true; refindRoot; ) {
+        if (rootServers == null || rootServers.size() == 0) {
+          rootServers=findServersForTable(ROOT_TABLE_NAME);
+          refindRoot=false;
+        }
+        try {
+          srvrs=getTableServers(rootServers,META_TABLE_NAME);
+          break;
+        }
+ catch (        NotServingRegionException e) {
+          if (!refindRoot) {
             throw e;
           }
+          rootServers.clear();
         }
       }
-      srvrs.putAll(tableServers);
+      this.tablesToServers.put(tableName,srvrs);
     }
   }
  else {
@@ -63,14 +61,23 @@ synchronized (this.tablesBeingLocated) {
     if (!waited) {
       try {
         SortedMap<Text,HRegionLocation> metaServers=this.tablesToServers.get(META_TABLE_NAME);
-        if (metaServers == null) {
-          metaServers=findServersForTable(META_TABLE_NAME);
+        for (boolean refindMeta=true; refindMeta; ) {
+          if (metaServers == null || metaServers.size() == 0) {
+            metaServers=findServersForTable(META_TABLE_NAME);
+            refindMeta=false;
+          }
+          try {
+            srvrs=getTableServers(metaServers,tableName);
+            break;
+          }
+ catch (          NotServingRegionException e) {
+            if (!refindMeta) {
+              throw e;
+            }
+            metaServers.clear();
+          }
         }
-        Text firstMetaRegion=metaServers.headMap(tableName).lastKey();
-        metaServers=metaServers.tailMap(firstMetaRegion);
-        for (        HRegionLocation t : metaServers.values()) {
-          srvrs.putAll(scanOneMetaRegion(t,tableName));
-        }
+        this.tablesToServers.put(tableName,srvrs);
       }
   finally {
 synchronized (this.tablesBeingLocated) {

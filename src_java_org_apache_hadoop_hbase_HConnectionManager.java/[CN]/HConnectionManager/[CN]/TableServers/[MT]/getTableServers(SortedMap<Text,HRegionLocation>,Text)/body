@@ -1,0 +1,33 @@
+{
+  SortedMap<Text,HRegionLocation> metaServersForTable=metaServers;
+  if (metaServersForTable.size() > 1) {
+    Text firstMetaRegion=metaServersForTable.headMap(tableName).lastKey();
+    metaServersForTable=metaServersForTable.tailMap(firstMetaRegion);
+  }
+  SortedMap<Text,HRegionLocation> tableServers=new TreeMap<Text,HRegionLocation>();
+  int tries=0;
+  do {
+    if (tries >= numRetries - 1) {
+      throw new NoServerForRegionException("failed to find server for " + tableName + " after "+ numRetries+ " retries");
+    }
+ else     if (tries > 0) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Sleeping. Table " + tableName + " not currently being served.");
+      }
+      try {
+        Thread.sleep(pause);
+      }
+ catch (      InterruptedException ie) {
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Wake. Retry finding table " + tableName);
+      }
+    }
+    for (    HRegionLocation t : metaServersForTable.values()) {
+      tableServers.putAll(scanOneMetaRegion(t,tableName));
+    }
+    tries+=1;
+  }
+ while (tableServers.size() == 0);
+  return tableServers;
+}
