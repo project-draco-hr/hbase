@@ -3,42 +3,20 @@
     if (closed.get()) {
       return true;
     }
-    LOG.info(region.toString() + " open on " + this.serverAddress.toString());
-    Text metaRegionName;
-    HRegionInterface server;
-    if (this.rootRegion) {
-      if (rootRegionLocation.get() == null || !rootScanned) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("root region: " + ((rootRegionLocation.get() != null) ? rootRegionLocation.get().toString() : "null") + ", rootScanned: "+ rootScanned);
-        }
-        return false;
-      }
-      metaRegionName=HRegionInfo.rootRegionInfo.getRegionName();
-      server=connection.getHRegionConnection(rootRegionLocation.get());
+    LOG.info(regionInfo.toString() + " open on " + this.serverAddress.toString());
+    if (!metaRegionAvailable()) {
+      return true;
     }
- else {
-      if (!rootScanned || numberOfMetaRegions.get() != onlineMetaRegions.size()) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Requeuing open because rootScanned: " + rootScanned + ", numberOfMetaRegions: "+ numberOfMetaRegions.get()+ ", onlineMetaRegions.size(): "+ onlineMetaRegions.size());
-        }
-        return false;
-      }
-      MetaRegion r=null;
-synchronized (onlineMetaRegions) {
-        r=onlineMetaRegions.containsKey(region.getRegionName()) ? onlineMetaRegions.get(region.getRegionName()) : onlineMetaRegions.get(onlineMetaRegions.headMap(region.getRegionName()).lastKey());
-      }
-      metaRegionName=r.getRegionName();
-      server=connection.getHRegionConnection(r.getServer());
-    }
-    LOG.info("updating row " + region.getRegionName() + " in table "+ metaRegionName+ " with startcode "+ Writables.bytesToLong(this.startCode)+ " and server "+ serverAddress.toString());
+    HRegionInterface server=getMetaServer();
+    LOG.info("updating row " + regionInfo.getRegionName() + " in table "+ metaRegionName+ " with startcode "+ Writables.bytesToLong(this.startCode)+ " and server "+ serverAddress.toString());
     try {
       BatchUpdate b=new BatchUpdate(rand.nextLong());
-      long lockid=b.startUpdate(region.getRegionName());
+      long lockid=b.startUpdate(regionInfo.getRegionName());
       b.put(lockid,COL_SERVER,Writables.stringToBytes(serverAddress.toString()));
       b.put(lockid,COL_STARTCODE,startCode);
       server.batchUpdate(metaRegionName,System.currentTimeMillis(),b);
-      if (region.getTableDesc().getName().equals(META_TABLE_NAME)) {
-        MetaRegion m=new MetaRegion(this.serverAddress,this.region.getRegionName(),this.region.getStartKey());
+      if (isMetaTable) {
+        MetaRegion m=new MetaRegion(this.serverAddress,this.regionInfo.getRegionName(),this.regionInfo.getStartKey());
         if (!initialMetaScanComplete) {
           try {
             LOG.debug("Adding " + m.toString() + " to regions to scan");
@@ -50,10 +28,10 @@ synchronized (onlineMetaRegions) {
         }
  else {
           LOG.debug("Adding to onlineMetaRegions: " + m.toString());
-          onlineMetaRegions.put(this.region.getStartKey(),m);
+          onlineMetaRegions.put(this.regionInfo.getStartKey(),m);
         }
       }
-      pendingRegions.remove(region.getRegionName());
+      pendingRegions.remove(regionInfo.getRegionName());
       break;
     }
  catch (    IOException e) {

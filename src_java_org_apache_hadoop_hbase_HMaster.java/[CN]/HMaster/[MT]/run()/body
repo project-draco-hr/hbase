@@ -5,11 +5,11 @@
   try {
     for (RegionServerOperation op=null; !closed.get(); ) {
       if (rootRegionLocation.get() != null) {
-        op=this.shutdownQueue.poll();
+        op=this.delayedToDoQueue.poll();
       }
       if (op == null) {
         try {
-          op=msgQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
+          op=toDoQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
         }
  catch (        InterruptedException e) {
         }
@@ -22,17 +22,17 @@
           LOG.debug("Main processing loop: " + op.toString());
         }
         if (!op.process()) {
-          if (msgQueue.size() == 0) {
+          if (toDoQueue.size() == 0) {
             sleeper.sleep();
           }
           try {
             if (LOG.isDebugEnabled()) {
               LOG.debug("Put " + op.toString() + " back on queue");
             }
-            msgQueue.put(op);
+            toDoQueue.put(op);
           }
  catch (          InterruptedException e) {
-            throw new RuntimeException("Putting into msgQueue was interrupted.",e);
+            throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
           }
         }
       }
@@ -51,10 +51,10 @@
         }
         LOG.warn("Processing pending operations: " + op.toString(),ex);
         try {
-          msgQueue.put(op);
+          toDoQueue.put(op);
         }
  catch (        InterruptedException e) {
-          throw new RuntimeException("Putting into msgQueue was interrupted.",e);
+          throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
         }
       }
     }

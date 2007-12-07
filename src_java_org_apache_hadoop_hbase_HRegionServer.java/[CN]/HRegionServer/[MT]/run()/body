@@ -1,4 +1,5 @@
 {
+  boolean quiesceRequested=false;
   try {
     init(reportForDuty());
     long lastMsg=0;
@@ -21,13 +22,16 @@ synchronized (outboundMsgs) {
             this.requestCount.set(0);
             HMsg msgs[]=this.hbaseMaster.regionServerReport(serverInfo,outboundArray);
             lastMsg=System.currentTimeMillis();
+            if (this.quiesced.get() && onlineRegions.size() == 0) {
+              LOG.info("Server quiesced and not serving any regions. " + "Starting shutdown");
+              stopRequested.set(true);
+              continue;
+            }
             boolean restart=false;
             for (int i=0; i < msgs.length && !stopRequested.get() && !restart; i++) {
 switch (msgs[i].getMsg()) {
 case HMsg.MSG_CALL_SERVER_STARTUP:
-                if (LOG.isDebugEnabled()) {
-                  LOG.debug("Got call server startup message");
-                }
+                LOG.info("Got call server startup message");
               if (checkFileSystem()) {
                 closeAllRegions();
 synchronized (logRollerLock) {
@@ -57,23 +61,33 @@ synchronized (logRollerLock) {
               }
             break;
 case HMsg.MSG_REGIONSERVER_STOP:
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Got regionserver stop message");
-          }
+          LOG.info("Got regionserver stop message");
         stopRequested.set(true);
       break;
-default :
-    if (fsOk) {
+case HMsg.MSG_REGIONSERVER_QUIESCE:
+    if (!quiesceRequested) {
+      LOG.info("Got quiesce server message");
       try {
         toDo.put(new ToDoEntry(msgs[i]));
       }
  catch (      InterruptedException e) {
         throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
       }
-      if (msgs[i].getMsg() == HMsg.MSG_REGION_OPEN) {
-        outboundMsgs.add(new HMsg(HMsg.MSG_REPORT_PROCESS_OPEN,msgs[i].getRegionInfo()));
-      }
+      quiesceRequested=true;
     }
+  break;
+default :
+if (fsOk) {
+  try {
+    toDo.put(new ToDoEntry(msgs[i]));
+  }
+ catch (  InterruptedException e) {
+    throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
+  }
+  if (msgs[i].getMsg() == HMsg.MSG_REGION_OPEN) {
+    outboundMsgs.add(new HMsg(HMsg.MSG_REPORT_PROCESS_OPEN,msgs[i].getRegionInfo()));
+  }
+}
 }
 }
 if (restart || this.stopRequested.get()) {
@@ -91,7 +105,7 @@ tries++;
  else {
 LOG.error("Exceeded max retries: " + this.numRetries,e);
 if (!checkFileSystem()) {
-  continue;
+continue;
 }
 stop();
 }

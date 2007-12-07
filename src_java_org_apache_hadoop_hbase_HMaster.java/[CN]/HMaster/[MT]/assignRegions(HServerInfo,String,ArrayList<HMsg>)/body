@@ -1,8 +1,12 @@
 {
-synchronized (this.assignAttempts) {
+synchronized (this.unassignedRegions) {
     long now=System.currentTimeMillis();
-    Set<Text> regionsToAssign=new HashSet<Text>();
-    for (    Map.Entry<Text,Long> e : this.assignAttempts.entrySet()) {
+    Set<HRegionInfo> regionsToAssign=new HashSet<HRegionInfo>();
+    for (    Map.Entry<HRegionInfo,Long> e : this.unassignedRegions.entrySet()) {
+      HRegionInfo i=e.getKey();
+      if (numberOfMetaRegions.get() != onlineMetaRegions.size() && !i.isMetaRegion()) {
+        continue;
+      }
       long diff=now - e.getValue().longValue();
       if (diff > this.maxRegionOpenTime) {
         regionsToAssign.add(e.getKey());
@@ -53,10 +57,9 @@ synchronized (this.loadToServers) {
         nregions=nRegionsToAssign;
       }
       now=System.currentTimeMillis();
-      for (      Text regionName : regionsToAssign) {
-        HRegionInfo regionInfo=this.unassignedRegions.get(regionName);
-        LOG.info("assigning region " + regionName + " to server "+ serverName);
-        this.assignAttempts.put(regionName,Long.valueOf(now));
+      for (      HRegionInfo regionInfo : regionsToAssign) {
+        LOG.info("assigning region " + regionInfo.getRegionName() + " to server "+ serverName);
+        this.unassignedRegions.put(regionInfo,Long.valueOf(now));
         returnMsgs.add(new HMsg(HMsg.MSG_REGION_OPEN,regionInfo));
         if (--nregions <= 0) {
           break;

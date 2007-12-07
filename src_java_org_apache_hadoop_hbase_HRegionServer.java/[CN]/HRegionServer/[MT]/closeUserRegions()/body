@@ -1,0 +1,37 @@
+{
+  ArrayList<HRegion> regionsToClose=new ArrayList<HRegion>();
+  this.lock.writeLock().lock();
+  try {
+synchronized (onlineRegions) {
+      for (Iterator<Map.Entry<Text,HRegion>> i=onlineRegions.entrySet().iterator(); i.hasNext(); ) {
+        Map.Entry<Text,HRegion> e=i.next();
+        HRegion r=e.getValue();
+        if (!r.getRegionInfo().isMetaRegion()) {
+          regionsToClose.add(r);
+          i.remove();
+        }
+      }
+    }
+  }
+  finally {
+    this.lock.writeLock().unlock();
+  }
+  for (  HRegion region : regionsToClose) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("closing region " + region.getRegionName());
+    }
+    try {
+      region.close(false);
+    }
+ catch (    IOException e) {
+      LOG.error("error closing region " + region.getRegionName(),RemoteExceptionHandler.checkIOException(e));
+    }
+  }
+  this.quiesced.set(true);
+  if (onlineRegions.size() == 0) {
+    outboundMsgs.add(new HMsg(HMsg.MSG_REPORT_EXITING));
+  }
+ else {
+    outboundMsgs.add(new HMsg(HMsg.MSG_REPORT_QUIESCED));
+  }
+}

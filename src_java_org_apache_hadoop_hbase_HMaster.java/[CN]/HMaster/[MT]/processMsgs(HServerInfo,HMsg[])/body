@@ -10,37 +10,54 @@
     HRegionInfo region=incomingMsgs[i].getRegionInfo();
 switch (incomingMsgs[i].getMsg()) {
 case HMsg.MSG_REPORT_PROCESS_OPEN:
-synchronized (this.assignAttempts) {
-        assignAttempts.put(region.getRegionName(),Long.valueOf(assignAttempts.get(region.getRegionName()).longValue() + (this.maxRegionOpenTime / 2)));
+synchronized (unassignedRegions) {
+        unassignedRegions.put(region,System.currentTimeMillis() + this.maxRegionOpenTime);
       }
     break;
 case HMsg.MSG_REPORT_OPEN:
-  HRegionInfo regionInfo=unassignedRegions.get(region.getRegionName());
-if (regionInfo == null) {
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("region server " + info.getServerAddress().toString() + " should not have opened region "+ region.getRegionName());
-  }
-  returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
-}
+  boolean duplicateAssignment=false;
+synchronized (unassignedRegions) {
+  if (unassignedRegions.remove(region) == null) {
+    if (region.getRegionName().compareTo(HRegionInfo.rootRegionInfo.getRegionName()) == 0) {
+      HServerAddress rootServer=rootRegionLocation.get();
+      if (rootServer != null) {
+        if (rootServer.toString().compareTo(serverName) == 0) {
+          break;
+        }
+        duplicateAssignment=true;
+      }
+    }
  else {
-  LOG.info(info.getServerAddress().toString() + " serving " + region.getRegionName());
-  if (region.getRegionName().compareTo(HRegionInfo.rootRegionInfo.getRegionName()) == 0) {
+      if (pendingRegions.contains(region.getRegionName())) {
+        break;
+      }
+      duplicateAssignment=true;
+    }
+  }
+  if (duplicateAssignment) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("region server " + info.getServerAddress().toString() + " should not have opened region "+ region.getRegionName());
+    }
+    returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
+  }
+ else {
+    LOG.info(info.getServerAddress().toString() + " serving " + region.getRegionName());
+    if (region.getRegionName().compareTo(HRegionInfo.rootRegionInfo.getRegionName()) == 0) {
 synchronized (rootRegionLocation) {
-      this.rootRegionLocation.set(new HServerAddress(info.getServerAddress()));
-      this.rootRegionLocation.notifyAll();
+        this.rootRegionLocation.set(new HServerAddress(info.getServerAddress()));
+        this.rootRegionLocation.notifyAll();
+      }
     }
-  }
  else {
-    pendingRegions.add(region.getRegionName());
-    try {
-      msgQueue.put(new ProcessRegionOpen(info,region));
-    }
- catch (    InterruptedException e) {
-      throw new RuntimeException("Putting into msgQueue was interrupted.",e);
+      pendingRegions.add(region.getRegionName());
+      try {
+        toDoQueue.put(new ProcessRegionOpen(info,region));
+      }
+ catch (      InterruptedException e) {
+        throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
+      }
     }
   }
-  this.unassignedRegions.remove(region.getRegionName());
-  this.assignAttempts.remove(region.getRegionName());
 }
 break;
 case HMsg.MSG_REPORT_CLOSE:
@@ -58,23 +75,23 @@ if (regionsToDelete.remove(region.getRegionName())) {
 reassignRegion=false;
 deleteRegion=true;
 }
-unassignedRegions.remove(region.getRegionName());
-assignAttempts.remove(region.getRegionName());
+if (region.isMetaTable()) {
+onlineMetaRegions.remove(region.getStartKey());
+}
+unassignedRegions.remove(region);
 try {
-msgQueue.put(new ProcessRegionClose(region,reassignRegion,deleteRegion));
+toDoQueue.put(new ProcessRegionClose(region,reassignRegion,deleteRegion));
 }
  catch (InterruptedException e) {
-throw new RuntimeException("Putting into msgQueue was interrupted.",e);
+throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
 }
 }
 break;
 case HMsg.MSG_REPORT_SPLIT:
 HRegionInfo newRegionA=incomingMsgs[++i].getRegionInfo();
-unassignedRegions.put(newRegionA.getRegionName(),newRegionA);
-assignAttempts.put(newRegionA.getRegionName(),Long.valueOf(0L));
+unassignedRegions.put(newRegionA,ZERO_L);
 HRegionInfo newRegionB=incomingMsgs[++i].getRegionInfo();
-unassignedRegions.put(newRegionB.getRegionName(),newRegionB);
-assignAttempts.put(newRegionB.getRegionName(),Long.valueOf(0L));
+unassignedRegions.put(newRegionB,ZERO_L);
 LOG.info("region " + region.getRegionName() + " split. New regions are: "+ newRegionA.getRegionName()+ ", "+ newRegionB.getRegionName());
 if (region.getTableDesc().getName().equals(META_TABLE_NAME)) {
 onlineMetaRegions.remove(region.getStartKey());

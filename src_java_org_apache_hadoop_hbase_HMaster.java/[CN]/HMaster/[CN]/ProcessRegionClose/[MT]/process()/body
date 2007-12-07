@@ -4,35 +4,10 @@
       return true;
     }
     LOG.info("region closed: " + regionInfo.getRegionName());
-    Text metaRegionName;
-    HRegionInterface server;
-    if (rootRegion) {
-      if (rootRegionLocation.get() == null || !rootScanned) {
-        return false;
-      }
-      metaRegionName=HRegionInfo.rootRegionInfo.getRegionName();
-      server=connection.getHRegionConnection(rootRegionLocation.get());
-      onlineMetaRegions.remove(regionInfo.getStartKey());
+    if (!metaRegionAvailable()) {
+      return true;
     }
- else {
-      if (!rootScanned || numberOfMetaRegions.get() != onlineMetaRegions.size()) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Requeuing close because rootScanned=" + rootScanned + ", numberOfMetaRegions="+ numberOfMetaRegions.get()+ ", onlineMetaRegions.size()="+ onlineMetaRegions.size());
-        }
-        return false;
-      }
-      MetaRegion r=null;
-synchronized (onlineMetaRegions) {
-        if (onlineMetaRegions.containsKey(regionInfo.getRegionName())) {
-          r=onlineMetaRegions.get(regionInfo.getRegionName());
-        }
- else {
-          r=onlineMetaRegions.get(onlineMetaRegions.headMap(regionInfo.getRegionName()).lastKey());
-        }
-      }
-      metaRegionName=r.getRegionName();
-      server=connection.getHRegionConnection(r.getServer());
-    }
+    HRegionInterface server=getMetaServer();
     try {
       BatchUpdate b=new BatchUpdate(rand.nextLong());
       long lockid=b.startUpdate(regionInfo.getRegionName());
@@ -57,8 +32,7 @@ synchronized (onlineMetaRegions) {
   }
   if (reassignRegion) {
     LOG.info("reassign region: " + regionInfo.getRegionName());
-    unassignedRegions.put(regionInfo.getRegionName(),regionInfo);
-    assignAttempts.put(regionInfo.getRegionName(),Long.valueOf(0L));
+    unassignedRegions.put(regionInfo,ZERO_L);
   }
  else   if (deleteRegion) {
     try {

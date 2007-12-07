@@ -1,34 +1,50 @@
 {
   String serverName=serverInfo.getServerAddress().toString().trim();
   long serverLabel=getServerLabel(serverName);
-  if (msgs.length > 0 && msgs[0].getMsg() == HMsg.MSG_REPORT_EXITING) {
+  if (msgs.length > 0) {
+    if (msgs[0].getMsg() == HMsg.MSG_REPORT_EXITING) {
 synchronized (serversToServerInfo) {
-      try {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Region server " + serverName + ": MSG_REPORT_EXITING -- cancelling lease");
-        }
-        if (cancelLease(serverName,serverLabel)) {
-          LOG.info("Region server " + serverName + ": MSG_REPORT_EXITING -- lease cancelled");
-          if (!closed.get()) {
-            for (int i=1; i < msgs.length; i++) {
-              HRegionInfo info=msgs[i].getRegionInfo();
-              if (info.getTableDesc().getName().equals(ROOT_TABLE_NAME)) {
-                rootRegionLocation.set(null);
+        try {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Region server " + serverName + ": MSG_REPORT_EXITING -- cancelling lease");
+          }
+          if (cancelLease(serverName,serverLabel)) {
+            LOG.info("Region server " + serverName + ": MSG_REPORT_EXITING -- lease cancelled");
+            if (!closed.get()) {
+              for (int i=1; i < msgs.length; i++) {
+                HRegionInfo info=msgs[i].getRegionInfo();
+                if (info.isRootRegion()) {
+                  rootRegionLocation.set(null);
+                }
+ else                 if (info.isMetaTable()) {
+                  onlineMetaRegions.remove(info.getStartKey());
+                }
+                this.unassignedRegions.put(info,ZERO_L);
               }
- else               if (info.getTableDesc().getName().equals(META_TABLE_NAME)) {
-                onlineMetaRegions.remove(info.getStartKey());
-              }
-              this.unassignedRegions.put(info.getRegionName(),info);
-              this.assignAttempts.put(info.getRegionName(),Long.valueOf(0L));
             }
           }
+          return new HMsg[0];
         }
-        return new HMsg[0];
-      }
   finally {
-        serversToServerInfo.notifyAll();
+          serversToServerInfo.notifyAll();
+        }
       }
     }
+ else     if (msgs[0].getMsg() == HMsg.MSG_REPORT_QUIESCED) {
+      LOG.info("Region server " + serverName + " quiesced");
+      if (quiescedMetaServers.incrementAndGet() == serversToServerInfo.size()) {
+        LOG.info("All user tables quiesced. Proceeding with shutdown");
+        closed.set(true);
+synchronized (toDoQueue) {
+          toDoQueue.clear();
+          delayedToDoQueue.clear();
+          toDoQueue.notifyAll();
+        }
+      }
+    }
+  }
+  if (shutdownRequested.get() && !closed.get()) {
+    return new HMsg[]{new HMsg(HMsg.MSG_REGIONSERVER_QUIESCE)};
   }
   if (closed.get()) {
     return new HMsg[]{new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
