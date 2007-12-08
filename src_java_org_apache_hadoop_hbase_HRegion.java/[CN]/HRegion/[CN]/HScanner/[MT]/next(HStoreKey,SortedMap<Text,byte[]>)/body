@@ -1,14 +1,49 @@
 {
-  boolean haveResults=false;
-  for (int i=0; i < scanners.length; i++) {
-    if (scanners[i] != null) {
-      if (scanners[i].next(key,results)) {
-        haveResults=true;
+  boolean moreToFollow=false;
+  Text chosenRow=null;
+  long chosenTimestamp=-1;
+  for (int i=0; i < this.keys.length; i++) {
+    if (scanners[i] != null && (chosenRow == null || (keys[i].getRow().compareTo(chosenRow) < 0) || ((keys[i].getRow().compareTo(chosenRow) == 0) && (keys[i].getTimestamp() > chosenTimestamp)))) {
+      chosenRow=new Text(keys[i].getRow());
+      chosenTimestamp=keys[i].getTimestamp();
+    }
+  }
+  if (chosenTimestamp >= 0) {
+    key.setRow(chosenRow);
+    key.setVersion(chosenTimestamp);
+    key.setColumn(HConstants.EMPTY_TEXT);
+    for (int i=0; i < scanners.length; i++) {
+      if (scanners[i] != null && keys[i].getRow().compareTo(chosenRow) == 0) {
+        for (        Map.Entry<Text,byte[]> e : resultSets[i].entrySet()) {
+          if (!results.containsKey(e.getKey())) {
+            results.put(e.getKey(),e.getValue());
+          }
+        }
+        resultSets[i].clear();
+        if (!scanners[i].next(keys[i],resultSets[i])) {
+          closeScanner(i);
+        }
       }
- else {
+    }
+  }
+  for (int i=0; i < scanners.length; i++) {
+    while ((scanners[i] != null) && (keys[i].getRow().compareTo(chosenRow) <= 0)) {
+      resultSets[i].clear();
+      if (!scanners[i].next(keys[i],resultSets[i])) {
         closeScanner(i);
       }
     }
   }
-  return haveResults;
+  moreToFollow=chosenTimestamp >= 0;
+  if (results == null || results.size() <= 0) {
+    moreToFollow=false;
+  }
+  if (!moreToFollow) {
+    for (int i=0; i < scanners.length; i++) {
+      if (null != scanners[i]) {
+        closeScanner(i);
+      }
+    }
+  }
+  return moreToFollow;
 }

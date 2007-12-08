@@ -1,0 +1,65 @@
+{
+  final String tableName=getName();
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  HTableDescriptor tableDesc=new HTableDescriptor(tableName);
+  for (int i=0; i < columns.length; i++) {
+    tableDesc.addFamily(new HColumnDescriptor(columns[i].toString()));
+  }
+  admin.createTable(tableDesc);
+  HTable table=new HTable(conf,new Text(getName()));
+  for (  Map.Entry<Text,SortedMap<Text,byte[]>> row : values.entrySet()) {
+    long lockid=table.startUpdate(row.getKey());
+    for (    Map.Entry<Text,byte[]> val : row.getValue().entrySet()) {
+      table.put(lockid,val.getKey(),val.getValue());
+    }
+    table.commit(lockid);
+  }
+  HRegion region=null;
+  try {
+    SortedMap<Text,HRegion> regions=cluster.getRegionThreads().get(0).getRegionServer().getOnlineRegions();
+    for (    Map.Entry<Text,HRegion> e : regions.entrySet()) {
+      if (!e.getValue().getRegionInfo().isMetaRegion()) {
+        region=e.getValue();
+      }
+    }
+  }
+ catch (  Exception e) {
+    e.printStackTrace();
+    IOException iox=new IOException("error finding region");
+    iox.initCause(e);
+    throw iox;
+  }
+  @SuppressWarnings("null") HScannerInterface scanner=region.getScanner(columns,startRow,System.currentTimeMillis(),null);
+  try {
+    verify(scanner);
+  }
+  finally {
+    scanner.close();
+  }
+  scanner=table.obtainScanner(columns,startRow);
+  try {
+    verify(scanner);
+  }
+  finally {
+    scanner.close();
+  }
+  scanner=table.obtainScanner(columns,startRow);
+  try {
+    for (Iterator<Map.Entry<HStoreKey,SortedMap<Text,byte[]>>> iterator=scanner.iterator(); iterator.hasNext(); ) {
+      Map.Entry<HStoreKey,SortedMap<Text,byte[]>> row=iterator.next();
+      HStoreKey key=row.getKey();
+      assertTrue("row key",values.containsKey(key.getRow()));
+      SortedMap<Text,byte[]> results=row.getValue();
+      SortedMap<Text,byte[]> columnValues=values.get(key.getRow());
+      assertEquals(columnValues.size(),results.size());
+      for (      Map.Entry<Text,byte[]> e : columnValues.entrySet()) {
+        Text column=e.getKey();
+        assertTrue("column",results.containsKey(column));
+        assertTrue("value",Arrays.equals(columnValues.get(column),results.get(column)));
+      }
+    }
+  }
+  finally {
+    scanner.close();
+  }
+}
