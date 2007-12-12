@@ -1,41 +1,29 @@
 {
-  int tries=0;
-  while (!closed.get() && tries < numRetries) {
-    while (!closed.get() && !rootScanned && rootRegionLocation.get() == null) {
-      sleeper.sleep();
-    }
-    if (closed.get()) {
-      continue;
-    }
-    try {
-synchronized (metaScannerLock) {
-        scanRegion(region);
-        onlineMetaRegions.put(region.getStartKey(),region);
-      }
-      break;
-    }
- catch (    IOException e) {
-      e=RemoteExceptionHandler.checkIOException(e);
-      tries+=1;
-      if (tries == 1) {
-        LOG.warn("Scan one META region: " + region.toString(),e);
-      }
- else {
-        LOG.error("Scan one META region: " + region.toString(),e);
-      }
-      if (!onlineMetaRegions.containsValue(region)) {
-        LOG.debug("Scanned region is no longer in map of online " + "regions or its value has changed");
-        break;
-      }
-      if (tries == numRetries - 1) {
-        if (!checkFileSystem()) {
-          continue;
-        }
-      }
-    }
-catch (    Exception e) {
-      LOG.error("Unexpected exception",e);
-    }
+  boolean scanSuccessful=false;
+  while (!closed.get() && !rootScanned && rootRegionLocation.get() == null) {
     sleeper.sleep();
   }
+  if (closed.get()) {
+    return scanSuccessful;
+  }
+  try {
+synchronized (metaScannerLock) {
+      scanRegion(region);
+      onlineMetaRegions.put(region.getStartKey(),region);
+    }
+    scanSuccessful=true;
+  }
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    LOG.warn("Scan one META region: " + region.toString(),e);
+    if (!onlineMetaRegions.containsValue(region.getStartKey())) {
+      LOG.debug("Scanned region is no longer in map of online " + "regions or its value has changed");
+      return scanSuccessful;
+    }
+    checkFileSystem();
+  }
+catch (  Exception e) {
+    LOG.error("Unexpected exception",e);
+  }
+  return scanSuccessful;
 }

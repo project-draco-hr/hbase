@@ -1,42 +1,30 @@
 {
-  int tries=0;
-  while (!closed.get() && tries < numRetries) {
+  boolean scanSuccessful=false;
 synchronized (rootRegionLocation) {
-      while (!closed.get() && rootRegionLocation.get() == null) {
-        try {
-          rootRegionLocation.wait();
-        }
- catch (        InterruptedException e) {
-        }
+    while (!closed.get() && rootRegionLocation.get() == null) {
+      try {
+        rootRegionLocation.wait();
+      }
+ catch (      InterruptedException e) {
       }
     }
-    if (closed.get()) {
-      continue;
-    }
-    try {
-synchronized (rootScannerLock) {
-        scanRegion(new MetaRegion(rootRegionLocation.get(),HRegionInfo.rootRegionInfo.getRegionName(),null));
-      }
-      break;
-    }
- catch (    IOException e) {
-      e=RemoteExceptionHandler.checkIOException(e);
-      tries+=1;
-      if (tries == 1) {
-        LOG.warn("Scan ROOT region",e);
-      }
- else {
-        LOG.error("Scan ROOT region",e);
-        if (tries == numRetries - 1) {
-          if (!checkFileSystem()) {
-            continue;
-          }
-        }
-      }
-    }
-catch (    Exception e) {
-      LOG.error("Unexpected exception",e);
-    }
-    sleeper.sleep();
   }
+  if (closed.get()) {
+    return scanSuccessful;
+  }
+  try {
+synchronized (rootScannerLock) {
+      scanRegion(new MetaRegion(rootRegionLocation.get(),HRegionInfo.rootRegionInfo.getRegionName(),null));
+    }
+    scanSuccessful=true;
+  }
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    LOG.warn("Scan ROOT region",e);
+    checkFileSystem();
+  }
+catch (  Exception e) {
+    LOG.error("Unexpected exception",e);
+  }
+  return scanSuccessful;
 }
