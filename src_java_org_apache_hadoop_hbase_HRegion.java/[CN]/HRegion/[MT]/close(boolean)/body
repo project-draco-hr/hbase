@@ -3,40 +3,42 @@
     LOG.info("region " + this.regionInfo.getRegionName() + " already closed");
     return null;
   }
-  lock.writeLock().lock();
-  try {
+synchronized (splitLock) {
+    lock.writeLock().lock();
+    try {
 synchronized (writestate) {
-      while (writestate.compacting || writestate.flushing) {
-        try {
-          writestate.wait();
+        while (writestate.compacting || writestate.flushing) {
+          try {
+            writestate.wait();
+          }
+ catch (          InterruptedException iex) {
+          }
         }
- catch (        InterruptedException iex) {
-        }
+        writestate.writesEnabled=false;
       }
-      writestate.writesEnabled=false;
-    }
 synchronized (activeScannerCount) {
-      while (activeScannerCount.get() != 0) {
-        try {
-          activeScannerCount.wait();
-        }
- catch (        InterruptedException e) {
+        while (activeScannerCount.get() != 0) {
+          try {
+            activeScannerCount.wait();
+          }
+ catch (          InterruptedException e) {
+          }
         }
       }
+      waitOnRowLocks();
+      if (!abort) {
+        internalFlushcache(snapshotMemcaches());
+      }
+      List<HStoreFile> result=new ArrayList<HStoreFile>();
+      for (      HStore store : stores.values()) {
+        result.addAll(store.close());
+      }
+      this.closed.set(true);
+      LOG.info("closed " + this.regionInfo.getRegionName());
+      return result;
     }
-    waitOnRowLocks();
-    if (!abort) {
-      internalFlushcache(snapshotMemcaches());
-    }
-    List<HStoreFile> result=new ArrayList<HStoreFile>();
-    for (    HStore store : stores.values()) {
-      result.addAll(store.close());
-    }
-    this.closed.set(true);
-    LOG.info("closed " + this.regionInfo.getRegionName());
-    return result;
-  }
   finally {
-    lock.writeLock().unlock();
+      lock.writeLock().unlock();
+    }
   }
 }
