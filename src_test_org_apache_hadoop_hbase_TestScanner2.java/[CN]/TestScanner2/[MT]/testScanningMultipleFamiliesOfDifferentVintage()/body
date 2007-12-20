@@ -1,0 +1,31 @@
+{
+  Text tableName=new Text(getName());
+  final Text[] families=createTable(new HBaseAdmin(this.conf),tableName);
+  HTable table=new HTable(this.conf,tableName);
+  HScannerInterface scanner=null;
+  try {
+    long time=System.currentTimeMillis();
+    LOG.info("Current time " + time);
+    for (int i=0; i < families.length; i++) {
+      final byte[] lastKey=new byte[]{'a','a',(byte)('b' + i)};
+      Incommon inc=new HTableIncommon(table);
+      addContent(inc,families[i].toString(),START_KEY_BYTES,new Text(lastKey),time + (1000 * i));
+      if (i == 0) {
+        long id=inc.startBatchUpdate(new Text("bbb"));
+        inc.put(id,families[0],"bbb".getBytes());
+        inc.commit(id);
+      }
+    }
+    RowFilterInterface f=new WhileMatchRowFilter(new StopRowFilter(new Text("aad")));
+    scanner=table.obtainScanner(families,HConstants.EMPTY_START_ROW,HConstants.LATEST_TIMESTAMP,f);
+    int count=0;
+    for (    Map.Entry<HStoreKey,SortedMap<Text,byte[]>> e : scanner) {
+      count++;
+    }
+    assertEquals(count,3);
+  }
+  finally {
+    scanner.close();
+    table.close();
+  }
+}
