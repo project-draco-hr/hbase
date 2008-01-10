@@ -1,64 +1,22 @@
 {
-  try {
-    Thread.sleep(conf.getLong("hbase.regionserver.optionalcacheflushinterval",60L * 1000L));
-  }
- catch (  InterruptedException e) {
-  }
   HTable table=new HTable(conf,new Text(tableName));
-  HScannerInterface scanner=table.obtainScanner(columns,HConstants.EMPTY_START_ROW);
-  try {
-    HStoreKey key=new HStoreKey();
-    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-    while (scanner.next(key,results)) {
-      if (LOG.isDebugEnabled()) {
-        if (results.size() > 2) {
-          LOG.debug("Too many results, expected 2 got " + results.size());
-        }
-      }
-      byte[] firstValue=null;
-      byte[] secondValue=null;
-      int count=0;
-      for (      Map.Entry<Text,byte[]> e : results.entrySet()) {
-        if (count == 0)         firstValue=e.getValue();
-        if (count == 1)         secondValue=e.getValue();
-        count++;
-        if (count == 2) {
-          break;
-        }
-      }
-      String first="";
-      if (firstValue == null) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("row=" + key.getRow() + ": first value is null");
-        }
-        fail();
-      }
- else {
-        first=new String(firstValue,HConstants.UTF8_ENCODING);
-      }
-      String second="";
-      if (secondValue == null) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("row=" + key.getRow() + ": second value is null");
-        }
-        fail();
-      }
- else {
-        byte[] secondReversed=new byte[secondValue.length];
-        for (int i=0, j=secondValue.length - 1; j >= 0; j--, i++) {
-          secondReversed[i]=secondValue[j];
-        }
-        second=new String(secondReversed,HConstants.UTF8_ENCODING);
-      }
-      if (first.compareTo(second) != 0) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("second key is not the reverse of first. row=" + key.getRow() + ", first value="+ first+ ", second value="+ second);
-        }
-        fail();
-      }
+  boolean verified=false;
+  long pause=conf.getLong("hbase.client.pause",5 * 1000);
+  int numRetries=conf.getInt("hbase.client.retries.number",5);
+  for (int i=0; i < numRetries; i++) {
+    try {
+      verifyAttempt(table);
+      verified=true;
+      break;
+    }
+ catch (    NullPointerException e) {
+      LOG.debug("Verification attempt failed: " + e.getMessage());
+    }
+    try {
+      Thread.sleep(pause);
+    }
+ catch (    InterruptedException e) {
     }
   }
-  finally {
-    scanner.close();
-  }
+  assertTrue(verified);
 }
