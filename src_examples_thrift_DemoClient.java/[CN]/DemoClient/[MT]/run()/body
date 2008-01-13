@@ -1,0 +1,136 @@
+{
+  TTransport transport=new TSocket("localhost",port);
+  TProtocol protocol=new TBinaryProtocol(transport,true,true);
+  Hbase.Client client=new Hbase.Client(protocol);
+  transport.open();
+  byte[] t=bytes("demo_table");
+  System.out.println("scanning tables...");
+  for (  byte[] name : client.getTableNames()) {
+    System.out.println("  found: " + utf8(name));
+    if (utf8(name).equals(utf8(t))) {
+      System.out.println("    deleting table: " + utf8(name));
+      client.deleteTable(name);
+    }
+  }
+  ArrayList<ColumnDescriptor> columns=new ArrayList<ColumnDescriptor>();
+  ColumnDescriptor col=null;
+  col=new ColumnDescriptor();
+  col.name=bytes("entry:");
+  col.maxVersions=10;
+  columns.add(col);
+  col=new ColumnDescriptor();
+  col.name=bytes("unused:");
+  columns.add(col);
+  System.out.println("creating table: " + utf8(t));
+  try {
+    client.createTable(t,columns);
+  }
+ catch (  AlreadyExists ae) {
+    System.out.println("WARN: " + ae.message);
+  }
+  System.out.println("column families in " + utf8(t) + ": ");
+  AbstractMap<byte[],ColumnDescriptor> columnMap=client.getColumnDescriptors(t);
+  for (  ColumnDescriptor col2 : columnMap.values()) {
+    System.out.println("  column: " + utf8(col2.name) + ", maxVer: "+ Integer.toString(col2.maxVersions));
+  }
+  byte[] invalid={(byte)'f',(byte)'o',(byte)'o',(byte)'-',(byte)0xfc,(byte)0xa1,(byte)0xa1,(byte)0xa1,(byte)0xa1};
+  byte[] valid={(byte)'f',(byte)'o',(byte)'o',(byte)'-',(byte)0xE7,(byte)0x94,(byte)0x9F,(byte)0xE3,(byte)0x83,(byte)0x93,(byte)0xE3,(byte)0x83,(byte)0xBC,(byte)0xE3,(byte)0x83,(byte)0xAB};
+  client.put(t,bytes("foo"),bytes("entry:foo"),invalid);
+  client.put(t,bytes(""),bytes("entry:"),bytes(""));
+  client.put(t,valid,bytes("entry:foo"),valid);
+  try {
+    client.put(t,invalid,bytes("entry:foo"),invalid);
+    System.out.println("FATAL: shouldn't get here");
+    System.exit(-1);
+  }
+ catch (  IOError e) {
+    System.out.println("expected error: " + e.message);
+  }
+  ArrayList<byte[]> columnNames=new ArrayList<byte[]>();
+  columnNames.add(bytes("entry:"));
+  System.out.println("Starting scanner...");
+  int scanner=client.scannerOpen(t,bytes(""),columnNames);
+  try {
+    while (true) {
+      ScanEntry value=client.scannerGet(scanner);
+      printEntry(value);
+    }
+  }
+ catch (  NotFound nf) {
+    client.scannerClose(scanner);
+    System.out.println("Scanner finished");
+  }
+  for (int i=100; i >= 0; --i) {
+    NumberFormat nf=NumberFormat.getInstance();
+    nf.setMinimumIntegerDigits(5);
+    nf.setGroupingUsed(false);
+    byte[] row=bytes(nf.format(i));
+    client.put(t,row,bytes("unused:"),bytes("DELETE_ME"));
+    printRow(row,client.getRow(t,row));
+    client.deleteAllRow(t,row);
+    client.put(t,row,bytes("entry:num"),bytes("0"));
+    client.put(t,row,bytes("entry:foo"),bytes("FOO"));
+    printRow(row,client.getRow(t,row));
+    Mutation m=null;
+    ArrayList<Mutation> mutations=new ArrayList<Mutation>();
+    m=new Mutation();
+    m.column=bytes("entry:foo");
+    m.isDelete=true;
+    mutations.add(m);
+    m=new Mutation();
+    m.column=bytes("entry:num");
+    m.value=bytes("-1");
+    mutations.add(m);
+    client.mutateRow(t,row,mutations);
+    printRow(row,client.getRow(t,row));
+    client.put(t,row,bytes("entry:num"),bytes(Integer.toString(i)));
+    client.put(t,row,bytes("entry:sqr"),bytes(Integer.toString(i * i)));
+    printRow(row,client.getRow(t,row));
+    try {
+      Thread.sleep(50);
+    }
+ catch (    InterruptedException e) {
+    }
+    mutations.clear();
+    m=new Mutation();
+    m.column=bytes("entry:num");
+    m.value=bytes("-999");
+    mutations.add(m);
+    m=new Mutation();
+    m.column=bytes("entry:sqr");
+    m.isDelete=true;
+    client.mutateRowTs(t,row,mutations,1);
+    printRow(row,client.getRow(t,row));
+    ArrayList<byte[]> versions=client.getVer(t,row,bytes("entry:num"),10);
+    printVersions(row,versions);
+    if (versions.size() != 4) {
+      System.out.println("FATAL: wrong # of versions");
+      System.exit(-1);
+    }
+    try {
+      client.get(t,row,bytes("entry:foo"));
+      System.out.println("FATAL: shouldn't get here");
+      System.exit(-1);
+    }
+ catch (    NotFound nf2) {
+    }
+    System.out.println("");
+  }
+  columnNames.clear();
+  for (  ColumnDescriptor col2 : client.getColumnDescriptors(t).values()) {
+    columnNames.add(col2.name);
+  }
+  System.out.println("Starting scanner...");
+  scanner=client.scannerOpenWithStop(t,bytes("00020"),bytes("00040"),columnNames);
+  try {
+    while (true) {
+      ScanEntry value=client.scannerGet(scanner);
+      printEntry(value);
+    }
+  }
+ catch (  NotFound nf) {
+    client.scannerClose(scanner);
+    System.out.println("Scanner finished");
+  }
+  transport.close();
+}

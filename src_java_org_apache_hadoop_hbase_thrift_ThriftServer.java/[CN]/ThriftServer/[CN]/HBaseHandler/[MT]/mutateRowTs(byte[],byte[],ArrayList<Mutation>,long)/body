@@ -1,0 +1,34 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("mutateRowTs: table=" + new String(tableName) + ", row="+ new String(row)+ ", ts="+ timestamp+ " mutations="+ mutations.size());
+    for (    Mutation m : mutations) {
+      if (m.isDelete) {
+        LOG.debug("mutateRowTs:    : delete - " + getText(m.column));
+      }
+ else {
+        LOG.debug("mutateRowTs:    : put - " + getText(m.column) + " => "+ m.value);
+      }
+    }
+  }
+  Long lockid=null;
+  HTable table=null;
+  try {
+    table=getTable(tableName);
+    lockid=table.startUpdate(getText(row));
+    for (    Mutation m : mutations) {
+      if (m.isDelete) {
+        table.delete(lockid,getText(m.column));
+      }
+ else {
+        table.put(lockid,getText(m.column),m.value);
+      }
+    }
+    table.commit(lockid,timestamp);
+  }
+ catch (  IOException e) {
+    if (lockid != null) {
+      table.abort(lockid);
+    }
+    throw new IOError(e.getMessage());
+  }
+}
