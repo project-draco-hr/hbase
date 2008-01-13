@@ -1,8 +1,8 @@
 {
   try {
+    HStoreKey key=new HStoreKey();
     TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
     if (!metaScanner.next(key,results)) {
-      more=false;
       return null;
     }
     byte[] bytes=results.get(COL_REGIONINFO);
@@ -10,19 +10,24 @@
       throw new NoSuchElementException("meta region entry missing " + COL_REGIONINFO);
     }
     HRegionInfo region=(HRegionInfo)Writables.getWritable(bytes,new HRegionInfo());
+    if (!region.getTableDesc().getName().equals(tableName)) {
+      return null;
+    }
     if (!region.isOffline()) {
       throw new TableNotDisabledException("region " + region.getRegionName() + " is not disabled");
     }
     return region;
   }
  catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    LOG.error("meta scanner error",e);
     try {
       metaScanner.close();
     }
  catch (    IOException ex) {
-      LOG.error(ex);
+      ex=RemoteExceptionHandler.checkIOException(ex);
+      LOG.error("error closing scanner",ex);
     }
-    more=false;
     throw e;
   }
 }

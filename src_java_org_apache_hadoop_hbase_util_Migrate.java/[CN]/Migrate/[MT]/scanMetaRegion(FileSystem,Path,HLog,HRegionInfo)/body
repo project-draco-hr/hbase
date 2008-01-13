@@ -1,0 +1,25 @@
+{
+  HRegion metaRegion=new HRegion(new Path(rootdir,info.getTableDesc().getName().toString()),log,fs,conf,info,null,null);
+  try {
+    HScannerInterface metaScanner=metaRegion.getScanner(HConstants.COL_REGIONINFO_ARRAY,HConstants.EMPTY_START_ROW,HConstants.LATEST_TIMESTAMP,null);
+    try {
+      HStoreKey key=new HStoreKey();
+      SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
+      while (metaScanner.next(key,results)) {
+        HRegionInfo region=Writables.getHRegionInfoOrNull(results.get(HConstants.COL_REGIONINFO));
+        if (region == null) {
+          LOG.warn("region info is null for row " + key.getRow() + " in table "+ HConstants.META_TABLE_NAME);
+          continue;
+        }
+        processRegionDir(fs,rootdir,region.getTableDesc().getName(),new Path(rootdir,OLD_PREFIX + region.getEncodedName()));
+        results.clear();
+      }
+    }
+  finally {
+      metaScanner.close();
+    }
+  }
+  finally {
+    metaRegion.close();
+  }
+}

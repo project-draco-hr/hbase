@@ -1,0 +1,54 @@
+{
+  this.basedir=basedir;
+  this.info=info;
+  this.family=family;
+  this.fs=fs;
+  this.conf=conf;
+  this.compactionDir=new Path(basedir,"compaction.dir");
+  this.storeName=this.info.getEncodedName() + "/" + this.family.getFamilyName();
+  if (family.getCompression() == HColumnDescriptor.CompressionType.BLOCK) {
+    this.compression=SequenceFile.CompressionType.BLOCK;
+  }
+ else   if (family.getCompression() == HColumnDescriptor.CompressionType.RECORD) {
+    this.compression=SequenceFile.CompressionType.RECORD;
+  }
+ else {
+    this.compression=SequenceFile.CompressionType.NONE;
+  }
+  Path mapdir=HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getFamilyName());
+  if (!fs.exists(mapdir)) {
+    fs.mkdirs(mapdir);
+  }
+  Path infodir=HStoreFile.getInfoDir(basedir,info.getEncodedName(),family.getFamilyName());
+  if (!fs.exists(infodir)) {
+    fs.mkdirs(infodir);
+  }
+  if (family.getBloomFilter() == null) {
+    this.filterDir=null;
+    this.bloomFilter=null;
+  }
+ else {
+    this.filterDir=HStoreFile.getFilterDir(basedir,info.getEncodedName(),family.getFamilyName());
+    if (!fs.exists(filterDir)) {
+      fs.mkdirs(filterDir);
+    }
+    this.bloomFilter=loadOrCreateBloomFilter();
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("starting " + storeName + ((reconstructionLog == null || !fs.exists(reconstructionLog)) ? " (no reconstruction log)" : " with reconstruction log: " + reconstructionLog.toString()));
+  }
+  List<HStoreFile> hstoreFiles=loadHStoreFiles(infodir,mapdir);
+  for (  HStoreFile hsf : hstoreFiles) {
+    this.storefiles.put(Long.valueOf(hsf.loadInfo(fs)),hsf);
+  }
+  this.maxSeqId=getMaxSequenceId(hstoreFiles);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("maximum sequence id for hstore " + storeName + " is "+ this.maxSeqId);
+  }
+  doReconstructionLog(reconstructionLog,maxSeqId);
+  this.compactionThreshold=conf.getInt("hbase.hstore.compactionThreshold",3);
+  this.maxSeqId+=1;
+  for (  Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
+    this.readers.put(e.getKey(),e.getValue().getReader(this.fs,this.bloomFilter));
+  }
+}

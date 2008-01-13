@@ -1,11 +1,10 @@
 {
 synchronized (compactLock) {
-    Path curCompactStore=getCompactionDir();
     if (LOG.isDebugEnabled()) {
-      LOG.debug("started compaction of " + storefiles.size() + " files using "+ curCompactStore.toString()+ " for "+ this.regionName+ "/"+ this.familyName);
+      LOG.debug("started compaction of " + storefiles.size() + " files using "+ compactionDir.toString()+ " for "+ this.storeName);
     }
-    if (this.fs.exists(curCompactStore)) {
-      Path[] toRemove=this.fs.listPaths(new Path[]{curCompactStore});
+    if (this.fs.exists(compactionDir)) {
+      Path[] toRemove=this.fs.listPaths(new Path[]{compactionDir});
       for (int i=0; i < toRemove.length; i++) {
         this.fs.delete(toRemove[i]);
       }
@@ -14,15 +13,15 @@ synchronized (compactLock) {
     Collections.reverse(filesToCompact);
     if (filesToCompact.size() < 1 || (filesToCompact.size() == 1 && !filesToCompact.get(0).isReference())) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("nothing to compact for " + this.regionName + "/"+ this.familyName+ " ("+ this.storeName+ ")");
+        LOG.debug("nothing to compact for " + this.storeName);
       }
       return false;
     }
-    if (!fs.exists(curCompactStore) && !fs.mkdirs(curCompactStore)) {
-      LOG.warn("Mkdir on " + curCompactStore.toString() + " for "+ this.regionName+ "/"+ this.familyName+ " failed");
+    if (!fs.exists(compactionDir) && !fs.mkdirs(compactionDir)) {
+      LOG.warn("Mkdir on " + compactionDir.toString() + " for "+ this.storeName+ " failed");
       return false;
     }
-    HStoreFile compactedOutputFile=new HStoreFile(conf,this.compactionDir,encodedRegionName,familyName,-1);
+    HStoreFile compactedOutputFile=new HStoreFile(conf,fs,this.compactionDir,info.getEncodedName(),family.getFamilyName(),-1L,null);
     MapFile.Writer compactedOut=compactedOutputFile.getWriter(this.fs,this.compression,this.bloomFilter);
     try {
       compactHStoreFiles(compactedOut,filesToCompact);
@@ -32,20 +31,7 @@ synchronized (compactLock) {
     }
     long maxId=getMaxSequenceId(filesToCompact);
     compactedOutputFile.writeInfo(fs,maxId);
-    Path filesToReplace=new Path(curCompactStore,COMPACTION_TO_REPLACE);
-    FSDataOutputStream out=fs.create(filesToReplace);
-    try {
-      out.writeInt(filesToCompact.size());
-      for (      HStoreFile hsf : filesToCompact) {
-        hsf.write(out);
-      }
-    }
-  finally {
-      out.close();
-    }
-    Path doneFile=new Path(curCompactStore,COMPACTION_DONE);
-    fs.create(doneFile).close();
-    completeCompaction(curCompactStore);
+    completeCompaction(filesToCompact,compactedOutputFile);
     return true;
   }
 }

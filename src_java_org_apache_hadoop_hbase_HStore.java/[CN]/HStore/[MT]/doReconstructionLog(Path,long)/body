@@ -4,12 +4,12 @@
   }
   long maxSeqIdInLog=-1;
   TreeMap<HStoreKey,byte[]> reconstructedCache=new TreeMap<HStoreKey,byte[]>();
-  SequenceFile.Reader login=new SequenceFile.Reader(this.fs,reconstructionLog,this.conf);
+  SequenceFile.Reader logReader=new SequenceFile.Reader(this.fs,reconstructionLog,this.conf);
   try {
     HLogKey key=new HLogKey();
     HLogEdit val=new HLogEdit();
     long skippedEdits=0;
-    while (login.next(key,val)) {
+    while (logReader.next(key,val)) {
       maxSeqIdInLog=Math.max(maxSeqIdInLog,key.getLogSeqNum());
       if (key.getLogSeqNum() <= maxSeqID) {
         skippedEdits++;
@@ -19,9 +19,9 @@
         LOG.debug("Skipped " + skippedEdits + " edits because sequence id <= "+ maxSeqID);
       }
       Text column=val.getColumn();
-      if (column.equals(HLog.METACOLUMN) || !key.getRegionName().equals(regionName) || !HStoreKey.extractFamily(column).equals(this.familyName)) {
+      if (column.equals(HLog.METACOLUMN) || !key.getRegionName().equals(info.getRegionName()) || !HStoreKey.extractFamily(column).equals(family.getFamilyName())) {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Passing on edit " + key.getRegionName() + ", "+ column.toString()+ ": "+ new String(val.getVal(),UTF8_ENCODING)+ ", my region: "+ regionName+ ", my column: "+ this.familyName);
+          LOG.debug("Passing on edit " + key.getRegionName() + ", "+ column.toString()+ ": "+ new String(val.getVal(),UTF8_ENCODING)+ ", my region: "+ info.getRegionName()+ ", my column: "+ family.getFamilyName());
         }
         continue;
       }
@@ -33,7 +33,7 @@
     }
   }
   finally {
-    login.close();
+    logReader.close();
   }
   if (reconstructedCache.size() > 0) {
     if (LOG.isDebugEnabled()) {

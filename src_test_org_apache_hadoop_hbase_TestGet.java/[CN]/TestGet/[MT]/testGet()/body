@@ -1,26 +1,15 @@
 {
   MiniDFSCluster cluster=null;
+  HRegion region=null;
   try {
     cluster=new MiniDFSCluster(conf,2,true,(String[])null);
-    FileSystem fs=cluster.getFileSystem();
-    Path dir=new Path("/hbase");
-    fs.mkdirs(dir);
     HTableDescriptor desc=new HTableDescriptor("test");
     desc.addFamily(new HColumnDescriptor(CONTENTS.toString()));
     desc.addFamily(new HColumnDescriptor(HConstants.COLUMN_FAMILY.toString()));
-    HRegionInfo info=new HRegionInfo(desc,null,null);
-    Path regionDir=HRegion.getRegionDir(dir,HRegionInfo.encodeRegionName(info.getRegionName()));
-    fs.mkdirs(regionDir);
-    HLog log=new HLog(fs,new Path(regionDir,"log"),conf,null);
-    HRegion region=new HRegion(dir,log,fs,conf,info,null,null);
+    region=createNewHRegion(desc,null,null);
     HRegionIncommon r=new HRegionIncommon(region);
     long lockid=r.startUpdate(ROW_KEY);
-    ByteArrayOutputStream bytes=new ByteArrayOutputStream();
-    DataOutputStream s=new DataOutputStream(bytes);
-    CONTENTS.write(s);
-    r.put(lockid,CONTENTS,bytes.toByteArray());
-    bytes.reset();
-    HRegionInfo.rootRegionInfo.write(s);
+    r.put(lockid,CONTENTS,Writables.getBytes(CONTENTS));
     r.put(lockid,HConstants.COL_REGIONINFO,Writables.getBytes(HRegionInfo.rootRegionInfo));
     r.commit(lockid,System.currentTimeMillis());
     lockid=r.startUpdate(ROW_KEY);
@@ -30,8 +19,7 @@
     r.commit(lockid,System.currentTimeMillis());
     verifyGet(r,SERVER_ADDRESS);
     region.close();
-    log.rollWriter();
-    region=new HRegion(dir,log,fs,conf,info,null,null);
+    region=openClosedRegion(region);
     r=new HRegionIncommon(region);
     verifyGet(r,SERVER_ADDRESS);
     lockid=r.startUpdate(ROW_KEY);
@@ -42,14 +30,17 @@
     r.commit(lockid,System.currentTimeMillis());
     verifyGet(r,otherServerName);
     region.close();
-    log.rollWriter();
-    region=new HRegion(dir,log,fs,conf,info,null,null);
+    region=openClosedRegion(region);
     r=new HRegionIncommon(region);
     verifyGet(r,otherServerName);
-    region.close();
-    log.closeAndDelete();
   }
   finally {
-    StaticTestEnvironment.shutdownDfs(cluster);
+    if (region != null) {
+      region.close();
+      region.getLog().closeAndDelete();
+    }
+    if (cluster != null) {
+      StaticTestEnvironment.shutdownDfs(cluster);
+    }
   }
 }
