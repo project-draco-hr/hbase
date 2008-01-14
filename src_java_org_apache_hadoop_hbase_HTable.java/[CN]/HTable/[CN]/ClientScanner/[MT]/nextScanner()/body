@@ -4,22 +4,24 @@
     this.server.close(this.scannerId);
     this.scannerId=-1L;
   }
-  this.currentRegion+=1;
-  if (this.currentRegion == this.regions.length()) {
-    close();
-    return false;
+  if (this.currentRegionLocation != null) {
+    LOG.debug("Advancing forward from region " + this.currentRegionLocation.getRegionInfo());
+    if (this.currentRegionLocation.getRegionInfo().getEndKey() == null || this.currentRegionLocation.getRegionInfo().getEndKey().equals(EMPTY_TEXT)) {
+      LOG.debug("We're at the end of the region, returning.");
+      close();
+      return false;
+    }
   }
+  HRegionLocation oldLocation=this.currentRegionLocation;
+  Text localStartKey=oldLocation == null ? startRow : oldLocation.getRegionInfo().getEndKey();
+  LOG.debug("Advancing internal scanner to startKey " + localStartKey);
+  this.currentRegionLocation=getRegionLocation(localStartKey);
+  LOG.debug("New region: " + this.currentRegionLocation);
   try {
     for (int tries=0; tries < numRetries; tries++) {
-      HRegionLocation r=this.regions.get(currentRegion);
-      this.server=connection.getHRegionConnection(r.getServerAddress());
+      server=connection.getHRegionConnection(this.currentRegionLocation.getServerAddress());
       try {
-        if (this.filter == null) {
-          this.scannerId=this.server.openScanner(r.getRegionInfo().getRegionName(),this.columns,currentRegion == 0 ? this.startRow : EMPTY_START_ROW,scanTime,null);
-        }
- else {
-          this.scannerId=this.server.openScanner(r.getRegionInfo().getRegionName(),this.columns,currentRegion == 0 ? this.startRow : EMPTY_START_ROW,scanTime,filter);
-        }
+        scannerId=server.openScanner(this.currentRegionLocation.getRegionInfo().getRegionName(),this.columns,localStartKey,scanTime,filter);
         break;
       }
  catch (      IOException e) {
@@ -32,8 +34,7 @@
         if (LOG.isDebugEnabled()) {
           LOG.debug("reloading table servers because: " + e.getMessage());
         }
-        tableServers=connection.reloadTableServers(tableName);
-        loadRegions();
+        currentRegionLocation=getRegionLocation(localStartKey,true);
       }
     }
     try {

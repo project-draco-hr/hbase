@@ -1,9 +1,49 @@
 {
   checkClosed();
-  Text[] keys=new Text[tableServers.size()];
-  int i=0;
-  for (  Text key : tableServers.keySet()) {
-    keys[i++]=key;
+  List<Text> keyList=new ArrayList<Text>();
+  long scannerId=-1L;
+  Text startRow=new Text(tableName.toString() + ",,999999999999999");
+  HRegionLocation metaLocation=null;
+  do {
+    try {
+      metaLocation=connection.locateRegion(META_TABLE_NAME,startRow);
+      HRegionInterface server=connection.getHRegionConnection(metaLocation.getServerAddress());
+      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,LATEST_TIMESTAMP,null);
+      SCANNER_LOOP:       while (true) {
+        HbaseMapWritable values=server.next(scannerId);
+        if (values == null || values.size() == 0) {
+          break;
+        }
+        for (        Map.Entry<Writable,Writable> e : values.entrySet()) {
+          HStoreKey key=(HStoreKey)e.getKey();
+          if (key.getColumn().equals(COL_REGIONINFO)) {
+            HRegionInfo info=new HRegionInfo();
+            info=(HRegionInfo)Writables.getWritable(((ImmutableBytesWritable)e.getValue()).get(),info);
+            if (!info.getTableDesc().getName().equals(this.tableName)) {
+              break SCANNER_LOOP;
+            }
+            if (info.isOffline()) {
+              LOG.debug("Region " + info + " was offline!");
+              break;
+            }
+            if (info.isSplit()) {
+              LOG.debug("Region " + info + " was split!");
+              break;
+            }
+            keyList.add(info.getStartKey());
+          }
+        }
+      }
+      startRow=metaLocation.getRegionInfo().getEndKey();
+    }
+ catch (    IOException e) {
+      throw e;
+    }
   }
-  return keys;
+ while (startRow.compareTo(EMPTY_START_ROW) != 0);
+  Text[] arr=new Text[keyList.size()];
+  for (int i=0; i < keyList.size(); i++) {
+    arr[i]=keyList.get(i);
+  }
+  return arr;
 }

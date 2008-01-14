@@ -52,23 +52,35 @@
   HRegionInfo splitB=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITB));
   Path parentDir=HRegion.getRegionDir(new Path(d,tableName),parent.getEncodedName());
   assertTrue(fs.exists(parentDir));
-  LOG.info("Split happened. Parent is " + parent.getRegionName() + " and daughters are "+ ((splitA != null) ? splitA.getRegionName() : "-")+ ", "+ ((splitB != null) ? splitB.getRegionName() : "-"));
+  LOG.info("Split happened. Parent is " + parent.getRegionName());
   recalibrate(t,new Text(columnName),retries,waitTime);
-  compact(cluster,splitA);
-  while (true) {
-    data=getSplitParentInfo(meta,parent);
-    if (data == null || data.size() == 3) {
-      try {
-        Thread.sleep(waitTime);
-      }
- catch (      InterruptedException e) {
-      }
-      continue;
-    }
-    break;
+  if (splitA == null) {
+    LOG.info("splitA was already null. Assuming it was previously compacted.");
   }
-  LOG.info("Parent split info returned " + data.keySet().toString());
-  compact(cluster,splitB);
+ else {
+    LOG.info("Daughter splitA: " + splitA.getRegionName());
+    compact(cluster,splitA);
+    while (true) {
+      data=getSplitParentInfo(meta,parent);
+      if (data == null || data.size() == 3) {
+        try {
+          Thread.sleep(waitTime);
+        }
+ catch (        InterruptedException e) {
+        }
+        continue;
+      }
+      break;
+    }
+    LOG.info("Parent split info returned " + data.keySet().toString());
+  }
+  if (splitB == null) {
+    LOG.info("splitB was already null. Assuming it was previously compacted.");
+  }
+ else {
+    LOG.info("Daughter splitB: " + splitA.getRegionName());
+    compact(cluster,splitB);
+  }
   LOG.info("Waiting on parent " + parent.getRegionName() + " to disappear");
   for (int i=0; i < retries; i++) {
     if (getSplitParentInfo(meta,parent) == null) {

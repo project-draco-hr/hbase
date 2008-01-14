@@ -1,11 +1,14 @@
 {
   HashSet<HTableDescriptor> uniqueTables=new HashSet<HTableDescriptor>();
-  SortedMap<Text,HRegionLocation> metaTables=getTableServers(META_TABLE_NAME);
-  for (  HRegionLocation t : metaTables.values()) {
-    HRegionInterface server=getHRegionConnection(t.getServerAddress());
-    long scannerId=-1L;
+  long scannerId=-1L;
+  HRegionInterface server=null;
+  Text startRow=EMPTY_START_ROW;
+  HRegionLocation metaLocation=null;
+  do {
     try {
-      scannerId=server.openScanner(t.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
+      metaLocation=locateRegion(META_TABLE_NAME,startRow);
+      server=getHRegionConnection(metaLocation.getServerAddress());
+      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,LATEST_TIMESTAMP,null);
       while (true) {
         HbaseMapWritable values=server.next(scannerId);
         if (values == null || values.size() == 0) {
@@ -22,9 +25,12 @@
           }
         }
       }
+      server.close(scannerId);
+      scannerId=-1L;
+      startRow=metaLocation.getRegionInfo().getEndKey();
     }
- catch (    RemoteException ex) {
-      throw RemoteExceptionHandler.decodeRemoteException(ex);
+ catch (    IOException e) {
+      throw e;
     }
  finally {
       if (scannerId != -1L) {
@@ -32,5 +38,6 @@
       }
     }
   }
+ while (startRow.compareTo(EMPTY_START_ROW) != 0);
   return uniqueTables.toArray(new HTableDescriptor[uniqueTables.size()]);
 }
