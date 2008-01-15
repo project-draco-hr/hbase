@@ -1,35 +1,35 @@
 {
-  lock.readLock().lock();
-  try {
-    if (this.closed.get()) {
+  if (this.closed.get()) {
+    return false;
+  }
+synchronized (writestate) {
+    if ((!writestate.flushing) && writestate.writesEnabled) {
+      writestate.flushing=true;
+    }
+ else {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("NOT flushing memcache for region " + this.regionInfo.getRegionName() + ", flushing="+ writestate.flushing+ ", writesEnabled="+ writestate.writesEnabled);
+      }
       return false;
     }
-synchronized (writestate) {
-      if ((!writestate.flushing) && writestate.writesEnabled) {
-        writestate.flushing=true;
-      }
- else {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("NOT flushing memcache for region " + this.regionInfo.getRegionName() + ", flushing="+ writestate.flushing+ ", writesEnabled="+ writestate.writesEnabled);
-        }
-        return false;
-      }
-    }
-    long startTime=-1;
-synchronized (updateLock) {
-      startTime=snapshotMemcaches();
-    }
+  }
+  try {
+    lock.readLock().lock();
     try {
+      long startTime=-1;
+synchronized (updateLock) {
+        startTime=snapshotMemcaches();
+      }
       return internalFlushcache(startTime);
     }
   finally {
-synchronized (writestate) {
-        writestate.flushing=false;
-        writestate.notifyAll();
-      }
+      lock.readLock().unlock();
     }
   }
   finally {
-    lock.readLock().unlock();
+synchronized (writestate) {
+      writestate.flushing=false;
+      writestate.notifyAll();
+    }
   }
 }

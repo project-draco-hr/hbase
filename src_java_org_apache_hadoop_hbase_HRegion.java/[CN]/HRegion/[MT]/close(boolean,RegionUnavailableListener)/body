@@ -1,23 +1,28 @@
 {
+  Text regionName=this.regionInfo.getRegionName();
   if (isClosed()) {
-    LOG.info("region " + this.regionInfo.getRegionName() + " already closed");
+    LOG.info("region " + regionName + " already closed");
     return null;
   }
 synchronized (splitLock) {
-    lock.writeLock().lock();
-    try {
 synchronized (writestate) {
-        while (writestate.compacting || writestate.flushing) {
-          try {
-            writestate.wait();
-          }
- catch (          InterruptedException iex) {
-          }
+      while (writestate.compacting || writestate.flushing) {
+        LOG.debug("waiting for" + (writestate.compacting ? " compaction" : "") + (writestate.flushing ? (writestate.compacting ? "," : "") + " cache flush" : "")+ " to complete for region "+ regionName);
+        try {
+          writestate.wait();
         }
-        writestate.writesEnabled=false;
+ catch (        InterruptedException iex) {
+        }
       }
+      writestate.writesEnabled=false;
+      LOG.debug("compactions and cache flushes disabled for region " + regionName);
+    }
+    lock.writeLock().lock();
+    LOG.debug("new updates and scanners for region " + regionName + " disabled");
+    try {
 synchronized (activeScannerCount) {
         while (activeScannerCount.get() != 0) {
+          LOG.debug("waiting for " + activeScannerCount.get() + " scanners to finish");
           try {
             activeScannerCount.wait();
           }
@@ -25,7 +30,9 @@ synchronized (activeScannerCount) {
           }
         }
       }
+      LOG.debug("no more active scanners for region " + regionName);
       waitOnRowLocks();
+      LOG.debug("no more write locks outstanding on region " + regionName);
       if (listener != null) {
         listener.closing(getRegionName());
       }
