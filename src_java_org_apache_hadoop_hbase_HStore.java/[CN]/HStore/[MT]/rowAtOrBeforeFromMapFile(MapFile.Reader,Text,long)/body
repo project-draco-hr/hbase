@@ -1,14 +1,28 @@
 {
+  HStoreKey searchKey=new HStoreKey(row,timestamp);
   Text previousRow=null;
   ImmutableBytesWritable readval=new ImmutableBytesWritable();
   HStoreKey readkey=new HStoreKey();
 synchronized (map) {
     map.reset();
-    while (map.next(readkey,readval)) {
+    if (!map.next(readkey,readval)) {
+      return null;
+    }
+    HStoreKey finalKey=new HStoreKey();
+    map.finalKey(finalKey);
+    if (finalKey.getRow().compareTo(row) < 0) {
+      return finalKey.getRow();
+    }
+    readkey=(HStoreKey)map.getClosest(searchKey,readval,true);
+    if (readkey == null) {
+      return null;
+    }
+    do {
       if (readkey.getRow().compareTo(row) == 0) {
         if (readkey.getTimestamp() <= timestamp) {
           return readkey.getRow();
         }
+        continue;
       }
  else       if (readkey.getRow().toString().compareTo(row.toString()) > 0) {
         return previousRow;
@@ -19,6 +33,7 @@ synchronized (map) {
         }
       }
     }
+ while (map.next(readkey,readval));
   }
   return previousRow;
 }
