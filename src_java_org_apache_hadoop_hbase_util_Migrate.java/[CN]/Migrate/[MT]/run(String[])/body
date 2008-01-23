@@ -1,27 +1,59 @@
 {
-  parseArgs(args);
+  if (parseArgs(args) != 0) {
+    return -1;
+  }
   try {
-    HBaseAdmin admin=new HBaseAdmin(conf);
-    if (admin.isMasterRunning()) {
-      throw new IllegalStateException("HBase cluster must be off-line while being upgraded");
+    FileSystem fs=FileSystem.get(conf);
+    LOG.info("Verifying that file system is available...");
+    if (!FSUtils.isFileSystemAvailable(fs)) {
+      throw new IOException("Filesystem must be available for upgrade to run.");
     }
-  }
- catch (  MasterNotRunningException e) {
-  }
-  FileSystem fs=FileSystem.get(conf);
-  Path rootdir=fs.makeQualified(new Path(conf.get(HConstants.HBASE_DIR,HConstants.DEFAULT_HBASE_DIR)));
-  if (FSUtils.checkVersion(fs,rootdir)) {
-    LOG.info("file system is at current level, no upgrade necessary");
+    LOG.info("Verifying that HBase is not running...");
+    try {
+      HBaseAdmin admin=new HBaseAdmin(conf);
+      if (admin.isMasterRunning()) {
+        throw new IllegalStateException("HBase cluster must be off-line during upgrade.");
+      }
+    }
+ catch (    MasterNotRunningException e) {
+    }
+    LOG.info("Starting upgrade" + (readOnly ? " check" : ""));
+    Path rootdir=fs.makeQualified(new Path(conf.get(HConstants.HBASE_DIR,HConstants.DEFAULT_HBASE_DIR)));
+    if (!fs.exists(rootdir)) {
+      throw new FileNotFoundException("HBase root directory " + rootdir.toString() + " does not exist.");
+    }
+    if (FSUtils.checkVersion(fs,rootdir)) {
+      LOG.info("No upgrade necessary.");
+      return 0;
+    }
+    checkNewRootRegionDirExists(fs,rootdir);
+    extraFiles(fs,rootdir);
+    if (!newRootRegion) {
+      Path rootRegion=new Path(rootdir,OLD_PREFIX + HRegionInfo.rootRegionInfo.getEncodedName());
+      if (!fs.exists(rootRegion)) {
+        throw new IOException("Cannot find root region " + rootRegion.toString());
+      }
+ else       if (readOnly) {
+        migrationNeeded=true;
+      }
+ else {
+        migrateRegionDir(fs,rootdir,HConstants.ROOT_TABLE_NAME,rootRegion);
+        scanRootRegion(fs,rootdir);
+        extraRegions(fs,rootdir);
+      }
+    }
+    if (!readOnly) {
+      LOG.info("Setting file system version.");
+      FSUtils.setVersion(fs,rootdir);
+      LOG.info("Upgrade successful.");
+    }
+ else     if (migrationNeeded) {
+      LOG.info("Upgrade needed.");
+    }
     return 0;
   }
-  extraFiles(fs,rootdir);
-  Path rootRegion=new Path(rootdir,OLD_PREFIX + HRegionInfo.rootRegionInfo.getEncodedName());
-  if (!fs.exists(rootRegion)) {
-    throw new IOException("cannot find root region " + rootRegion.toString());
+ catch (  Exception e) {
+    LOG.fatal("Upgrade" + (readOnly ? " check" : "") + " failed",e);
+    return -1;
   }
-  processRegionDir(fs,rootdir,HConstants.ROOT_TABLE_NAME,rootRegion);
-  scanRootRegion(fs,rootdir);
-  extraRegions(fs,rootdir);
-  FSUtils.setVersion(fs,rootdir);
-  return 0;
 }

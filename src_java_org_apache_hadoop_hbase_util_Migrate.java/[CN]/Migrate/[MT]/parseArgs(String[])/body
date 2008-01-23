@@ -1,22 +1,45 @@
 {
   Options opts=new Options();
-  Option logFiles=OptionBuilder.withArgName("abort|ignore|delete|prompt").hasArg().withDescription("disposition of unrecovered region server logs: {abort|ignore|delete|prompt}").create("logfiles");
-  Option extraFiles=OptionBuilder.withArgName("abort|ignore|delete|prompt").hasArg().withDescription("disposition of 'extra' files: {abort|ignore|delete|prompt}").create("extrafiles");
+  Option logFiles=OptionBuilder.withArgName(ACTIONS).hasArg().withDescription("disposition of unrecovered region server logs: {abort|ignore|delete|prompt}").create("logfiles");
+  Option extraFiles=OptionBuilder.withArgName(ACTIONS).hasArg().withDescription("disposition of 'extra' files: {abort|ignore|delete|prompt}").create("extrafiles");
   opts.addOption(logFiles);
   opts.addOption(extraFiles);
-  CommandLineParser parser=new GnuParser();
-  try {
-    CommandLine commandLine=parser.parse(opts,args,true);
-    if (commandLine.hasOption("log-files")) {
-      this.logFiles=options.get(commandLine.getOptionValue("log-files"));
+  GenericOptionsParser parser=new GenericOptionsParser(this.getConf(),opts,args);
+  String[] remainingArgs=parser.getRemainingArgs();
+  if (remainingArgs.length != 1) {
+    usage();
+    return -1;
+  }
+  if (remainingArgs[0].compareTo("check") == 0) {
+    this.readOnly=true;
+  }
+ else   if (remainingArgs[0].compareTo("upgrade") != 0) {
+    usage();
+    return -1;
+  }
+  if (readOnly) {
+    this.logFiles=ACTION.IGNORE;
+    this.otherFiles=ACTION.IGNORE;
+  }
+ else {
+    CommandLine commandLine=parser.getCommandLine();
+    ACTION action=null;
+    if (commandLine.hasOption("logfiles")) {
+      action=options.get(commandLine.getOptionValue("logfiles"));
+      if (action == null) {
+        usage();
+        return -1;
+      }
+      this.logFiles=action;
     }
-    if (commandLine.hasOption("extra-files")) {
-      this.otherFiles=options.get(commandLine.getOptionValue("extra-files"));
+    if (commandLine.hasOption("extrafiles")) {
+      action=options.get(commandLine.getOptionValue("extrafiles"));
+      if (action == null) {
+        usage();
+        return -1;
+      }
+      this.otherFiles=action;
     }
   }
- catch (  ParseException e) {
-    LOG.error("options parsing failed",e);
-    HelpFormatter formatter=new HelpFormatter();
-    formatter.printHelp("options are: ",opts);
-  }
+  return 0;
 }
