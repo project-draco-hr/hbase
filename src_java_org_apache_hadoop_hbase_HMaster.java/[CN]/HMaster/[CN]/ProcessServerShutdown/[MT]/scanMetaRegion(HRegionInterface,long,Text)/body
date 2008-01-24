@@ -14,27 +14,15 @@
       if (values == null || values.size() == 0) {
         break;
       }
-      SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-      Text row=null;
-      for (      Map.Entry<Writable,Writable> e : values.entrySet()) {
-        HStoreKey key=(HStoreKey)e.getKey();
-        Text thisRow=key.getRow();
-        if (row == null) {
-          row=thisRow;
-        }
- else {
-          if (!row.equals(thisRow)) {
-            LOG.error("Multiple rows in same scanner result set. firstRow=" + row + ", currentRow="+ thisRow);
-          }
-        }
-        results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
-      }
+      RowMap rm=toRowMap(values);
+      Text row=rm.getRow();
+      SortedMap<Text,byte[]> map=rm.getMap();
       if (LOG.isDebugEnabled() && row != null) {
         LOG.debug("shutdown scanner looking at " + row.toString());
       }
       String serverName;
       try {
-        serverName=Writables.bytesToString(results.get(COL_SERVER));
+        serverName=Writables.bytesToString(map.get(COL_SERVER));
       }
  catch (      UnsupportedEncodingException e) {
         LOG.error("Server name",e);
@@ -46,13 +34,9 @@
         }
         continue;
       }
-      HRegionInfo info=null;
-      try {
-        info=(HRegionInfo)Writables.getWritable(results.get(COL_REGIONINFO),new HRegionInfo());
-      }
- catch (      IOException e) {
-        LOG.error("Read fields",e);
-        break;
+      HRegionInfo info=getHRegionInfo(map);
+      if (info == null) {
+        continue;
       }
       LOG.info(info.getRegionName() + " was on shutdown server <" + serverName+ "> (or server is null). Marking unassigned in "+ "meta and clearing pendingRegions");
       if (info.isMetaTable()) {

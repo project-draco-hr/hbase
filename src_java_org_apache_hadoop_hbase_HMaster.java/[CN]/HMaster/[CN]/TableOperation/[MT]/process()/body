@@ -8,45 +8,18 @@ synchronized (metaScannerLock) {
           long scannerId=server.openScanner(m.getRegionName(),COLUMN_FAMILY_ARRAY,tableName,System.currentTimeMillis(),null);
           try {
             while (true) {
-              HRegionInfo info=new HRegionInfo();
-              String serverName=null;
-              long startCode=-1L;
               HbaseMapWritable values=server.next(scannerId);
               if (values == null || values.size() == 0) {
                 break;
               }
-              boolean haveRegionInfo=false;
-              for (              Map.Entry<Writable,Writable> e : values.entrySet()) {
-                byte[] value=((ImmutableBytesWritable)e.getValue()).get();
-                if (value == null || value.length == 0) {
-                  break;
-                }
-                HStoreKey key=(HStoreKey)e.getKey();
-                Text column=key.getColumn();
-                if (column.equals(COL_REGIONINFO)) {
-                  haveRegionInfo=true;
-                  info=(HRegionInfo)Writables.getWritable(value,info);
-                }
- else                 if (column.equals(COL_SERVER)) {
-                  try {
-                    serverName=Writables.bytesToString(value);
-                  }
- catch (                  UnsupportedEncodingException ex) {
-                    assert(false);
-                  }
-                }
- else                 if (column.equals(COL_STARTCODE)) {
-                  try {
-                    startCode=Writables.bytesToLong(value);
-                  }
- catch (                  UnsupportedEncodingException ex) {
-                    assert(false);
-                  }
-                }
+              RowMap rm=toRowMap(values);
+              SortedMap<Text,byte[]> map=rm.getMap();
+              HRegionInfo info=getHRegionInfo(map);
+              if (info == null) {
+                throw new IOException(COL_REGIONINFO + " not found on " + rm.getRow());
               }
-              if (!haveRegionInfo) {
-                throw new IOException(COL_REGIONINFO + " not found");
-              }
+              String serverName=Writables.bytesToString(map.get(COL_SERVER));
+              long startCode=Writables.bytesToLong(map.get(COL_STARTCODE));
               if (info.getTableDesc().getName().compareTo(tableName) > 0) {
                 break;
               }

@@ -8,21 +8,15 @@
     scannerId=regionServer.openScanner(region.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
     int numberOfRegionsFound=0;
     while (true) {
-      SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
       HbaseMapWritable values=regionServer.next(scannerId);
       if (values == null || values.size() == 0) {
         break;
       }
-      for (      Map.Entry<Writable,Writable> e : values.entrySet()) {
-        HStoreKey key=(HStoreKey)e.getKey();
-        results.put(key.getColumn(),((ImmutableBytesWritable)e.getValue()).get());
-      }
-      byte[] bytes=results.get(COL_REGIONINFO);
-      if (bytes == null) {
-        LOG.warn(COL_REGIONINFO.toString() + " is empty; has keys: " + values.keySet().toString());
+      SortedMap<Text,byte[]> results=toRowMap(values).getMap();
+      HRegionInfo info=getHRegionInfo(results);
+      if (info == null) {
         continue;
       }
-      HRegionInfo info=(HRegionInfo)Writables.getWritable(bytes,new HRegionInfo());
       String serverName=Writables.bytesToString(results.get(COL_SERVER));
       long startCode=Writables.bytesToLong(results.get(COL_STARTCODE));
       if (LOG.isDebugEnabled()) {
