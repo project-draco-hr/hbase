@@ -1,15 +1,12 @@
 {
   try {
-    for (ToDoEntry e=null; !stopRequested.get(); ) {
+    while (!stopRequested.get()) {
+      ToDoEntry e=null;
       try {
         e=toDo.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
-      }
- catch (      InterruptedException ex) {
-      }
-      if (e == null || stopRequested.get()) {
-        continue;
-      }
-      try {
+        if (e == null || stopRequested.get()) {
+          continue;
+        }
         LOG.info(e.msg.toString());
 switch (e.msg.getMsg()) {
 case HMsg.MSG_REGIONSERVER_QUIESCE:
@@ -28,20 +25,24 @@ default :
 throw new AssertionError("Impossible state during msg processing.  Instruction: " + e.msg.toString());
 }
 }
- catch (IOException ie) {
-ie=RemoteExceptionHandler.checkIOException(ie);
-if (e.tries < numRetries) {
-LOG.warn(ie);
+ catch (InterruptedException ex) {
+}
+catch (Exception ex) {
+if (ex instanceof IOException) {
+ex=RemoteExceptionHandler.checkIOException((IOException)ex);
+}
+if (e != null && e.tries < numRetries) {
+LOG.warn(ex);
 e.tries++;
 try {
 toDo.put(e);
 }
- catch (InterruptedException ex) {
+ catch (InterruptedException ie) {
 throw new RuntimeException("Putting into msgQueue was " + "interrupted.",ex);
 }
 }
  else {
-LOG.error("unable to process message: " + e.msg.toString(),ie);
+LOG.error("unable to process message" + (e != null ? (": " + e.msg.toString()) : ""),ex);
 if (!checkFileSystem()) {
 break;
 }

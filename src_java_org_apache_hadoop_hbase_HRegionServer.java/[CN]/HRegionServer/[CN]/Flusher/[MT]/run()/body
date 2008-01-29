@@ -3,38 +3,12 @@
     QueueEntry e=null;
     try {
       e=flushQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
-    }
- catch (    InterruptedException ex) {
-      continue;
-    }
-catch (    ConcurrentModificationException ex) {
-      continue;
-    }
+      if (e == null) {
+        continue;
+      }
 synchronized (cacheFlusherLock) {
-      if (e != null) {
-        try {
-          if (e.getRegion().flushcache()) {
-            compactor.compactionRequested(e);
-          }
-        }
- catch (        DroppedSnapshotException ex) {
-          LOG.fatal("Replay of hlog required. Forcing server restart",ex);
-          if (!checkFileSystem()) {
-            break;
-          }
-          HRegionServer.this.stop();
-        }
-catch (        IOException ex) {
-          LOG.error("Cache flush failed for region " + e.getRegion().getRegionName(),RemoteExceptionHandler.checkIOException(ex));
-          if (!checkFileSystem()) {
-            break;
-          }
-        }
-catch (        Exception ex) {
-          LOG.error("Cache flush failed for region " + e.getRegion().getRegionName(),ex);
-          if (!checkFileSystem()) {
-            break;
-          }
+        if (e.getRegion().flushcache()) {
+          compactor.compactionRequested(e);
         }
         e.setExpirationTime(System.currentTimeMillis() + optionalFlushPeriod);
         flushQueue.add(e);
@@ -55,6 +29,31 @@ synchronized (flushQueue) {
             i.remove();
           }
         }
+      }
+    }
+ catch (    InterruptedException ex) {
+      continue;
+    }
+catch (    ConcurrentModificationException ex) {
+      continue;
+    }
+catch (    DroppedSnapshotException ex) {
+      LOG.fatal("Replay of hlog required. Forcing server restart",ex);
+      if (!checkFileSystem()) {
+        break;
+      }
+      HRegionServer.this.stop();
+    }
+catch (    IOException ex) {
+      LOG.error("Cache flush failed" + (e != null ? (" for region " + e.getRegion().getRegionName()) : ""),RemoteExceptionHandler.checkIOException(ex));
+      if (!checkFileSystem()) {
+        break;
+      }
+    }
+catch (    Exception ex) {
+      LOG.error("Cache flush failed" + (e != null ? (" for region " + e.getRegion().getRegionName()) : ""),ex);
+      if (!checkFileSystem()) {
+        break;
       }
     }
   }
