@@ -5,33 +5,13 @@
     throw new IllegalArgumentException("invalid lock id " + lockid);
   }
   try {
-    for (int tries=0; tries < numRetries; tries++) {
-      HRegionLocation r=getRegionLocation(batch.get().getRow());
-      HRegionInterface server=connection.getHRegionConnection(r.getServerAddress());
-      try {
-        server.batchUpdate(r.getRegionInfo().getRegionName(),timestamp,batch.get());
-        break;
-      }
- catch (      IOException e) {
-        if (e instanceof RemoteException) {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
-        if (tries < numRetries - 1) {
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("reloading table servers because: " + e.getMessage());
-          }
-          r=getRegionLocation(batch.get().getRow(),true);
-        }
- else {
-          throw e;
-        }
-      }
-      try {
-        Thread.sleep(pause);
-      }
- catch (      InterruptedException e) {
+    getRegionServerWithRetries(new ServerCallable<Boolean>(batch.get().getRow()){
+      public Boolean call() throws IOException {
+        server.batchUpdate(location.getRegionInfo().getRegionName(),timestamp,batch.get());
+        return null;
       }
     }
+);
   }
   finally {
     batch.set(null);

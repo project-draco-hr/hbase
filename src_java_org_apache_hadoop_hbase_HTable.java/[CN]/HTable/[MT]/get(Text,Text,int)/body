@@ -1,31 +1,12 @@
 {
   checkClosed();
   byte[][] values=null;
-  for (int tries=0; tries < numRetries; tries++) {
-    HRegionLocation r=getRegionLocation(row);
-    HRegionInterface server=connection.getHRegionConnection(r.getServerAddress());
-    try {
-      values=server.get(r.getRegionInfo().getRegionName(),row,column,numVersions);
-      break;
-    }
- catch (    IOException e) {
-      if (e instanceof RemoteException) {
-        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-      }
-      if (tries == numRetries - 1) {
-        throw e;
-      }
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("reloading table servers because: " + e.getMessage());
-      }
-      r=getRegionLocation(row,true);
-    }
-    try {
-      Thread.sleep(this.pause);
-    }
- catch (    InterruptedException x) {
+  values=getRegionServerWithRetries(new ServerCallable<byte[][]>(row){
+    public byte[][] call() throws IOException {
+      return server.get(location.getRegionInfo().getRegionName(),row,column,numVersions);
     }
   }
+);
   if (values != null) {
     ArrayList<byte[]> bytes=new ArrayList<byte[]>();
     for (int i=0; i < values.length; i++) {
