@@ -9,6 +9,8 @@
   HTable t=new HTable(conf,new Text(tableName));
   HRegionInfo parent=t.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
   LOG.info("Parent region " + parent.toString());
+  Path parentDir=HRegion.getRegionDir(new Path(d,tableName),parent.getEncodedName());
+  assertTrue(fs.exists(parentDir));
   addContent(new HTableIncommon(t),columnName);
   LOG.info("Finished content loading");
   HRegionInfo hri=null;
@@ -44,55 +46,58 @@
     throw new IOException("Failed waiting on splits to show up");
   }
   Map<Text,byte[]> data=getSplitParentInfo(meta,parent);
-  parent=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_REGIONINFO));
-  LOG.info("Found parent region: " + parent);
-  assertTrue(parent.isOffline());
-  assertTrue(parent.isSplit());
-  HRegionInfo splitA=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITA));
-  HRegionInfo splitB=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITB));
-  Path parentDir=HRegion.getRegionDir(new Path(d,tableName),parent.getEncodedName());
-  assertTrue(fs.exists(parentDir));
-  LOG.info("Split happened. Parent is " + parent.getRegionName());
-  recalibrate(t,new Text(columnName),retries,waitTime);
-  if (splitA == null) {
-    LOG.info("splitA was already null. Assuming it was previously compacted.");
+  if (data == null) {
   }
  else {
-    LOG.info("Daughter splitA: " + splitA.getRegionName());
-    compact(cluster,splitA);
-    while (true) {
-      data=getSplitParentInfo(meta,parent);
-      if (data == null || data.size() == 3) {
-        try {
-          Thread.sleep(waitTime);
+    parent=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_REGIONINFO));
+    LOG.info("Found parent region: " + parent);
+    assertTrue(parent.isOffline());
+    assertTrue(parent.isSplit());
+    HRegionInfo splitA=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITA));
+    HRegionInfo splitB=Writables.getHRegionInfoOrNull(data.get(HConstants.COL_SPLITB));
+    assertTrue(fs.exists(parentDir));
+    LOG.info("Split happened. Parent is " + parent.getRegionName());
+    recalibrate(t,new Text(columnName),retries,waitTime);
+    if (splitA == null) {
+      LOG.info("splitA was already null. Assuming it was previously compacted.");
+    }
+ else {
+      LOG.info("Daughter splitA: " + splitA.getRegionName());
+      compact(cluster,splitA);
+      while (true) {
+        data=getSplitParentInfo(meta,parent);
+        if (data == null || data.size() == 3) {
+          try {
+            Thread.sleep(waitTime);
+          }
+ catch (          InterruptedException e) {
+          }
+          continue;
         }
- catch (        InterruptedException e) {
-        }
-        continue;
+        break;
       }
-      break;
+      LOG.info("Parent split info returned " + data.keySet().toString());
     }
-    LOG.info("Parent split info returned " + data.keySet().toString());
-  }
-  if (splitB == null) {
-    LOG.info("splitB was already null. Assuming it was previously compacted.");
-  }
+    if (splitB == null) {
+      LOG.info("splitB was already null. Assuming it was previously compacted.");
+    }
  else {
-    LOG.info("Daughter splitB: " + splitA.getRegionName());
-    compact(cluster,splitB);
+      LOG.info("Daughter splitB: " + splitA.getRegionName());
+      compact(cluster,splitB);
+    }
+    LOG.info("Waiting on parent " + parent.getRegionName() + " to disappear");
+    for (int i=0; i < retries; i++) {
+      if (getSplitParentInfo(meta,parent) == null) {
+        break;
+      }
+      try {
+        Thread.sleep(waitTime);
+      }
+ catch (      InterruptedException e) {
+      }
+    }
+    assertNull(getSplitParentInfo(meta,parent));
   }
-  LOG.info("Waiting on parent " + parent.getRegionName() + " to disappear");
-  for (int i=0; i < retries; i++) {
-    if (getSplitParentInfo(meta,parent) == null) {
-      break;
-    }
-    try {
-      Thread.sleep(waitTime);
-    }
- catch (    InterruptedException e) {
-    }
-  }
-  assertNull(getSplitParentInfo(meta,parent));
   for (int i=0; i < retries; i++) {
     if (!fs.exists(parentDir)) {
       break;
