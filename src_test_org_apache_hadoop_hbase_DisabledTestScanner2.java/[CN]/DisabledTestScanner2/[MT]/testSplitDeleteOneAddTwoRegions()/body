@@ -1,34 +1,29 @@
 {
   HTable metaTable=new HTable(conf,HConstants.META_TABLE_NAME);
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  Text tableName=new Text(getName());
+  admin.createTable(new HTableDescriptor(tableName.toString()));
+  List<HRegionInfo> regions=scan(metaTable);
+  assertEquals("Expected one region",1,regions.size());
+  HRegionInfo region=regions.get(0);
+  assertTrue("Expected region named for test",region.getRegionName().toString().startsWith(getName()));
+  removeRegionFromMETA(metaTable,region.getRegionName());
+  HTableDescriptor desc=region.getTableDesc();
+  Path homedir=new Path(getName());
+  List<HRegion> newRegions=new ArrayList<HRegion>(2);
+  newRegions.add(HRegion.createHRegion(new HRegionInfo(desc,null,new Text("midway")),homedir,this.conf));
+  newRegions.add(HRegion.createHRegion(new HRegionInfo(desc,new Text("midway"),null),homedir,this.conf));
   try {
-    HBaseAdmin admin=new HBaseAdmin(conf);
-    Text tableName=new Text(getName());
-    admin.createTable(new HTableDescriptor(tableName.toString()));
-    List<HRegionInfo> regions=scan(metaTable);
-    assertEquals("Expected one region",1,regions.size());
-    HRegionInfo region=regions.get(0);
-    assertTrue("Expected region named for test",region.getRegionName().toString().startsWith(getName()));
-    removeRegionFromMETA(metaTable,region.getRegionName());
-    HTableDescriptor desc=region.getTableDesc();
-    Path homedir=new Path(getName());
-    List<HRegion> newRegions=new ArrayList<HRegion>(2);
-    newRegions.add(HRegion.createHRegion(new HRegionInfo(desc,null,new Text("midway")),homedir,this.conf));
-    newRegions.add(HRegion.createHRegion(new HRegionInfo(desc,new Text("midway"),null),homedir,this.conf));
-    try {
-      for (      HRegion r : newRegions) {
-        addRegionToMETA(metaTable,r,this.cluster.getHMasterAddress(),-1L);
-      }
-      regions=scan(metaTable);
-      assertEquals("Should be two regions only",2,regions.size());
+    for (    HRegion r : newRegions) {
+      addRegionToMETA(metaTable,r,this.cluster.getHMasterAddress(),-1L);
     }
-  finally {
-      for (      HRegion r : newRegions) {
-        r.close();
-        r.getLog().closeAndDelete();
-      }
-    }
+    regions=scan(metaTable);
+    assertEquals("Should be two regions only",2,regions.size());
   }
   finally {
-    metaTable.close();
+    for (    HRegion r : newRegions) {
+      r.close();
+      r.getLog().closeAndDelete();
+    }
   }
 }
