@@ -1,0 +1,29 @@
+{
+  boolean scanSuccessful=false;
+  while (!master.closed.get() && !master.rootScanned && master.rootRegionLocation.get() == null) {
+    master.sleeper.sleep();
+  }
+  if (master.closed.get()) {
+    return scanSuccessful;
+  }
+  try {
+synchronized (master.metaScannerLock) {
+      scanRegion(region);
+      master.onlineMetaRegions.put(region.getStartKey(),region);
+    }
+    scanSuccessful=true;
+  }
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    LOG.warn("Scan one META region: " + region.toString(),e);
+    if (!master.onlineMetaRegions.containsValue(region.getStartKey())) {
+      LOG.debug("Scanned region is no longer in map of online " + "regions or its value has changed");
+      return scanSuccessful;
+    }
+    master.checkFileSystem();
+  }
+catch (  Exception e) {
+    LOG.error("Unexpected exception",e);
+  }
+  return scanSuccessful;
+}

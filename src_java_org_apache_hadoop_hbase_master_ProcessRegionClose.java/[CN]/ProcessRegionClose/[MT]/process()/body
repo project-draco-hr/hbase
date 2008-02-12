@@ -1,0 +1,41 @@
+{
+  for (int tries=0; tries < numRetries; tries++) {
+    if (master.closed.get()) {
+      return true;
+    }
+    LOG.info("region closed: " + regionInfo.getRegionName());
+    if (!metaRegionAvailable()) {
+      return true;
+    }
+    try {
+      if (deleteRegion) {
+        HRegion.removeRegionFromMETA(getMetaServer(),metaRegionName,regionInfo.getRegionName());
+      }
+ else {
+        HRegion.offlineRegionInMETA(getMetaServer(),metaRegionName,regionInfo);
+      }
+      break;
+    }
+ catch (    IOException e) {
+      if (tries == numRetries - 1) {
+        throw RemoteExceptionHandler.checkIOException(e);
+      }
+      continue;
+    }
+  }
+  if (reassignRegion) {
+    LOG.info("reassign region: " + regionInfo.getRegionName());
+    master.unassignedRegions.put(regionInfo,ZERO_L);
+  }
+ else   if (deleteRegion) {
+    try {
+      HRegion.deleteRegion(master.fs,master.rootdir,regionInfo);
+    }
+ catch (    IOException e) {
+      e=RemoteExceptionHandler.checkIOException(e);
+      LOG.error("failed delete region " + regionInfo.getRegionName(),e);
+      throw e;
+    }
+  }
+  return true;
+}

@@ -1,0 +1,83 @@
+{
+  LOG.info("process shutdown of server " + deadServer + ": logSplit: "+ this.logSplit+ ", rootRescanned: "+ this.rootRescanned+ ", numberOfMetaRegions: "+ master.numberOfMetaRegions.get()+ ", onlineMetaRegions.size(): "+ master.onlineMetaRegions.size());
+  if (!logSplit) {
+    if (master.fs.exists(oldLogDir)) {
+      if (!master.splitLogLock.tryLock()) {
+        return false;
+      }
+      try {
+        HLog.splitLog(master.rootdir,oldLogDir,master.fs,master.conf);
+      }
+  finally {
+        master.splitLogLock.unlock();
+      }
+    }
+    logSplit=true;
+  }
+  if (!rootAvailable()) {
+    return true;
+  }
+  if (!rootRescanned) {
+    HRegionInterface server=null;
+    long scannerId=-1L;
+    for (int tries=0; tries < numRetries; tries++) {
+      if (master.closed.get()) {
+        return true;
+      }
+      server=master.connection.getHRegionConnection(master.rootRegionLocation.get());
+      scannerId=-1L;
+      try {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("process server shutdown scanning root region on " + master.rootRegionLocation.get().getBindAddress());
+        }
+        scannerId=server.openScanner(HRegionInfo.rootRegionInfo.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
+        scanMetaRegion(server,scannerId,HRegionInfo.rootRegionInfo.getRegionName());
+        break;
+      }
+ catch (      IOException e) {
+        if (tries == numRetries - 1) {
+          throw RemoteExceptionHandler.checkIOException(e);
+        }
+      }
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("process server shutdown scanning root region on " + master.rootRegionLocation.get().getBindAddress() + " finished "+ Thread.currentThread().getName());
+    }
+    rootRescanned=true;
+  }
+  if (!metaTableAvailable()) {
+    return true;
+  }
+  for (int tries=0; tries < numRetries; tries++) {
+    try {
+      if (master.closed.get()) {
+        return true;
+      }
+      List<MetaRegion> regions=new ArrayList<MetaRegion>();
+synchronized (master.onlineMetaRegions) {
+        regions.addAll(master.onlineMetaRegions.values());
+      }
+      for (      MetaRegion r : regions) {
+        HRegionInterface server=null;
+        long scannerId=-1L;
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("process server shutdown scanning " + r.getRegionName() + " on "+ r.getServer()+ " "+ Thread.currentThread().getName());
+        }
+        server=master.connection.getHRegionConnection(r.getServer());
+        scannerId=server.openScanner(r.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
+        scanMetaRegion(server,scannerId,r.getRegionName());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("process server shutdown finished scanning " + r.getRegionName() + " on "+ r.getServer()+ " "+ Thread.currentThread().getName());
+        }
+      }
+      master.deadServers.remove(deadServerName);
+      break;
+    }
+ catch (    IOException e) {
+      if (tries == numRetries - 1) {
+        throw RemoteExceptionHandler.checkIOException(e);
+      }
+    }
+  }
+  return true;
+}

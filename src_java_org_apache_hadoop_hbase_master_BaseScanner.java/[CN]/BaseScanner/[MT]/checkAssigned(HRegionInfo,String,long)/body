@@ -1,0 +1,50 @@
+{
+  if (info.isOffline() || master.killedRegions.contains(info.getRegionName()) || master.regionsToDelete.contains(info.getRegionName())) {
+    master.unassignedRegions.remove(info);
+    return;
+  }
+  HServerInfo storedInfo=null;
+  boolean deadServer=false;
+  if (serverName.length() != 0) {
+synchronized (master.killList) {
+      Map<Text,HRegionInfo> regionsToKill=master.killList.get(serverName);
+      if (regionsToKill != null && regionsToKill.containsKey(info.getRegionName())) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("not assigning region (on kill list): " + info.getRegionName());
+        }
+        return;
+      }
+    }
+    storedInfo=master.serversToServerInfo.get(serverName);
+    deadServer=master.deadServers.contains(serverName);
+  }
+  if (!deadServer && ((storedInfo != null && storedInfo.getStartCode() != startCode) || (storedInfo == null && !master.unassignedRegions.containsKey(info) && !master.pendingRegions.contains(info.getRegionName())))) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Current assignment of " + info.getRegionName() + " is not valid: storedInfo: "+ storedInfo+ ", startCode: "+ startCode+ ", storedInfo.startCode: "+ ((storedInfo != null) ? storedInfo.getStartCode() : -1)+ ", unassignedRegions: "+ master.unassignedRegions.containsKey(info)+ ", pendingRegions: "+ master.pendingRegions.contains(info.getRegionName()));
+    }
+    if (!master.initialMetaScanComplete && serverName.length() != 0) {
+      StringBuilder dirName=new StringBuilder("log_");
+      dirName.append(serverName.replace(":","_"));
+      Path logDir=new Path(master.rootdir,dirName.toString());
+      try {
+        if (master.fs.exists(logDir)) {
+          master.splitLogLock.lock();
+          try {
+            HLog.splitLog(master.rootdir,logDir,master.fs,master.conf);
+          }
+  finally {
+            master.splitLogLock.unlock();
+          }
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Split " + logDir.toString());
+        }
+      }
+ catch (      IOException e) {
+        LOG.warn("unable to split region server log because: ",e);
+        throw e;
+      }
+    }
+    master.unassignedRegions.put(info,ZERO_L);
+  }
+}
