@@ -1,0 +1,70 @@
+{
+synchronized (unassignedRegions) {
+    long now=System.currentTimeMillis();
+    Set<HRegionInfo> regionsToAssign=new HashSet<HRegionInfo>();
+    for (    Map.Entry<HRegionInfo,Long> e : unassignedRegions.entrySet()) {
+      HRegionInfo i=e.getKey();
+      if (numberOfMetaRegions.get() != onlineMetaRegions.size() && !i.isMetaRegion()) {
+        continue;
+      }
+      long diff=now - e.getValue().longValue();
+      if (diff > master.maxRegionOpenTime) {
+        regionsToAssign.add(e.getKey());
+      }
+    }
+    int nRegionsToAssign=regionsToAssign.size();
+    if (nRegionsToAssign <= 0) {
+      return;
+    }
+    if (master.serverManager.numServers() == 1) {
+      assignRegionsToOneServer(regionsToAssign,serverName,returnMsgs);
+      return;
+    }
+    HServerLoad thisServersLoad=info.getLoad();
+    int nregions=regionsPerServer(nRegionsToAssign,thisServersLoad);
+    nRegionsToAssign-=nregions;
+    if (nRegionsToAssign > 0) {
+      SortedMap<HServerLoad,Set<String>> heavyServers=new TreeMap<HServerLoad,Set<String>>();
+synchronized (master.serverManager.loadToServers) {
+        heavyServers.putAll(master.serverManager.loadToServers.tailMap(thisServersLoad));
+      }
+      int nservers=0;
+      HServerLoad heavierLoad=null;
+      for (      Map.Entry<HServerLoad,Set<String>> e : heavyServers.entrySet()) {
+        Set<String> servers=e.getValue();
+        nservers+=servers.size();
+        if (e.getKey().compareTo(thisServersLoad) == 0) {
+          nservers-=1;
+          continue;
+        }
+        heavierLoad=e.getKey();
+        break;
+      }
+      nregions=0;
+      if (heavierLoad != null) {
+        for (HServerLoad load=new HServerLoad(thisServersLoad.getNumberOfRequests(),thisServersLoad.getNumberOfRegions()); load.compareTo(heavierLoad) <= 0 && nregions < nRegionsToAssign; load.setNumberOfRegions(load.getNumberOfRegions() + 1), nregions++) {
+        }
+      }
+      if (nregions < nRegionsToAssign) {
+        if (nservers > 0) {
+          nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * nservers));
+        }
+ else {
+          nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * master.serverManager.numServers()));
+        }
+      }
+ else {
+        nregions=nRegionsToAssign;
+      }
+      now=System.currentTimeMillis();
+      for (      HRegionInfo regionInfo : regionsToAssign) {
+        LOG.info("assigning region " + regionInfo.getRegionName() + " to server "+ serverName);
+        unassignedRegions.put(regionInfo,Long.valueOf(now));
+        returnMsgs.add(new HMsg(HMsg.MSG_REGION_OPEN,regionInfo));
+        if (--nregions <= 0) {
+          break;
+        }
+      }
+    }
+  }
+}

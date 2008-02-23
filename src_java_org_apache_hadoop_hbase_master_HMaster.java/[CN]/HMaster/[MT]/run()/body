@@ -4,75 +4,21 @@
   startServiceThreads();
   try {
     while (!closed.get()) {
-      RegionServerOperation op=null;
-      if (shutdownRequested && serversToServerInfo.size() == 0) {
+      if (shutdownRequested && serverManager.numServers() == 0) {
         startShutdown();
         break;
       }
-      if (rootRegionLocation.get() != null) {
-        op=this.delayedToDoQueue.poll();
-      }
-      if (op == null) {
-        try {
-          op=toDoQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
-        }
- catch (        InterruptedException e) {
-        }
-      }
-      if (op == null || closed.get()) {
-        continue;
-      }
-      try {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Main processing loop: " + op.toString());
-        }
-        if (!op.process()) {
-          if (toDoQueue.size() == 0) {
-            sleeper.sleep();
-          }
-          try {
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Put " + op.toString() + " back on queue");
-            }
-            toDoQueue.put(op);
-          }
- catch (          InterruptedException e) {
-            throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
-          }
-        }
-      }
- catch (      Exception ex) {
-        if (ex instanceof RemoteException) {
-          try {
-            ex=RemoteExceptionHandler.decodeRemoteException((RemoteException)ex);
-          }
- catch (          IOException e) {
-            ex=e;
-            LOG.warn("main processing loop: " + op.toString(),e);
-          }
-        }
-        if (!checkFileSystem()) {
-          break;
-        }
-        LOG.warn("Processing pending operations: " + op.toString(),ex);
-        try {
-          toDoQueue.put(op);
-        }
- catch (        InterruptedException e) {
-          throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
-        }
-catch (        Exception e) {
-          LOG.error("main processing loop: " + op.toString(),e);
-        }
+      if (!processToDoQueue()) {
+        break;
       }
     }
   }
  catch (  Throwable t) {
     LOG.fatal("Unhandled exception. Starting shutdown.",t);
-    this.closed.set(true);
+    closed.set(true);
   }
-  stopScanners();
-  letRegionServersShutdown();
+  regionManager.stopScanners();
+  serverManager.letRegionServersShutdown();
   if (this.infoServer != null) {
     LOG.info("Stopping infoServer");
     try {
@@ -83,22 +29,7 @@ catch (        Exception e) {
     }
   }
   server.stop();
-  serverLeases.close();
-  try {
-    if (rootScannerThread.isAlive()) {
-      rootScannerThread.join();
-    }
-  }
- catch (  Exception iex) {
-    LOG.warn("root scanner",iex);
-  }
-  try {
-    if (metaScannerThread.isAlive()) {
-      metaScannerThread.join();
-    }
-  }
- catch (  Exception iex) {
-    LOG.warn("meta scanner",iex);
-  }
+  serverManager.stop();
+  regionManager.stop();
   LOG.info("HMaster main thread exiting");
 }

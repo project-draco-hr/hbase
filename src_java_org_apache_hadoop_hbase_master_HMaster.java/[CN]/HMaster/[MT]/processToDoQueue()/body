@@ -1,0 +1,60 @@
+{
+  RegionServerOperation op=null;
+  if (regionManager.getRootRegionLocation() != null) {
+    op=delayedToDoQueue.poll();
+  }
+  if (op == null) {
+    try {
+      op=toDoQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  if (op == null || closed.get()) {
+    return true;
+  }
+  try {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Main processing loop: " + op.toString());
+    }
+    if (!op.process()) {
+      if (toDoQueue.size() == 0) {
+        sleeper.sleep();
+      }
+      try {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Put " + op.toString() + " back on queue");
+        }
+        toDoQueue.put(op);
+      }
+ catch (      InterruptedException e) {
+        throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
+      }
+    }
+  }
+ catch (  Exception ex) {
+    if (ex instanceof RemoteException) {
+      try {
+        ex=RemoteExceptionHandler.decodeRemoteException((RemoteException)ex);
+      }
+ catch (      IOException e) {
+        ex=e;
+        LOG.warn("main processing loop: " + op.toString(),e);
+      }
+    }
+    if (!checkFileSystem()) {
+      return false;
+    }
+    LOG.warn("Processing pending operations: " + op.toString(),ex);
+    try {
+      toDoQueue.put(op);
+    }
+ catch (    InterruptedException e) {
+      throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
+    }
+catch (    Exception e) {
+      LOG.error("main processing loop: " + op.toString(),e);
+    }
+  }
+  return true;
+}

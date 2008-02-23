@@ -1,0 +1,26 @@
+{
+  LOG.info(server + " lease expired");
+  HServerInfo info=serversToServerInfo.remove(server);
+  if (info != null) {
+    HServerAddress root=master.getRootRegionLocation();
+    if (root != null && root.equals(info.getServerAddress())) {
+      master.regionManager.unassignRootRegion();
+    }
+    String serverName=info.getServerAddress().toString();
+    HServerLoad load=serversToLoad.remove(serverName);
+    if (load != null) {
+      Set<String> servers=loadToServers.get(load);
+      if (servers != null) {
+        servers.remove(serverName);
+        loadToServers.put(load,servers);
+      }
+    }
+    deadServers.add(server);
+  }
+synchronized (serversToServerInfo) {
+    serversToServerInfo.notifyAll();
+  }
+  if (info != null) {
+    master.delayedToDoQueue.put(new ProcessServerShutdown(master,info));
+  }
+}

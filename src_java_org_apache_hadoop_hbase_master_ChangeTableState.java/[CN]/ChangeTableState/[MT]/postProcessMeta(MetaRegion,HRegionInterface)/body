@@ -21,12 +21,12 @@
       LOG.debug("updated columns in row: " + i.getRegionName());
     }
     if (online) {
-      if (!this.master.unassignedRegions.containsKey(i)) {
-        this.master.unassignedRegions.put(i,ZERO_L);
+      if (!master.regionManager.isUnassigned(i)) {
+        master.regionManager.setUnassigned(i);
       }
     }
  else {
-      this.master.unassignedRegions.remove(i);
+      master.regionManager.noLongerUnassigned(i);
     }
   }
   if (LOG.isDebugEnabled()) {
@@ -39,15 +39,13 @@
       continue;
     }
     HashMap<Text,HRegionInfo> localKillList=new HashMap<Text,HRegionInfo>();
-synchronized (this.master.killList) {
-      HashMap<Text,HRegionInfo> killedRegions=this.master.killList.get(serverName);
-      if (killedRegions != null) {
-        localKillList.putAll(killedRegions);
-      }
+    Map<Text,HRegionInfo> killedRegions=master.regionManager.getMarkedClosedNoReopen(serverName);
+    if (killedRegions != null) {
+      localKillList.putAll(killedRegions);
     }
     for (    HRegionInfo i : e.getValue()) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("adding region " + i.getRegionName() + " to local kill list");
+        LOG.debug("adding region " + i.getRegionName() + " to kill list");
       }
       localKillList.put(i.getRegionName(),i);
     }
@@ -55,7 +53,7 @@ synchronized (this.master.killList) {
       if (LOG.isDebugEnabled()) {
         LOG.debug("inserted local kill list into kill list for server " + serverName);
       }
-      this.master.killList.put(serverName,localKillList);
+      master.regionManager.markClosedNoReopenBulk(serverName,localKillList);
     }
   }
   servedRegions.clear();

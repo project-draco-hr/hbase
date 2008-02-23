@@ -1,15 +1,15 @@
 {
-  LOG.info("process shutdown of server " + deadServer + ": logSplit: "+ this.logSplit+ ", rootRescanned: "+ this.rootRescanned+ ", numberOfMetaRegions: "+ master.numberOfMetaRegions.get()+ ", onlineMetaRegions.size(): "+ master.onlineMetaRegions.size());
+  LOG.info("process shutdown of server " + deadServer + ": logSplit: "+ this.logSplit+ ", rootRescanned: "+ rootRescanned+ ", numberOfMetaRegions: "+ master.regionManager.numMetaRegions()+ ", onlineMetaRegions.size(): "+ master.regionManager.numOnlineMetaRegions());
   if (!logSplit) {
     if (master.fs.exists(oldLogDir)) {
-      if (!master.splitLogLock.tryLock()) {
+      if (!master.regionManager.splitLogLock.tryLock()) {
         return false;
       }
       try {
         HLog.splitLog(master.rootdir,oldLogDir,master.fs,master.conf);
       }
   finally {
-        master.splitLogLock.unlock();
+        master.regionManager.splitLogLock.unlock();
       }
     }
     logSplit=true;
@@ -24,11 +24,11 @@
       if (master.closed.get()) {
         return true;
       }
-      server=master.connection.getHRegionConnection(master.rootRegionLocation.get());
+      server=master.connection.getHRegionConnection(master.getRootRegionLocation());
       scannerId=-1L;
       try {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("process server shutdown scanning root region on " + master.rootRegionLocation.get().getBindAddress());
+          LOG.debug("process server shutdown scanning root region on " + master.getRootRegionLocation().getBindAddress());
         }
         scannerId=server.openScanner(HRegionInfo.rootRegionInfo.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
         scanMetaRegion(server,scannerId,HRegionInfo.rootRegionInfo.getRegionName());
@@ -41,7 +41,7 @@
       }
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("process server shutdown scanning root region on " + master.rootRegionLocation.get().getBindAddress() + " finished "+ Thread.currentThread().getName());
+      LOG.debug("process server shutdown scanning root region on " + master.getRootRegionLocation().getBindAddress() + " finished "+ Thread.currentThread().getName());
     }
     rootRescanned=true;
   }
@@ -53,10 +53,7 @@
       if (master.closed.get()) {
         return true;
       }
-      List<MetaRegion> regions=new ArrayList<MetaRegion>();
-synchronized (master.onlineMetaRegions) {
-        regions.addAll(master.onlineMetaRegions.values());
-      }
+      List<MetaRegion> regions=master.regionManager.getListOfOnlineMetaRegions();
       for (      MetaRegion r : regions) {
         HRegionInterface server=null;
         long scannerId=-1L;
@@ -70,7 +67,7 @@ synchronized (master.onlineMetaRegions) {
           LOG.debug("process server shutdown finished scanning " + r.getRegionName() + " on "+ r.getServer()+ " "+ Thread.currentThread().getName());
         }
       }
-      master.deadServers.remove(deadServerName);
+      master.serverManager.removeDeadServer(deadServerName);
       break;
     }
  catch (    IOException e) {

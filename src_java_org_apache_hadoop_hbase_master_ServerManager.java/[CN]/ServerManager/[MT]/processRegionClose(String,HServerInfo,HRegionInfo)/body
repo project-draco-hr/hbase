@@ -1,0 +1,33 @@
+{
+  LOG.info(info.getServerAddress().toString() + " no longer serving " + region.getRegionName());
+  if (region.isRootRegion()) {
+    if (region.isOffline()) {
+      LOG.fatal("root region is marked offline");
+      master.shutdown();
+    }
+    master.regionManager.unassignRootRegion();
+  }
+ else {
+    boolean reassignRegion=!region.isOffline();
+    boolean deleteRegion=false;
+    if (master.regionManager.isClosing(region.getRegionName())) {
+      master.regionManager.noLongerClosing(region.getRegionName());
+      reassignRegion=false;
+    }
+    if (master.regionManager.isMarkedForDeletion(region.getRegionName())) {
+      master.regionManager.regionDeleted(region.getRegionName());
+      reassignRegion=false;
+      deleteRegion=true;
+    }
+    if (region.isMetaTable()) {
+      master.regionManager.offlineMetaRegion(region.getStartKey());
+    }
+    master.regionManager.noLongerUnassigned(region);
+    try {
+      master.toDoQueue.put(new ProcessRegionClose(master,region,reassignRegion,deleteRegion));
+    }
+ catch (    InterruptedException e) {
+      throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
+    }
+  }
+}

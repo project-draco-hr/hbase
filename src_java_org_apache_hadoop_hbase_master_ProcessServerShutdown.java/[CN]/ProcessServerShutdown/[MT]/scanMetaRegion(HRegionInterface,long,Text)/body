@@ -43,33 +43,24 @@
         if (LOG.isDebugEnabled()) {
           LOG.debug("removing meta region " + info.getRegionName() + " from online meta regions");
         }
-        master.onlineMetaRegions.remove(info.getStartKey());
+        master.regionManager.offlineMetaRegion(info.getStartKey());
       }
       ToDoEntry todo=new ToDoEntry(row,info);
       toDoList.add(todo);
-      if (master.killList.containsKey(deadServerName)) {
-        HashMap<Text,HRegionInfo> regionsToKill=new HashMap<Text,HRegionInfo>();
-synchronized (master.killList) {
-          regionsToKill.putAll(master.killList.get(deadServerName));
+      if (master.regionManager.isMarkedClosedNoReopen(deadServerName,info.getRegionName())) {
+        master.regionManager.noLongerMarkedClosedNoReopen(deadServerName,info.getRegionName());
+        master.regionManager.noLongerUnassigned(info);
+        if (master.regionManager.isMarkedForDeletion(info.getRegionName())) {
+          master.regionManager.regionDeleted(info.getRegionName());
+          todo.deleteRegion=true;
         }
-        if (regionsToKill.containsKey(info.getRegionName())) {
-          regionsToKill.remove(info.getRegionName());
-          master.killList.put(deadServerName,regionsToKill);
-          master.unassignedRegions.remove(info);
-synchronized (master.regionsToDelete) {
-            if (master.regionsToDelete.contains(info.getRegionName())) {
-              master.regionsToDelete.remove(info.getRegionName());
-              todo.deleteRegion=true;
-            }
  else {
-              todo.regionOffline=true;
-            }
-          }
+          todo.regionOffline=true;
         }
       }
  else {
         regions.add(info);
-        master.pendingRegions.remove(info.getRegionName());
+        master.regionManager.noLongerPending(info.getRegionName());
       }
     }
   }
@@ -92,6 +83,6 @@ synchronized (master.regionsToDelete) {
     }
   }
   for (  HRegionInfo info : regions) {
-    master.unassignedRegions.put(info,ZERO_L);
+    master.regionManager.setUnassigned(info);
   }
 }

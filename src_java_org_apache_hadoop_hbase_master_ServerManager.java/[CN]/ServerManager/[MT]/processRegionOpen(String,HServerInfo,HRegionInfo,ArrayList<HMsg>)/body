@@ -1,0 +1,42 @@
+{
+  boolean duplicateAssignment=false;
+  if (!master.regionManager.isUnassigned(region)) {
+    if (region.isRootRegion()) {
+      HServerAddress rootServer=master.getRootRegionLocation();
+      if (rootServer != null) {
+        if (rootServer.toString().compareTo(serverName) == 0) {
+          return;
+        }
+        duplicateAssignment=true;
+      }
+    }
+ else {
+      if (master.regionManager.isPending(region.getRegionName())) {
+        return;
+      }
+      duplicateAssignment=true;
+    }
+  }
+  if (duplicateAssignment) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("region server " + serverInfo.getServerAddress().toString() + " should not have opened region "+ region.getRegionName());
+    }
+    returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE_WITHOUT_REPORT,region));
+  }
+ else {
+    LOG.info(serverInfo.getServerAddress().toString() + " serving " + region.getRegionName());
+    master.regionManager.noLongerUnassigned(region);
+    if (region.isRootRegion()) {
+      master.regionManager.setRootRegionLocation(serverInfo.getServerAddress());
+    }
+ else {
+      master.regionManager.setPending(region.getRegionName());
+      try {
+        master.toDoQueue.put(new ProcessRegionOpen(master,serverInfo,region));
+      }
+ catch (      InterruptedException e) {
+        throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
+      }
+    }
+  }
+}

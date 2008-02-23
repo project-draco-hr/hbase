@@ -1,0 +1,33 @@
+{
+  String s=serverInfo.getServerAddress().toString().trim();
+  LOG.info("received start message from: " + s);
+  HServerLoad load=serversToLoad.remove(s);
+  if (load != null) {
+    Set<String> servers=loadToServers.get(load);
+    if (servers != null) {
+      servers.remove(s);
+      loadToServers.put(load,servers);
+    }
+  }
+  HServerInfo storedInfo=serversToServerInfo.remove(s);
+  if (storedInfo != null && !master.closed.get()) {
+    HServerAddress root=master.getRootRegionLocation();
+    if (root != null && root.equals(storedInfo.getServerAddress())) {
+      master.regionManager.unassignRootRegion();
+    }
+    master.delayedToDoQueue.put(new ProcessServerShutdown(master,storedInfo));
+  }
+  load=new HServerLoad();
+  serverInfo.setLoad(load);
+  serversToServerInfo.put(s,serverInfo);
+  serversToLoad.put(s,load);
+  Set<String> servers=loadToServers.get(load);
+  if (servers == null) {
+    servers=new HashSet<String>();
+  }
+  servers.add(s);
+  loadToServers.put(load,servers);
+  if (!master.closed.get()) {
+    serverLeases.createLease(s,new ServerExpirer(s));
+  }
+}
