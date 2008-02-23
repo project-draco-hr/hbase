@@ -3,7 +3,7 @@
     return -1;
   }
   try {
-    FileSystem fs=FileSystem.get(conf);
+    fs=FileSystem.get(conf);
     LOG.info("Verifying that file system is available...");
     if (!FSUtils.isFileSystemAvailable(fs)) {
       throw new IOException("Filesystem must be available for upgrade to run.");
@@ -18,29 +18,27 @@
  catch (    MasterNotRunningException e) {
     }
     LOG.info("Starting upgrade" + (readOnly ? " check" : ""));
-    Path rootdir=fs.makeQualified(new Path(this.conf.get(HConstants.HBASE_DIR)));
+    rootdir=fs.makeQualified(new Path(this.conf.get(HConstants.HBASE_DIR)));
     if (!fs.exists(rootdir)) {
       throw new FileNotFoundException("HBase root directory " + rootdir.toString() + " does not exist.");
     }
-    if (FSUtils.checkVersion(fs,rootdir)) {
+    String version=FSUtils.checkVersion(fs,rootdir);
+    if (version != null && version.compareTo(HConstants.FILE_SYSTEM_VERSION) == 0) {
       LOG.info("No upgrade necessary.");
       return 0;
     }
-    checkNewRootRegionDirExists(fs,rootdir);
-    extraFiles(fs,rootdir);
-    if (!newRootRegion) {
-      Path rootRegion=new Path(rootdir,OLD_PREFIX + HRegionInfo.rootRegionInfo.getEncodedName());
-      if (!fs.exists(rootRegion)) {
-        throw new IOException("Cannot find root region " + rootRegion.toString());
-      }
- else       if (readOnly) {
-        migrationNeeded=true;
-      }
+    FileStatus[] rootFiles=getRootDirFiles();
+    if (version == null) {
+      migrateFromNoVersion(rootFiles);
+      migrateToV2(rootFiles);
+    }
+ else     if (version.compareTo("0.1") == 0) {
+      migrateToV2(rootFiles);
+    }
+ else     if (version.compareTo("2") == 0) {
+    }
  else {
-        migrateRegionDir(fs,rootdir,HConstants.ROOT_TABLE_NAME,rootRegion);
-        scanRootRegion(fs,rootdir);
-        extraRegions(fs,rootdir);
-      }
+      throw new IOException("Unrecognized version: " + version);
     }
     if (!readOnly) {
       LOG.info("Setting file system version.");
