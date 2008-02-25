@@ -1,0 +1,38 @@
+{
+  final HRegionInfo oldRegionInfo=region.getRegionInfo();
+  final HRegion[] newRegions=region.splitRegion(this);
+  if (newRegions == null) {
+    return;
+  }
+  HTable t=null;
+  if (region.getRegionInfo().isMetaTable()) {
+    if (this.root == null) {
+      this.root=new HTable(conf,ROOT_TABLE_NAME);
+    }
+    t=root;
+  }
+ else {
+    if (meta == null) {
+      meta=new HTable(conf,META_TABLE_NAME);
+    }
+    t=meta;
+  }
+  LOG.info("Updating " + t.getTableName() + " with region split info");
+  oldRegionInfo.setOffline(true);
+  oldRegionInfo.setSplit(true);
+  BatchUpdate update=new BatchUpdate(oldRegionInfo.getRegionName());
+  update.put(COL_REGIONINFO,Writables.getBytes(oldRegionInfo));
+  update.put(COL_SPLITA,Writables.getBytes(newRegions[0].getRegionInfo()));
+  update.put(COL_SPLITB,Writables.getBytes(newRegions[1].getRegionInfo()));
+  t.commit(update);
+  for (int i=0; i < newRegions.length; i++) {
+    update=new BatchUpdate(newRegions[i].getRegionName());
+    update.put(COL_REGIONINFO,Writables.getBytes(newRegions[i].getRegionInfo()));
+    t.commit(update);
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Reporting region split to master");
+  }
+  server.reportSplit(oldRegionInfo,newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
+  LOG.info("region split, META updated, and report to master all" + " successful. Old region=" + oldRegionInfo.toString() + ", new regions: "+ newRegions[0].toString()+ ", "+ newRegions[1].toString()+ ". Split took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
+}

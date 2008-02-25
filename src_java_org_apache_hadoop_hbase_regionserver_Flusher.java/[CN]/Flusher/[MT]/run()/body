@@ -1,0 +1,62 @@
+{
+  while (!server.isStopRequested()) {
+    QueueEntry e=null;
+    try {
+      e=flushQueue.poll(server.threadWakeFrequency,TimeUnit.MILLISECONDS);
+      if (e == null) {
+        continue;
+      }
+synchronized (lock) {
+        if (e.getRegion().flushcache()) {
+          server.compactionRequested(e);
+        }
+        e.setExpirationTime(System.currentTimeMillis() + optionalFlushPeriod);
+        flushQueue.add(e);
+      }
+      Set<HRegion> regions=server.getRegionsToCheck();
+      for (      HRegion r : regions) {
+        e=new QueueEntry(r,r.getLastFlushTime() + optionalFlushPeriod);
+synchronized (flushQueue) {
+          if (!flushQueue.contains(e)) {
+            flushQueue.add(e);
+          }
+        }
+      }
+synchronized (flushQueue) {
+        for (Iterator<QueueEntry> i=flushQueue.iterator(); i.hasNext(); ) {
+          e=i.next();
+          if (!regions.contains(e.getRegion())) {
+            i.remove();
+          }
+        }
+      }
+    }
+ catch (    InterruptedException ex) {
+      continue;
+    }
+catch (    ConcurrentModificationException ex) {
+      continue;
+    }
+catch (    DroppedSnapshotException ex) {
+      LOG.fatal("Replay of hlog required. Forcing server restart",ex);
+      if (!server.checkFileSystem()) {
+        break;
+      }
+      server.stop();
+    }
+catch (    IOException ex) {
+      LOG.error("Cache flush failed" + (e != null ? (" for region " + e.getRegion().getRegionName()) : ""),RemoteExceptionHandler.checkIOException(ex));
+      if (!server.checkFileSystem()) {
+        break;
+      }
+    }
+catch (    Exception ex) {
+      LOG.error("Cache flush failed" + (e != null ? (" for region " + e.getRegion().getRegionName()) : ""),ex);
+      if (!server.checkFileSystem()) {
+        break;
+      }
+    }
+  }
+  flushQueue.clear();
+  LOG.info(getName() + " exiting");
+}
