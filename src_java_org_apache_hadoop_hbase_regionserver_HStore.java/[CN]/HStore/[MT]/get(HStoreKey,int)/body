@@ -4,9 +4,9 @@
   }
   this.lock.readLock().lock();
   try {
-    List<byte[]> results=this.memcache.get(key,numVersions);
+    List<Cell> results=this.memcache.get(key,numVersions);
     if (results.size() == numVersions) {
-      return ImmutableBytesWritable.toArray(results);
+      return results.toArray(new Cell[results.size()]);
     }
     Map<Text,List<Long>> deletes=new HashMap<Text,List<Long>>();
     MapFile.Reader[] maparray=getReaders();
@@ -23,14 +23,14 @@ synchronized (map) {
           continue;
         }
         if (!isDeleted(readkey,readval.get(),true,deletes)) {
-          results.add(readval.get());
+          results.add(new Cell(readval.get(),readkey.getTimestamp()));
           if (hasEnoughVersions(numVersions,results)) {
             break;
           }
         }
         for (readval=new ImmutableBytesWritable(); map.next(readkey,readval) && readkey.matchesRowCol(key) && !hasEnoughVersions(numVersions,results); readval=new ImmutableBytesWritable()) {
           if (!isDeleted(readkey,readval.get(),true,deletes)) {
-            results.add(readval.get());
+            results.add(new Cell(readval.get(),readkey.getTimestamp()));
           }
         }
       }
@@ -38,7 +38,7 @@ synchronized (map) {
         break;
       }
     }
-    return results.size() == 0 ? null : ImmutableBytesWritable.toArray(results);
+    return results.size() == 0 ? null : results.toArray(new Cell[results.size()]);
   }
   finally {
     this.lock.readLock().unlock();
