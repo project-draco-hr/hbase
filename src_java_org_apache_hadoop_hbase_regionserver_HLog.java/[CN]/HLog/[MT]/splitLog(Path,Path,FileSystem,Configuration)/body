@@ -1,11 +1,17 @@
 {
+  if (!fs.exists(srcDir)) {
+    return;
+  }
   FileStatus logfiles[]=fs.listStatus(srcDir);
+  if (logfiles == null || logfiles.length == 0) {
+    return;
+  }
   LOG.info("splitting " + logfiles.length + " log(s) in "+ srcDir.toString());
   Map<Text,SequenceFile.Writer> logWriters=new HashMap<Text,SequenceFile.Writer>();
   try {
     for (int i=0; i < logfiles.length; i++) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("Splitting " + i + " of "+ logfiles.length+ ": "+ logfiles[i]);
+        LOG.debug("Splitting " + i + " of "+ logfiles.length+ ": "+ logfiles[i].getPath());
       }
       if (logfiles[i].getLen() <= 0) {
         LOG.info("Skipping " + logfiles[i].toString() + " because zero length");
@@ -22,13 +28,33 @@
           SequenceFile.Writer w=logWriters.get(regionName);
           if (w == null) {
             Path logfile=new Path(HRegion.getRegionDir(HTableDescriptor.getTableDir(rootDir,tableName),HRegionInfo.encodeRegionName(regionName)),HREGION_OLDLOGFILE_NAME);
+            Path oldlogfile=null;
+            SequenceFile.Reader old=null;
+            if (fs.exists(logfile)) {
+              LOG.warn("Old log file " + logfile + " already exists. Copying existing file to new file");
+              oldlogfile=new Path(logfile.toString() + ".old");
+              fs.rename(logfile,oldlogfile);
+              old=new SequenceFile.Reader(fs,oldlogfile,conf);
+            }
             if (LOG.isDebugEnabled()) {
               LOG.debug("Creating new log file writer for path " + logfile + "; map content "+ logWriters.toString());
             }
             w=SequenceFile.createWriter(fs,conf,logfile,HLogKey.class,HLogEdit.class,getCompressionType(conf));
             logWriters.put(new Text(regionName),w);
+            if (old != null) {
+              HLogKey oldkey=new HLogKey();
+              HLogEdit oldval=new HLogEdit();
+              for (; old.next(oldkey,oldval); count++) {
+                if (LOG.isDebugEnabled() && count > 0 && count % 10000 == 0) {
+                  LOG.debug("Copied " + count + " edits");
+                }
+                w.append(oldkey,oldval);
+              }
+              old.close();
+              fs.delete(oldlogfile);
+            }
           }
-          if (count % 10000 == 0 && count > 0 && LOG.isDebugEnabled()) {
+          if (LOG.isDebugEnabled() && count > 0 && count % 10000 == 0) {
             LOG.debug("Applied " + count + " edits");
           }
           w.append(key,val);
@@ -47,13 +73,14 @@
       w.close();
     }
   }
-  if (fs.exists(srcDir)) {
-    if (!fs.delete(srcDir)) {
-      LOG.error("Cannot delete: " + srcDir);
-      if (!FileUtil.fullyDelete(new File(srcDir.toString()))) {
-        throw new IOException("Cannot delete: " + srcDir);
-      }
-    }
+  try {
+    FileUtil.fullyDelete(fs,srcDir);
+  }
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    IOException io=new IOException("Cannot delete: " + srcDir);
+    io.initCause(e);
+    throw io;
   }
   LOG.info("log file splitting completed for " + srcDir.toString());
 }
