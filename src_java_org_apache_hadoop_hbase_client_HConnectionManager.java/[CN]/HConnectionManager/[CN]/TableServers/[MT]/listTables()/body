@@ -8,21 +8,15 @@
     try {
       metaLocation=locateRegion(META_TABLE_NAME,startRow);
       server=getHRegionConnection(metaLocation.getServerAddress());
-      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),COLUMN_FAMILY_ARRAY,startRow,LATEST_TIMESTAMP,null);
+      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),new Text[]{COL_REGIONINFO},startRow,LATEST_TIMESTAMP,null);
       while (true) {
-        HbaseMapWritable values=server.next(scannerId);
+        RowResult values=server.next(scannerId);
         if (values == null || values.size() == 0) {
           break;
         }
-        for (        Map.Entry<Writable,Writable> e : values.entrySet()) {
-          HStoreKey key=(HStoreKey)e.getKey();
-          if (key.getColumn().equals(COL_REGIONINFO)) {
-            HRegionInfo info=new HRegionInfo();
-            info=(HRegionInfo)Writables.getWritable(((ImmutableBytesWritable)e.getValue()).get(),info);
-            if (info.getStartKey().getLength() == 0) {
-              uniqueTables.add(info.getTableDesc());
-            }
-          }
+        HRegionInfo info=Writables.getHRegionInfo(values.get(COL_REGIONINFO));
+        if (info.getStartKey().getLength() == 0) {
+          uniqueTables.add(info.getTableDesc());
         }
       }
       server.close(scannerId);

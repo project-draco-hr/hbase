@@ -2,29 +2,28 @@
   HRegionInterface regionServer=null;
   long scannerId=-1L;
   LOG.info(Thread.currentThread().getName() + " scanning meta region " + region.toString());
-  Map<HRegionInfo,SortedMap<Text,byte[]>> splitParents=new HashMap<HRegionInfo,SortedMap<Text,byte[]>>();
+  Map<HRegionInfo,RowResult> splitParents=new HashMap<HRegionInfo,RowResult>();
   try {
     regionServer=master.connection.getHRegionConnection(region.getServer());
     scannerId=regionServer.openScanner(region.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
     int numberOfRegionsFound=0;
     while (true) {
-      HbaseMapWritable values=regionServer.next(scannerId);
+      RowResult values=regionServer.next(scannerId);
       if (values == null || values.size() == 0) {
         break;
       }
-      SortedMap<Text,byte[]> results=RowMap.fromHbaseMapWritable(values).getMap();
-      HRegionInfo info=master.getHRegionInfo(results);
+      HRegionInfo info=master.getHRegionInfo(values);
       if (info == null) {
         continue;
       }
-      String serverName=Writables.bytesToString(results.get(COL_SERVER));
-      long startCode=Writables.bytesToLong(results.get(COL_STARTCODE));
+      String serverName=Writables.cellToString(values.get(COL_SERVER));
+      long startCode=Writables.cellToLong(values.get(COL_STARTCODE));
       if (LOG.isDebugEnabled()) {
         LOG.debug(Thread.currentThread().getName() + " regioninfo: {" + info.toString()+ "}, server: "+ serverName+ ", startCode: "+ startCode);
       }
       checkAssigned(info,serverName,startCode);
       if (isSplitParent(info)) {
-        splitParents.put(info,results);
+        splitParents.put(info,values);
       }
       numberOfRegionsFound+=1;
     }
@@ -52,7 +51,7 @@
     }
   }
   if (splitParents.size() > 0) {
-    for (    Map.Entry<HRegionInfo,SortedMap<Text,byte[]>> e : splitParents.entrySet()) {
+    for (    Map.Entry<HRegionInfo,RowResult> e : splitParents.entrySet()) {
       HRegionInfo hri=e.getKey();
       cleanupSplits(region.getRegionName(),regionServer,hri,e.getValue());
     }
