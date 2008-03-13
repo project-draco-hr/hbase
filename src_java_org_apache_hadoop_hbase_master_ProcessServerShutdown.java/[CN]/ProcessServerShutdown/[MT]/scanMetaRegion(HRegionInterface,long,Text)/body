@@ -1,6 +1,7 @@
 {
-  ArrayList<ToDoEntry> toDoList=new ArrayList<ToDoEntry>();
-  HashSet<HRegionInfo> regions=new HashSet<HRegionInfo>();
+  List<ToDoEntry> toDoList=new ArrayList<ToDoEntry>();
+  Set<HRegionInfo> regions=new HashSet<HRegionInfo>();
+  List<Text> emptyRows=new ArrayList<Text>();
   try {
     while (true) {
       RowResult values=null;
@@ -29,8 +30,9 @@
       if (serverName.length() > 0 && deadServerName.compareTo(serverName) != 0) {
         continue;
       }
-      HRegionInfo info=master.getHRegionInfo(values);
+      HRegionInfo info=master.getHRegionInfo(row,values);
       if (info == null) {
+        emptyRows.add(row);
         continue;
       }
       if (info.isMetaTable()) {
@@ -67,6 +69,10 @@
         LOG.error("Closing scanner",RemoteExceptionHandler.checkIOException(e));
       }
     }
+  }
+  if (emptyRows.size() > 0) {
+    LOG.warn("Found " + emptyRows.size() + " rows with empty HRegionInfo while scanning meta region "+ regionName);
+    master.deleteEmptyMetaRows(server,regionName,emptyRows);
   }
   for (  ToDoEntry e : toDoList) {
     if (e.deleteRegion) {

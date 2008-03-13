@@ -3,6 +3,7 @@
   long scannerId=-1L;
   LOG.info(Thread.currentThread().getName() + " scanning meta region " + region.toString());
   Map<HRegionInfo,RowResult> splitParents=new HashMap<HRegionInfo,RowResult>();
+  List<Text> emptyRows=new ArrayList<Text>();
   try {
     regionServer=master.connection.getHRegionConnection(region.getServer());
     scannerId=regionServer.openScanner(region.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
@@ -12,8 +13,9 @@
       if (values == null || values.size() == 0) {
         break;
       }
-      HRegionInfo info=master.getHRegionInfo(values);
+      HRegionInfo info=master.getHRegionInfo(values.getRow(),values);
       if (info == null) {
+        emptyRows.add(values.getRow());
         continue;
       }
       String serverName=Writables.cellToString(values.get(COL_SERVER));
@@ -49,6 +51,10 @@
  catch (    IOException e) {
       LOG.error("Closing scanner",RemoteExceptionHandler.checkIOException(e));
     }
+  }
+  if (emptyRows.size() > 0) {
+    LOG.warn("Found " + emptyRows.size() + " rows with empty HRegionInfo while scanning meta region "+ region.getRegionName());
+    master.deleteEmptyMetaRows(regionServer,region.getRegionName(),emptyRows);
   }
   if (splitParents.size() > 0) {
     for (    Map.Entry<HRegionInfo,RowResult> e : splitParents.entrySet()) {

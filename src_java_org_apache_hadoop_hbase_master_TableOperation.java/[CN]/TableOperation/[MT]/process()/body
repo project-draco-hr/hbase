@@ -6,14 +6,16 @@ synchronized (master.regionManager.metaScannerThread.scannerLock) {
         for (        MetaRegion m : metaRegions) {
           HRegionInterface server=master.connection.getHRegionConnection(m.getServer());
           long scannerId=server.openScanner(m.getRegionName(),COLUMN_FAMILY_ARRAY,tableName,System.currentTimeMillis(),null);
+          List<Text> emptyRows=new ArrayList<Text>();
           try {
             while (true) {
               RowResult values=server.next(scannerId);
               if (values == null || values.size() == 0) {
                 break;
               }
-              HRegionInfo info=this.master.getHRegionInfo(values);
+              HRegionInfo info=this.master.getHRegionInfo(values.getRow(),values);
               if (info == null) {
+                emptyRows.add(values.getRow());
                 throw new IOException(COL_REGIONINFO + " not found on " + values.getRow());
               }
               String serverName=Writables.cellToString(values.get(COL_SERVER));
@@ -39,6 +41,10 @@ synchronized (master.regionManager.metaScannerThread.scannerLock) {
               }
             }
             scannerId=-1L;
+          }
+          if (emptyRows.size() > 0) {
+            LOG.warn("Found " + emptyRows.size() + " rows with empty HRegionInfo while scanning meta region "+ m.getRegionName());
+            master.deleteEmptyMetaRows(server,m.getRegionName(),emptyRows);
           }
           if (!tableExists) {
             throw new IOException(tableName + " does not exist");
