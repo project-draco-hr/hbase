@@ -1,0 +1,85 @@
+{
+  boolean filtered=true;
+  boolean moreToFollow=true;
+  while (filtered && moreToFollow) {
+    Text chosenRow=null;
+    long chosenTimestamp=-1;
+    for (int i=0; i < this.keys.length; i++) {
+      if (scanners[i] != null && (chosenRow == null || (keys[i].getRow().compareTo(chosenRow) < 0) || ((keys[i].getRow().compareTo(chosenRow) == 0) && (keys[i].getTimestamp() > chosenTimestamp)))) {
+        chosenRow=new Text(keys[i].getRow());
+        chosenTimestamp=keys[i].getTimestamp();
+      }
+    }
+    filtered=dataFilter != null ? dataFilter.filter(chosenRow) : false;
+    if (chosenTimestamp >= 0 && !filtered) {
+      key.setRow(chosenRow);
+      key.setVersion(chosenTimestamp);
+      key.setColumn(HConstants.EMPTY_TEXT);
+      List<HStoreKey> deletes=new ArrayList<HStoreKey>();
+      for (int i=0; i < scanners.length && !filtered; i++) {
+        while ((scanners[i] != null && !filtered && moreToFollow) && (keys[i].getRow().compareTo(chosenRow) == 0)) {
+          if (!wildcardMatch && !multipleMatchers && (keys[i].getTimestamp() != chosenTimestamp)) {
+            break;
+          }
+          if (dataFilter != null) {
+            filtered=dataFilter.filterNotNull(resultSets[i]);
+          }
+          HStoreKey hsk=new HStoreKey(key.getRow(),HConstants.EMPTY_TEXT,key.getTimestamp());
+          for (          Map.Entry<Text,byte[]> e : resultSets[i].entrySet()) {
+            hsk.setColumn(e.getKey());
+            if (HLogEdit.isDeleted(e.getValue())) {
+              if (!deletes.contains(hsk)) {
+                deletes.add(new HStoreKey(hsk));
+              }
+            }
+ else             if (!deletes.contains(hsk) && !filtered && moreToFollow&& !results.containsKey(e.getKey())) {
+              if (dataFilter != null) {
+                filtered=dataFilter.filter(chosenRow,e.getKey(),e.getValue());
+                if (filtered) {
+                  results.clear();
+                  break;
+                }
+              }
+              results.put(e.getKey(),e.getValue());
+            }
+          }
+          resultSets[i].clear();
+          if (!scanners[i].next(keys[i],resultSets[i])) {
+            closeScanner(i);
+          }
+        }
+      }
+    }
+    for (int i=0; i < scanners.length; i++) {
+      while ((scanners[i] != null) && (keys[i].getRow().compareTo(chosenRow) <= 0)) {
+        resultSets[i].clear();
+        if (!scanners[i].next(keys[i],resultSets[i])) {
+          closeScanner(i);
+        }
+      }
+    }
+    moreToFollow=chosenTimestamp >= 0;
+    if (dataFilter != null) {
+      if (moreToFollow) {
+        dataFilter.rowProcessed(filtered,chosenRow);
+      }
+      if (dataFilter.filterAllRemaining()) {
+        moreToFollow=false;
+      }
+    }
+    if (results.size() <= 0 && !filtered) {
+      filtered=true;
+    }
+  }
+  if (results == null || results.size() <= 0) {
+    moreToFollow=false;
+  }
+  if (!moreToFollow) {
+    for (int i=0; i < scanners.length; i++) {
+      if (null != scanners[i]) {
+        closeScanner(i);
+      }
+    }
+  }
+  return moreToFollow;
+}
