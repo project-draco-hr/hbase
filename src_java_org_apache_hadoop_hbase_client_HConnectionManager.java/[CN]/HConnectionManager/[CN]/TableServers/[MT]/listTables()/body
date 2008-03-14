@@ -5,31 +5,34 @@
   Text startRow=EMPTY_START_ROW;
   HRegionLocation metaLocation=null;
   do {
-    try {
-      metaLocation=locateRegion(META_TABLE_NAME,startRow);
-      server=getHRegionConnection(metaLocation.getServerAddress());
-      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),new Text[]{COL_REGIONINFO},startRow,LATEST_TIMESTAMP,null);
-      while (true) {
-        RowResult values=server.next(scannerId);
-        if (values == null || values.size() == 0) {
-          break;
+    for (int triesSoFar=0; triesSoFar < numRetries; triesSoFar++) {
+      try {
+        metaLocation=locateRegion(META_TABLE_NAME,startRow);
+        server=getHRegionConnection(metaLocation.getServerAddress());
+        scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),new Text[]{COL_REGIONINFO},startRow,LATEST_TIMESTAMP,null);
+        while (true) {
+          RowResult values=server.next(scannerId);
+          if (values == null || values.size() == 0) {
+            break;
+          }
+          HRegionInfo info=Writables.getHRegionInfo(values.get(COL_REGIONINFO));
+          if (info.getStartKey().getLength() == 0) {
+            uniqueTables.add(info.getTableDesc());
+          }
         }
-        HRegionInfo info=Writables.getHRegionInfo(values.get(COL_REGIONINFO));
-        if (info.getStartKey().getLength() == 0) {
-          uniqueTables.add(info.getTableDesc());
-        }
-      }
-      server.close(scannerId);
-      scannerId=-1L;
-      startRow=metaLocation.getRegionInfo().getEndKey();
-    }
- catch (    IOException e) {
-      metaLocation=relocateRegion(META_TABLE_NAME,startRow);
-      continue;
-    }
- finally {
-      if (scannerId != -1L && server != null) {
         server.close(scannerId);
+        scannerId=-1L;
+        startRow=metaLocation.getRegionInfo().getEndKey();
+        break;
+      }
+ catch (      IOException e) {
+        metaLocation=relocateRegion(META_TABLE_NAME,startRow);
+        continue;
+      }
+ finally {
+        if (scannerId != -1L && server != null) {
+          server.close(scannerId);
+        }
       }
     }
   }
