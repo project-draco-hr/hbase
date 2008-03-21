@@ -5,24 +5,25 @@
   try {
     fs=FileSystem.get(conf);
     LOG.info("Verifying that file system is available...");
-    if (!FSUtils.isFileSystemAvailable(fs)) {
-      throw new IOException("Filesystem must be available for upgrade to run.");
-    }
-    LOG.info("Verifying that HBase is not running...");
-    try {
-      HBaseAdmin admin=new HBaseAdmin(conf);
-      if (admin.isMasterRunning()) {
-        throw new IllegalStateException("HBase cluster must be off-line during upgrade.");
-      }
-    }
- catch (    MasterNotRunningException e) {
-    }
+    FSUtils.checkFileSystemAvailable(fs);
+  }
+ catch (  IOException e) {
+    LOG.fatal("File system is not available",e);
+    return -1;
+  }
+  LOG.info("Verifying that HBase is not running...");
+  try {
+    HBaseAdmin.checkHBaseAvailable(conf);
+    LOG.fatal("HBase cluster must be off-line.");
+    return -1;
+  }
+ catch (  MasterNotRunningException e) {
+  }
+  try {
+    this.utils=new MetaUtils(conf);
+    this.rootdir=utils.initialize();
     LOG.info("Starting upgrade" + (readOnly ? " check" : ""));
-    rootdir=fs.makeQualified(new Path(this.conf.get(HConstants.HBASE_DIR)));
-    if (!fs.exists(rootdir)) {
-      throw new FileNotFoundException("HBase root directory " + rootdir.toString() + " does not exist.");
-    }
-    String version=FSUtils.checkVersion(fs,rootdir);
+    String version=FSUtils.getVersion(fs,rootdir);
     if (version != null && version.compareTo(HConstants.FILE_SYSTEM_VERSION) == 0) {
       LOG.info("No upgrade necessary.");
       return 0;
@@ -53,5 +54,10 @@
  catch (  Exception e) {
     LOG.fatal("Upgrade" + (readOnly ? " check" : "") + " failed",e);
     return -1;
+  }
+ finally {
+    if (utils != null && utils.isInitialized()) {
+      utils.shutdown();
+    }
   }
 }

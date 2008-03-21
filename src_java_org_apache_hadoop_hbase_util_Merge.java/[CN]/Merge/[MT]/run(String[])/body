@@ -1,0 +1,49 @@
+{
+  if (parseArgs(args) != 0) {
+    return -1;
+  }
+  FileSystem fs=FileSystem.get(this.conf);
+  LOG.info("Verifying that file system is available...");
+  try {
+    FSUtils.checkFileSystemAvailable(fs);
+  }
+ catch (  IOException e) {
+    LOG.fatal("File system is not available",e);
+    return -1;
+  }
+  LOG.info("Verifying that HBase is not running...");
+  try {
+    HBaseAdmin.checkHBaseAvailable(conf);
+    LOG.fatal("HBase cluster must be off-line.");
+    return -1;
+  }
+ catch (  MasterNotRunningException e) {
+  }
+  this.utils=new MetaUtils(conf);
+  this.rootdir=utils.initialize();
+  try {
+    if (isMetaTable) {
+      mergeTwoMetaRegions();
+    }
+ else {
+      mergeTwoRegions();
+    }
+    return 0;
+  }
+ catch (  Exception e) {
+    LOG.fatal("Merge failed",e);
+    utils.scanMetaRegion(HRegionInfo.firstMetaRegionInfo,new MetaUtils.ScannerListener(){
+      public boolean processRow(      HRegionInfo info){
+        System.err.println(info.toString());
+        return true;
+      }
+    }
+);
+    return -1;
+  }
+ finally {
+    if (this.utils != null && this.utils.isInitialized()) {
+      this.utils.shutdown();
+    }
+  }
+}

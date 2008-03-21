@@ -1,31 +1,16 @@
 {
-  HLog log=new HLog(fs,new Path(rootdir,HConstants.HREGION_LOGDIR_NAME),conf,null);
-  try {
-    HRegion rootRegion=new HRegion(new Path(rootdir,HConstants.ROOT_TABLE_NAME.toString()),log,fs,conf,HRegionInfo.rootRegionInfo,null,null);
-    try {
-      HScannerInterface rootScanner=rootRegion.getScanner(HConstants.COL_REGIONINFO_ARRAY,HConstants.EMPTY_START_ROW,HConstants.LATEST_TIMESTAMP,null);
-      try {
-        HStoreKey key=new HStoreKey();
-        SortedMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-        while (rootScanner.next(key,results)) {
-          HRegionInfo info=Writables.getHRegionInfoOrNull(results.get(HConstants.COL_REGIONINFO));
-          if (info == null) {
-            LOG.warn("region info is null for row " + key.getRow() + " in table "+ HConstants.ROOT_TABLE_NAME);
-            continue;
-          }
-          migrateRegionDir(HConstants.META_TABLE_NAME,new Path(rootdir,OLD_PREFIX + info.getEncodedName()));
-          scanMetaRegion(log,info);
+  utils.scanRootRegion(new MetaUtils.ScannerListener(){
+    public boolean processRow(    HRegionInfo info) throws IOException {
+      migrateRegionDir(HConstants.META_TABLE_NAME,OLD_PREFIX + info.getEncodedName());
+      utils.scanMetaRegion(info,new MetaUtils.ScannerListener(){
+        public boolean processRow(        HRegionInfo tableInfo) throws IOException {
+          migrateRegionDir(tableInfo.getTableDesc().getName(),OLD_PREFIX + tableInfo.getEncodedName());
+          return true;
         }
       }
-  finally {
-        rootScanner.close();
-      }
-    }
-  finally {
-      rootRegion.close();
+);
+      return true;
     }
   }
-  finally {
-    log.closeAndDelete();
-  }
+);
 }

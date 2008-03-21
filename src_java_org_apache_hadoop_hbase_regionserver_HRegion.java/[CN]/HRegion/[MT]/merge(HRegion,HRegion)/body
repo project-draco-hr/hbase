@@ -1,0 +1,72 @@
+{
+  if (!a.getRegionInfo().getTableDesc().getName().equals(b.getRegionInfo().getTableDesc().getName())) {
+    throw new IOException("Regions do not belong to the same table");
+  }
+  FileSystem fs=a.getFilesystem();
+  a.flushcache();
+  b.flushcache();
+  a.compactStores();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Files for region: " + a.getRegionName());
+    listPaths(fs,a.getRegionDir());
+  }
+  b.compactStores();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Files for region: " + b.getRegionName());
+    listPaths(fs,b.getRegionDir());
+  }
+  HBaseConfiguration conf=a.getConf();
+  HTableDescriptor tabledesc=a.getTableDesc();
+  HLog log=a.getLog();
+  Path basedir=a.getBaseDir();
+  Text startKey=a.getStartKey().equals(EMPTY_TEXT) || b.getStartKey().equals(EMPTY_TEXT) ? EMPTY_TEXT : a.getStartKey().compareTo(b.getStartKey()) <= 0 ? a.getStartKey() : b.getStartKey();
+  Text endKey=a.getEndKey().equals(EMPTY_TEXT) || b.getEndKey().equals(EMPTY_TEXT) ? EMPTY_TEXT : a.getEndKey().compareTo(b.getEndKey()) <= 0 ? b.getEndKey() : a.getEndKey();
+  HRegionInfo newRegionInfo=new HRegionInfo(tabledesc,startKey,endKey);
+  LOG.info("Creating new region " + newRegionInfo.toString());
+  String encodedRegionName=newRegionInfo.getEncodedName();
+  Path newRegionDir=HRegion.getRegionDir(a.getBaseDir(),encodedRegionName);
+  if (fs.exists(newRegionDir)) {
+    throw new IOException("Cannot merge; target file collision at " + newRegionDir);
+  }
+  fs.mkdirs(newRegionDir);
+  LOG.info("starting merge of regions: " + a.getRegionName() + " and "+ b.getRegionName()+ " into new region "+ newRegionInfo.toString()+ " with start key <"+ startKey+ "> and end key <"+ endKey+ ">");
+  Map<Text,List<HStoreFile>> byFamily=new TreeMap<Text,List<HStoreFile>>();
+  byFamily=filesByFamily(byFamily,a.close());
+  byFamily=filesByFamily(byFamily,b.close());
+  for (  Map.Entry<Text,List<HStoreFile>> es : byFamily.entrySet()) {
+    Text colFamily=es.getKey();
+    makeColumnFamilyDirs(fs,basedir,encodedRegionName,colFamily,tabledesc);
+    List<HStoreFile> srcFiles=es.getValue();
+    if (srcFiles.size() == 2) {
+      long seqA=srcFiles.get(0).loadInfo(fs);
+      long seqB=srcFiles.get(1).loadInfo(fs);
+      if (seqA == seqB) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Adjusting sequence number of storeFile " + srcFiles.get(1));
+        }
+        srcFiles.get(1).writeInfo(fs,seqB - 1);
+      }
+    }
+    for (    HStoreFile hsf : srcFiles) {
+      HStoreFile dst=new HStoreFile(conf,fs,basedir,newRegionInfo.getEncodedName(),colFamily,-1,null);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Renaming " + hsf + " to "+ dst);
+      }
+      hsf.rename(fs,dst);
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Files for new region");
+    listPaths(fs,newRegionDir);
+  }
+  HRegion dstRegion=new HRegion(basedir,log,fs,conf,newRegionInfo,null,null);
+  dstRegion.compactStores();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Files for new region");
+    listPaths(fs,dstRegion.getRegionDir());
+  }
+  deleteRegion(fs,a.getRegionDir());
+  deleteRegion(fs,b.getRegionDir());
+  LOG.info("merge completed. New region is " + dstRegion.getRegionName());
+  return dstRegion;
+}
