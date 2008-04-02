@@ -1,29 +1,37 @@
 {
   while (!server.isStopRequested()) {
-    QueueEntry e=null;
+    HRegion r=null;
     try {
-      e=compactionQueue.poll(this.frequency,TimeUnit.MILLISECONDS);
-      if (e == null) {
-        continue;
+      r=compactionQueue.poll(this.frequency,TimeUnit.MILLISECONDS);
+      if (r != null) {
+synchronized (regionsInQueue) {
+          regionsInQueue.remove(r);
+        }
+synchronized (lock) {
+          Text midKey=r.compactStores();
+          if (midKey != null) {
+            split(r,midKey);
+          }
+        }
       }
-      e.getRegion().compactIfNeeded();
-      split(e.getRegion());
     }
  catch (    InterruptedException ex) {
       continue;
     }
 catch (    IOException ex) {
-      LOG.error("Compaction failed" + (e != null ? (" for region " + e.getRegion().getRegionName()) : ""),RemoteExceptionHandler.checkIOException(ex));
+      LOG.error("Compaction failed" + (r != null ? (" for region " + r.getRegionName()) : ""),RemoteExceptionHandler.checkIOException(ex));
       if (!server.checkFileSystem()) {
         break;
       }
     }
 catch (    Exception ex) {
-      LOG.error("Compaction failed" + (e != null ? (" for region " + e.getRegion().getRegionName()) : ""),ex);
+      LOG.error("Compaction failed" + (r != null ? (" for region " + r.getRegionName()) : ""),ex);
       if (!server.checkFileSystem()) {
         break;
       }
     }
   }
+  regionsInQueue.clear();
+  compactionQueue.clear();
   LOG.info(getName() + " exiting");
 }

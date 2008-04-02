@@ -1,41 +1,13 @@
 {
   createStoreFile(r);
-  assertFalse(r.compactIfNeeded());
   for (int i=0; i < COMPACTION_THRESHOLD; i++) {
     createStoreFile(r);
   }
   addContent(new HRegionIncommon(r),COLUMN_FAMILY);
   Cell[] cellValues=r.get(STARTROW,COLUMN_FAMILY_TEXT,100);
   assertTrue(cellValues.length >= 5);
-  final HRegion region=this.r;
-  Thread t1=new Thread(){
-    @Override public void run(){
-      try {
-        region.flushcache();
-      }
- catch (      IOException e) {
-        e.printStackTrace();
-      }
-    }
-  }
-;
-  Thread t2=new Thread(){
-    @Override public void run(){
-      try {
-        assertTrue(region.compactIfNeeded());
-      }
- catch (      IOException e) {
-        e.printStackTrace();
-      }
-    }
-  }
-;
-  t1.setDaemon(true);
-  t1.start();
-  t2.setDaemon(true);
-  t2.start();
-  t1.join();
-  t2.join();
+  r.flushcache();
+  r.compactStores();
   byte[] secondRowBytes=START_KEY.getBytes(HConstants.UTF8_ENCODING);
   secondRowBytes[START_KEY_BYTES.length - 1]++;
   Text secondRow=new Text(secondRowBytes);
@@ -47,7 +19,8 @@
   r.flushcache();
   assertNull(r.get(STARTROW,COLUMN_FAMILY_TEXT,100));
   createSmallerStoreFile(this.r);
-  assertTrue(r.compactIfNeeded());
+  r.flushcache();
+  r.compactStores();
   cellValues=r.get(STARTROW,COLUMN_FAMILY_TEXT,100);
   assertNull(cellValues);
   for (  MapFile.Reader reader : this.r.stores.get(COLUMN_FAMILY_TEXT_MINUS_COLON).getReaders()) {

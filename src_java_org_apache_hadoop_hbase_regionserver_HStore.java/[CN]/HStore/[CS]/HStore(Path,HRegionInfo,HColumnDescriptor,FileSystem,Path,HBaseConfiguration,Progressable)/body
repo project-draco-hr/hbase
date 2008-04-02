@@ -5,7 +5,10 @@
   this.fs=fs;
   this.conf=conf;
   this.compactionDir=HRegion.getCompactionDir(basedir);
-  this.storeName=this.info.getEncodedName() + "/" + this.family.getFamilyName();
+  this.storeName=new Text(this.info.getEncodedName() + "/" + this.family.getFamilyName());
+  this.compactionThreshold=conf.getInt("hbase.hstore.compactionThreshold",3);
+  this.desiredMaxFileSize=conf.getLong("hbase.hregion.max.filesize",DEFAULT_MAX_FILE_SIZE);
+  this.storeSize=0L;
   if (family.getCompression() == HColumnDescriptor.CompressionType.BLOCK) {
     this.compression=SequenceFile.CompressionType.BLOCK;
   }
@@ -37,11 +40,8 @@
   if (LOG.isDebugEnabled()) {
     LOG.debug("starting " + storeName);
   }
-  List<HStoreFile> hstoreFiles=loadHStoreFiles(infodir,mapdir);
-  for (  HStoreFile hsf : hstoreFiles) {
-    this.storefiles.put(Long.valueOf(hsf.loadInfo(fs)),hsf);
-  }
-  this.maxSeqId=getMaxSequenceId(hstoreFiles);
+  this.maxSeqId=-1L;
+  this.storefiles.putAll(loadHStoreFiles(infodir,mapdir));
   if (LOG.isDebugEnabled()) {
     LOG.debug("maximum sequence id for hstore " + storeName + " is "+ this.maxSeqId);
   }
@@ -51,7 +51,6 @@
  catch (  IOException e) {
     LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName+ " -- continuing.  Probably DATA LOSS!",e);
   }
-  this.compactionThreshold=conf.getInt("hbase.hstore.compactionThreshold",3);
   this.maxSeqId+=1;
   boolean first=true;
   for (  Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {

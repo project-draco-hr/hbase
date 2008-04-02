@@ -1,9 +1,9 @@
 {
   addContent(region,COLFAMILY_NAME3);
   region.flushcache();
-  Text midkey=new Text();
-  assertTrue(region.needsSplit(midkey));
-  HRegion[] regions=split(region);
+  Text midkey=region.compactStores();
+  assertNotNull(midkey);
+  HRegion[] regions=split(region,midkey);
   try {
     for (int i=0; i < regions.length; i++) {
       regions[i]=openClosedRegion(regions[i]);
@@ -12,10 +12,7 @@
     assertGet(regions[1],COLFAMILY_NAME3,midkey);
     assertScan(regions[0],COLFAMILY_NAME3,new Text(START_KEY));
     assertScan(regions[1],COLFAMILY_NAME3,midkey);
-    Text[] midkeys=new Text[regions.length];
     for (int i=0; i < regions.length; i++) {
-      midkeys[i]=new Text();
-      assertFalse(regions[i].needsSplit(midkeys[i]));
       for (int j=0; j < 2; j++) {
         addContent(regions[i],COLFAMILY_NAME3);
       }
@@ -23,18 +20,18 @@
       addContent(regions[i],COLFAMILY_NAME1);
       regions[i].flushcache();
     }
+    Text[] midkeys=new Text[regions.length];
     for (int i=0; i < regions.length; i++) {
-      midkeys[i]=new Text();
-      assertFalse(regions[i].needsSplit(midkeys[i]));
-    }
-    for (int i=0; i < regions.length; i++) {
-      regions[i].compactStores();
+      midkeys[i]=regions[i].compactStores();
     }
     TreeMap<String,HRegion> sortedMap=new TreeMap<String,HRegion>();
     for (int i=0; i < regions.length; i++) {
-      HRegion[] rs=split(regions[i]);
-      for (int j=0; j < rs.length; j++) {
-        sortedMap.put(rs[j].getRegionName().toString(),openClosedRegion(rs[j]));
+      HRegion[] rs=null;
+      if (midkeys[i] != null) {
+        rs=split(regions[i],midkeys[i]);
+        for (int j=0; j < rs.length; j++) {
+          sortedMap.put(rs[j].getRegionName().toString(),openClosedRegion(rs[j]));
+        }
       }
     }
     LOG.info("Made 4 regions");

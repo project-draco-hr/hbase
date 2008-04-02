@@ -1,6 +1,7 @@
 {
+  Text midKey=null;
   if (this.closed.get()) {
-    return false;
+    return midKey;
   }
   try {
 synchronized (writestate) {
@@ -8,22 +9,21 @@ synchronized (writestate) {
         writestate.compacting=true;
       }
  else {
-        LOG.info("NOT compacting region " + this.regionInfo.getRegionName().toString() + ": compacting="+ writestate.compacting+ ", writesEnabled="+ writestate.writesEnabled);
-        return false;
+        LOG.info("NOT compacting region " + getRegionName() + ": compacting="+ writestate.compacting+ ", writesEnabled="+ writestate.writesEnabled);
+        return midKey;
       }
     }
+    LOG.info("starting compaction on region " + getRegionName());
     long startTime=System.currentTimeMillis();
-    LOG.info("starting compaction on region " + this.regionInfo.getRegionName().toString());
-    boolean status=true;
     doRegionCompactionPrep();
     for (    HStore store : stores.values()) {
-      if (!store.compact()) {
-        status=false;
+      Text key=store.compact();
+      if (key != null && midKey == null) {
+        midKey=key;
       }
     }
     doRegionCompactionCleanup();
-    LOG.info("compaction completed on region " + this.regionInfo.getRegionName().toString() + ". Took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
-    return status;
+    LOG.info("compaction completed on region " + getRegionName() + ". Took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
   }
   finally {
 synchronized (writestate) {
@@ -31,4 +31,5 @@ synchronized (writestate) {
       writestate.notifyAll();
     }
   }
+  return midKey;
 }

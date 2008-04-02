@@ -1,19 +1,38 @@
 {
 synchronized (compactLock) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("started compaction of " + storefiles.size() + " files using "+ compactionDir.toString()+ " for "+ this.storeName);
-    }
-    List<HStoreFile> filesToCompact=new ArrayList<HStoreFile>(this.storefiles.values());
-    Collections.reverse(filesToCompact);
-    if (filesToCompact.size() < 1 || (filesToCompact.size() == 1 && !filesToCompact.get(0).isReference())) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("nothing to compact for " + this.storeName);
+    long maxId=-1;
+    List<HStoreFile> filesToCompact=null;
+synchronized (storefiles) {
+      filesToCompact=new ArrayList<HStoreFile>(this.storefiles.values());
+      if (filesToCompact.size() < 1) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Not compacting " + this.storeName + " because no store files to compact.");
+        }
+        return checkSplit();
       }
-      return false;
-    }
-    if (!fs.exists(compactionDir) && !fs.mkdirs(compactionDir)) {
-      LOG.warn("Mkdir on " + compactionDir.toString() + " failed");
-      return false;
+ else       if (filesToCompact.size() == 1) {
+        if (!filesToCompact.get(0).isReference()) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Not compacting " + this.storeName + " because only one store file and it is not a reference");
+          }
+          return checkSplit();
+        }
+      }
+ else       if (filesToCompact.size() < compactionThreshold) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Not compacting " + this.storeName + " because number of stores "+ filesToCompact.size()+ " < compaction threshold "+ compactionThreshold);
+        }
+        return checkSplit();
+      }
+      if (!fs.exists(compactionDir) && !fs.mkdirs(compactionDir)) {
+        LOG.warn("Mkdir on " + compactionDir.toString() + " failed");
+        return checkSplit();
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("started compaction of " + filesToCompact.size() + " files using "+ compactionDir.toString()+ " for "+ this.storeName);
+      }
+      Collections.reverse(filesToCompact);
+      maxId=this.storefiles.lastKey();
     }
     HStoreFile compactedOutputFile=new HStoreFile(conf,fs,this.compactionDir,info.getEncodedName(),family.getFamilyName(),-1L,null);
     MapFile.Writer compactedOut=compactedOutputFile.getWriter(this.fs,this.compression,this.bloomFilter);
@@ -23,9 +42,11 @@ synchronized (compactLock) {
   finally {
       compactedOut.close();
     }
-    long maxId=getMaxSequenceId(filesToCompact);
     compactedOutputFile.writeInfo(fs,maxId);
     completeCompaction(filesToCompact,compactedOutputFile);
-    return true;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Completed compaction of " + this.storeName + " store size is "+ StringUtils.humanReadableInt(storeSize));
+    }
   }
+  return checkSplit();
 }
