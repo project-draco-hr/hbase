@@ -1,0 +1,46 @@
+{
+  String serverName=serverInfo.getServerAddress().toString().trim();
+  if (msgs.length > 0) {
+    if (msgs[0].getMsg() == HMsg.MSG_REPORT_EXITING) {
+      processRegionServerExit(serverName,msgs);
+      return new HMsg[0];
+    }
+ else     if (msgs[0].getMsg() == HMsg.MSG_REPORT_QUIESCED) {
+      LOG.info("Region server " + serverName + " quiesced");
+      master.quiescedMetaServers.incrementAndGet();
+    }
+  }
+  if (master.quiescedMetaServers.get() >= serversToServerInfo.size()) {
+    LOG.info("All user tables quiesced. Proceeding with shutdown");
+    master.startShutdown();
+  }
+  if (master.shutdownRequested && !master.closed.get()) {
+    if (msgs.length > 0 && msgs[0].getMsg() == HMsg.MSG_REPORT_QUIESCED) {
+      return new HMsg[0];
+    }
+    return new HMsg[]{new HMsg(HMsg.MSG_REGIONSERVER_QUIESCE)};
+  }
+  if (master.closed.get()) {
+    return new HMsg[]{new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
+  }
+  HServerInfo storedInfo=serversToServerInfo.get(serverName);
+  if (storedInfo == null) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("received server report from unknown server: " + serverName);
+    }
+    return new HMsg[]{new HMsg(HMsg.MSG_CALL_SERVER_STARTUP)};
+  }
+ else   if (storedInfo.getStartCode() != serverInfo.getStartCode()) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("region server race condition detected: " + serverName);
+    }
+synchronized (serversToServerInfo) {
+      cancelLease(serverName);
+      serversToServerInfo.notifyAll();
+    }
+    return new HMsg[]{new HMsg(HMsg.MSG_REGIONSERVER_STOP)};
+  }
+ else {
+    return processRegionServerAllsWell(serverName,serverInfo,mostLoadedRegions,msgs);
+  }
+}

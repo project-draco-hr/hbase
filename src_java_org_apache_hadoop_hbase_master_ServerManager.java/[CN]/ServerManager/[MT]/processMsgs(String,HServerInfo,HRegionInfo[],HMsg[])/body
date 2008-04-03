@@ -1,0 +1,35 @@
+{
+  ArrayList<HMsg> returnMsgs=new ArrayList<HMsg>();
+  Map<Text,HRegionInfo> regionsToKill=master.regionManager.getMarkedToClose(serverName);
+  for (int i=0; i < incomingMsgs.length; i++) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Received " + incomingMsgs[i].toString() + " from "+ serverName);
+    }
+    HRegionInfo region=incomingMsgs[i].getRegionInfo();
+switch (incomingMsgs[i].getMsg()) {
+case HMsg.MSG_REPORT_PROCESS_OPEN:
+      master.regionManager.updateAssignmentDeadline(region);
+    break;
+case HMsg.MSG_REPORT_OPEN:
+  processRegionOpen(serverName,serverInfo,region,returnMsgs);
+break;
+case HMsg.MSG_REPORT_CLOSE:
+processRegionClose(serverInfo,region);
+break;
+case HMsg.MSG_REPORT_SPLIT:
+processSplitRegion(serverName,serverInfo,region,incomingMsgs[++i],incomingMsgs[++i],returnMsgs);
+break;
+default :
+throw new IOException("Impossible state during msg processing.  Instruction: " + incomingMsgs[i].getMsg());
+}
+}
+if (regionsToKill != null) {
+for (HRegionInfo i : regionsToKill.values()) {
+returnMsgs.add(new HMsg(HMsg.MSG_REGION_CLOSE,i));
+master.regionManager.setClosing(i.getRegionName());
+master.regionManager.noLongerMarkedToClose(serverName,i.getRegionName());
+}
+}
+master.regionManager.assignRegions(serverInfo,serverName,mostLoadedRegions,returnMsgs);
+return returnMsgs.toArray(new HMsg[returnMsgs.size()]);
+}
