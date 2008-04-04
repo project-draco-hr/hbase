@@ -14,10 +14,10 @@
 catch (  org.xml.sax.SAXException e) {
     throw new ServletException(e);
   }
-  long lock_id=-1;
+  BatchUpdate batchUpdate;
   try {
     Text key=new Text(row);
-    lock_id=table.startUpdate(key);
+    batchUpdate=timestamp == null ? new BatchUpdate(key) : new BatchUpdate(key,Long.parseLong(timestamp));
     NodeList columns=doc.getElementsByTagName("column");
     for (int i=0; i < columns.getLength(); i++) {
       Element column=(Element)columns.item(i);
@@ -28,20 +28,12 @@ catch (  org.xml.sax.SAXException e) {
       if (value_node.getFirstChild() != null && value_node.getFirstChild().getNodeValue() != null) {
         value=org.apache.hadoop.hbase.util.Base64.decode(value_node.getFirstChild().getNodeValue());
       }
-      table.put(lock_id,name,value);
+      batchUpdate.put(name,value);
     }
-    if (timestamp != null) {
-      table.commit(lock_id,Long.parseLong(timestamp));
-    }
- else {
-      table.commit(lock_id);
-    }
+    table.commit(batchUpdate);
     response.setStatus(200);
   }
  catch (  Exception e) {
-    if (lock_id != -1) {
-      table.abort(lock_id);
-    }
     throw new ServletException(e);
   }
 }
