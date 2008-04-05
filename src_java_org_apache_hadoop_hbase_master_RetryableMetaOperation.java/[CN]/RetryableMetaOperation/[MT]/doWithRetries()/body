@@ -1,0 +1,37 @@
+{
+  List<IOException> exceptions=new ArrayList<IOException>();
+  for (int tries=0; tries < master.numRetries; tries++) {
+    if (master.closed.get()) {
+      return null;
+    }
+    try {
+      this.server=master.connection.getHRegionConnection(m.getServer());
+      return this.call();
+    }
+ catch (    IOException e) {
+      if (e instanceof RemoteException) {
+        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+      }
+      if (tries == master.numRetries - 1) {
+        if (LOG.isDebugEnabled()) {
+          StringBuilder message=new StringBuilder("Trying to contact region server for regionName '" + m.getRegionName() + "', but failed after "+ (tries + 1)+ " attempts.\n");
+          int i=1;
+          for (          IOException e2 : exceptions) {
+            message.append("Exception " + i + ":\n"+ e2);
+          }
+          LOG.debug(message);
+        }
+        this.master.checkFileSystem();
+        throw e;
+      }
+      if (LOG.isDebugEnabled()) {
+        exceptions.add(e);
+      }
+    }
+catch (    Exception e) {
+      throw new RuntimeException(e);
+    }
+    master.sleeper.sleep();
+  }
+  return null;
+}

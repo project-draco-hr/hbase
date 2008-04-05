@@ -18,27 +18,9 @@
     return true;
   }
   if (!rootRescanned) {
-    HRegionInterface server=null;
-    long scannerId=-1L;
-    for (int tries=0; tries < numRetries; tries++) {
-      if (master.closed.get()) {
-        return true;
-      }
-      server=master.connection.getHRegionConnection(master.getRootRegionLocation());
-      scannerId=-1L;
-      try {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("process server shutdown scanning root region on " + master.getRootRegionLocation().getBindAddress());
-        }
-        scannerId=server.openScanner(HRegionInfo.rootRegionInfo.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
-        scanMetaRegion(server,scannerId,HRegionInfo.rootRegionInfo.getRegionName());
-        break;
-      }
- catch (      IOException e) {
-        if (tries == numRetries - 1) {
-          throw RemoteExceptionHandler.checkIOException(e);
-        }
-      }
+    Boolean result=new ScanRootRegion(new MetaRegion(master.getRootRegionLocation(),HRegionInfo.rootRegionInfo.getRegionName(),HConstants.EMPTY_START_ROW),this.master).doWithRetries();
+    if (result == null) {
+      return true;
     }
     if (LOG.isDebugEnabled()) {
       LOG.debug("process server shutdown scanning root region on " + master.getRootRegionLocation().getBindAddress() + " finished "+ Thread.currentThread().getName());
@@ -48,33 +30,16 @@
   if (!metaTableAvailable()) {
     return true;
   }
-  for (int tries=0; tries < numRetries; tries++) {
-    try {
-      if (master.closed.get()) {
-        return true;
-      }
-      List<MetaRegion> regions=master.regionManager.getListOfOnlineMetaRegions();
-      for (      MetaRegion r : regions) {
-        HRegionInterface server=null;
-        long scannerId=-1L;
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("process server shutdown scanning " + r.getRegionName() + " on "+ r.getServer()+ " "+ Thread.currentThread().getName()+ " attempt "+ tries);
-        }
-        server=master.connection.getHRegionConnection(r.getServer());
-        scannerId=server.openScanner(r.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,System.currentTimeMillis(),null);
-        scanMetaRegion(server,scannerId,r.getRegionName());
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("process server shutdown finished scanning " + r.getRegionName() + " on "+ r.getServer()+ " "+ Thread.currentThread().getName());
-        }
-      }
-      master.serverManager.removeDeadServer(deadServerName);
+  List<MetaRegion> regions=master.regionManager.getListOfOnlineMetaRegions();
+  for (  MetaRegion r : regions) {
+    Boolean result=new ScanMetaRegions(r,this.master).doWithRetries();
+    if (result == null) {
       break;
     }
- catch (    IOException e) {
-      if (tries == numRetries - 1) {
-        throw RemoteExceptionHandler.checkIOException(e);
-      }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("process server shutdown finished scanning " + r.getRegionName() + " on "+ r.getServer());
     }
   }
+  master.serverManager.removeDeadServer(deadServerName);
   return true;
 }

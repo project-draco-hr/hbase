@@ -1,29 +1,21 @@
 {
-  for (int tries=0; tries < numRetries; tries++) {
-    if (master.closed.get()) {
-      return true;
-    }
-    LOG.info("region closed: " + regionInfo.getRegionName());
-    if (!metaRegionAvailable()) {
-      return true;
-    }
-    try {
+  Boolean result=new RetryableMetaOperation<Boolean>(this.metaRegion,this.master){
+    public Boolean call() throws IOException {
+      LOG.info("region closed: " + regionInfo.getRegionName());
+      if (!metaRegionAvailable()) {
+        return true;
+      }
       if (deleteRegion) {
-        HRegion.removeRegionFromMETA(getMetaServer(),metaRegionName,regionInfo.getRegionName());
+        HRegion.removeRegionFromMETA(server,metaRegionName,regionInfo.getRegionName());
       }
  else       if (offlineRegion) {
-        HRegion.offlineRegionInMETA(getMetaServer(),metaRegionName,regionInfo);
+        HRegion.offlineRegionInMETA(server,metaRegionName,regionInfo);
         master.regionManager.regionOfflined(regionInfo.getRegionName());
       }
-      break;
-    }
- catch (    IOException e) {
-      if (tries == numRetries - 1) {
-        throw RemoteExceptionHandler.checkIOException(e);
-      }
-      continue;
+      return true;
     }
   }
+.doWithRetries();
   if (deleteRegion) {
     try {
       HRegion.deleteRegion(master.fs,master.rootdir,regionInfo);
@@ -34,5 +26,5 @@
       throw e;
     }
   }
-  return true;
+  return result == null ? true : result;
 }
