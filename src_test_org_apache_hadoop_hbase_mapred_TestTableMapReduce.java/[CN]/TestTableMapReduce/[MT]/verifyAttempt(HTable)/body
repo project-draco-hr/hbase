@@ -1,23 +1,21 @@
 {
-  HScannerInterface scanner=table.obtainScanner(columns,HConstants.EMPTY_START_ROW);
+  Scanner scanner=table.getScanner(columns,HConstants.EMPTY_START_ROW);
   try {
-    HStoreKey key=new HStoreKey();
-    TreeMap<Text,byte[]> results=new TreeMap<Text,byte[]>();
-    while (scanner.next(key,results)) {
+    for (    RowResult r : scanner) {
       if (LOG.isDebugEnabled()) {
-        if (results.size() > 2) {
-          throw new IOException("Too many results, expected 2 got " + results.size());
+        if (r.size() > 2) {
+          throw new IOException("Too many results, expected 2 got " + r.size());
         }
       }
       byte[] firstValue=null;
       byte[] secondValue=null;
       int count=0;
-      for (      Map.Entry<Text,byte[]> e : results.entrySet()) {
+      for (      Map.Entry<Text,Cell> e : r.entrySet()) {
         if (count == 0) {
-          firstValue=e.getValue();
+          firstValue=e.getValue().getValue();
         }
         if (count == 1) {
-          secondValue=e.getValue();
+          secondValue=e.getValue().getValue();
         }
         count++;
         if (count == 2) {
@@ -26,12 +24,12 @@
       }
       String first="";
       if (firstValue == null) {
-        throw new NullPointerException(key.getRow().toString() + ": first value is null");
+        throw new NullPointerException(r.getRow().toString() + ": first value is null");
       }
       first=new String(firstValue,HConstants.UTF8_ENCODING);
       String second="";
       if (secondValue == null) {
-        throw new NullPointerException(key.getRow().toString() + ": second value is null");
+        throw new NullPointerException(r.getRow().toString() + ": second value is null");
       }
       byte[] secondReversed=new byte[secondValue.length];
       for (int i=0, j=secondValue.length - 1; j >= 0; j--, i++) {
@@ -40,7 +38,7 @@
       second=new String(secondReversed,HConstants.UTF8_ENCODING);
       if (first.compareTo(second) != 0) {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("second key is not the reverse of first. row=" + key.getRow() + ", first value="+ first+ ", second value="+ second);
+          LOG.debug("second key is not the reverse of first. row=" + r.getRow() + ", first value="+ first+ ", second value="+ second);
         }
         fail();
       }

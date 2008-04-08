@@ -1,28 +1,19 @@
 {
   Text tableName=newRegion.getTableDesc().getName();
-  if (tableInCreation.contains(tableName)) {
-    throw new TableExistsException("Table " + tableName + " in process "+ "of being created");
-  }
-  tableInCreation.add(tableName);
+  MetaRegion m=regionManager.getFirstMetaRegionForRegion(newRegion);
+  Text metaRegionName=m.getRegionName();
+  HRegionInterface srvr=connection.getHRegionConnection(m.getServer());
+  long scannerid=srvr.openScanner(metaRegionName,COL_REGIONINFO_ARRAY,tableName,LATEST_TIMESTAMP,null);
   try {
-    MetaRegion m=regionManager.getFirstMetaRegionForRegion(newRegion);
-    Text metaRegionName=m.getRegionName();
-    HRegionInterface srvr=connection.getHRegionConnection(m.getServer());
-    long scannerid=srvr.openScanner(metaRegionName,COL_REGIONINFO_ARRAY,tableName,System.currentTimeMillis(),null);
-    try {
-      RowResult data=srvr.next(scannerid);
-      if (data != null && data.size() > 0) {
-        if (HRegionInfo.getTableNameFromRegionName(data.getRow()).equals(tableName)) {
-          throw new TableExistsException(tableName.toString());
-        }
+    RowResult data=srvr.next(scannerid);
+    if (data != null && data.size() > 0) {
+      if (HRegionInfo.getTableNameFromRegionName(data.getRow()).equals(tableName)) {
+        throw new TableExistsException(tableName.toString());
       }
     }
-  finally {
-      srvr.close(scannerid);
-    }
-    regionManager.createRegion(newRegion,srvr,metaRegionName);
   }
   finally {
-    tableInCreation.remove(newRegion.getTableDesc().getName());
+    srvr.close(scannerid);
   }
+  regionManager.createRegion(newRegion,srvr,metaRegionName);
 }
