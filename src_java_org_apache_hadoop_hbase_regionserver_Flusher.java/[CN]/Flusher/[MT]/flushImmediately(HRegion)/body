@@ -1,0 +1,29 @@
+{
+  try {
+    if (region != null) {
+synchronized (regionsInQueue) {
+        regionsInQueue.remove(region);
+        flushQueue.remove(region);
+      }
+synchronized (lock) {
+        if (region.flushcache()) {
+          server.compactSplitThread.compactionRequested(region);
+        }
+      }
+    }
+  }
+ catch (  DroppedSnapshotException ex) {
+    LOG.fatal("Replay of hlog required. Forcing server restart",ex);
+    if (!server.checkFileSystem()) {
+      return false;
+    }
+    server.stop();
+  }
+catch (  IOException ex) {
+    LOG.error("Cache flush failed" + (region != null ? (" for region " + region.getRegionName()) : ""),RemoteExceptionHandler.checkIOException(ex));
+    if (!server.checkFileSystem()) {
+      return false;
+    }
+  }
+  return true;
+}
