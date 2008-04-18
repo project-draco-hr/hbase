@@ -1,15 +1,15 @@
 {
   while (!server.isStopRequested()) {
-    while (!rollLog && !server.isStopRequested()) {
+    while (!rollLog.get() && !server.isStopRequested()) {
       long now=System.currentTimeMillis();
       if (this.lastLogRollTime + this.optionalLogRollInterval <= now) {
-        rollLog=true;
+        rollLog.set(true);
         this.lastLogRollTime=now;
       }
  else {
-synchronized (rollLock) {
+synchronized (rollLog) {
           try {
-            rollLock.wait(server.threadWakeFrequency);
+            rollLog.wait(server.threadWakeFrequency);
           }
  catch (          InterruptedException e) {
             continue;
@@ -17,25 +17,26 @@ synchronized (rollLock) {
         }
       }
     }
-    if (!rollLog) {
+    if (!rollLog.get()) {
       continue;
     }
-synchronized (server.logRollerLock) {
-      try {
-        LOG.info("Rolling hlog. Number of entries: " + server.getLog().getNumEntries());
-        server.getLog().rollWriter();
-      }
- catch (      IOException ex) {
-        LOG.error("Log rolling failed",RemoteExceptionHandler.checkIOException(ex));
-        server.checkFileSystem();
-      }
-catch (      Exception ex) {
-        LOG.error("Log rolling failed",ex);
-        server.checkFileSystem();
-      }
+    rollLock.lock();
+    try {
+      LOG.info("Rolling hlog. Number of entries: " + server.getLog().getNumEntries());
+      server.getLog().rollWriter();
+    }
+ catch (    IOException ex) {
+      LOG.error("Log rolling failed",RemoteExceptionHandler.checkIOException(ex));
+      server.checkFileSystem();
+    }
+catch (    Exception ex) {
+      LOG.error("Log rolling failed",ex);
+      server.checkFileSystem();
+    }
  finally {
-        rollLog=false;
-      }
+      rollLog.set(false);
+      rollLock.unlock();
     }
   }
+  LOG.info("LogRoller exiting.");
 }
