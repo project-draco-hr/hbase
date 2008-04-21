@@ -1,12 +1,12 @@
 {
+  long flushed=0;
   if (cache.size() == 0) {
-    return;
+    return flushed;
   }
 synchronized (flushLock) {
     HStoreFile flushedFile=new HStoreFile(conf,fs,basedir,info.getEncodedName(),family.getFamilyName(),-1L,null);
     MapFile.Writer out=flushedFile.getWriter(this.fs,this.compression,this.bloomFilter);
     int entries=0;
-    long cacheSize=0;
     try {
       for (      Map.Entry<HStoreKey,byte[]> es : cache.entrySet()) {
         HStoreKey curkey=es.getKey();
@@ -15,7 +15,7 @@ synchronized (flushLock) {
         if (f.equals(this.family.getFamilyName())) {
           entries++;
           out.append(curkey,new ImmutableBytesWritable(bytes));
-          cacheSize+=curkey.getSize() + (bytes != null ? bytes.length : 0);
+          flushed+=HRegion.getEntrySize(curkey,bytes);
         }
       }
     }
@@ -34,11 +34,12 @@ synchronized (flushLock) {
       this.readers.put(flushid,flushedFile.getReader(this.fs,this.bloomFilter));
       this.storefiles.put(flushid,flushedFile);
       if (LOG.isDebugEnabled()) {
-        LOG.debug("Added " + flushedFile.toString() + " with "+ entries+ " entries, sequence id "+ logCacheFlushId+ ", data size "+ StringUtils.humanReadableInt(cacheSize)+ ", file size "+ StringUtils.humanReadableInt(newStoreSize)+ " for "+ this.storeName);
+        LOG.debug("Added " + FSUtils.getPath(flushedFile.getMapFilePath()) + " with "+ entries+ " entries, sequence id "+ logCacheFlushId+ ", data size "+ StringUtils.humanReadableInt(flushed)+ ", file size "+ StringUtils.humanReadableInt(newStoreSize));
       }
     }
   finally {
       this.lock.writeLock().unlock();
     }
   }
+  return flushed;
 }

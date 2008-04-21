@@ -1,0 +1,38 @@
+{
+  final long startTime=System.currentTimeMillis();
+  this.flushRequested=false;
+  this.lastFlushTime=startTime;
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Started memcache flush for region " + this.regionInfo.getRegionName() + ". Current region memcache size "+ StringUtils.humanReadableInt(this.memcacheSize.get()));
+  }
+synchronized (updateLock) {
+    for (    HStore s : stores.values()) {
+      s.snapshot();
+    }
+  }
+  long sequenceId=log.startCacheFlush();
+  try {
+    for (    HStore hstore : stores.values()) {
+      long flushed=hstore.flushCache(sequenceId);
+      long size=this.memcacheSize.addAndGet(-flushed);
+      if (size < 0) {
+        if (LOG.isDebugEnabled()) {
+          LOG.warn("Memcache size went negative " + size + "; resetting");
+        }
+        this.memcacheSize.set(0);
+      }
+    }
+  }
+ catch (  IOException e) {
+    this.log.abortCacheFlush();
+    throw new DroppedSnapshotException(e.getMessage());
+  }
+  this.log.completeCacheFlush(this.regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),sequenceId);
+synchronized (this) {
+    notifyAll();
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Finished memcache flush for region " + this.regionInfo.getRegionName() + " in "+ (System.currentTimeMillis() - startTime)+ "ms, sequence id="+ sequenceId);
+  }
+  return true;
+}
