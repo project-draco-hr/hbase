@@ -2,7 +2,9 @@
   if (updatesByColumn == null || updatesByColumn.size() <= 0) {
     return;
   }
-synchronized (updateLock) {
+  boolean flush=false;
+  this.updatesLock.readLock().lock();
+  try {
     this.log.append(regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),updatesByColumn);
     long size=0;
     for (    Map.Entry<HStoreKey,byte[]> e : updatesByColumn.entrySet()) {
@@ -11,9 +13,13 @@ synchronized (updateLock) {
       size=this.memcacheSize.addAndGet(getEntrySize(key,val));
       stores.get(HStoreKey.extractFamily(key.getColumn())).add(key,val);
     }
-    if (this.flushListener != null && !this.flushRequested && size > this.memcacheFlushSize) {
-      this.flushListener.flushRequested(this);
-      this.flushRequested=true;
-    }
+    flush=this.flushListener != null && !this.flushRequested && size > this.memcacheFlushSize;
+  }
+  finally {
+    this.updatesLock.readLock().unlock();
+  }
+  if (flush) {
+    this.flushListener.request(this);
+    this.flushRequested=true;
   }
 }

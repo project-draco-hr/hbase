@@ -1,62 +1,50 @@
 {
-  newScannerLock.writeLock().lock();
+  this.lock.writeLock().lock();
   try {
-synchronized (activeScanners) {
-      while (activeScanners.get() != 0) {
-        try {
-          activeScanners.wait();
-        }
- catch (        InterruptedException e) {
-        }
-      }
-      this.lock.writeLock().lock();
+    HStoreFile finalCompactedFile=new HStoreFile(conf,fs,basedir,info.getEncodedName(),family.getFamilyName(),-1,null);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("moving " + FSUtils.getPath(compactedFile.getMapFilePath()) + " to "+ FSUtils.getPath(finalCompactedFile.getMapFilePath()));
     }
-    try {
-      HStoreFile finalCompactedFile=new HStoreFile(conf,fs,basedir,info.getEncodedName(),family.getFamilyName(),-1,null);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("moving " + FSUtils.getPath(compactedFile.getMapFilePath()) + " to "+ FSUtils.getPath(finalCompactedFile.getMapFilePath()));
-      }
-      if (!compactedFile.rename(this.fs,finalCompactedFile)) {
-        LOG.error("Failed move of compacted file " + finalCompactedFile.getMapFilePath().toString());
-        return;
-      }
+    if (!compactedFile.rename(this.fs,finalCompactedFile)) {
+      LOG.error("Failed move of compacted file " + finalCompactedFile.getMapFilePath().toString());
+      return;
+    }
 synchronized (storefiles) {
-        List<Long> toDelete=new ArrayList<Long>();
-        for (        Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
-          if (!compactedFiles.contains(e.getValue())) {
-            continue;
-          }
-          Long key=e.getKey();
-          MapFile.Reader reader=this.readers.remove(key);
-          if (reader != null) {
-            reader.close();
-          }
-          toDelete.add(key);
+      Map<Long,HStoreFile> toDelete=new HashMap<Long,HStoreFile>();
+      for (      Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
+        if (!compactedFiles.contains(e.getValue())) {
+          continue;
         }
-        try {
-          for (          Long key : toDelete) {
-            HStoreFile hsf=this.storefiles.remove(key);
-            hsf.delete();
-          }
-          Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
-          this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.bloomFilter,family.isBlockCacheEnabled()));
-          this.storefiles.put(orderVal,finalCompactedFile);
+        Long key=e.getKey();
+        MapFile.Reader reader=this.readers.remove(key);
+        if (reader != null) {
+          reader.close();
         }
- catch (        IOException e) {
-          e=RemoteExceptionHandler.checkIOException(e);
-          LOG.error("Failed replacing compacted files for " + this.storeName + ". Compacted file is "+ finalCompactedFile.toString()+ ".  Files replaced are "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+        toDelete.put(key,e.getValue());
+      }
+      try {
+        for (        Long key : toDelete.keySet()) {
+          this.storefiles.remove(key);
         }
-        storeSize=0L;
-        for (        HStoreFile hsf : storefiles.values()) {
-          storeSize+=hsf.length();
+        Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
+        this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.bloomFilter,family.isBlockCacheEnabled()));
+        this.storefiles.put(orderVal,finalCompactedFile);
+        notifyChangedReadersObservers();
+        for (        HStoreFile hsf : toDelete.values()) {
+          hsf.delete();
         }
       }
-    }
-  finally {
-      this.lock.writeLock().unlock();
+ catch (      IOException e) {
+        e=RemoteExceptionHandler.checkIOException(e);
+        LOG.error("Failed replacing compacted files for " + this.storeName + ". Compacted file is "+ finalCompactedFile.toString()+ ".  Files replaced are "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+      }
+      storeSize=0L;
+      for (      HStoreFile hsf : storefiles.values()) {
+        storeSize+=hsf.length();
+      }
     }
   }
   finally {
-    newScannerLock.writeLock().unlock();
+    this.lock.writeLock().unlock();
   }
 }
