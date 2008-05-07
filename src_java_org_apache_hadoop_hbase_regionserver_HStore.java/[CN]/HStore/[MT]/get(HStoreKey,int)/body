@@ -3,6 +3,7 @@
     throw new IllegalArgumentException("Number of versions must be > 0");
   }
   this.lock.readLock().lock();
+  long now=System.currentTimeMillis();
   try {
     List<Cell> results=this.memcache.get(key,numVersions);
     if (results.size() == numVersions) {
@@ -23,14 +24,28 @@ synchronized (map) {
           continue;
         }
         if (!isDeleted(readkey,readval.get(),true,deletes)) {
-          results.add(new Cell(readval.get(),readkey.getTimestamp()));
+          if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+            results.add(new Cell(readval.get(),readkey.getTimestamp()));
+          }
+ else {
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("get: " + readkey + ": expired, skipped");
+            }
+          }
           if (hasEnoughVersions(numVersions,results)) {
             break;
           }
         }
         for (readval=new ImmutableBytesWritable(); map.next(readkey,readval) && readkey.matchesRowCol(key) && !hasEnoughVersions(numVersions,results); readval=new ImmutableBytesWritable()) {
           if (!isDeleted(readkey,readval.get(),true,deletes)) {
-            results.add(new Cell(readval.get(),readkey.getTimestamp()));
+            if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+              results.add(new Cell(readval.get(),readkey.getTimestamp()));
+            }
+ else {
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("get: " + readkey + ": expired, skipped");
+              }
+            }
           }
         }
       }

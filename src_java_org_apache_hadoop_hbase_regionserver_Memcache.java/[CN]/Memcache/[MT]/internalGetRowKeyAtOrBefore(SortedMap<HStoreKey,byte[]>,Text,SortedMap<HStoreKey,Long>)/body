@@ -3,6 +3,8 @@
   HStoreKey search_key=candidateKeys.isEmpty() ? new HStoreKey(key) : new HStoreKey(candidateKeys.firstKey().getRow());
   Iterator<HStoreKey> key_iterator=null;
   HStoreKey found_key=null;
+  ArrayList<HStoreKey> victims=new ArrayList<HStoreKey>();
+  long now=System.currentTimeMillis();
   SortedMap<HStoreKey,byte[]> tailMap=map.tailMap(search_key);
   if (!tailMap.isEmpty() && tailMap.firstKey().getRow().compareTo(key) <= 0) {
     key_iterator=tailMap.keySet().iterator();
@@ -19,7 +21,15 @@
           }
         }
  else {
-          candidateKeys.put(strippedKey,new Long(found_key.getTimestamp()));
+          if (ttl == HConstants.FOREVER || now < found_key.getTimestamp() + ttl) {
+            candidateKeys.put(strippedKey,new Long(found_key.getTimestamp()));
+          }
+ else {
+            victims.add(found_key);
+            if (LOG.isDebugEnabled()) {
+              LOG.debug(":" + found_key + ": expired, skipped");
+            }
+          }
         }
       }
     }
@@ -39,8 +49,16 @@
           break;
         }
         if (!HLogEdit.isDeleted(headMap.get(thisKey))) {
-          lastRowFound=thisKey.getRow();
-          candidateKeys.put(stripTimestamp(thisKey),new Long(thisKey.getTimestamp()));
+          if (ttl == HConstants.FOREVER || now < found_key.getTimestamp() + ttl) {
+            lastRowFound=thisKey.getRow();
+            candidateKeys.put(stripTimestamp(thisKey),new Long(thisKey.getTimestamp()));
+          }
+ else {
+            victims.add(found_key);
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("internalGetRowKeyAtOrBefore: " + found_key + ": expired, skipped");
+            }
+          }
         }
       }
     }
@@ -59,10 +77,19 @@
           }
         }
  else {
-          candidateKeys.put(stripTimestamp(found_key),Long.valueOf(found_key.getTimestamp()));
+          if (ttl == HConstants.FOREVER || now < found_key.getTimestamp() + ttl) {
+            candidateKeys.put(stripTimestamp(found_key),Long.valueOf(found_key.getTimestamp()));
+          }
+ else {
+            victims.add(found_key);
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("internalGetRowKeyAtOrBefore: " + found_key + ": expired, skipped");
+            }
+          }
         }
       }
  while (key_iterator.hasNext());
     }
   }
+  for (  HStoreKey victim : victims)   map.remove(victim);
 }

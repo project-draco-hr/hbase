@@ -1,5 +1,6 @@
 {
 synchronized (map) {
+    long now=System.currentTimeMillis();
     map.reset();
     ImmutableBytesWritable readval=new ImmutableBytesWritable();
     HStoreKey readkey=(HStoreKey)map.getClosest(key,readval);
@@ -16,8 +17,15 @@ synchronized (map) {
         }
  else         if (!(deletes.containsKey(readcol) && deletes.get(readcol).longValue() >= readkey.getTimestamp())) {
           if (!(deletes.containsKey(readcol) && deletes.get(readcol).longValue() >= readkey.getTimestamp())) {
-            results.put(new Text(readcol),new Cell(readval.get(),readkey.getTimestamp()));
-            readval=new ImmutableBytesWritable();
+            if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+              results.put(new Text(readcol),new Cell(readval.get(),readkey.getTimestamp()));
+              readval=new ImmutableBytesWritable();
+            }
+ else {
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("getFullFromMapFile: " + readkey + ": expired, skipped");
+              }
+            }
           }
         }
       }

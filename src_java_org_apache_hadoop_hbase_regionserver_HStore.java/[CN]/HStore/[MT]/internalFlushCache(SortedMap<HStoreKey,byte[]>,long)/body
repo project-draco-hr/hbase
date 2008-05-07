@@ -4,6 +4,7 @@
     return flushed;
   }
 synchronized (flushLock) {
+    long now=System.currentTimeMillis();
     HStoreFile flushedFile=new HStoreFile(conf,fs,basedir,info.getEncodedName(),family.getFamilyName(),-1L,null);
     MapFile.Writer out=flushedFile.getWriter(this.fs,this.compression,this.bloomFilter);
     int entries=0;
@@ -13,9 +14,16 @@ synchronized (flushLock) {
         byte[] bytes=es.getValue();
         TextSequence f=HStoreKey.extractFamily(curkey.getColumn());
         if (f.equals(this.family.getFamilyName())) {
-          entries++;
-          out.append(curkey,new ImmutableBytesWritable(bytes));
-          flushed+=HRegion.getEntrySize(curkey,bytes);
+          if (ttl == HConstants.FOREVER || now < curkey.getTimestamp() + ttl) {
+            entries++;
+            out.append(curkey,new ImmutableBytesWritable(bytes));
+            flushed+=HRegion.getEntrySize(curkey,bytes);
+          }
+ else {
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("internalFlushCache: " + curkey + ": expired, skipped");
+            }
+          }
         }
       }
     }
