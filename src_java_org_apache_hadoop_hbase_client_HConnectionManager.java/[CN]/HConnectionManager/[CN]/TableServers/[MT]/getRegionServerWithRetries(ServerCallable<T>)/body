@@ -1,0 +1,30 @@
+{
+  List<Throwable> exceptions=new ArrayList<Throwable>();
+  for (int tries=0; tries < numRetries; tries++) {
+    try {
+      callable.instantiateServer(tries != 0);
+      return callable.call();
+    }
+ catch (    Throwable t) {
+      if (t instanceof UndeclaredThrowableException) {
+        t=t.getCause();
+      }
+      if (t instanceof RemoteException) {
+        t=RemoteExceptionHandler.decodeRemoteException((RemoteException)t);
+      }
+      exceptions.add(t);
+      if (tries == numRetries - 1) {
+        throw new RetriesExhaustedException(callable.getServerName(),callable.getRegionName(),callable.getRow(),tries,exceptions);
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("reloading table servers because: " + t.getMessage());
+      }
+    }
+    try {
+      Thread.sleep(pause);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  return null;
+}

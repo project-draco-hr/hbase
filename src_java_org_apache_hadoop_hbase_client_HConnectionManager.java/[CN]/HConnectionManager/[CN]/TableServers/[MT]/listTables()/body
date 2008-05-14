@@ -1,39 +1,25 @@
 {
   HashSet<HTableDescriptor> uniqueTables=new HashSet<HTableDescriptor>();
-  long scannerId=-1L;
-  HRegionInterface server=null;
   Text startRow=EMPTY_START_ROW;
-  HRegionLocation metaLocation=null;
   do {
-    for (int triesSoFar=0; triesSoFar < numRetries; triesSoFar++) {
-      try {
-        metaLocation=locateRegion(META_TABLE_NAME,startRow);
-        server=getHRegionConnection(metaLocation.getServerAddress());
-        scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),new Text[]{COL_REGIONINFO},startRow,LATEST_TIMESTAMP,null);
-        while (true) {
-          RowResult values=server.next(scannerId);
-          if (values == null || values.size() == 0) {
-            break;
-          }
-          HRegionInfo info=Writables.getHRegionInfo(values.get(COL_REGIONINFO));
-          if (info.getStartKey().getLength() == 0) {
-            uniqueTables.add(info.getTableDesc());
-          }
+    ScannerCallable callable=new ScannerCallable(this,META_TABLE_NAME,COL_REGIONINFO_ARRAY,startRow,LATEST_TIMESTAMP,null);
+    try {
+      getRegionServerWithRetries(callable);
+      while (true) {
+        RowResult values=getRegionServerWithRetries(callable);
+        if (values == null || values.size() == 0) {
+          break;
         }
-        server.close(scannerId);
-        scannerId=-1L;
-        startRow=metaLocation.getRegionInfo().getEndKey();
-        break;
-      }
- catch (      IOException e) {
-        metaLocation=relocateRegion(META_TABLE_NAME,startRow);
-        continue;
-      }
- finally {
-        if (scannerId != -1L && server != null) {
-          server.close(scannerId);
+        HRegionInfo info=Writables.getHRegionInfo(values.get(COL_REGIONINFO));
+        if (info.getStartKey().getLength() == 0) {
+          uniqueTables.add(info.getTableDesc());
         }
       }
+      startRow=callable.getHRegionInfo().getEndKey();
+    }
+  finally {
+      callable.setClose();
+      getRegionServerWithRetries(callable);
     }
   }
  while (startRow.compareTo(LAST_ROW) != 0);

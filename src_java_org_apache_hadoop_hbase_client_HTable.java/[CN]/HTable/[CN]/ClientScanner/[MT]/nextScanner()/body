@@ -1,51 +1,31 @@
 {
-  if (this.scannerId != -1L) {
-    this.server.close(this.scannerId);
-    this.scannerId=-1L;
+  if (this.callable != null) {
+    this.callable.setClose();
+    connection.getRegionServerWithRetries(callable);
+    this.callable=null;
   }
-  if (currentRegionLocation != null) {
-    LOG.debug("Advancing forward from region " + currentRegionLocation.getRegionInfo());
-    Text endKey=currentRegionLocation.getRegionInfo().getEndKey();
+  if (currentRegion != null) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Advancing forward from region " + currentRegion);
+    }
+    Text endKey=currentRegion.getEndKey();
     if (endKey == null || endKey.equals(EMPTY_TEXT)) {
       close();
       return false;
     }
   }
-  HRegionLocation oldLocation=this.currentRegionLocation;
-  Text localStartKey=oldLocation == null ? startRow : oldLocation.getRegionInfo().getEndKey();
-  currentRegionLocation=getRegionLocation(localStartKey);
-  LOG.debug("Advancing internal scanner to startKey " + localStartKey + ", new region: "+ currentRegionLocation);
+  HRegionInfo oldRegion=this.currentRegion;
+  Text localStartKey=oldRegion == null ? startRow : oldRegion.getEndKey();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Advancing internal scanner to startKey " + localStartKey);
+  }
   try {
-    for (int tries=0; tries < numRetries; tries++) {
-      server=connection.getHRegionConnection(this.currentRegionLocation.getServerAddress());
-      try {
-        scannerId=server.openScanner(this.currentRegionLocation.getRegionInfo().getRegionName(),this.columns,localStartKey,scanTime,filter);
-        break;
-      }
- catch (      IOException e) {
-        if (e instanceof RemoteException) {
-          e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-        }
-        if (tries == numRetries - 1) {
-          throw e;
-        }
-        try {
-          Thread.sleep(pause);
-        }
- catch (        InterruptedException ie) {
-        }
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("reloading table servers because: " + e.getMessage());
-        }
-        currentRegionLocation=getRegionLocation(localStartKey,true);
-      }
-    }
+    callable=new ScannerCallable(connection,tableName,columns,localStartKey,scanTime,filter);
+    connection.getRegionServerWithRetries(callable);
+    currentRegion=callable.getHRegionInfo();
   }
  catch (  IOException e) {
     close();
-    if (e instanceof RemoteException) {
-      e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-    }
     throw e;
   }
   return true;
