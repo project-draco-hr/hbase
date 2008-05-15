@@ -1,0 +1,38 @@
+{
+synchronized (map) {
+    long now=System.currentTimeMillis();
+    map.reset();
+    ImmutableBytesWritable readval=new ImmutableBytesWritable();
+    HStoreKey readkey=(HStoreKey)map.getClosest(key,readval);
+    if (readkey == null) {
+      return;
+    }
+    do {
+      byte[] readcol=readkey.getColumn();
+      if ((columns == null || columns.contains(readcol)) && !results.containsKey(readcol) && key.matchesWithoutColumn(readkey)) {
+        if (HLogEdit.isDeleted(readval.get())) {
+          if (!deletes.containsKey(readcol) || deletes.get(readcol).longValue() < readkey.getTimestamp()) {
+            deletes.put(readcol,readkey.getTimestamp());
+          }
+        }
+ else         if (!(deletes.containsKey(readcol) && deletes.get(readcol).longValue() >= readkey.getTimestamp())) {
+          if (!(deletes.containsKey(readcol) && deletes.get(readcol).longValue() >= readkey.getTimestamp())) {
+            if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+              results.put(readcol,new Cell(readval.get(),readkey.getTimestamp()));
+              readval=new ImmutableBytesWritable();
+            }
+ else {
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("getFullFromMapFile: " + readkey + ": expired, skipped");
+              }
+            }
+          }
+        }
+      }
+ else       if (Bytes.compareTo(key.getRow(),readkey.getRow()) < 0) {
+        break;
+      }
+    }
+ while (map.next(readkey,readval));
+  }
+}

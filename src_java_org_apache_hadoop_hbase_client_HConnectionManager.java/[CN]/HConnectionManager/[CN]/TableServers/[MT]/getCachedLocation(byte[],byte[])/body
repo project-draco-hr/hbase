@@ -1,0 +1,29 @@
+{
+  Integer key=Bytes.mapKey(tableName);
+  SoftSortedMap<byte[],HRegionLocation> tableLocations=cachedRegionLocations.get(key);
+  if (tableLocations == null) {
+    tableLocations=new SoftSortedMap<byte[],HRegionLocation>(Bytes.BYTES_COMPARATOR);
+    cachedRegionLocations.put(key,tableLocations);
+  }
+  if (tableLocations.isEmpty()) {
+    return null;
+  }
+  HRegionLocation rl=tableLocations.get(row);
+  if (rl != null) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Cache hit in table locations for row <" + row + "> and tableName "+ Bytes.toString(tableName)+ ": location server "+ rl.getServerAddress()+ ", location region name "+ rl.getRegionInfo().getRegionNameAsString());
+    }
+    return rl;
+  }
+  SoftSortedMap<byte[],HRegionLocation> matchingRegions=tableLocations.headMap(row);
+  if (!matchingRegions.isEmpty()) {
+    HRegionLocation possibleRegion=matchingRegions.get(matchingRegions.lastKey());
+    if (possibleRegion != null) {
+      byte[] endKey=possibleRegion.getRegionInfo().getEndKey();
+      if (Bytes.equals(endKey,HConstants.EMPTY_END_ROW) || Bytes.compareTo(endKey,row) > 0) {
+        return possibleRegion;
+      }
+    }
+  }
+  return null;
+}

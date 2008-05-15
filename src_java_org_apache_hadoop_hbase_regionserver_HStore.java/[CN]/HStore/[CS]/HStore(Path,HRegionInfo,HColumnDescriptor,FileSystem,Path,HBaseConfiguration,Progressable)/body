@@ -8,7 +8,8 @@
   if (ttl != HConstants.FOREVER)   this.ttl*=1000;
   this.memcache=new Memcache(this.ttl);
   this.compactionDir=HRegion.getCompactionDir(basedir);
-  this.storeName=new Text(this.info.getEncodedName() + "/" + this.family.getFamilyName());
+  this.storeName=Bytes.toBytes(this.info.getEncodedName() + "/" + Bytes.toString(this.family.getName()));
+  this.storeNameStr=Bytes.toString(this.storeName);
   this.compactionThreshold=conf.getInt("hbase.hstore.compactionThreshold",3);
   this.desiredMaxFileSize=conf.getLong("hbase.hregion.max.filesize",DEFAULT_MAX_FILE_SIZE);
   this.storeSize=0L;
@@ -21,11 +22,11 @@
  else {
     this.compression=SequenceFile.CompressionType.NONE;
   }
-  Path mapdir=HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getFamilyName());
+  Path mapdir=HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getName());
   if (!fs.exists(mapdir)) {
     fs.mkdirs(mapdir);
   }
-  Path infodir=HStoreFile.getInfoDir(basedir,info.getEncodedName(),family.getFamilyName());
+  Path infodir=HStoreFile.getInfoDir(basedir,info.getEncodedName(),family.getName());
   if (!fs.exists(infodir)) {
     fs.mkdirs(infodir);
   }
@@ -34,7 +35,7 @@
     this.bloomFilter=null;
   }
  else {
-    this.filterDir=HStoreFile.getFilterDir(basedir,info.getEncodedName(),family.getFamilyName());
+    this.filterDir=HStoreFile.getFilterDir(basedir,info.getEncodedName(),family.getName());
     if (!fs.exists(filterDir)) {
       fs.mkdirs(filterDir);
     }
@@ -42,14 +43,14 @@
   }
   this.maxSeqId=-1L;
   this.storefiles.putAll(loadHStoreFiles(infodir,mapdir));
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("Loaded " + this.storefiles.size() + " file(s) in hstore "+ this.storeName+ ", max sequence id "+ this.maxSeqId);
+  if (LOG.isDebugEnabled() && this.storefiles.size() > 0) {
+    LOG.debug("Loaded " + this.storefiles.size() + " file(s) in hstore "+ Bytes.toString(this.storeName)+ ", max sequence id "+ this.maxSeqId);
   }
   try {
     doReconstructionLog(reconstructionLog,maxSeqId,reporter);
   }
  catch (  IOException e) {
-    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName+ " -- continuing.  Probably DATA LOSS!",e);
+    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ Bytes.toString(this.storeName)+ " -- continuing.  Probably DATA LOSS!",e);
   }
   boolean first=true;
   for (  Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {

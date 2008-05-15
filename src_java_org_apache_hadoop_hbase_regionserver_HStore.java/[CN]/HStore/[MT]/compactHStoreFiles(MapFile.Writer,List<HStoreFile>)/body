@@ -31,9 +31,9 @@
     }
     long now=System.currentTimeMillis();
     int timesSeen=0;
-    Text lastRow=new Text();
-    Text lastColumn=new Text();
-    Map<Text,List<Long>> deletes=null;
+    byte[] lastRow=null;
+    byte[] lastColumn=null;
+    Map<byte[],List<Long>> deletes=null;
     while (numDone < done.length) {
       int smallestKey=-1;
       for (int i=0; i < rdrs.length; i++) {
@@ -50,16 +50,16 @@
         }
       }
       HStoreKey sk=keys[smallestKey];
-      if (lastRow.equals(sk.getRow()) && lastColumn.equals(sk.getColumn())) {
+      if (Bytes.equals(lastRow,sk.getRow()) && Bytes.equals(lastColumn,sk.getColumn())) {
         timesSeen++;
       }
  else {
-        timesSeen=1;
-        deletes=new HashMap<Text,List<Long>>();
+        timesSeen=0;
+        deletes=new TreeMap<byte[],List<Long>>(Bytes.BYTES_COMPARATOR);
       }
       byte[] value=(vals[smallestKey] == null) ? null : vals[smallestKey].get();
       if (!isDeleted(sk,value,false,deletes) && timesSeen <= family.getMaxVersions()) {
-        if (sk.getRow().getLength() != 0 && sk.getColumn().getLength() != 0) {
+        if (sk.getRow().length != 0 && sk.getColumn().length != 0) {
           if (ttl == HConstants.FOREVER || now < sk.getTimestamp() + ttl) {
             compactedOut.append(sk,vals[smallestKey]);
           }
@@ -70,8 +70,8 @@
           }
         }
       }
-      lastRow.set(sk.getRow());
-      lastColumn.set(sk.getColumn());
+      lastRow=sk.getRow();
+      lastColumn=sk.getColumn();
       if (!rdrs[smallestKey].next(keys[smallestKey],vals[smallestKey])) {
         done[smallestKey]=true;
         rdrs[smallestKey].close();

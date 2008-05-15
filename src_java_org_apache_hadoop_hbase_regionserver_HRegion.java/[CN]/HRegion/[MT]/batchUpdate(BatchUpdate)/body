@@ -1,10 +1,10 @@
 {
   checkResources();
-  Text row=b.getRow();
-  long lockid=obtainRowLock(row);
+  byte[] row=b.getRow();
+  Integer lid=obtainRowLock(row);
   long commitTime=(b.getTimestamp() == LATEST_TIMESTAMP) ? System.currentTimeMillis() : b.getTimestamp();
   try {
-    List<Text> deletes=null;
+    List<byte[]> deletes=null;
     for (    BatchOperation op : b) {
       HStoreKey key=new HStoreKey(row,op.getColumn(),commitTime);
       byte[] val=null;
@@ -17,7 +17,7 @@
  else {
         if (b.getTimestamp() == LATEST_TIMESTAMP) {
           if (deletes == null) {
-            deletes=new ArrayList<Text>();
+            deletes=new ArrayList<byte[]>();
           }
           deletes.add(op.getColumn());
         }
@@ -26,24 +26,24 @@
         }
       }
       if (val != null) {
-        localput(lockid,key,val);
+        localput(lid,key,val);
       }
     }
-    TreeMap<HStoreKey,byte[]> edits=this.targetColumns.remove(Long.valueOf(lockid));
+    TreeMap<HStoreKey,byte[]> edits=this.targetColumns.remove(lid);
     if (edits != null && edits.size() > 0) {
       update(edits);
     }
     if (deletes != null && deletes.size() > 0) {
-      for (      Text column : deletes) {
+      for (      byte[] column : deletes) {
         deleteMultiple(row,column,LATEST_TIMESTAMP,1);
       }
     }
   }
  catch (  IOException e) {
-    this.targetColumns.remove(Long.valueOf(lockid));
+    this.targetColumns.remove(Long.valueOf(lid));
     throw e;
   }
  finally {
-    releaseRowLock(row);
+    releaseRowLock(lid);
   }
 }

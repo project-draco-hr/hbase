@@ -1,0 +1,28 @@
+{
+  HStoreKey key=null;
+  checkRow(row);
+  splitsAndClosesLock.readLock().lock();
+  try {
+    for (    HStore store : stores.values()) {
+      byte[] closestKey=store.getRowKeyAtOrBefore(row);
+      if (Bytes.equals(row,closestKey)) {
+        key=new HStoreKey(closestKey);
+        break;
+      }
+      if (closestKey != null && (key == null || Bytes.compareTo(closestKey,key.getRow()) > 0)) {
+        key=new HStoreKey(closestKey);
+      }
+    }
+    if (key == null) {
+      return null;
+    }
+    HbaseMapWritable<byte[],Cell> cells=new HbaseMapWritable<byte[],Cell>();
+    for (    HStore s : stores.values()) {
+      s.getFull(key,null,cells);
+    }
+    return new RowResult(key.getRow(),cells);
+  }
+  finally {
+    splitsAndClosesLock.readLock().unlock();
+  }
+}

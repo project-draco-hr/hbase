@@ -3,23 +3,23 @@
   HBaseAdmin admin=new HBaseAdmin(conf);
   HTableDescriptor tableDesc=new HTableDescriptor(tableName);
   for (int i=0; i < columns.length; i++) {
-    tableDesc.addFamily(new HColumnDescriptor(columns[i].toString()));
+    tableDesc.addFamily(new HColumnDescriptor(columns[i]));
   }
   admin.createTable(tableDesc);
-  HTable table=new HTable(conf,new Text(getName()));
-  for (  Map.Entry<Text,SortedMap<Text,byte[]>> row : values.entrySet()) {
+  HTable table=new HTable(conf,getName());
+  for (  Map.Entry<byte[],SortedMap<byte[],byte[]>> row : values.entrySet()) {
     BatchUpdate b=new BatchUpdate(row.getKey());
-    for (    Map.Entry<Text,byte[]> val : row.getValue().entrySet()) {
+    for (    Map.Entry<byte[],byte[]> val : row.getValue().entrySet()) {
       b.put(val.getKey(),val.getValue());
     }
     table.commit(b);
   }
   HRegion region=null;
   try {
-    Map<Text,HRegion> regions=cluster.getRegionThreads().get(0).getRegionServer().getOnlineRegions();
-    for (    Map.Entry<Text,HRegion> e : regions.entrySet()) {
-      if (!e.getValue().getRegionInfo().isMetaRegion()) {
-        region=e.getValue();
+    Collection<HRegion> regions=cluster.getRegionThreads().get(0).getRegionServer().getOnlineRegions();
+    for (    HRegion r : regions) {
+      if (!r.getRegionInfo().isMetaRegion()) {
+        region=r;
       }
     }
   }
@@ -47,10 +47,10 @@
   try {
     for (    RowResult r : scanner2) {
       assertTrue("row key",values.containsKey(r.getRow()));
-      SortedMap<Text,byte[]> columnValues=values.get(r.getRow());
+      SortedMap<byte[],byte[]> columnValues=values.get(r.getRow());
       assertEquals(columnValues.size(),r.size());
-      for (      Map.Entry<Text,byte[]> e : columnValues.entrySet()) {
-        Text column=e.getKey();
+      for (      Map.Entry<byte[],byte[]> e : columnValues.entrySet()) {
+        byte[] column=e.getKey();
         assertTrue("column",r.containsKey(column));
         assertTrue("value",Arrays.equals(columnValues.get(column),r.get(column).getValue()));
       }

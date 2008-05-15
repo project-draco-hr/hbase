@@ -30,60 +30,58 @@ synchronized (this.outboundMsgs) {
           }
           boolean restart=false;
           for (int i=0; !restart && !stopRequested.get() && i < msgs.length; i++) {
+            LOG.info(msgs[i].toString());
 switch (msgs[i].getMsg()) {
 case HMsg.MSG_CALL_SERVER_STARTUP:
-              LOG.info("Got call server startup message");
-            if (checkFileSystem()) {
-              closeAllRegions();
-              try {
-                log.closeAndDelete();
+              if (checkFileSystem()) {
+                closeAllRegions();
+                try {
+                  log.closeAndDelete();
+                }
+ catch (                Exception e) {
+                  LOG.error("error closing and deleting HLog",e);
+                }
+                try {
+                  serverInfo.setStartCode(System.currentTimeMillis());
+                  log=setupHLog();
+                }
+ catch (                IOException e) {
+                  this.abortRequested=true;
+                  this.stopRequested.set(true);
+                  e=RemoteExceptionHandler.checkIOException(e);
+                  LOG.fatal("error restarting server",e);
+                  break;
+                }
+                reportForDuty(sleeper);
+                restart=true;
               }
- catch (              Exception e) {
-                LOG.error("error closing and deleting HLog",e);
-              }
-              try {
-                serverInfo.setStartCode(System.currentTimeMillis());
-                log=setupHLog();
-              }
- catch (              IOException e) {
-                this.abortRequested=true;
-                this.stopRequested.set(true);
-                e=RemoteExceptionHandler.checkIOException(e);
-                LOG.fatal("error restarting server",e);
-                break;
-              }
-              reportForDuty(sleeper);
-              restart=true;
-            }
  else {
-              LOG.fatal("file system available check failed. " + "Shutting down server.");
-            }
-          break;
+                LOG.fatal("file system available check failed. " + "Shutting down server.");
+              }
+            break;
 case HMsg.MSG_REGIONSERVER_STOP:
-        LOG.info("Got regionserver stop message");
-      stopRequested.set(true);
-    break;
+          stopRequested.set(true);
+        break;
 case HMsg.MSG_REGIONSERVER_QUIESCE:
-  if (!quiesceRequested) {
-    LOG.info("Got quiesce server message");
+      if (!quiesceRequested) {
+        try {
+          toDo.put(new ToDoEntry(msgs[i]));
+        }
+ catch (        InterruptedException e) {
+          throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
+        }
+        quiesceRequested=true;
+      }
+    break;
+default :
+  if (fsOk) {
     try {
       toDo.put(new ToDoEntry(msgs[i]));
     }
  catch (    InterruptedException e) {
       throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
     }
-    quiesceRequested=true;
   }
-break;
-default :
-if (fsOk) {
-try {
-  toDo.put(new ToDoEntry(msgs[i]));
-}
- catch (InterruptedException e) {
-  throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
-}
-}
 }
 }
 tries=0;

@@ -1,0 +1,72 @@
+{
+  List<ToDoEntry> toDoList=new ArrayList<ToDoEntry>();
+  Set<HRegionInfo> regions=new HashSet<HRegionInfo>();
+  List<byte[]> emptyRows=new ArrayList<byte[]>();
+  try {
+    while (true) {
+      RowResult values=null;
+      try {
+        values=server.next(scannerId);
+      }
+ catch (      IOException e) {
+        LOG.error("Shutdown scanning of meta region",RemoteExceptionHandler.checkIOException(e));
+        break;
+      }
+      if (values == null || values.size() == 0) {
+        break;
+      }
+      byte[] row=values.getRow();
+      if (LOG.isDebugEnabled() && row != null) {
+        LOG.debug("shutdown scanner looking at " + row.toString());
+      }
+      String serverName=Writables.cellToString(values.get(COL_SERVER));
+      if (serverName.length() > 0 && deadServerName.compareTo(serverName) != 0) {
+        continue;
+      }
+      HRegionInfo info=master.getHRegionInfo(row,values);
+      if (info == null) {
+        emptyRows.add(row);
+        continue;
+      }
+      if (info.isMetaTable()) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("removing meta region " + info.getRegionName() + " from online meta regions");
+        }
+        master.regionManager.offlineMetaRegion(info.getStartKey());
+      }
+      ToDoEntry todo=new ToDoEntry(row,info);
+      toDoList.add(todo);
+      if (master.regionManager.isMarkedToClose(deadServerName,info.getRegionName())) {
+        master.regionManager.noLongerMarkedToClose(deadServerName,info.getRegionName());
+        master.regionManager.noLongerUnassigned(info);
+        todo.regionOffline=true;
+      }
+ else {
+        regions.add(info);
+      }
+      master.regionManager.noLongerPending(info.getRegionName());
+    }
+  }
+  finally {
+    if (scannerId != -1L) {
+      try {
+        server.close(scannerId);
+      }
+ catch (      IOException e) {
+        LOG.error("Closing scanner",RemoteExceptionHandler.checkIOException(e));
+      }
+    }
+  }
+  if (emptyRows.size() > 0) {
+    LOG.warn("Found " + emptyRows.size() + " rows with empty HRegionInfo while scanning meta region "+ regionName);
+    master.deleteEmptyMetaRows(server,regionName,emptyRows);
+  }
+  for (  ToDoEntry e : toDoList) {
+    if (e.regionOffline) {
+      HRegion.offlineRegionInMETA(server,regionName,e.info);
+    }
+  }
+  for (  HRegionInfo info : regions) {
+    master.regionManager.setUnassigned(info);
+  }
+}

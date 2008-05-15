@@ -1,5 +1,5 @@
 {
-  if (!a.getRegionInfo().getTableDesc().getName().equals(b.getRegionInfo().getTableDesc().getName())) {
+  if (!a.getRegionInfo().getTableDesc().getNameAsString().equals(b.getRegionInfo().getTableDesc().getNameAsString())) {
     throw new IOException("Regions do not belong to the same table");
   }
   FileSystem fs=a.getFilesystem();
@@ -7,35 +7,35 @@
   b.flushcache();
   a.compactStores(true);
   if (LOG.isDebugEnabled()) {
-    LOG.debug("Files for region: " + a.getRegionName());
+    LOG.debug("Files for region: " + a);
     listPaths(fs,a.getRegionDir());
   }
   b.compactStores(true);
   if (LOG.isDebugEnabled()) {
-    LOG.debug("Files for region: " + b.getRegionName());
+    LOG.debug("Files for region: " + b);
     listPaths(fs,b.getRegionDir());
   }
   HBaseConfiguration conf=a.getConf();
   HTableDescriptor tabledesc=a.getTableDesc();
   HLog log=a.getLog();
   Path basedir=a.getBaseDir();
-  Text startKey=a.getStartKey().equals(EMPTY_TEXT) || b.getStartKey().equals(EMPTY_TEXT) ? EMPTY_TEXT : a.getStartKey().compareTo(b.getStartKey()) <= 0 ? a.getStartKey() : b.getStartKey();
-  Text endKey=a.getEndKey().equals(EMPTY_TEXT) || b.getEndKey().equals(EMPTY_TEXT) ? EMPTY_TEXT : a.getEndKey().compareTo(b.getEndKey()) <= 0 ? b.getEndKey() : a.getEndKey();
+  final byte[] startKey=Bytes.equals(a.getStartKey(),EMPTY_BYTE_ARRAY) || Bytes.equals(b.getStartKey(),EMPTY_BYTE_ARRAY) ? EMPTY_BYTE_ARRAY : Bytes.compareTo(a.getStartKey(),b.getStartKey()) <= 0 ? a.getStartKey() : b.getStartKey();
+  final byte[] endKey=Bytes.equals(a.getEndKey(),EMPTY_BYTE_ARRAY) || Bytes.equals(b.getEndKey(),EMPTY_BYTE_ARRAY) ? EMPTY_BYTE_ARRAY : Bytes.compareTo(a.getEndKey(),b.getEndKey()) <= 0 ? b.getEndKey() : a.getEndKey();
   HRegionInfo newRegionInfo=new HRegionInfo(tabledesc,startKey,endKey);
   LOG.info("Creating new region " + newRegionInfo.toString());
-  String encodedRegionName=newRegionInfo.getEncodedName();
-  Path newRegionDir=HRegion.getRegionDir(a.getBaseDir(),encodedRegionName);
+  int encodedName=newRegionInfo.getEncodedName();
+  Path newRegionDir=HRegion.getRegionDir(a.getBaseDir(),encodedName);
   if (fs.exists(newRegionDir)) {
     throw new IOException("Cannot merge; target file collision at " + newRegionDir);
   }
   fs.mkdirs(newRegionDir);
-  LOG.info("starting merge of regions: " + a.getRegionName() + " and "+ b.getRegionName()+ " into new region "+ newRegionInfo.toString()+ " with start key <"+ startKey+ "> and end key <"+ endKey+ ">");
-  Map<Text,List<HStoreFile>> byFamily=new TreeMap<Text,List<HStoreFile>>();
+  LOG.info("starting merge of regions: " + a + " and "+ b+ " into new region "+ newRegionInfo.toString()+ " with start key <"+ startKey+ "> and end key <"+ endKey+ ">");
+  Map<byte[],List<HStoreFile>> byFamily=new TreeMap<byte[],List<HStoreFile>>(Bytes.BYTES_COMPARATOR);
   byFamily=filesByFamily(byFamily,a.close());
   byFamily=filesByFamily(byFamily,b.close());
-  for (  Map.Entry<Text,List<HStoreFile>> es : byFamily.entrySet()) {
-    Text colFamily=es.getKey();
-    makeColumnFamilyDirs(fs,basedir,encodedRegionName,colFamily,tabledesc);
+  for (  Map.Entry<byte[],List<HStoreFile>> es : byFamily.entrySet()) {
+    byte[] colFamily=es.getKey();
+    makeColumnFamilyDirs(fs,basedir,encodedName,colFamily,tabledesc);
     List<HStoreFile> srcFiles=es.getValue();
     if (srcFiles.size() == 2) {
       long seqA=srcFiles.get(0).loadInfo(fs);
@@ -67,6 +67,6 @@
   }
   deleteRegion(fs,a.getRegionDir());
   deleteRegion(fs,b.getRegionDir());
-  LOG.info("merge completed. New region is " + dstRegion.getRegionName());
+  LOG.info("merge completed. New region is " + dstRegion);
   return dstRegion;
 }

@@ -1,0 +1,66 @@
+{
+  HRegionLocation location=null;
+  if (useCache) {
+    location=getCachedLocation(tableName,row);
+    if (location != null) {
+      return location;
+    }
+  }
+ else {
+    deleteCachedLocation(tableName,row);
+  }
+  byte[] metaKey=HRegionInfo.createRegionName(tableName,row,HConstants.NINES);
+  for (int tries=0; true; tries++) {
+    if (tries >= numRetries) {
+      throw new NoServerForRegionException("Unable to find region for " + row + " after "+ numRetries+ " tries.");
+    }
+    try {
+      HRegionLocation metaLocation=locateRegion(parentTable,metaKey);
+      HRegionInterface server=getHRegionConnection(metaLocation.getServerAddress());
+      RowResult regionInfoRow=server.getClosestRowBefore(metaLocation.getRegionInfo().getRegionName(),metaKey);
+      if (regionInfoRow == null) {
+        throw new TableNotFoundException("Table '" + Bytes.toString(tableName) + "' does not exist.");
+      }
+      Cell value=regionInfoRow.get(COL_REGIONINFO);
+      if (value == null || value.getValue().length == 0) {
+        throw new IOException("HRegionInfo was null or empty in " + Bytes.toString(parentTable));
+      }
+      HRegionInfo regionInfo=(HRegionInfo)Writables.getWritable(value.getValue(),new HRegionInfo());
+      if (!Bytes.equals(regionInfo.getTableDesc().getName(),tableName)) {
+        throw new TableNotFoundException("Table '" + Bytes.toString(tableName) + "' was not found.");
+      }
+      if (regionInfo.isOffline()) {
+        throw new RegionOfflineException("region offline: " + regionInfo.getRegionName());
+      }
+      String serverAddress=Writables.cellToString(regionInfoRow.get(COL_SERVER));
+      if (serverAddress.equals("")) {
+        throw new NoServerForRegionException("No server address listed " + "in " + Bytes.toString(parentTable) + " for region "+ regionInfo.getRegionNameAsString());
+      }
+      location=new HRegionLocation(regionInfo,new HServerAddress(serverAddress));
+      cacheLocation(tableName,location);
+      return location;
+    }
+ catch (    TableNotFoundException e) {
+      throw e;
+    }
+catch (    IOException e) {
+      if (e instanceof RemoteException) {
+        e=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+      }
+      if (tries < numRetries - 1) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("reloading table servers because: " + e.getMessage());
+        }
+        relocateRegion(parentTable,metaKey);
+      }
+ else {
+        throw e;
+      }
+    }
+    try {
+      Thread.sleep(pause);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+}

@@ -1,14 +1,14 @@
 {
-  List<Text> keyList=new ArrayList<Text>();
+  List<byte[]> keyList=new ArrayList<byte[]>();
   long scannerId=-1L;
-  Text startRow=new Text(tableName.toString() + ",,999999999999999");
+  byte[] startRow=HRegionInfo.createRegionName(this.tableName,null,NINES);
   HRegionLocation metaLocation=null;
   HRegionInterface server;
   do {
     try {
       metaLocation=connection.locateRegion(META_TABLE_NAME,startRow);
       server=connection.getHRegionConnection(metaLocation.getServerAddress());
-      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),new Text[]{COL_REGIONINFO},tableName,LATEST_TIMESTAMP,null);
+      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),new byte[][]{COL_REGIONINFO},tableName,LATEST_TIMESTAMP,null);
       while (true) {
         RowResult values=server.next(scannerId);
         if (values == null || values.size() == 0) {
@@ -16,7 +16,7 @@
         }
         HRegionInfo info=new HRegionInfo();
         info=(HRegionInfo)Writables.getWritable(values.get(COL_REGIONINFO).getValue(),info);
-        if (!info.getTableDesc().getName().equals(this.tableName)) {
+        if (!Bytes.equals(info.getTableDesc().getName(),this.tableName)) {
           break;
         }
         if (info.isOffline() || info.isSplit()) {
@@ -31,6 +31,6 @@
       throw e;
     }
   }
- while (startRow.compareTo(EMPTY_START_ROW) != 0);
-  return keyList.toArray(new Text[keyList.size()]);
+ while (Bytes.compareTo(startRow,EMPTY_START_ROW) != 0);
+  return keyList.toArray(new byte[keyList.size()][]);
 }
