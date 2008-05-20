@@ -1,27 +1,14 @@
 {
-  HashSet<HTableDescriptor> uniqueTables=new HashSet<HTableDescriptor>();
-  byte[] startRow=EMPTY_START_ROW;
-  do {
-    ScannerCallable callable=new ScannerCallable(this,META_TABLE_NAME,COL_REGIONINFO_ARRAY,startRow,LATEST_TIMESTAMP,null);
-    try {
-      getRegionServerWithRetries(callable);
-      while (true) {
-        RowResult values=getRegionServerWithRetries(callable);
-        if (values == null || values.size() == 0) {
-          break;
-        }
-        HRegionInfo info=Writables.getHRegionInfo(values.get(COL_REGIONINFO));
-        if (info.getStartKey().length == 0) {
-          uniqueTables.add(info.getTableDesc());
-        }
+  final HashSet<HTableDescriptor> uniqueTables=new HashSet<HTableDescriptor>();
+  MetaScannerVisitor visitor=new MetaScannerVisitor(){
+    public boolean processRow(    RowResult rowResult,    HRegionLocation metaLocation,    HRegionInfo info) throws IOException {
+      if (info.getStartKey().length == 0) {
+        uniqueTables.add(info.getTableDesc());
       }
-      startRow=callable.getHRegionInfo().getEndKey();
-    }
-  finally {
-      callable.setClose();
-      getRegionServerWithRetries(callable);
+      return true;
     }
   }
- while (Bytes.compareTo(startRow,LAST_ROW) != 0);
+;
+  MetaScanner.metaScan(conf,visitor);
   return uniqueTables.toArray(new HTableDescriptor[uniqueTables.size()]);
 }

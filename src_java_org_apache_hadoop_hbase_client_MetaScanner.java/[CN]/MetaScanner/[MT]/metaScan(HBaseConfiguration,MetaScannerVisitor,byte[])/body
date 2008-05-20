@@ -1,0 +1,27 @@
+{
+  HConnection connection=HConnectionManager.getConnection(configuration);
+  HRegionLocation metaLocation=null;
+  boolean toContinue=true;
+  byte[] startRow=Bytes.equals(tableName,EMPTY_START_ROW) ? tableName : HRegionInfo.createRegionName(tableName,null,NINES);
+  do {
+    ScannerCallable callable=new ScannerCallable(connection,META_TABLE_NAME,COL_REGIONINFO_ARRAY,tableName,LATEST_TIMESTAMP,null);
+    try {
+      connection.getRegionServerWithRetries(callable);
+      metaLocation=connection.locateRegion(META_TABLE_NAME,startRow);
+      while (toContinue) {
+        RowResult rowResult=connection.getRegionServerWithRetries(callable);
+        if (rowResult == null || rowResult.size() == 0) {
+          break;
+        }
+        HRegionInfo info=Writables.getHRegionInfo(rowResult.get(COL_REGIONINFO));
+        toContinue=visitor.processRow(rowResult,metaLocation,info);
+      }
+      startRow=callable.getHRegionInfo().getEndKey();
+    }
+  finally {
+      callable.setClose();
+      connection.getRegionServerWithRetries(callable);
+    }
+  }
+ while (Bytes.compareTo(startRow,LAST_ROW) != 0);
+}

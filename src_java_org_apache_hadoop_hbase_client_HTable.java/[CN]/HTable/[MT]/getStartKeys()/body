@@ -1,36 +1,17 @@
 {
-  List<byte[]> keyList=new ArrayList<byte[]>();
-  long scannerId=-1L;
-  byte[] startRow=HRegionInfo.createRegionName(this.tableName,null,NINES);
-  HRegionLocation metaLocation=null;
-  HRegionInterface server;
-  do {
-    try {
-      metaLocation=connection.locateRegion(META_TABLE_NAME,startRow);
-      server=connection.getHRegionConnection(metaLocation.getServerAddress());
-      scannerId=server.openScanner(metaLocation.getRegionInfo().getRegionName(),new byte[][]{COL_REGIONINFO},tableName,LATEST_TIMESTAMP,null);
-      while (true) {
-        RowResult values=server.next(scannerId);
-        if (values == null || values.size() == 0) {
-          break;
-        }
-        HRegionInfo info=new HRegionInfo();
-        info=(HRegionInfo)Writables.getWritable(values.get(COL_REGIONINFO).getValue(),info);
-        if (!Bytes.equals(info.getTableDesc().getName(),this.tableName)) {
-          break;
-        }
-        if (info.isOffline() || info.isSplit()) {
-          continue;
-        }
+  final List<byte[]> keyList=new ArrayList<byte[]>();
+  MetaScannerVisitor visitor=new MetaScannerVisitor(){
+    public boolean processRow(    RowResult rowResult,    HRegionLocation metaLocation,    HRegionInfo info) throws IOException {
+      if (!(Bytes.equals(info.getTableDesc().getName(),tableName))) {
+        return false;
+      }
+      if (!(info.isOffline() || info.isSplit())) {
         keyList.add(info.getStartKey());
       }
-      server.close(scannerId);
-      startRow=metaLocation.getRegionInfo().getEndKey();
-    }
- catch (    IOException e) {
-      throw e;
+      return true;
     }
   }
- while (Bytes.compareTo(startRow,EMPTY_START_ROW) != 0);
+;
+  MetaScanner.metaScan(configuration,visitor,this.tableName);
   return keyList.toArray(new byte[keyList.size()][]);
 }
