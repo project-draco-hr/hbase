@@ -49,17 +49,35 @@
   try {
     doReconstructionLog(reconstructionLog,maxSeqId,reporter);
   }
- catch (  IOException e) {
-    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ Bytes.toString(this.storeName)+ " -- continuing.  Probably DATA LOSS!",e);
+ catch (  EOFException e) {
+    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName+ " -- continuing.  Probably lack-of-HADOOP-1700 causing DATA LOSS!",e);
+  }
+catch (  IOException e) {
+    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName,e);
+    throw e;
   }
   boolean first=true;
   for (  Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
-    if (first) {
-      this.readers.put(e.getKey(),e.getValue().getReader(this.fs,this.bloomFilter,family.isBlockCacheEnabled()));
-      first=false;
-    }
+    MapFile.Reader r=null;
+    try {
+      if (first) {
+        r=e.getValue().getReader(this.fs,this.bloomFilter,family.isBlockCacheEnabled());
+        first=false;
+      }
  else {
-      this.readers.put(e.getKey(),e.getValue().getReader(this.fs,this.bloomFilter));
+        r=e.getValue().getReader(this.fs,this.bloomFilter);
+      }
     }
+ catch (    EOFException eofe) {
+      LOG.warn("Failed open of reader " + e.toString() + "; attempting fix",eofe);
+      try {
+        MapFile.fix(this.fs,e.getValue().getMapFilePath(),HStoreFile.HbaseMapFile.KEY_CLASS,HStoreFile.HbaseMapFile.VALUE_CLASS,false,this.conf);
+      }
+ catch (      Exception fixe) {
+        LOG.warn("Failed fix of " + e.toString() + "...continuing; Probable DATA LOSS!!!",fixe);
+        continue;
+      }
+    }
+    this.readers.put(e.getKey(),r);
   }
 }
