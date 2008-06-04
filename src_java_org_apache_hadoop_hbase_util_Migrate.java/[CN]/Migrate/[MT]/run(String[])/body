@@ -2,60 +2,46 @@
   if (parseArgs(args) != 0) {
     return -1;
   }
-  Path rd=new Path(conf.get(HConstants.HBASE_DIR));
-  try {
-    FSUtils.validateRootPath(rd);
+  if (!setFsDefaultName()) {
+    return -2;
   }
- catch (  IOException e) {
-    LOG.fatal("Not starting migration because the root directory path '" + rd.toString() + "' is not valid. Check the setting of the"+ " configuration parameter '"+ HConstants.HBASE_DIR+ "'",e);
-    return -1;
+  if (!verifyFilesystem()) {
+    return -3;
   }
-  this.conf.set("fs.default.name",rd.toString());
-  try {
-    fs=FileSystem.get(conf);
-    LOG.info("Verifying that file system is available...");
-    FSUtils.checkFileSystemAvailable(fs);
-  }
- catch (  IOException e) {
-    LOG.fatal("File system is not available",e);
-    return -1;
-  }
-  LOG.info("Verifying that HBase is not running...");
-  try {
-    HBaseAdmin.checkHBaseAvailable(conf);
-    LOG.fatal("HBase cluster must be off-line.");
-    return -1;
-  }
- catch (  MasterNotRunningException e) {
+  if (!notRunning()) {
+    return -4;
   }
   try {
-    this.utils=new MetaUtils(conf);
-    this.rootdir=utils.initialize();
     LOG.info("Starting upgrade" + (readOnly ? " check" : ""));
-    String version=FSUtils.getVersion(fs,rootdir);
+    String version=FSUtils.getVersion(fs,FSUtils.getRootDir(this.conf));
     if (version != null && version.compareTo(HConstants.FILE_SYSTEM_VERSION) == 0) {
       LOG.info("No upgrade necessary.");
       return 0;
     }
-    FileStatus[] rootFiles=getRootDirFiles();
     if (version == null) {
+      FileStatus[] rootFiles=getRootDirFiles();
       migrateFromNoVersion(rootFiles);
       migrateToV2(rootFiles);
+      migrateToV3();
     }
  else     if (version.compareTo("0.1") == 0) {
-      migrateToV2(rootFiles);
+      migrateToV2(getRootDirFiles());
+      migrateToV3();
     }
  else     if (version.compareTo("2") == 0) {
+      migrateToV3();
+    }
+ else     if (version.compareTo("3") == 0) {
     }
  else {
       throw new IOException("Unrecognized version: " + version);
     }
     if (!readOnly) {
       LOG.info("Setting file system version.");
-      FSUtils.setVersion(fs,rootdir);
+      FSUtils.setVersion(fs,FSUtils.getRootDir(this.conf));
       LOG.info("Upgrade successful.");
     }
- else     if (migrationNeeded) {
+ else     if (this.migrationNeeded) {
       LOG.info("Upgrade needed.");
     }
     return 0;
@@ -63,10 +49,5 @@
  catch (  Exception e) {
     LOG.fatal("Upgrade" + (readOnly ? " check" : "") + " failed",e);
     return -1;
-  }
- finally {
-    if (utils != null && utils.isInitialized()) {
-      utils.shutdown();
-    }
   }
 }
