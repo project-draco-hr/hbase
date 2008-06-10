@@ -1,20 +1,20 @@
 {
   HConnection connection=HConnectionManager.getConnection(configuration);
-  HRegionLocation metaLocation=null;
   boolean toContinue=true;
   byte[] startRow=Bytes.equals(tableName,EMPTY_START_ROW) ? tableName : HRegionInfo.createRegionName(tableName,null,NINES);
   do {
     ScannerCallable callable=new ScannerCallable(connection,META_TABLE_NAME,COL_REGIONINFO_ARRAY,tableName,LATEST_TIMESTAMP,null);
     try {
       connection.getRegionServerWithRetries(callable);
-      metaLocation=connection.locateRegion(META_TABLE_NAME,startRow);
       while (toContinue) {
         RowResult rowResult=connection.getRegionServerWithRetries(callable);
         if (rowResult == null || rowResult.size() == 0) {
           break;
         }
         HRegionInfo info=Writables.getHRegionInfo(rowResult.get(COL_REGIONINFO));
-        toContinue=visitor.processRow(rowResult,metaLocation,info);
+        List<byte[]> parse=HRegionInfo.parseMetaRegionRow(info.getRegionName());
+        HRegionLocation regionLocation=connection.locateRegion(parse.get(0),parse.get(1));
+        toContinue=visitor.processRow(rowResult,regionLocation,info);
       }
       startRow=callable.getHRegionInfo().getEndKey();
     }
