@@ -1,0 +1,45 @@
+{
+  HStoreKey searchKey=new HStoreKey(row);
+  ImmutableBytesWritable readval=new ImmutableBytesWritable();
+  HStoreKey readkey=new HStoreKey();
+  HStoreKey finalKey=new HStoreKey();
+  map.finalKey(finalKey);
+  if (Bytes.compareTo(finalKey.getRow(),row) < 0) {
+    candidateKeys.put(stripTimestamp(finalKey),new Long(finalKey.getTimestamp()));
+    return;
+  }
+  readkey=(HStoreKey)map.getClosest(searchKey,readval,true);
+  if (readkey == null) {
+    return;
+  }
+  do {
+    if (Bytes.equals(readkey.getRow(),row)) {
+      if (!HLogEdit.isDeleted(readval.get())) {
+        if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+          candidateKeys.put(stripTimestamp(readkey),new Long(readkey.getTimestamp()));
+        }
+ else {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("rowAtOrBeforeFromMapFile:" + readkey + ": expired, skipped");
+          }
+        }
+      }
+    }
+ else     if (Bytes.compareTo(readkey.getRow(),row) > 0) {
+      return;
+    }
+ else {
+      if (!HLogEdit.isDeleted(readval.get())) {
+        if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+          candidateKeys.put(stripTimestamp(readkey),new Long(readkey.getTimestamp()));
+        }
+ else {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("rowAtOrBeforeFromMapFile:" + readkey + ": expired, skipped");
+          }
+        }
+      }
+    }
+  }
+ while (map.next(readkey,readval));
+}
