@@ -1,32 +1,48 @@
 {
 synchronized (compactLock) {
     long maxId=-1;
+    int nrows=-1;
     List<HStoreFile> filesToCompact=null;
 synchronized (storefiles) {
       if (this.storefiles.size() <= 0) {
         return null;
       }
       filesToCompact=new ArrayList<HStoreFile>(this.storefiles.values());
-      if (!force && !hasReferences(filesToCompact) && filesToCompact.size() < compactionThreshold) {
-        return checkSplit();
-      }
-      if (!fs.exists(compactionDir) && !fs.mkdirs(compactionDir)) {
-        LOG.warn("Mkdir on " + compactionDir.toString() + " failed");
-        return checkSplit();
-      }
       maxId=this.storefiles.lastKey().longValue();
     }
-    Collections.reverse(filesToCompact);
+    if (!force && filesToCompact.size() < compactionThreshold) {
+      return checkSplit();
+    }
+    if (!fs.exists(compactionDir) && !fs.mkdirs(compactionDir)) {
+      LOG.warn("Mkdir on " + compactionDir.toString() + " failed");
+      return checkSplit();
+    }
+    List<MapFile.Reader> readers=new ArrayList<MapFile.Reader>();
+    for (    HStoreFile file : filesToCompact) {
+      try {
+        HStoreFile.BloomFilterMapFile.Reader reader=file.getReader(fs,this.family.isBloomFilterEnabled(),false);
+        readers.add(reader);
+        if (this.family.isBloomFilterEnabled()) {
+          nrows+=reader.getBloomFilterSize();
+        }
+      }
+ catch (      IOException e) {
+        LOG.warn("Failed with " + e.toString() + ": "+ file.toString());
+        closeCompactionReaders(readers);
+        throw e;
+      }
+    }
+    Collections.reverse(readers);
     HStoreFile compactedOutputFile=new HStoreFile(conf,fs,this.compactionDir,info.getEncodedName(),family.getName(),-1L,null);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("started compaction of " + filesToCompact.size() + " files "+ filesToCompact.toString()+ " into "+ FSUtils.getPath(compactedOutputFile.getMapFilePath()));
+      LOG.debug("started compaction of " + readers.size() + " files into "+ FSUtils.getPath(compactedOutputFile.getMapFilePath()));
     }
-    MapFile.Writer compactedOut=compactedOutputFile.getWriter(this.fs,this.compression,this.bloomFilter);
+    MapFile.Writer writer=compactedOutputFile.getWriter(this.fs,this.compression,this.family.isBloomFilterEnabled(),nrows);
     try {
-      compactHStoreFiles(compactedOut,filesToCompact);
+      compactHStoreFiles(writer,readers);
     }
   finally {
-      compactedOut.close();
+      writer.close();
     }
     compactedOutputFile.writeInfo(fs,maxId);
     completeCompaction(filesToCompact,compactedOutputFile);
