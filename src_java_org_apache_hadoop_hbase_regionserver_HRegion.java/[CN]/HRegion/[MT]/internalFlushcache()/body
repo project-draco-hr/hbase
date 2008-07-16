@@ -17,15 +17,18 @@
   finally {
     this.updatesLock.writeLock().unlock();
   }
-  long flushed=0;
+  boolean compactionRequested=false;
   try {
     for (    HStore hstore : stores.values()) {
-      flushed+=hstore.flushCache(sequenceId);
+      boolean needsCompaction=hstore.flushCache(sequenceId);
+      if (needsCompaction) {
+        compactionRequested=true;
+      }
     }
   }
  catch (  Throwable t) {
     this.log.abortCacheFlush();
-    DroppedSnapshotException dse=new DroppedSnapshotException();
+    DroppedSnapshotException dse=new DroppedSnapshotException("region: " + Bytes.toString(getRegionName()));
     dse.initCause(t);
     throw dse;
   }
@@ -35,10 +38,10 @@ synchronized (this) {
   }
   if (LOG.isDebugEnabled()) {
     String timeTaken=StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime);
-    LOG.debug("Finished memcache flush for region " + this + " in "+ (System.currentTimeMillis() - startTime)+ "ms, sequence id="+ sequenceId+ ", "+ StringUtils.humanReadableInt(flushed));
+    LOG.debug("Finished memcache flush for region " + this + " in "+ (System.currentTimeMillis() - startTime)+ "ms, sequence id="+ sequenceId+ ", compaction requested="+ compactionRequested);
     if (!regionInfo.isMetaRegion()) {
       this.historian.addRegionFlush(regionInfo,timeTaken);
     }
   }
-  return true;
+  return compactionRequested;
 }

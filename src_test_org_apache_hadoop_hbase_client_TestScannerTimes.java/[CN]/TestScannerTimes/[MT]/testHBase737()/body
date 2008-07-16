@@ -1,0 +1,71 @@
+{
+  HTableDescriptor desc=new HTableDescriptor(TABLE_NAME);
+  desc.addFamily(new HColumnDescriptor(FAM1));
+  desc.addFamily(new HColumnDescriptor(FAM2));
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  admin.createTable(desc);
+  HTable table=new HTable(conf,TABLE_NAME);
+  BatchUpdate b=new BatchUpdate(ROW);
+  b.put(FAM1 + "letters","abcdefg".getBytes(HConstants.UTF8_ENCODING));
+  table.commit(b);
+  try {
+    Thread.sleep(1000);
+  }
+ catch (  InterruptedException i) {
+  }
+  b=new BatchUpdate(ROW);
+  b.put(FAM1 + "numbers","123456".getBytes(HConstants.UTF8_ENCODING));
+  table.commit(b);
+  try {
+    Thread.sleep(1000);
+  }
+ catch (  InterruptedException i) {
+  }
+  b=new BatchUpdate(ROW);
+  b.put(FAM2 + "letters","hijklmnop".getBytes(HConstants.UTF8_ENCODING));
+  table.commit(b);
+  long times[]=new long[3];
+  byte[][] columns=new byte[][]{FAM1.getBytes(HConstants.UTF8_ENCODING),FAM2.getBytes(HConstants.UTF8_ENCODING)};
+  Scanner s=table.getScanner(columns);
+  try {
+    int index=0;
+    RowResult r=null;
+    while ((r=s.next()) != null) {
+      for (      Cell c : r.values()) {
+        times[index++]=c.getTimestamp();
+      }
+    }
+  }
+  finally {
+    s.close();
+  }
+  for (int i=0; i < times.length - 1; i++) {
+    for (int j=i + 1; j < times.length; j++) {
+      assertTrue(times[j] > times[i]);
+    }
+  }
+  cluster.flushcache();
+  try {
+    Thread.sleep(1000);
+  }
+ catch (  InterruptedException i) {
+  }
+  s=table.getScanner(columns);
+  try {
+    int index=0;
+    RowResult r=null;
+    while ((r=s.next()) != null) {
+      for (      Cell c : r.values()) {
+        times[index++]=c.getTimestamp();
+      }
+    }
+  }
+  finally {
+    s.close();
+  }
+  for (int i=0; i < times.length - 1; i++) {
+    for (int j=i + 1; j < times.length; j++) {
+      assertTrue(times[j] > times[i]);
+    }
+  }
+}
