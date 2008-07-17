@@ -13,33 +13,21 @@
   }
   try {
     LOG.info("Starting upgrade" + (readOnly ? " check" : ""));
-    String version=FSUtils.getVersion(fs,FSUtils.getRootDir(this.conf));
-    if (version != null && version.compareTo(HConstants.FILE_SYSTEM_VERSION) == 0) {
+    String versionStr=FSUtils.getVersion(fs,FSUtils.getRootDir(this.conf));
+    if (versionStr != null && versionStr.compareTo(HConstants.FILE_SYSTEM_VERSION) == 0) {
       LOG.info("No upgrade necessary.");
       return 0;
     }
-    if (version == null) {
-      FileStatus[] rootFiles=getRootDirFiles();
-      migrateFromNoVersion(rootFiles);
-      migrateToV2(rootFiles);
-      migrateToV3();
-      migrateToV4();
+    if (versionStr == null || Float.parseFloat(versionStr) < 0.1) {
+      throw new IOException("Install 0.1.x of hbase and run its " + "migration first");
     }
- else     if (version.compareTo("0.1") == 0) {
-      migrateToV2(getRootDirFiles());
-      migrateToV3();
-      migrateToV4();
-    }
- else     if (version.compareTo("2") == 0) {
-      migrateToV3();
-    }
- else     if (version.compareTo("3") == 0) {
-      migrateToV4();
-    }
- else     if (version.compareTo("4") == 0) {
+    float version=Float.parseFloat(versionStr);
+    if (version == 0.1f) {
+      checkForUnrecoveredLogFiles(getRootDirFiles());
+      migrate();
     }
  else {
-      throw new IOException("Unrecognized version: " + version);
+      throw new IOException("Unrecognized or non-migratable version: " + version);
     }
     if (!readOnly) {
       LOG.info("Setting file system version.");
