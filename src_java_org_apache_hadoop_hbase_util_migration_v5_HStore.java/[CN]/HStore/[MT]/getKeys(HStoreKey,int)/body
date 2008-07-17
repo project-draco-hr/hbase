@@ -1,0 +1,52 @@
+{
+  List<HStoreKey> keys=this.memcache.getKeys(origin,versions);
+  if (keys.size() >= versions) {
+    return keys;
+  }
+  this.lock.readLock().lock();
+  long now=System.currentTimeMillis();
+  try {
+    MapFile.Reader[] maparray=getReaders();
+    for (int i=maparray.length - 1; i >= 0; i--) {
+      MapFile.Reader map=maparray[i];
+synchronized (map) {
+        map.reset();
+        ImmutableBytesWritable readval=new ImmutableBytesWritable();
+        HStoreKey readkey=(HStoreKey)map.getClosest(origin,readval);
+        if (readkey == null) {
+          continue;
+        }
+        do {
+          if (rowMatches(origin,readkey)) {
+            if (cellMatches(origin,readkey)) {
+              if (!isDeleted(readkey,readval.get(),false,null) && !keys.contains(readkey)) {
+                if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+                  keys.add(new HStoreKey(readkey));
+                }
+ else {
+                  if (LOG.isDebugEnabled()) {
+                    LOG.debug("getKeys: " + readkey + ": expired, skipped");
+                  }
+                }
+                if (keys.size() >= versions) {
+                  break;
+                }
+              }
+            }
+ else {
+              continue;
+            }
+          }
+ else {
+            break;
+          }
+        }
+ while (map.next(readkey,readval));
+      }
+    }
+    return keys;
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+}

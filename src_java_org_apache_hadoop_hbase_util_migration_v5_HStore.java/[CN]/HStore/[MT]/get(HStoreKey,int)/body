@@ -1,0 +1,61 @@
+{
+  if (numVersions <= 0) {
+    throw new IllegalArgumentException("Number of versions must be > 0");
+  }
+  this.lock.readLock().lock();
+  long now=System.currentTimeMillis();
+  try {
+    List<Cell> results=this.memcache.get(key,numVersions);
+    if (results.size() == numVersions) {
+      return results.toArray(new Cell[results.size()]);
+    }
+    Map<byte[],List<Long>> deletes=new TreeMap<byte[],List<Long>>(Bytes.BYTES_COMPARATOR);
+    MapFile.Reader[] maparray=getReaders();
+    for (int i=maparray.length - 1; i >= 0; i--) {
+      MapFile.Reader map=maparray[i];
+synchronized (map) {
+        map.reset();
+        ImmutableBytesWritable readval=new ImmutableBytesWritable();
+        HStoreKey readkey=(HStoreKey)map.getClosest(key,readval);
+        if (readkey == null) {
+          continue;
+        }
+        if (!readkey.matchesRowCol(key)) {
+          continue;
+        }
+        if (!isDeleted(readkey,readval.get(),true,deletes)) {
+          if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+            results.add(new Cell(readval.get(),readkey.getTimestamp()));
+          }
+ else {
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("get: " + readkey + ": expired, skipped");
+            }
+          }
+          if (hasEnoughVersions(numVersions,results)) {
+            break;
+          }
+        }
+        for (readval=new ImmutableBytesWritable(); map.next(readkey,readval) && readkey.matchesRowCol(key) && !hasEnoughVersions(numVersions,results); readval=new ImmutableBytesWritable()) {
+          if (!isDeleted(readkey,readval.get(),true,deletes)) {
+            if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+              results.add(new Cell(readval.get(),readkey.getTimestamp()));
+            }
+ else {
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("get: " + readkey + ": expired, skipped");
+              }
+            }
+          }
+        }
+      }
+      if (hasEnoughVersions(numVersions,results)) {
+        break;
+      }
+    }
+    return results.size() == 0 ? null : results.toArray(new Cell[results.size()]);
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+}

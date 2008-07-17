@@ -1,0 +1,60 @@
+{
+  this.basedir=basedir;
+  this.info=info;
+  this.family=family;
+  this.fs=fs;
+  this.conf=conf;
+  this.ttl=family.getTimeToLive();
+  if (ttl != HConstants.FOREVER)   this.ttl*=1000;
+  this.memcache=new Memcache(this.ttl);
+  this.compactionDir=HRegion.getCompactionDir(basedir);
+  this.storeName=Bytes.toBytes(this.info.getEncodedName() + "/" + Bytes.toString(this.family.getName()));
+  this.storeNameStr=Bytes.toString(this.storeName);
+  this.compactionThreshold=conf.getInt("hbase.hstore.compactionThreshold",3);
+  this.desiredMaxFileSize=conf.getLong("hbase.hregion.max.filesize",DEFAULT_MAX_FILE_SIZE);
+  this.storeSize=0L;
+  if (family.getCompression() == HColumnDescriptor.CompressionType.BLOCK) {
+    this.compression=SequenceFile.CompressionType.BLOCK;
+  }
+ else   if (family.getCompression() == HColumnDescriptor.CompressionType.RECORD) {
+    this.compression=SequenceFile.CompressionType.RECORD;
+  }
+ else {
+    this.compression=SequenceFile.CompressionType.NONE;
+  }
+  Path mapdir=HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getName());
+  if (!fs.exists(mapdir)) {
+    fs.mkdirs(mapdir);
+  }
+  Path infodir=HStoreFile.getInfoDir(basedir,info.getEncodedName(),family.getName());
+  if (!fs.exists(infodir)) {
+    fs.mkdirs(infodir);
+  }
+  this.maxSeqId=-1L;
+  this.storefiles.putAll(loadHStoreFiles(infodir,mapdir));
+  if (LOG.isDebugEnabled() && this.storefiles.size() > 0) {
+    LOG.debug("Loaded " + this.storefiles.size() + " file(s) in hstore "+ Bytes.toString(this.storeName)+ ", max sequence id "+ this.maxSeqId);
+  }
+  try {
+    doReconstructionLog(reconstructionLog,maxSeqId,reporter);
+  }
+ catch (  EOFException e) {
+    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName+ " -- continuing.  Probably lack-of-HADOOP-1700 causing DATA LOSS!",e);
+  }
+catch (  IOException e) {
+    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName,e);
+    throw e;
+  }
+  boolean first=true;
+  for (  Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
+    MapFile.Reader r=null;
+    if (first) {
+      r=e.getValue().getReader(this.fs,this.family.isBloomFilterEnabled(),family.isBlockCacheEnabled());
+      first=false;
+    }
+ else {
+      r=e.getValue().getReader(this.fs,this.family.isBloomFilterEnabled(),false);
+    }
+    this.readers.put(e.getKey(),r);
+  }
+}

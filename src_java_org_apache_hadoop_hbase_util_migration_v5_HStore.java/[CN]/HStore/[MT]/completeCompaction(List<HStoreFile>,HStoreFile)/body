@@ -1,0 +1,50 @@
+{
+  this.lock.writeLock().lock();
+  try {
+    HStoreFile finalCompactedFile=new HStoreFile(conf,fs,basedir,info.getEncodedName(),family.getName(),-1,null);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("moving " + FSUtils.getPath(compactedFile.getMapFilePath()) + " to "+ FSUtils.getPath(finalCompactedFile.getMapFilePath()));
+    }
+    if (!compactedFile.rename(this.fs,finalCompactedFile)) {
+      LOG.error("Failed move of compacted file " + finalCompactedFile.getMapFilePath().toString());
+      return;
+    }
+synchronized (storefiles) {
+      Map<Long,HStoreFile> toDelete=new HashMap<Long,HStoreFile>();
+      for (      Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
+        if (!compactedFiles.contains(e.getValue())) {
+          continue;
+        }
+        Long key=e.getKey();
+        MapFile.Reader reader=this.readers.remove(key);
+        if (reader != null) {
+          reader.close();
+        }
+        toDelete.put(key,e.getValue());
+      }
+      try {
+        for (        Long key : toDelete.keySet()) {
+          this.storefiles.remove(key);
+        }
+        Long orderVal=Long.valueOf(finalCompactedFile.loadInfo(fs));
+        this.readers.put(orderVal,finalCompactedFile.getReader(this.fs,this.family.isBloomFilterEnabled(),this.family.isBlockCacheEnabled()));
+        this.storefiles.put(orderVal,finalCompactedFile);
+        notifyChangedReadersObservers();
+        for (        HStoreFile hsf : toDelete.values()) {
+          hsf.delete();
+        }
+      }
+ catch (      IOException e) {
+        e=RemoteExceptionHandler.checkIOException(e);
+        LOG.error("Failed replacing compacted files for " + this.storeNameStr + ". Compacted file is "+ finalCompactedFile.toString()+ ".  Files replaced are "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+      }
+      storeSize=0L;
+      for (      HStoreFile hsf : storefiles.values()) {
+        storeSize+=hsf.length();
+      }
+    }
+  }
+  finally {
+    this.lock.writeLock().unlock();
+  }
+}

@@ -1,0 +1,54 @@
+{
+  this.basedir=basedir;
+  this.log=log;
+  this.fs=fs;
+  this.conf=conf;
+  this.regionInfo=regionInfo;
+  this.flushListener=flushListener;
+  this.flushRequested=false;
+  this.threadWakeFrequency=conf.getLong(THREAD_WAKE_FREQUENCY,10 * 1000);
+  String encodedNameStr=Integer.toString(this.regionInfo.getEncodedName());
+  this.regiondir=new Path(basedir,encodedNameStr);
+  Path oldLogFile=new Path(regiondir,HREGION_OLDLOGFILE_NAME);
+  this.historian=RegionHistorian.getInstance();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Opening region " + this + "/"+ this.regionInfo.getEncodedName());
+  }
+  this.regionCompactionDir=new Path(getCompactionDir(basedir),encodedNameStr);
+  if (initialFiles != null && fs.exists(initialFiles)) {
+    fs.rename(initialFiles,this.regiondir);
+  }
+  long maxSeqId=-1;
+  for (  HColumnDescriptor c : this.regionInfo.getTableDesc().getFamilies()) {
+    HStore store=instantiateHStore(this.basedir,c,oldLogFile,reporter);
+    stores.put(Bytes.mapKey(c.getName()),store);
+    long storeSeqId=store.getMaxSequenceId();
+    if (storeSeqId > maxSeqId) {
+      maxSeqId=storeSeqId;
+    }
+  }
+  doReconstructionLog(oldLogFile,maxSeqId,reporter);
+  if (fs.exists(oldLogFile)) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Deleting old log file: " + oldLogFile);
+    }
+    fs.delete(oldLogFile,false);
+  }
+  this.minSequenceId=maxSeqId + 1;
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Next sequence id for region " + Bytes.toString(regionInfo.getRegionName()) + " is "+ this.minSequenceId);
+  }
+  Path splits=new Path(regiondir,SPLITDIR);
+  if (fs.exists(splits)) {
+    fs.delete(splits,true);
+  }
+  Path merges=new Path(regiondir,MERGEDIR);
+  if (fs.exists(merges)) {
+    fs.delete(merges,true);
+  }
+  this.memcacheFlushSize=conf.getInt("hbase.hregion.memcache.flush.size",1024 * 1024 * 64);
+  this.blockingMemcacheSize=this.memcacheFlushSize * conf.getInt("hbase.hregion.memcache.block.multiplier",1);
+  this.writestate.compacting=false;
+  this.lastFlushTime=System.currentTimeMillis();
+  LOG.info("region " + this + "/"+ this.regionInfo.getEncodedName()+ " available");
+}

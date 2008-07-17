@@ -1,30 +1,45 @@
 {
-  int versionNumber=in.readByte();
-  if (versionNumber <= 2) {
-    Text t=new Text();
-    t.readFields(in);
-    this.name=t.getBytes();
-    if (HStoreKey.getFamilyDelimiterIndex(this.name) > 0) {
-      this.name=stripColon(this.name);
+  int version=in.readByte();
+  if (version < 6) {
+    if (version <= 2) {
+      Text t=new Text();
+      t.readFields(in);
+      this.name=t.getBytes();
+      if (HStoreKey.getFamilyDelimiterIndex(this.name) > 0) {
+        this.name=stripColon(this.name);
+      }
+    }
+ else {
+      this.name=Bytes.readByteArray(in);
+    }
+    this.values.clear();
+    setMaxVersions(in.readInt());
+    int ordinal=in.readInt();
+    setCompressionType(CompressionType.values()[ordinal]);
+    setInMemory(in.readBoolean());
+    setMaxValueLength(in.readInt());
+    setBloomfilter(in.readBoolean());
+    if (isBloomfilter() && version < 5) {
+      BloomFilterDescriptor junk=new BloomFilterDescriptor();
+      junk.readFields(in);
+    }
+    if (version > 1) {
+      setBlockCacheEnabled(in.readBoolean());
+    }
+    if (version > 2) {
+      setTimeToLive(in.readInt());
     }
   }
  else {
     this.name=Bytes.readByteArray(in);
-  }
-  this.maxVersions=in.readInt();
-  int ordinal=in.readInt();
-  this.compressionType=CompressionType.values()[ordinal];
-  this.inMemory=in.readBoolean();
-  this.maxValueLength=in.readInt();
-  this.bloomFilter=in.readBoolean();
-  if (this.bloomFilter && versionNumber < 5) {
-    BloomFilterDescriptor junk=new BloomFilterDescriptor();
-    junk.readFields(in);
-  }
-  if (versionNumber > 1) {
-    this.blockCacheEnabled=in.readBoolean();
-  }
-  if (versionNumber > 2) {
-    this.timeToLive=in.readInt();
+    this.values.clear();
+    int numValues=in.readInt();
+    for (int i=0; i < numValues; i++) {
+      ImmutableBytesWritable key=new ImmutableBytesWritable();
+      ImmutableBytesWritable value=new ImmutableBytesWritable();
+      key.readFields(in);
+      value.readFields(in);
+      values.put(key,value);
+    }
   }
 }

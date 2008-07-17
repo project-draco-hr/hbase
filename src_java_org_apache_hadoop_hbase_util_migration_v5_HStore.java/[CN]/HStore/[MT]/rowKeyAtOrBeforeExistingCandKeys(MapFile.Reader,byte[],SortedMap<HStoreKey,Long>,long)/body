@@ -1,0 +1,73 @@
+{
+  HStoreKey strippedKey=null;
+  ImmutableBytesWritable readval=new ImmutableBytesWritable();
+  HStoreKey readkey=new HStoreKey();
+  HStoreKey searchKey=new HStoreKey(candidateKeys.firstKey().getRow());
+  HStoreKey finalKey=new HStoreKey();
+  map.finalKey(finalKey);
+  if (Bytes.compareTo(finalKey.getRow(),searchKey.getRow()) < 0) {
+    strippedKey=stripTimestamp(finalKey);
+    if (candidateKeys.containsKey(strippedKey)) {
+      long bestCandidateTs=candidateKeys.get(strippedKey).longValue();
+      if (bestCandidateTs < finalKey.getTimestamp()) {
+        candidateKeys.put(strippedKey,new Long(finalKey.getTimestamp()));
+      }
+    }
+ else {
+      candidateKeys.put(strippedKey,new Long(finalKey.getTimestamp()));
+    }
+    return;
+  }
+  readkey=(HStoreKey)map.getClosest(searchKey,readval,true);
+  if (readkey == null) {
+    return;
+  }
+  do {
+    if (Bytes.equals(readkey.getRow(),row)) {
+      strippedKey=stripTimestamp(readkey);
+      if (!HLogEdit.isDeleted(readval.get())) {
+        if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+          candidateKeys.put(strippedKey,new Long(readkey.getTimestamp()));
+        }
+ else {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("rowAtOrBeforeFromMapFile: " + readkey + ": expired, skipped");
+          }
+        }
+      }
+ else {
+        if (candidateKeys.containsKey(strippedKey)) {
+          long bestCandidateTs=candidateKeys.get(strippedKey).longValue();
+          if (bestCandidateTs <= readkey.getTimestamp()) {
+            candidateKeys.remove(strippedKey);
+          }
+        }
+      }
+    }
+ else     if (Bytes.compareTo(readkey.getRow(),row) > 0) {
+      return;
+    }
+ else {
+      strippedKey=stripTimestamp(readkey);
+      if (!HLogEdit.isDeleted(readval.get())) {
+        if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
+          candidateKeys.put(strippedKey,readkey.getTimestamp());
+        }
+ else {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("rowAtOrBeforeFromMapFile: " + readkey + ": expired, skipped");
+          }
+        }
+      }
+ else {
+        if (candidateKeys.containsKey(strippedKey)) {
+          long bestCandidateTs=candidateKeys.get(strippedKey).longValue();
+          if (bestCandidateTs <= readkey.getTimestamp()) {
+            candidateKeys.remove(strippedKey);
+          }
+        }
+      }
+    }
+  }
+ while (map.next(readkey,readval));
+}
