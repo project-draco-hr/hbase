@@ -1,13 +1,19 @@
 {
   final Map<HRegionInfo,HServerAddress> regionMap=new TreeMap<HRegionInfo,HServerAddress>();
   MetaScannerVisitor visitor=new MetaScannerVisitor(){
-    public boolean processRow(    @SuppressWarnings("unused") RowResult rowResult,    HRegionLocation regionLocation,    HRegionInfo hri){
-      HRegionInfo info=new UnmodifyableHRegionInfo(hri);
+    public boolean processRow(    RowResult rowResult) throws IOException {
+      HRegionInfo info=Writables.getHRegionInfo(rowResult.get(HConstants.COL_REGIONINFO));
       if (!(Bytes.equals(info.getTableDesc().getName(),getTableName()))) {
         return false;
       }
+      HServerAddress server=new HServerAddress();
+      Cell c=rowResult.get(HConstants.COL_SERVER);
+      if (c != null && c.getValue() != null && c.getValue().length > 0) {
+        String address=Bytes.toString(c.getValue());
+        server=new HServerAddress(address);
+      }
       if (!(info.isOffline() || info.isSplit())) {
-        regionMap.put(info,regionLocation.getServerAddress());
+        regionMap.put(new UnmodifyableHRegionInfo(info),server);
       }
       return true;
     }
