@@ -17,6 +17,31 @@ synchronized (storefiles) {
       LOG.warn("Mkdir on " + compactionDir.toString() + " failed");
       return checkSplit();
     }
+    int countOfFiles=filesToCompact.size();
+    long totalSize=0;
+    long[] fileSizes=new long[countOfFiles];
+    long skipped=0;
+    int point=0;
+    for (int i=0; i < countOfFiles; i++) {
+      HStoreFile file=filesToCompact.get(i);
+      Path path=file.getMapFilePath();
+      int len=0;
+      for (      FileStatus fstatus : fs.listStatus(path)) {
+        len+=fstatus.getLen();
+      }
+      fileSizes[i]=len;
+      totalSize+=len;
+    }
+    if (!force && !hasReferences(filesToCompact)) {
+      for (point=0; point < compactionThreshold - 1; point++) {
+        if (fileSizes[point] < fileSizes[point + 1] * 2) {
+          break;
+        }
+        skipped+=fileSizes[point];
+      }
+      filesToCompact=new ArrayList<HStoreFile>(filesToCompact.subList(point,countOfFiles));
+      LOG.info("Compaction size " + totalSize + ", skipped "+ point+ ", "+ skipped);
+    }
     List<MapFile.Reader> readers=new ArrayList<MapFile.Reader>();
     for (    HStoreFile file : filesToCompact) {
       try {
