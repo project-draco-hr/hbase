@@ -6,18 +6,29 @@
   }
   HStoreKey key=new HStoreKey(row,ts);
   Integer lid=obtainRowLock(row);
+  HashSet<HStore> storeSet=new HashSet<HStore>();
   try {
     TreeMap<byte[],Cell> result=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
-    for (    HStore targetStore : stores.values()) {
-      targetStore.getFull(key,columns,result);
+    if (columns != null) {
+      for (      byte[] bs : columns) {
+        HStore store=stores.get(Bytes.mapKey(HStoreKey.getFamily(bs)));
+        if (store != null) {
+          storeSet.add(store);
+        }
+      }
     }
+ else     storeSet.addAll(stores.values());
     if (columns != null) {
       for (      byte[] bs : columns) {
         if (HStoreKey.getFamilyDelimiterIndex(bs) == (bs.length - 1)) {
           HStore store=stores.get(Bytes.mapKey(HStoreKey.getFamily(bs)));
           store.getFull(key,null,result);
+          storeSet.remove(store);
         }
       }
+    }
+    for (    HStore targetStore : storeSet) {
+      targetStore.getFull(key,columns,result);
     }
     return result;
   }
