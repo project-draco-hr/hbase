@@ -1,22 +1,16 @@
 {
-  HStoreKey searchKey=new HStoreKey(row);
-  ImmutableBytesWritable readval=new ImmutableBytesWritable();
+  HStoreKey searchKey=sk;
   HStoreKey readkey=new HStoreKey();
-  HStoreKey finalKey=new HStoreKey();
-  map.finalKey(finalKey);
-  if (Bytes.compareTo(finalKey.getRow(),row) < 0) {
-    candidateKeys.put(stripTimestamp(finalKey),new Long(finalKey.getTimestamp()));
-    return;
-  }
-  HStoreKey deletedOrExpiredRow=null;
-  boolean foundCandidate=false;
-  while (!foundCandidate) {
+  ImmutableBytesWritable readval=new ImmutableBytesWritable();
+  HStoreKey knownNoGoodKey=null;
+  for (boolean foundCandidate=false; !foundCandidate; ) {
     readkey=(HStoreKey)map.getClosest(searchKey,readval,true);
     if (readkey == null) {
-      return;
+      break;
     }
+    HStoreKey deletedOrExpiredRow=null;
     do {
-      if (Bytes.equals(readkey.getRow(),row)) {
+      if (Bytes.equals(readkey.getRow(),searchKey.getRow())) {
         if (!HLogEdit.isDeleted(readval.get())) {
           if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
             candidateKeys.put(stripTimestamp(readkey),new Long(readkey.getTimestamp()));
@@ -24,12 +18,14 @@
             continue;
           }
           if (LOG.isDebugEnabled()) {
-            LOG.debug("rowAtOrBeforeFromMapFile:" + readkey + ": expired, skipped");
+            LOG.debug("rowAtOrBeforeCandidate 1:" + readkey + ": expired, skipped");
           }
         }
-        deletedOrExpiredRow=stripTimestamp(readkey);
+        if (deletedOrExpiredRow == null) {
+          deletedOrExpiredRow=new HStoreKey(readkey);
+        }
       }
- else       if (Bytes.compareTo(readkey.getRow(),row) > 0) {
+ else       if (Bytes.compareTo(readkey.getRow(),searchKey.getRow()) > 0) {
         break;
       }
  else {
@@ -40,16 +36,18 @@
             continue;
           }
           if (LOG.isDebugEnabled()) {
-            LOG.debug("rowAtOrBeforeFromMapFile:" + readkey + ": expired, skipped");
+            LOG.debug("rowAtOrBeforeCandidate 2:" + readkey + ": expired, skipped");
           }
         }
-        deletedOrExpiredRow=stripTimestamp(readkey);
+        if (deletedOrExpiredRow == null) {
+          deletedOrExpiredRow=new HStoreKey(readkey);
+        }
       }
     }
- while (map.next(readkey,readval));
+ while (map.next(readkey,readval) && (knownNoGoodKey == null || readkey.compareTo(knownNoGoodKey) < 0));
     if (!foundCandidate && deletedOrExpiredRow != null) {
-      searchKey=deletedOrExpiredRow;
-      deletedOrExpiredRow=null;
+      knownNoGoodKey=deletedOrExpiredRow;
+      searchKey=new BeforeThisStoreKey(deletedOrExpiredRow);
     }
  else {
       break;

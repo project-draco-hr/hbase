@@ -1,28 +1,16 @@
 {
-  HStoreKey strippedKey=null;
-  ImmutableBytesWritable readval=new ImmutableBytesWritable();
   HStoreKey readkey=new HStoreKey();
+  ImmutableBytesWritable readval=new ImmutableBytesWritable();
   HStoreKey searchKey=new HStoreKey(candidateKeys.firstKey().getRow());
-  HStoreKey finalKey=new HStoreKey();
-  map.finalKey(finalKey);
-  if (Bytes.compareTo(finalKey.getRow(),searchKey.getRow()) < 0) {
-    strippedKey=stripTimestamp(finalKey);
-    if (candidateKeys.containsKey(strippedKey)) {
-      long bestCandidateTs=candidateKeys.get(strippedKey).longValue();
-      if (bestCandidateTs < finalKey.getTimestamp()) {
-        candidateKeys.put(strippedKey,new Long(finalKey.getTimestamp()));
-      }
-    }
- else {
-      candidateKeys.put(strippedKey,new Long(finalKey.getTimestamp()));
-    }
-    return;
+  if (searchKey.compareTo(startKey) < 0) {
+    searchKey=startKey;
   }
   readkey=(HStoreKey)map.getClosest(searchKey,readval,true);
   if (readkey == null) {
     return;
   }
   do {
+    HStoreKey strippedKey=null;
     if (Bytes.equals(readkey.getRow(),row)) {
       strippedKey=stripTimestamp(readkey);
       if (!HLogEdit.isDeleted(readval.get())) {
@@ -31,7 +19,7 @@
         }
  else {
           if (LOG.isDebugEnabled()) {
-            LOG.debug("rowAtOrBeforeFromMapFile: " + readkey + ": expired, skipped");
+            LOG.debug("rowAtOrBeforeWithCandidates 1: " + readkey + ": expired, skipped");
           }
         }
       }
@@ -45,17 +33,17 @@
       }
     }
  else     if (Bytes.compareTo(readkey.getRow(),row) > 0) {
-      return;
+      break;
     }
  else {
       strippedKey=stripTimestamp(readkey);
       if (!HLogEdit.isDeleted(readval.get())) {
         if (ttl == HConstants.FOREVER || now < readkey.getTimestamp() + ttl) {
-          candidateKeys.put(strippedKey,readkey.getTimestamp());
+          candidateKeys.put(strippedKey,Long.valueOf(readkey.getTimestamp()));
         }
  else {
           if (LOG.isDebugEnabled()) {
-            LOG.debug("rowAtOrBeforeFromMapFile: " + readkey + ": expired, skipped");
+            LOG.debug("rowAtOrBeforeWithCandidates 2: " + readkey + ": expired, skipped");
           }
         }
       }
