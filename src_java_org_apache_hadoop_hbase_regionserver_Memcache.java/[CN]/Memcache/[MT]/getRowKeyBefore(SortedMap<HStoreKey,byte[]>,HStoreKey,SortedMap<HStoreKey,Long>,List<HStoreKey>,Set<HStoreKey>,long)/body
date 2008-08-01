@@ -3,28 +3,30 @@
   if (headMap.isEmpty()) {
     return;
   }
-  HStoreKey found_key=null;
   if (candidateKeys.isEmpty()) {
     Set<HStoreKey> keys=headMap.keySet();
     HStoreKey[] cells=keys.toArray(new HStoreKey[keys.size()]);
     byte[] lastRowFound=null;
     for (int i=cells.length - 1; i >= 0; i--) {
-      HStoreKey thisKey=cells[i];
-      boolean deleted=HLogEdit.isDeleted(headMap.get(thisKey));
-      if (lastRowFound != null && !Bytes.equals(lastRowFound,thisKey.getRow()) && !deleted) {
+      HStoreKey found_key=cells[i];
+      boolean deleted=HLogEdit.isDeleted(headMap.get(found_key));
+      if (lastRowFound != null && !Bytes.equals(lastRowFound,found_key.getRow()) && !deleted) {
         break;
       }
       if (!deleted) {
-        if (ttl == HConstants.FOREVER || now < thisKey.getTimestamp() + ttl) {
-          lastRowFound=thisKey.getRow();
-          candidateKeys.put(stripTimestamp(thisKey),new Long(thisKey.getTimestamp()));
+        if (HStore.notExpiredAndNotInDeletes(this.ttl,found_key,now,deletes)) {
+          lastRowFound=found_key.getRow();
+          candidateKeys.put(stripTimestamp(found_key),new Long(found_key.getTimestamp()));
         }
  else {
-          victims.add(found_key);
+          expires.add(found_key);
           if (LOG.isDebugEnabled()) {
             LOG.debug("getRowKeyBefore: " + found_key + ": expired, skipped");
           }
         }
+      }
+ else {
+        deletes.add(found_key);
       }
     }
   }
@@ -32,16 +34,16 @@
     SortedMap<HStoreKey,byte[]> thisRowTailMap=headMap.tailMap(new HStoreKey(headMap.lastKey().getRow()));
     Iterator<HStoreKey> key_iterator=thisRowTailMap.keySet().iterator();
     do {
-      found_key=key_iterator.next();
+      HStoreKey found_key=key_iterator.next();
       if (HLogEdit.isDeleted(thisRowTailMap.get(found_key))) {
-        handleDeleted(found_key,candidateKeys);
+        handleDeleted(found_key,candidateKeys,deletes);
       }
  else {
-        if (ttl == HConstants.FOREVER || now < found_key.getTimestamp() + ttl) {
+        if (ttl == HConstants.FOREVER || now < found_key.getTimestamp() + ttl || !deletes.contains(found_key)) {
           candidateKeys.put(stripTimestamp(found_key),Long.valueOf(found_key.getTimestamp()));
         }
  else {
-          victims.add(found_key);
+          expires.add(found_key);
           if (LOG.isDebugEnabled()) {
             LOG.debug("internalGetRowKeyAtOrBefore: " + found_key + ": expired, skipped");
           }
