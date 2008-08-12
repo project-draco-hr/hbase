@@ -1,0 +1,14 @@
+def do_install(self):
+    try:
+        queue_name = self.cf.get('pgq_queue_name')
+        consumer = self.job_name
+        self.log.info(('Creating queue: %s' % queue_name))
+        self.exec_sql('select pgq.create_queue(%s)', [queue_name])
+        self.log.info(('Registering consumer %s on queue %s' % (consumer, queue_name)))
+        self.exec_sql('select pgq.register_consumer(%s, %s)', [queue_name, consumer])
+        for table_name in self.table_names:
+            self.log.info(('Creating trigger hbase_replic on table %s' % table_name))
+            q = "\n        CREATE TRIGGER hbase_replic\n          AFTER INSERT OR UPDATE OR DELETE\n          ON %s\n          FOR EACH ROW\n          EXECUTE PROCEDURE pgq.logutriga('%s')"
+            self.exec_sql((q % (table_name, queue_name)), [])
+    except Exception as e:
+        sys.exit(e)

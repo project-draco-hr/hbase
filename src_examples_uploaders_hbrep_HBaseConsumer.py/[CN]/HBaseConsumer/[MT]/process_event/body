@@ -1,0 +1,25 @@
+def process_event(self, event, hbase):
+    if (event.ev_extra1 in self.table_mappings):
+        table_mapping = self.table_mappings[event.ev_extra1]
+    else:
+        self.log.info('table name not found in config, skipping event')
+        return
+    event_data = skytools.db_urldecode(event.data)
+    event_type = event.type.split(':')[0]
+    batch = BatchMutation()
+    batch.row = (table_mapping.hbase_row_prefix + str(event_data[table_mapping.psql_key_column]))
+    batch.mutations = []
+    for (psql_column, hbase_column) in zip(table_mapping.psql_columns, table_mapping.hbase_column_descriptors):
+        if ((event_type == INSERT) or (event_type == UPDATE)):
+            m = Mutation()
+            m.column = hbase_column
+            m.value = str(event_data[psql_column])
+        elif (event_type == DELETE):
+            m = Mutation()
+            m.isDelete = True
+            m.column = hbase_column
+        else:
+            raise Exception(('Invalid event type: %s, event data was: %s' % (event_type, str(event_data))))
+        batch.mutations.append(m)
+    hbase.client.mutateRow(table_mapping.hbase_table_name, batch.row, batch.mutations)
+    event.tag_done()
