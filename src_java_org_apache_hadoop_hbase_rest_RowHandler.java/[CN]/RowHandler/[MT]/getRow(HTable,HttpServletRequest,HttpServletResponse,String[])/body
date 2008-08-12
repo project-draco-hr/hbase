@@ -1,0 +1,55 @@
+{
+  String row=URLDecoder.decode(pathSegments[2],HConstants.UTF8_ENCODING);
+  String timestampStr=null;
+  if (pathSegments.length == 4) {
+    timestampStr=pathSegments[3];
+    if (timestampStr.equals("timestamps")) {
+      doMethodNotAllowed(response,"Not yet supported by hbase");
+      return;
+    }
+  }
+  String[] columns=request.getParameterValues(COLUMN);
+  if (columns == null || columns.length == 0) {
+    Map<byte[],Cell> result=timestampStr == null ? table.getRow(Bytes.toBytes(row)) : table.getRow(Bytes.toBytes(row),Long.parseLong(timestampStr));
+    if (result == null || result.size() == 0) {
+      doNotFound(response,"Row not found!");
+    }
+ else {
+switch (ContentType.getContentType(request.getHeader(ACCEPT))) {
+case XML:
+        outputRowXml(response,result);
+      break;
+case MIME:
+default :
+    doNotAcceptable(response,"Unsupported Accept Header Content: " + request.getHeader(CONTENT_TYPE));
+}
+}
+}
+ else {
+Map<byte[],Cell> prefiltered_result=table.getRow(Bytes.toBytes(row));
+if (prefiltered_result == null || prefiltered_result.size() == 0) {
+doNotFound(response,"Row not found!");
+}
+ else {
+Set<String> requested_columns_set=new HashSet<String>();
+for (int i=0; i < columns.length; i++) {
+  requested_columns_set.add(columns[i]);
+}
+Map<byte[],Cell> m=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
+Set<byte[]> columns_retrieved=prefiltered_result.keySet();
+for (byte[] current_column : columns_retrieved) {
+  if (requested_columns_set.contains(Bytes.toString(current_column))) {
+    m.put(current_column,prefiltered_result.get(current_column));
+  }
+}
+switch (ContentType.getContentType(request.getHeader(ACCEPT))) {
+case XML:
+  outputRowXml(response,m);
+break;
+case MIME:
+default :
+doNotAcceptable(response,"Unsupported Accept Header Content: " + request.getHeader(CONTENT_TYPE));
+}
+}
+}
+}
