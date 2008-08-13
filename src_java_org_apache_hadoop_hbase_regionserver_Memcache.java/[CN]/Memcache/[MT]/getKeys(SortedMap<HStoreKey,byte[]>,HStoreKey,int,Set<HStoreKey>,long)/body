@@ -1,5 +1,4 @@
 {
-  long now=System.currentTimeMillis();
   List<HStoreKey> result=new ArrayList<HStoreKey>();
   List<HStoreKey> victims=new ArrayList<HStoreKey>();
   SortedMap<HStoreKey,byte[]> tailMap=map.tailMap(origin);
@@ -18,21 +17,23 @@
         break;
       }
     }
-    if (!HLogEdit.isDeleted(es.getValue())) {
-      if (ttl == HConstants.FOREVER || now < key.getTimestamp() + ttl) {
+    if (!isDeleted(es.getValue())) {
+      if (HStore.notExpiredAndNotInDeletes(this.ttl,key,now,deletes)) {
         result.add(key);
-      }
- else {
-        victims.add(key);
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("internalGetKeys: " + key + ": expired, skipped");
+        if (versions > 0 && result.size() >= versions) {
+          break;
         }
       }
-      if (result.size() >= versions) {
-        break;
+ else {
+        addVictim(victims,key);
       }
     }
+ else {
+      deletes.add(key);
+    }
   }
-  for (  HStoreKey v : victims)   map.remove(v);
+  for (  HStoreKey v : victims) {
+    map.remove(v);
+  }
   return result;
 }

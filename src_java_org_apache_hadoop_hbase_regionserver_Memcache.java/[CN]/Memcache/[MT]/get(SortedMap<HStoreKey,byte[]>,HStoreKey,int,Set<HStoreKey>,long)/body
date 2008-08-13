@@ -1,0 +1,47 @@
+{
+  ArrayList<Cell> result=new ArrayList<Cell>();
+  List<HStoreKey> victims=new ArrayList<HStoreKey>();
+  if (numVersions == 1) {
+    byte[] value=map.get(key);
+    if (!isDeleted(value)) {
+      if (HStore.notExpiredAndNotInDeletes(ttl,key,now,deletes)) {
+        result.add(new Cell(value,key.getTimestamp()));
+      }
+ else {
+        addVictim(victims,key);
+      }
+    }
+ else {
+      deletes.add(key);
+    }
+  }
+ else {
+    SortedMap<HStoreKey,byte[]> tailMap=map.tailMap(key);
+    for (    Map.Entry<HStoreKey,byte[]> es : tailMap.entrySet()) {
+      HStoreKey itKey=es.getKey();
+      if (itKey.matchesRowCol(key)) {
+        if (!isDeleted(es.getValue())) {
+          if (HStore.notExpiredAndNotInDeletes(ttl,itKey,now,deletes)) {
+            result.add(new Cell(tailMap.get(itKey),itKey.getTimestamp()));
+            if (numVersions > 0 && result.size() >= numVersions) {
+              break;
+            }
+          }
+ else {
+            addVictim(victims,itKey);
+          }
+        }
+ else {
+          deletes.add(itKey);
+        }
+      }
+ else {
+        break;
+      }
+    }
+  }
+  for (  HStoreKey v : victims) {
+    map.remove(v);
+  }
+  return result;
+}
