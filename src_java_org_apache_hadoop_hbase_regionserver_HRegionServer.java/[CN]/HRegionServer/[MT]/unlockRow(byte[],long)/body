@@ -1,0 +1,34 @@
+{
+  checkOpen();
+  NullPointerException npe=null;
+  if (regionName == null) {
+    npe=new NullPointerException("regionName is null");
+  }
+ else   if (lockId == -1L) {
+    npe=new NullPointerException("lockId is null");
+  }
+  if (npe != null) {
+    IOException io=new IOException("Invalid arguments to unlockRow");
+    io.initCause(npe);
+    throw io;
+  }
+  requestCount.incrementAndGet();
+  try {
+    HRegion region=getRegion(regionName);
+    String lockName=String.valueOf(lockId);
+    Integer r=null;
+synchronized (rowlocks) {
+      r=rowlocks.remove(lockName);
+    }
+    if (r == null) {
+      throw new UnknownRowLockException(lockName);
+    }
+    region.releaseRowLock(r);
+    this.leases.cancelLease(lockName);
+    LOG.debug("Row lock " + lockId + " has been explicitly released by client");
+  }
+ catch (  IOException e) {
+    checkFileSystem();
+    throw e;
+  }
+}
