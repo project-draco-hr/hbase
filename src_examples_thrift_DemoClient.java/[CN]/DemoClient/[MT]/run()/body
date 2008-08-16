@@ -8,6 +8,8 @@
   for (  byte[] name : client.getTableNames()) {
     System.out.println("  found: " + utf8(name));
     if (utf8(name).equals(utf8(t))) {
+      System.out.println("    disabling table: " + utf8(name));
+      if (client.isTableEnabled(name))       client.disableTable(name);
       System.out.println("    deleting table: " + utf8(name));
       client.deleteTable(name);
     }
@@ -29,17 +31,26 @@
     System.out.println("WARN: " + ae.message);
   }
   System.out.println("column families in " + utf8(t) + ": ");
-  AbstractMap<byte[],ColumnDescriptor> columnMap=client.getColumnDescriptors(t);
+  Map<byte[],ColumnDescriptor> columnMap=client.getColumnDescriptors(t);
   for (  ColumnDescriptor col2 : columnMap.values()) {
     System.out.println("  column: " + utf8(col2.name) + ", maxVer: "+ Integer.toString(col2.maxVersions));
   }
   byte[] invalid={(byte)'f',(byte)'o',(byte)'o',(byte)'-',(byte)0xfc,(byte)0xa1,(byte)0xa1,(byte)0xa1,(byte)0xa1};
   byte[] valid={(byte)'f',(byte)'o',(byte)'o',(byte)'-',(byte)0xE7,(byte)0x94,(byte)0x9F,(byte)0xE3,(byte)0x83,(byte)0x93,(byte)0xE3,(byte)0x83,(byte)0xBC,(byte)0xE3,(byte)0x83,(byte)0xAB};
-  client.put(t,bytes("foo"),bytes("entry:foo"),invalid);
-  client.put(t,bytes(""),bytes("entry:"),bytes(""));
-  client.put(t,valid,bytes("entry:foo"),valid);
+  ArrayList<Mutation> mutations;
+  mutations=new ArrayList<Mutation>();
+  mutations.add(new Mutation(false,bytes("entry:foo"),invalid));
+  client.mutateRow(t,bytes("foo"),mutations);
+  mutations=new ArrayList<Mutation>();
+  mutations.add(new Mutation(false,bytes("entry:"),bytes("")));
+  client.mutateRow(t,bytes(""),mutations);
+  mutations=new ArrayList<Mutation>();
+  mutations.add(new Mutation(false,bytes("entry:foo"),valid));
+  client.mutateRow(t,bytes("foo"),mutations);
   try {
-    client.put(t,invalid,bytes("entry:foo"),invalid);
+    mutations=new ArrayList<Mutation>();
+    mutations.add(new Mutation(false,bytes("entry:foo"),invalid));
+    client.mutateRow(t,invalid,mutations);
     System.out.println("FATAL: shouldn't get here");
     System.exit(-1);
   }
@@ -52,8 +63,8 @@
   int scanner=client.scannerOpen(t,bytes(""),columnNames);
   try {
     while (true) {
-      ScanEntry value=client.scannerGet(scanner);
-      printEntry(value);
+      TRowResult entry=client.scannerGet(scanner);
+      printRow(entry);
     }
   }
  catch (  NotFound nf) {
@@ -65,14 +76,18 @@
     nf.setMinimumIntegerDigits(5);
     nf.setGroupingUsed(false);
     byte[] row=bytes(nf.format(i));
-    client.put(t,row,bytes("unused:"),bytes("DELETE_ME"));
-    printRow(row,client.getRow(t,row));
+    mutations=new ArrayList<Mutation>();
+    mutations.add(new Mutation(false,bytes("unused:"),bytes("DELETE_ME")));
+    client.mutateRow(t,row,mutations);
+    printRow(client.getRow(t,row));
     client.deleteAllRow(t,row);
-    client.put(t,row,bytes("entry:num"),bytes("0"));
-    client.put(t,row,bytes("entry:foo"),bytes("FOO"));
-    printRow(row,client.getRow(t,row));
+    mutations=new ArrayList<Mutation>();
+    mutations.add(new Mutation(false,bytes("entry:num"),bytes("0")));
+    mutations.add(new Mutation(false,bytes("entry:foo"),bytes("FOO")));
+    client.mutateRow(t,row,mutations);
+    printRow(client.getRow(t,row));
     Mutation m=null;
-    ArrayList<Mutation> mutations=new ArrayList<Mutation>();
+    mutations=new ArrayList<Mutation>();
     m=new Mutation();
     m.column=bytes("entry:foo");
     m.isDelete=true;
@@ -82,10 +97,12 @@
     m.value=bytes("-1");
     mutations.add(m);
     client.mutateRow(t,row,mutations);
-    printRow(row,client.getRow(t,row));
-    client.put(t,row,bytes("entry:num"),bytes(Integer.toString(i)));
-    client.put(t,row,bytes("entry:sqr"),bytes(Integer.toString(i * i)));
-    printRow(row,client.getRow(t,row));
+    printRow(client.getRow(t,row));
+    mutations=new ArrayList<Mutation>();
+    mutations.add(new Mutation(false,bytes("entry:num"),bytes(Integer.toString(i))));
+    mutations.add(new Mutation(false,bytes("entry:sqr"),bytes(Integer.toString(i * i))));
+    client.mutateRow(t,row,mutations);
+    printRow(client.getRow(t,row));
     try {
       Thread.sleep(50);
     }
@@ -100,8 +117,8 @@
     m.column=bytes("entry:sqr");
     m.isDelete=true;
     client.mutateRowTs(t,row,mutations,1);
-    printRow(row,client.getRow(t,row));
-    ArrayList<byte[]> versions=client.getVer(t,row,bytes("entry:num"),10);
+    printRow(client.getRow(t,row));
+    List<TCell> versions=client.getVer(t,row,bytes("entry:num"),10);
     printVersions(row,versions);
     if (versions.size() != 4) {
       System.out.println("FATAL: wrong # of versions");
@@ -118,14 +135,16 @@
   }
   columnNames.clear();
   for (  ColumnDescriptor col2 : client.getColumnDescriptors(t).values()) {
-    columnNames.add(col2.name);
+    System.out.println("column name is " + new String(col2.name));
+    System.out.println(col2.toString());
+    columnNames.add((utf8(col2.name) + ":").getBytes());
   }
   System.out.println("Starting scanner...");
   scanner=client.scannerOpenWithStop(t,bytes("00020"),bytes("00040"),columnNames);
   try {
     while (true) {
-      ScanEntry value=client.scannerGet(scanner);
-      printEntry(value);
+      TRowResult entry=client.scannerGet(scanner);
+      printRow(entry);
     }
   }
  catch (  NotFound nf) {
