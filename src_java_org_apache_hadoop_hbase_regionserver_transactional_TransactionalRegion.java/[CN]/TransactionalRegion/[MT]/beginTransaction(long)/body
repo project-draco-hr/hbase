@@ -1,0 +1,26 @@
+{
+  String key=String.valueOf(transactionId);
+  if (transactionsById.get(key) != null) {
+    TransactionState alias=getTransactionState(transactionId);
+    if (alias != null) {
+      alias.setStatus(Status.ABORTED);
+      retireTransaction(alias);
+    }
+    throw new IOException("Already exiting transaction id: " + key);
+  }
+  TransactionState state=new TransactionState(transactionId,super.getLog().getSequenceNumber());
+  for (  TransactionState commitPending : commitPendingTransactions) {
+    state.addTransactionToCheck(commitPending);
+  }
+  state.setStartSequenceNumber(nextSequenceId.get());
+  transactionsById.put(String.valueOf(key),state);
+  try {
+    transactionLeases.createLease(key,new TransactionLeaseListener(key));
+  }
+ catch (  LeaseStillHeldException e) {
+    throw new RuntimeException(e);
+  }
+  LOG.debug("Begining transaction " + key + " in region "+ super.getRegionInfo().getRegionNameAsString());
+  logManager.writeStartToLog(transactionId);
+  maybeTriggerOldTransactionFlush();
+}

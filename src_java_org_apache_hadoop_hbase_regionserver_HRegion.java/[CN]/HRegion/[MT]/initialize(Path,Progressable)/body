@@ -1,0 +1,44 @@
+{
+  Path oldLogFile=new Path(regiondir,HREGION_OLDLOGFILE_NAME);
+  if (initialFiles != null && fs.exists(initialFiles)) {
+    fs.rename(initialFiles,this.regiondir);
+  }
+  long maxSeqId=-1;
+  long minSeqId=Integer.MAX_VALUE;
+  for (  HColumnDescriptor c : this.regionInfo.getTableDesc().getFamilies()) {
+    HStore store=instantiateHStore(this.basedir,c,oldLogFile,reporter);
+    stores.put(Bytes.mapKey(c.getName()),store);
+    long storeSeqId=store.getMaxSequenceId();
+    if (storeSeqId > maxSeqId) {
+      maxSeqId=storeSeqId;
+    }
+    if (storeSeqId < minSeqId) {
+      minSeqId=storeSeqId;
+    }
+  }
+  doReconstructionLog(oldLogFile,minSeqId,maxSeqId,reporter);
+  if (fs.exists(oldLogFile)) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Deleting old log file: " + oldLogFile);
+    }
+    fs.delete(oldLogFile,false);
+  }
+  this.minSequenceId=maxSeqId + 1;
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Next sequence id for region " + Bytes.toString(regionInfo.getRegionName()) + " is "+ this.minSequenceId);
+  }
+  Path splits=new Path(regiondir,SPLITDIR);
+  if (fs.exists(splits)) {
+    fs.delete(splits,true);
+  }
+  Path merges=new Path(regiondir,MERGEDIR);
+  if (fs.exists(merges)) {
+    fs.delete(merges,true);
+  }
+  if (this.regionInfo.getTableDesc().isReadOnly()) {
+    this.writestate.setReadOnly(true);
+  }
+  this.writestate.compacting=false;
+  this.lastFlushTime=System.currentTimeMillis();
+  LOG.info("region " + this + "/"+ this.regionInfo.getEncodedName()+ " available");
+}

@@ -1,0 +1,50 @@
+{
+  checkReadOnly();
+  checkResources();
+  byte[] row=b.getRow();
+  Integer lid=getLock(lockid,row);
+  long commitTime=(b.getTimestamp() == LATEST_TIMESTAMP) ? System.currentTimeMillis() : b.getTimestamp();
+  try {
+    List<byte[]> deletes=null;
+    for (    BatchOperation op : b) {
+      HStoreKey key=new HStoreKey(row,op.getColumn(),commitTime);
+      byte[] val=null;
+      if (op.isPut()) {
+        val=op.getValue();
+        if (HLogEdit.isDeleted(val)) {
+          throw new IOException("Cannot insert value: " + val);
+        }
+      }
+ else {
+        if (b.getTimestamp() == LATEST_TIMESTAMP) {
+          if (deletes == null) {
+            deletes=new ArrayList<byte[]>();
+          }
+          deletes.add(op.getColumn());
+        }
+ else {
+          val=HLogEdit.deleteBytes.get();
+        }
+      }
+      if (val != null) {
+        localput(lid,key,val);
+      }
+    }
+    TreeMap<HStoreKey,byte[]> edits=this.targetColumns.remove(lid);
+    if (edits != null && edits.size() > 0) {
+      update(edits,writeToWAL);
+    }
+    if (deletes != null && deletes.size() > 0) {
+      for (      byte[] column : deletes) {
+        deleteMultiple(row,column,LATEST_TIMESTAMP,1);
+      }
+    }
+  }
+ catch (  IOException e) {
+    this.targetColumns.remove(Long.valueOf(lid));
+    throw e;
+  }
+ finally {
+    if (lockid == null)     releaseRowLock(lid);
+  }
+}
