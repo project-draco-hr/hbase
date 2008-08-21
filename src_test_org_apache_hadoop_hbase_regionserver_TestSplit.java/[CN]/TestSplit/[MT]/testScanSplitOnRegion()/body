@@ -1,0 +1,46 @@
+{
+  HRegion region=null;
+  try {
+    HTableDescriptor htd=createTableDescriptor(getName());
+    htd.addFamily(new HColumnDescriptor(COLFAMILY_NAME3));
+    region=createNewHRegion(htd,null,null);
+    addContent(region,COLFAMILY_NAME3);
+    region.flushcache();
+    final byte[] midkey=region.compactStores();
+    assertNotNull(midkey);
+    byte[][] cols={COLFAMILY_NAME3};
+    final InternalScanner s=region.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis(),null);
+    final HRegion regionForThread=region;
+    Thread splitThread=new Thread(){
+      public void run(){
+        try {
+          HRegion[] regions=split(regionForThread,midkey);
+        }
+ catch (        IOException e) {
+          fail("Unexpected exception " + e);
+        }
+      }
+    }
+;
+    splitThread.start();
+    HRegionServer server=cluster.getRegionThreads().get(0).getRegionServer();
+    long id=server.addScanner(s);
+    for (int i=0; i < 6; i++) {
+      try {
+        BatchUpdate update=new BatchUpdate(region.getRegionInfo().getStartKey());
+        update.put(COLFAMILY_NAME3,Bytes.toBytes("val"));
+        region.batchUpdate(update);
+        Thread.sleep(1000);
+      }
+ catch (      InterruptedException e) {
+        fail("Unexpected exception " + e);
+      }
+    }
+    server.next(id);
+    server.close(id);
+  }
+ catch (  UnknownScannerException ex) {
+    ex.printStackTrace();
+    fail("Got the " + ex);
+  }
+}

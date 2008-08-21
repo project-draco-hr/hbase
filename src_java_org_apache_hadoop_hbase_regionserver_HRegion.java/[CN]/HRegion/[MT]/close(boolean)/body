@@ -16,8 +16,8 @@ synchronized (writestate) {
         }
       }
     }
-    splitsAndClosesLock.writeLock().lock();
-    LOG.debug("Updates and scanners disabled for region " + this);
+    newScannerLock.writeLock().lock();
+    LOG.debug("Scanners disabled for region " + this);
     try {
 synchronized (activeScannerCount) {
         while (activeScannerCount.get() != 0) {
@@ -30,21 +30,28 @@ synchronized (activeScannerCount) {
         }
       }
       LOG.debug("No more active scanners for region " + this);
-      waitOnRowLocks();
-      LOG.debug("No more row locks outstanding on region " + this);
-      if (!abort) {
-        internalFlushcache();
+      splitsAndClosesLock.writeLock().lock();
+      LOG.debug("Updates disabled for region " + this);
+      try {
+        waitOnRowLocks();
+        LOG.debug("No more row locks outstanding on region " + this);
+        if (!abort) {
+          internalFlushcache();
+        }
+        List<HStoreFile> result=new ArrayList<HStoreFile>();
+        for (        HStore store : stores.values()) {
+          result.addAll(store.close());
+        }
+        this.closed.set(true);
+        LOG.info("closed " + this);
+        return result;
       }
-      List<HStoreFile> result=new ArrayList<HStoreFile>();
-      for (      HStore store : stores.values()) {
-        result.addAll(store.close());
+  finally {
+        splitsAndClosesLock.writeLock().unlock();
       }
-      this.closed.set(true);
-      LOG.info("closed " + this);
-      return result;
     }
   finally {
-      splitsAndClosesLock.writeLock().unlock();
+      newScannerLock.writeLock().unlock();
     }
   }
 }
