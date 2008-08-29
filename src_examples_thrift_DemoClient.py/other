@@ -1,100 +1,120 @@
 'Copyright 2008 The Apache Software Foundation\n \n  Licensed to the Apache Software Foundation (ASF) under one\n  or more contributor license agreements.  See the NOTICE file\n  distributed with this work for additional information\n  regarding copyright ownership.  The ASF licenses this file\n  to you under the Apache License, Version 2.0 (the\n  "License"); you may not use this file except in compliance\n  with the License.  You may obtain a copy of the License at\n \n     http://www.apache.org/licenses/LICENSE-2.0\n\n  Unless required by applicable law or agreed to in writing, software\n  distributed under the License is distributed on an "AS IS" BASIS,\n  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n  See the License for the specific language governing permissions and\n  limitations under the License.\n'
+import sys
+import time
 from thrift import Thrift
 from thrift.transport import TSocket, TTransport
 from thrift.protocol import TBinaryProtocol
-from gen_py.Hbase import *
+from Hbase import ttypes
+from Hbase.Hbase import Client, ColumnDescriptor, Mutation
 transport = TSocket.TSocket('localhost', 9090)
 transport = TTransport.TBufferedTransport(transport)
 protocol = TBinaryProtocol.TBinaryProtocol(transport)
-client = Hbase.Client(protocol)
+client = Client(protocol)
 transport.open()
 t = 'demo_table'
 print 'scanning tables...'
 for table in client.getTableNames():
     print ('  found: %s' % table)
     if (table == t):
+        print ('    disabling table: %s' % t)
+        if client.isTableEnabled(table):
+            client.disableTable(table)
         print ('    deleting table: %s' % t)
         client.deleteTable(table)
 columns = []
-col = Hbase.ColumnDescriptor()
+col = ColumnDescriptor()
 col.name = 'entry:'
 col.maxVersions = 10
 columns.append(col)
-col = Hbase.ColumnDescriptor()
+col = ColumnDescriptor()
 col.name = 'unused:'
 columns.append(col)
-client.createTable(t, columns)
+try:
+    client.createTable(t, columns)
+except AlreadyExists as ae:
+    print ('WARN: ' + ae.message)
 cols = client.getColumnDescriptors(t)
 for col_name in cols.keys():
     col = cols[col_name]
     print ('  column: %s, maxVer: %d' % (col.name, col.maxVersions))
 invalid = 'foo-\xfc\xa1\xa1\xa1\xa1\xa1'
 valid = 'foo-\xe7\x94\x9f\xe3\x83\x93\xe3\x83\xbc\xe3\x83\xab'
-client.put(t, 'foo', 'entry:foo', invalid)
-client.put(t, '', 'entry:', '')
-client.put(t, valid, 'entry:foo', valid)
+mutations = [Mutation({'column': 'entry:foo', 'value': invalid, })]
+client.mutateRow(t, 'foo', mutations)
+mutations = [Mutation({'column': 'entry:', 'value': '', })]
+client.mutateRow(t, 'foo', mutations)
+mutations = [Mutation({'column': 'entry:foo', 'value': valid, })]
+client.mutateRow(t, 'foo', mutations)
 try:
-    client.put(t, invalid, 'entry:foo', invalid)
+    mutations = [Mutation({'column': 'entry:foo', 'value': invalid, })]
+    client.mutateRow(t, invalid, mutations)
 except ttypes.IOError as e:
     print ('expected exception: %s' % e.message)
 print 'Starting scanner...'
-scanner = client.scannerOpen(t, '', ['entry:'])
+scanner = client.scannerOpen(t, '', ['entry::'])
 try:
     while 1:
-        printEntry(client.scannerGet(scanner))
+        printRow(client.scannerGet(scanner))
 except ttypes.NotFound as e:
     print 'Scanner finished'
 for e in range(100, 0, (-1)):
     row = ('%0.5d' % e)
-    client.put(t, row, 'unused:', 'DELETE_ME')
-    printRow(row, client.getRow(t, row))
+    mutations = [Mutation({'column': 'unused:', 'value': 'DELETE_ME', })]
+    client.mutateRow(t, row, mutations)
+    printRow(client.getRow(t, row))
     client.deleteAllRow(t, row)
-    client.put(t, row, 'entry:num', '0')
-    client.put(t, row, 'entry:foo', 'FOO')
-    printRow(row, client.getRow(t, row))
+    mutations = [Mutation({'column': 'entry:num', 'value': '0', }), Mutation({'column': 'entry:foo', 'value': 'FOO', })]
+    client.mutateRow(t, row, mutations)
+    printRow(client.getRow(t, row))
     mutations = []
-    m = Hbase.Mutation()
+    m = Mutation()
     m.column = 'entry:foo'
     m.isDelete = 1
     mutations.append(m)
-    m = Hbase.Mutation()
+    m = Mutation()
     m.column = 'entry:num'
     m.value = '-1'
     mutations.append(m)
     client.mutateRow(t, row, mutations)
-    printRow(row, client.getRow(t, row))
-    client.put(t, row, 'entry:num', str(e))
-    client.put(t, row, 'entry:sqr', str((e * e)))
-    printRow(row, client.getRow(t, row))
+    printRow(client.getRow(t, row))
+    mutations = [Mutation({'column': 'entry:num', 'value': str(e), }), Mutation({'column': 'entry:sqr', 'value': str((e * e)), })]
+    client.mutateRow(t, row, mutations)
+    printRow(client.getRow(t, row))
+    time.sleep(0.05)
     mutations = []
-    m = Hbase.Mutation()
+    m = Mutation()
     m.column = 'entry:num'
     m.value = '-999'
     mutations.append(m)
-    m = Hbase.Mutation()
+    m = Mutation()
     m.column = 'entry:sqr'
     m.isDelete = 1
     mutations.append(m)
     client.mutateRowTs(t, row, mutations, 1)
-    printRow(row, client.getRow(t, row))
+    printRow(client.getRow(t, row))
     versions = client.getVer(t, row, 'entry:num', 10)
-    print ('row: %s, values: ' % row)
-    for v in versions:
-        print ('\t%s;' % v)
-    print ''
+    printVersions(row, versions)
+    if (len(versions) != 4):
+        print 'FATAL: wrong # of versions'
+        sys.exit((-1))
     try:
         client.get(t, row, 'entry:foo')
-        raise "shouldn't get here!"
-    except ttypes.NotFound as e:
+        print "FATAL: shouldn't get here"
+        sys.exit((-1))
+    except ttypes.NotFound:
         pass
-    print ''
-columns = client.getColumnDescriptors(t)
+    print 
+columnNames = []
+for col2 in client.getColumnDescriptors(t):
+    print ('column name is ' + col2.name)
+    print col2
+    columnNames.append((col2.name + ':'))
 print 'Starting scanner...'
-scanner = client.scannerOpenWithStop(t, '00020', '00040', columns)
+scanner = client.scannerOpenWithStop(t, '00020', '00040', columnNames)
 try:
     while 1:
-        printEntry(client.scannerGet(scanner))
-except ttypes.NotFound as e:
+        printRow(client.scannerGet(scanner))
+except ttypes.NotFound:
     client.scannerClose(scanner)
     print 'Scanner finished'
 transport.close()
