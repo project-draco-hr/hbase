@@ -10,7 +10,22 @@ synchronized (storefiles) {
       filesToCompact=new ArrayList<HStoreFile>(this.storefiles.values());
       maxId=this.storefiles.lastKey().longValue();
     }
-    if (!force && !hasReferences(filesToCompact) && filesToCompact.size() < compactionThreshold) {
+    long lastMajorCompaction=0L;
+    if (!majorCompaction) {
+      Path mapdir=HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getName());
+      long lowTimestamp=getLowestTimestamp(fs,mapdir);
+      if (LOG.isDebugEnabled() && lowTimestamp > 0l) {
+        LOG.debug("Time since last major compaction on store " + this.storeNameStr + ": "+ ((System.currentTimeMillis() - lowTimestamp) / 1000)+ " seconds");
+      }
+      lastMajorCompaction=System.currentTimeMillis() - lowTimestamp;
+      if (lowTimestamp < (System.currentTimeMillis() - majorCompactionTime) && lowTimestamp > 0l) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Major compaction triggered on store: " + this.storeNameStr + ". Time since last major compaction: "+ ((System.currentTimeMillis() - lowTimestamp) / 1000)+ " seconds");
+        }
+        majorCompaction=true;
+      }
+    }
+    if (!majorCompaction && !hasReferences(filesToCompact) && filesToCompact.size() < compactionThreshold) {
       return checkSplit();
     }
     if (!fs.exists(compactionDir) && !fs.mkdirs(compactionDir)) {
@@ -32,9 +47,9 @@ synchronized (storefiles) {
       fileSizes[i]=len;
       totalSize+=len;
     }
-    if (!force && !hasReferences(filesToCompact)) {
+    if (!majorCompaction && !hasReferences(filesToCompact)) {
       for (point=0; point < compactionThreshold - 1; point++) {
-        if (fileSizes[point] < fileSizes[point + 1] * 2) {
+        if (fileSizes[point] < fileSizes[point + 1] * 2 && maxFilesToCompact < (countOfFiles - point)) {
           break;
         }
         skipped+=fileSizes[point];
@@ -72,7 +87,7 @@ synchronized (storefiles) {
     MapFile.Writer writer=compactedOutputFile.getWriter(this.fs,this.compression,this.family.isBloomfilter(),nrows);
     writer.setIndexInterval(family.getMapFileIndexInterval());
     try {
-      compact(writer,rdrs);
+      compact(writer,rdrs,majorCompaction);
     }
   finally {
       writer.close();
@@ -80,7 +95,7 @@ synchronized (storefiles) {
     compactedOutputFile.writeInfo(fs,maxId);
     completeCompaction(filesToCompact,compactedOutputFile);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Completed compaction of " + this.storeNameStr + " store size is "+ StringUtils.humanReadableInt(storeSize));
+      LOG.debug("Completed compaction of " + this.storeNameStr + " store size is "+ StringUtils.humanReadableInt(storeSize)+ (majorCompaction ? "" : "; time since last major compaction: " + (lastMajorCompaction / 1000) + " seconds"));
     }
   }
   return checkSplit();
