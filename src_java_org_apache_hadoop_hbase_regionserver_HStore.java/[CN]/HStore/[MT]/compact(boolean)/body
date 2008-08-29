@@ -50,30 +50,29 @@ synchronized (storefiles) {
         LOG.debug("Compaction size of " + this.storeNameStr + ": "+ StringUtils.humanReadableInt(totalSize)+ "; Skipped "+ point+ " files , size: "+ skipped);
       }
     }
-    List<MapFile.Reader> readers=new ArrayList<MapFile.Reader>();
+    List<MapFile.Reader> rdrs=new ArrayList<MapFile.Reader>();
     for (    HStoreFile file : filesToCompact) {
       try {
         HStoreFile.BloomFilterMapFile.Reader reader=file.getReader(fs,false,false);
-        readers.add(reader);
+        rdrs.add(reader);
         if (this.family.isBloomfilter()) {
           nrows+=reader.getBloomFilterSize();
         }
       }
  catch (      IOException e) {
         LOG.warn("Failed with " + e.toString() + ": "+ file.toString());
-        closeCompactionReaders(readers);
+        closeCompactionReaders(rdrs);
         throw e;
       }
     }
-    Collections.reverse(readers);
     HStoreFile compactedOutputFile=new HStoreFile(conf,fs,this.compactionDir,info.getEncodedName(),family.getName(),-1L,null);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("started compaction of " + readers.size() + " files into "+ FSUtils.getPath(compactedOutputFile.getMapFilePath()));
+      LOG.debug("started compaction of " + rdrs.size() + " files into "+ FSUtils.getPath(compactedOutputFile.getMapFilePath()));
     }
     MapFile.Writer writer=compactedOutputFile.getWriter(this.fs,this.compression,this.family.isBloomfilter(),nrows);
     writer.setIndexInterval(family.getMapFileIndexInterval());
     try {
-      compactHStoreFiles(writer,readers);
+      compact(writer,rdrs);
     }
   finally {
       writer.close();
