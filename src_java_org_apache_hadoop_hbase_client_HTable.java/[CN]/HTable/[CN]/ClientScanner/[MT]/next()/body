@@ -1,14 +1,24 @@
 {
-  if (this.closed) {
+  if (cache.size() == 0 && this.closed) {
     return null;
   }
-  RowResult values=null;
-  do {
-    values=getConnection().getRegionServerWithRetries(callable);
+  if (cache.size() == 0) {
+    RowResult[] values=null;
+    int countdown=this.scannerCaching;
+    callable.setCaching(this.scannerCaching);
+    do {
+      values=getConnection().getRegionServerWithRetries(callable);
+      if (values != null && values.length > 0) {
+        for (        RowResult rs : values) {
+          cache.add(rs);
+          countdown--;
+        }
+      }
+    }
+ while (countdown > 0 && nextScanner(countdown));
   }
- while ((values == null || values.size() == 0) && nextScanner());
-  if (values != null && values.size() != 0) {
-    return values;
+  if (cache.size() > 0) {
+    return cache.poll();
   }
   return null;
 }
