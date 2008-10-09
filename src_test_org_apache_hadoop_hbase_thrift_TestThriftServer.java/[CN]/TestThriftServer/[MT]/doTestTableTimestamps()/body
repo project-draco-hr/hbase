@@ -1,0 +1,31 @@
+{
+  ThriftServer.HBaseHandler handler=new ThriftServer.HBaseHandler();
+  handler.createTable(tableAname,getColumnDescriptors());
+  long time1=System.currentTimeMillis();
+  handler.mutateRowTs(tableAname,rowAname,getMutations(),time1);
+  long time2=System.currentTimeMillis();
+  handler.mutateRowsTs(tableAname,getBatchMutations(),time2);
+  handler.mutateRowTs(tableAname,rowBname,getMutations(),time2);
+  assertEquals(handler.getVerTs(tableAname,rowAname,columnBname,time2,MAXVERSIONS).size(),2);
+  assertEquals(handler.getVerTs(tableAname,rowAname,columnBname,time1,MAXVERSIONS).size(),1);
+  TRowResult rowResult1=handler.getRowTs(tableAname,rowAname,time1);
+  TRowResult rowResult2=handler.getRowTs(tableAname,rowAname,time2);
+  assertTrue(Bytes.equals(rowResult1.columns.get(columnAname).value,valueAname));
+  assertTrue(Bytes.equals(rowResult1.columns.get(columnBname).value,valueBname));
+  assertTrue(Bytes.equals(rowResult2.columns.get(columnBname).value,valueCname));
+  assertFalse(rowResult2.columns.containsKey(columnAname));
+  handler.deleteAllTs(tableAname,rowAname,columnBname,time1);
+  handler.deleteAllRowTs(tableAname,rowBname,time2);
+  boolean failed=false;
+  try {
+    handler.getVerTs(tableAname,rowAname,columnBname,time1,MAXVERSIONS);
+  }
+ catch (  NotFound nf) {
+    failed=true;
+  }
+  assertTrue(failed);
+  assertTrue(Bytes.equals(handler.get(tableAname,rowAname,columnBname).value,valueCname));
+  assertEquals(handler.getRow(tableAname,rowBname).columns.size(),0);
+  handler.disableTable(tableAname);
+  handler.deleteTable(tableAname);
+}
