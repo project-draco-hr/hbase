@@ -1,17 +1,21 @@
 {
-  Boolean result=new RetryableMetaOperation<Boolean>(this.metaRegion,this.master){
-    public Boolean call() throws IOException {
-      LOG.info("region closed: " + regionInfo.getRegionNameAsString());
-      if (!metaRegionAvailable()) {
+  Boolean result=null;
+  if (offlineRegion) {
+    result=new RetryableMetaOperation<Boolean>(this.metaRegion,this.master){
+      public Boolean call() throws IOException {
+        LOG.info("region closed: " + regionInfo.getRegionNameAsString());
+        if (metaRegionAvailable()) {
+          HRegion.offlineRegionInMETA(server,metaRegionName,regionInfo);
+          master.regionManager.regionOfflined(regionInfo.getRegionName());
+        }
         return true;
       }
-      if (offlineRegion) {
-        HRegion.offlineRegionInMETA(server,metaRegionName,regionInfo);
-        master.regionManager.regionOfflined(regionInfo.getRegionName());
-      }
-      return true;
     }
-  }
 .doWithRetries();
+    result=result == null ? true : result;
+  }
+ else   if (reassignRegion) {
+    master.regionManager.setUnassigned(regionInfo);
+  }
   return result == null ? true : result;
 }
