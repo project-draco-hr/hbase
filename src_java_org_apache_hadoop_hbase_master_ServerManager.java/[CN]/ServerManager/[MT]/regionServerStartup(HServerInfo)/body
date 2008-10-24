@@ -23,10 +23,17 @@ synchronized (loadToServers) {
   HServerInfo storedInfo=serversToServerInfo.remove(s);
   if (storedInfo != null && !master.closed.get()) {
     HServerAddress root=master.getRootRegionLocation();
+    boolean rootServer=false;
     if (root != null && root.equals(storedInfo.getServerAddress())) {
-      master.regionManager.unassignRootRegion();
+      master.regionManager.setRootRegionLocation(null);
+      rootServer=true;
     }
-    master.delayedToDoQueue.put(new ProcessServerShutdown(master,storedInfo));
+    try {
+      master.toDoQueue.put(new ProcessServerShutdown(master,storedInfo,rootServer));
+    }
+ catch (    InterruptedException e) {
+      LOG.error("Insertion into toDoQueue was interrupted",e);
+    }
   }
   load=new HServerLoad();
   serverInfo.setLoad(load);

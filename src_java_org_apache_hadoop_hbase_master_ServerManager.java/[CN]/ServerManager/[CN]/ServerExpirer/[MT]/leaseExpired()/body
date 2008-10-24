@@ -1,10 +1,12 @@
 {
   LOG.info(server + " lease expired");
   HServerInfo info=serversToServerInfo.remove(server);
+  boolean rootServer=false;
   if (info != null) {
     HServerAddress root=master.getRootRegionLocation();
     if (root != null && root.equals(info.getServerAddress())) {
-      master.regionManager.unassignRootRegion();
+      master.regionManager.unsetRootRegion();
+      rootServer=true;
     }
     String serverName=info.getServerAddress().toString();
     HServerLoad load=serversToLoad.remove(serverName);
@@ -23,6 +25,11 @@ synchronized (serversToServerInfo) {
     serversToServerInfo.notifyAll();
   }
   if (info != null) {
-    master.delayedToDoQueue.put(new ProcessServerShutdown(master,info));
+    try {
+      master.toDoQueue.put(new ProcessServerShutdown(master,info,rootServer));
+    }
+ catch (    InterruptedException e) {
+      LOG.error("Insertion into toDoQueue was interrupted",e);
+    }
   }
 }
