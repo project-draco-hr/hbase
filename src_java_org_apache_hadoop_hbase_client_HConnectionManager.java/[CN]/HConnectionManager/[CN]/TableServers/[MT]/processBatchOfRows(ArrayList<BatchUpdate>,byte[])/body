@@ -1,0 +1,47 @@
+{
+  if (list.isEmpty()) {
+    return;
+  }
+  Collections.sort(list);
+  List<BatchUpdate> tempUpdates=new ArrayList<BatchUpdate>();
+  byte[] currentRegion=getRegionLocation(tableName,list.get(0).getRow(),false).getRegionInfo().getRegionName();
+  byte[] region=currentRegion;
+  boolean isLastRow=false;
+  int tries=0;
+  for (int i=0; i < list.size() && tries < numRetries; i++) {
+    BatchUpdate batchUpdate=list.get(i);
+    tempUpdates.add(batchUpdate);
+    isLastRow=(i + 1) == list.size();
+    if (!isLastRow) {
+      region=getRegionLocation(tableName,list.get(i + 1).getRow(),false).getRegionInfo().getRegionName();
+    }
+    if (!Bytes.equals(currentRegion,region) || isLastRow) {
+      final BatchUpdate[] updates=tempUpdates.toArray(new BatchUpdate[0]);
+      int index=getRegionServerForWithoutRetries(new ServerCallable<Integer>(this,tableName,batchUpdate.getRow()){
+        public Integer call() throws IOException {
+          int i=server.batchUpdates(location.getRegionInfo().getRegionName(),updates);
+          return i;
+        }
+      }
+);
+      if (index != updates.length - 1) {
+        if (tries == numRetries - 1) {
+          throw new RetriesExhaustedException("Some server",currentRegion,batchUpdate.getRow(),tries,new ArrayList<Throwable>());
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("reloading table servers because region " + "server didn't accept updates ");
+        }
+        try {
+          Thread.sleep(getPauseTime(tries));
+          tries++;
+        }
+ catch (        InterruptedException e) {
+        }
+        i=i - updates.length + index;
+        region=getRegionLocation(tableName,list.get(i + 1).getRow(),true).getRegionInfo().getRegionName();
+      }
+      currentRegion=region;
+      tempUpdates.clear();
+    }
+  }
+}
