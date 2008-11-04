@@ -34,39 +34,13 @@
  else {
     this.compression=SequenceFile.CompressionType.NONE;
   }
-  Path mapdir=HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getName());
-  if (!fs.exists(mapdir)) {
-    fs.mkdirs(mapdir);
-  }
-  Path infodir=HStoreFile.getInfoDir(basedir,info.getEncodedName(),family.getName());
-  if (!fs.exists(infodir)) {
-    fs.mkdirs(infodir);
-  }
+  Path mapdir=checkdir(HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getName()));
+  Path infodir=checkdir(HStoreFile.getInfoDir(basedir,info.getEncodedName(),family.getName()));
   this.maxSeqId=-1L;
   this.storefiles.putAll(loadHStoreFiles(infodir,mapdir));
   if (LOG.isDebugEnabled() && this.storefiles.size() > 0) {
     LOG.debug("Loaded " + this.storefiles.size() + " file(s) in hstore "+ Bytes.toString(this.storeName)+ ", max sequence id "+ this.maxSeqId);
   }
-  try {
-    doReconstructionLog(reconstructionLog,maxSeqId,reporter);
-  }
- catch (  EOFException e) {
-    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName+ " -- continuing.  Probably lack-of-HADOOP-1700 causing DATA LOSS!",e);
-  }
-catch (  IOException e) {
-    LOG.warn("Exception processing reconstruction log " + reconstructionLog + " opening "+ this.storeName,e);
-    throw e;
-  }
-  boolean first=true;
-  for (  Map.Entry<Long,HStoreFile> e : this.storefiles.entrySet()) {
-    MapFile.Reader r=null;
-    if (first) {
-      r=e.getValue().getReader(this.fs,this.family.isBloomfilter(),family.isBlockCacheEnabled());
-      first=false;
-    }
- else {
-      r=e.getValue().getReader(this.fs,this.family.isBloomfilter(),false);
-    }
-    this.readers.put(e.getKey(),r);
-  }
+  runReconstructionLog(reconstructionLog,this.maxSeqId,reporter);
+  setupReaders();
 }

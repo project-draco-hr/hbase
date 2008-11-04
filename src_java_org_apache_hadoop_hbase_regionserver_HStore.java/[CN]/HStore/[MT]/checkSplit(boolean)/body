@@ -13,29 +13,23 @@
 synchronized (storefiles) {
       for (      Map.Entry<Long,HStoreFile> e : storefiles.entrySet()) {
         HStoreFile curHSF=e.getValue();
+        if (splitable) {
+          splitable=!curHSF.isReference();
+          if (!splitable) {
+            return null;
+          }
+        }
         long size=curHSF.length();
         if (size > maxSize) {
           maxSize=size;
           mapIndex=e.getKey();
         }
-        if (splitable) {
-          splitable=!curHSF.isReference();
-        }
       }
     }
-    if (!splitable) {
-      return null;
-    }
-    MapFile.Reader r=this.readers.get(mapIndex);
-    r.reset();
-    HStoreKey firstKey=new HStoreKey();
-    HStoreKey lastKey=new HStoreKey();
-    Writable value=new ImmutableBytesWritable();
-    r.next(firstKey,value);
-    r.finalKey(lastKey);
+    HBaseMapFile.HBaseReader r=(HBaseMapFile.HBaseReader)this.readers.get(mapIndex);
     HStoreKey mk=(HStoreKey)r.midKey();
     if (mk != null) {
-      if (HStoreKey.equalsTwoRowKeys(info,mk.getRow(),firstKey.getRow()) && HStoreKey.equalsTwoRowKeys(info,mk.getRow(),lastKey.getRow())) {
+      if (HStoreKey.equalsTwoRowKeys(info,mk.getRow(),r.getFirstKey().getRow()) && HStoreKey.equalsTwoRowKeys(info,mk.getRow(),r.getFinalKey().getRow())) {
         return null;
       }
       return new StoreSize(maxSize,mk.getRow());

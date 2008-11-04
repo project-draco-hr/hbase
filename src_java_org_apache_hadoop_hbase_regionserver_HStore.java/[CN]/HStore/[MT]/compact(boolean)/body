@@ -3,7 +3,6 @@
   boolean doMajorCompaction=majorCompaction;
 synchronized (compactLock) {
     long maxId=-1;
-    int nrows=-1;
     List<HStoreFile> filesToCompact=null;
 synchronized (storefiles) {
       if (this.storefiles.size() <= 0) {
@@ -14,15 +13,7 @@ synchronized (storefiles) {
     }
     long lastMajorCompaction=0L;
     if (!doMajorCompaction) {
-      Path mapdir=HStoreFile.getMapDir(basedir,info.getEncodedName(),family.getName());
-      long lowTimestamp=getLowestTimestamp(fs,mapdir);
-      lastMajorCompaction=System.currentTimeMillis() - lowTimestamp;
-      if (lowTimestamp < (System.currentTimeMillis() - majorCompactionTime) && lowTimestamp > 0l) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Major compaction triggered on store: " + this.storeNameStr + ". Time since last major compaction: "+ ((System.currentTimeMillis() - lowTimestamp) / 1000)+ " seconds");
-        }
-        doMajorCompaction=true;
-      }
+      doMajorCompaction=isMajorCompaction();
     }
     if (!doMajorCompaction && !hasReferences(filesToCompact) && filesToCompact.size() < compactionThreshold) {
       return checkSplit(forceSplit);
@@ -65,20 +56,7 @@ synchronized (storefiles) {
       }
     }
     List<MapFile.Reader> rdrs=new ArrayList<MapFile.Reader>();
-    for (    HStoreFile file : filesToCompact) {
-      try {
-        HStoreFile.BloomFilterMapFile.Reader reader=file.getReader(fs,false,false);
-        rdrs.add(reader);
-        if (this.family.isBloomfilter()) {
-          nrows+=reader.getBloomFilterSize();
-        }
-      }
- catch (      IOException e) {
-        LOG.warn("Failed with " + e.toString() + ": "+ file.toString());
-        closeCompactionReaders(rdrs);
-        throw e;
-      }
-    }
+    int nrows=createReaders(rdrs,filesToCompact);
     HStoreFile compactedOutputFile=new HStoreFile(conf,fs,this.compactionDir,this.info,family.getName(),-1L,null);
     if (LOG.isDebugEnabled()) {
       LOG.debug("started compaction of " + rdrs.size() + " files into "+ FSUtils.getPath(compactedOutputFile.getMapFilePath()));
