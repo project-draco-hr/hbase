@@ -16,15 +16,24 @@ synchronized (onlineRegions) {
   finally {
     this.lock.writeLock().unlock();
   }
-  for (  HRegion region : regionsToClose) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("closing region " + Bytes.toString(region.getRegionName()));
+  Set<Thread> threads=new HashSet<Thread>();
+  try {
+    for (    final HRegion r : regionsToClose) {
+      RegionCloserThread t=new RegionCloserThread(r);
+      t.start();
+      threads.add(t);
     }
-    try {
-      region.close();
-    }
- catch (    IOException e) {
-      LOG.error("error closing region " + region.getRegionName(),RemoteExceptionHandler.checkIOException(e));
+  }
+  finally {
+    for (    Thread t : threads) {
+      while (t.isAlive()) {
+        try {
+          t.join();
+        }
+ catch (        InterruptedException e) {
+          e.printStackTrace();
+        }
+      }
     }
   }
   this.quiesced.set(true);
