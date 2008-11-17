@@ -13,17 +13,18 @@
   cellValues=r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100);
   LOG.info("Count of " + Bytes.toString(secondRowBytes) + ": "+ cellValues.length);
   assertTrue(cellValues.length == 3);
-  r.deleteAll(STARTROW,COLUMN_FAMILY_TEXT,System.currentTimeMillis(),null);
-  assertNull(r.get(STARTROW,COLUMN_FAMILY_TEXT,-1,100));
+  r.deleteAll(secondRowBytes,COLUMN_FAMILY_TEXT,System.currentTimeMillis(),null);
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
   r.flushcache();
-  assertNull(r.get(STARTROW,COLUMN_FAMILY_TEXT,-1,100));
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
   createSmallerStoreFile(this.r);
   r.flushcache();
-  cellValues=r.get(STARTROW,COLUMN_FAMILY_TEXT,-1,100);
-  assertNull(r.get(STARTROW,COLUMN_FAMILY_TEXT,-1,100));
+  cellValues=r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100);
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
   r.compactStores(true);
   assertEquals(r.getStore(COLUMN_FAMILY_TEXT).getStorefiles().size(),1);
-  assertNull(r.get(STARTROW,COLUMN_FAMILY_TEXT,-1,100));
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
+  int count=0;
   boolean containsStartRow=false;
   for (  MapFile.Reader reader : this.r.stores.get(Bytes.mapKey(COLUMN_FAMILY_TEXT_MINUS_COLON)).getReaders()) {
     reader.reset();
@@ -32,28 +33,21 @@
     while (reader.next(key,val)) {
       if (Bytes.equals(key.getRow(),STARTROW)) {
         containsStartRow=true;
-        break;
+        count++;
       }
-    }
-    if (containsStartRow) {
-      break;
+ else {
+        assertFalse(Bytes.equals(key.getRow(),secondRowBytes));
+      }
     }
   }
   assertTrue(containsStartRow);
+  assertTrue(count == 3);
   final int ttlInSeconds=1;
   for (  HStore store : this.r.stores.values()) {
     store.ttl=ttlInSeconds * 1000;
   }
   Thread.sleep(ttlInSeconds * 1000);
   r.compactStores(true);
-  int count=0;
-  for (  MapFile.Reader reader : this.r.stores.get(Bytes.mapKey(COLUMN_FAMILY_TEXT_MINUS_COLON)).getReaders()) {
-    reader.reset();
-    HStoreKey key=new HStoreKey();
-    ImmutableBytesWritable val=new ImmutableBytesWritable();
-    while (reader.next(key,val)) {
-      count++;
-    }
-  }
+  count=count();
   assertTrue(count == 0);
 }

@@ -1,7 +1,5 @@
 {
-  List<MapFile.Reader> copy=new ArrayList<MapFile.Reader>(pReaders);
-  Collections.reverse(copy);
-  MapFile.Reader[] rdrs=copy.toArray(new MapFile.Reader[0]);
+  MapFile.Reader[] rdrs=reverse(pReaders);
   try {
     HStoreKey[] keys=new HStoreKey[rdrs.length];
     ImmutableBytesWritable[] vals=new ImmutableBytesWritable[rdrs.length];
@@ -21,45 +19,51 @@
     }
     long now=System.currentTimeMillis();
     int timesSeen=0;
-    byte[] lastRow=null;
-    byte[] lastColumn=null;
+    HStoreKey lastSeen=new HStoreKey();
+    HStoreKey lastDelete=null;
     while (numDone < done.length) {
-      int smallestKey=-1;
-      for (int i=0; i < rdrs.length; i++) {
-        if (done[i]) {
-          continue;
-        }
-        if (smallestKey < 0) {
-          smallestKey=i;
-        }
- else {
-          if (keys[i].compareTo(keys[smallestKey]) < 0) {
-            smallestKey=i;
-          }
-        }
-      }
-      HStoreKey sk=keys[smallestKey];
-      if (HStoreKey.equalsTwoRowKeys(info,lastRow,sk.getRow()) && Bytes.equals(lastColumn,sk.getColumn())) {
+      int lowestKey=getLowestKey(rdrs,keys,done);
+      HStoreKey sk=keys[lowestKey];
+      if (HStoreKey.equalsTwoRowKeys(info,lastSeen.getRow(),sk.getRow()) && Bytes.equals(lastSeen.getColumn(),sk.getColumn())) {
         timesSeen++;
+        if (lastDelete != null && lastDelete.getTimestamp() != sk.getTimestamp()) {
+          lastDelete=null;
+        }
       }
  else {
         timesSeen=1;
+        lastDelete=null;
       }
       if (sk.getRow().length != 0 && sk.getColumn().length != 0) {
-        boolean expired=false;
-        if (!majorCompaction || (timesSeen <= family.getMaxVersions() && !(expired=isExpired(sk,ttl,now)))) {
-          compactedOut.append(sk,vals[smallestKey]);
+        ImmutableBytesWritable value=vals[lowestKey];
+        if (!majorCompaction) {
+          compactedOut.append(sk,value);
         }
-        if (expired) {
-          timesSeen--;
+ else {
+          boolean expired=false;
+          boolean deleted=false;
+          if (timesSeen <= family.getMaxVersions() && !(expired=isExpired(sk,ttl,now))) {
+            if (lastDelete != null && sk.equals(lastDelete)) {
+              deleted=true;
+            }
+ else             if (HLogEdit.isDeleted(value.get())) {
+              deleted=true;
+              lastDelete=new HStoreKey(sk);
+            }
+ else {
+              compactedOut.append(sk,vals[lowestKey]);
+            }
+          }
+          if (expired || deleted) {
+            timesSeen--;
+          }
         }
       }
-      lastRow=sk.getRow();
-      lastColumn=sk.getColumn();
-      if (!rdrs[smallestKey].next(keys[smallestKey],vals[smallestKey])) {
-        done[smallestKey]=true;
-        rdrs[smallestKey].close();
-        rdrs[smallestKey]=null;
+      lastSeen=new HStoreKey(sk);
+      if (!rdrs[lowestKey].next(keys[lowestKey],vals[lowestKey])) {
+        done[lowestKey]=true;
+        rdrs[lowestKey].close();
+        rdrs[lowestKey]=null;
         numDone++;
       }
     }
