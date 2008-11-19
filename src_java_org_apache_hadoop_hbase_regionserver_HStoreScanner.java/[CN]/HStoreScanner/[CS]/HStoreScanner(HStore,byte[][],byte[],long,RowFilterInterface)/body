@@ -7,31 +7,21 @@
   this.scanners=new InternalScanner[2];
   this.resultSets=new TreeMap[scanners.length];
   this.keys=new HStoreKey[scanners.length];
+  this.timestamp=timestamp;
+  this.targetCols=targetCols;
   try {
-    scanners[0]=store.memcache.getScanner(timestamp,targetCols,firstRow);
-    scanners[1]=new StoreFileScanner(store,timestamp,targetCols,firstRow);
-    for (int i=0; i < scanners.length; i++) {
-      if (scanners[i].isWildcardScanner()) {
-        this.wildcardMatch=true;
-      }
-      if (scanners[i].isMultipleMatchScanner()) {
-        this.multipleMatchers=true;
-      }
+    scanners[MEMS_INDEX]=store.memcache.getScanner(timestamp,targetCols,firstRow);
+    scanners[HSFS_INDEX]=new StoreFileScanner(store,timestamp,targetCols,firstRow);
+    for (int i=MEMS_INDEX; i < scanners.length; i++) {
+      checkScannerFlags(i);
     }
   }
  catch (  IOException e) {
-    for (int i=0; i < this.scanners.length; i++) {
-      if (scanners[i] != null) {
-        closeScanner(i);
-      }
-    }
+    doClose();
     throw e;
   }
-  for (int i=0; i < scanners.length; i++) {
-    keys[i]=new HStoreKey();
-    resultSets[i]=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
-    if (scanners[i] != null && !scanners[i].next(keys[i],resultSets[i])) {
-      closeScanner(i);
-    }
+  for (int i=MEMS_INDEX; i < scanners.length; i++) {
+    setupScanner(i);
   }
+  this.store.addChangedReaderObserver(this);
 }
