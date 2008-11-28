@@ -1,0 +1,48 @@
+{
+  HTableDescriptor htd=new HTableDescriptor(tableName);
+  htd.addFamily(new HColumnDescriptor(columnName));
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  admin.createTable(htd);
+  HTable table=new HTable(conf,tableName);
+  byte[] k=new byte[3];
+  for (byte b1='a'; b1 < 'z'; b1++) {
+    for (byte b2='a'; b2 < 'z'; b2++) {
+      for (byte b3='a'; b3 < 'z'; b3++) {
+        k[0]=b1;
+        k[1]=b2;
+        k[2]=b3;
+        BatchUpdate update=new BatchUpdate(k);
+        update.put(columnName,k);
+        table.commit(update);
+      }
+    }
+  }
+  Map<HRegionInfo,HServerAddress> m=table.getRegionsInfo();
+  System.out.println("Initial regions (" + m.size() + "): "+ m);
+  assertTrue(m.size() == 1);
+  admin.modifyTable(tableName,HConstants.MODIFY_TABLE_SPLIT);
+  Thread.sleep(15 * 1000);
+  table=new HTable(conf,tableName);
+  m=table.getRegionsInfo();
+  System.out.println("Regions after split (" + m.size() + "): "+ m);
+  assertTrue(m.size() == 2);
+  for (  HRegionInfo hri : m.keySet()) {
+    byte[] start=hri.getStartKey();
+    byte[] end=hri.getEndKey();
+    if (Bytes.equals(start,HConstants.EMPTY_BYTE_ARRAY))     assertTrue(Bytes.equals(end,key_mmi));
+    if (Bytes.equals(end,key_mmi))     assertTrue(Bytes.equals(start,HConstants.EMPTY_BYTE_ARRAY));
+  }
+  admin.modifyTable(tableName,HConstants.MODIFY_TABLE_SPLIT,key_mmi);
+  Thread.sleep(15 * 1000);
+  table=new HTable(conf,tableName);
+  m=table.getRegionsInfo();
+  System.out.println("Regions after split (" + m.size() + "): "+ m);
+  assertTrue(m.size() == 3);
+  for (  HRegionInfo hri : m.keySet()) {
+    byte[] start=hri.getStartKey();
+    byte[] end=hri.getEndKey();
+    if (Bytes.equals(start,HConstants.EMPTY_BYTE_ARRAY))     assertTrue(Bytes.equals(end,key_mmi));
+    if (Bytes.equals(start,key_mmi))     assertTrue(Bytes.equals(end,key_ssm));
+    if (Bytes.equals(start,key_ssm))     assertTrue(Bytes.equals(end,HConstants.EMPTY_BYTE_ARRAY));
+  }
+}
