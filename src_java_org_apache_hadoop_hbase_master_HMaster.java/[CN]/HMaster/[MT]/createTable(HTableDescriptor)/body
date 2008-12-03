@@ -2,10 +2,24 @@
   if (!isMasterRunning()) {
     throw new MasterNotRunningException();
   }
-  if (!regionManager.areAllMetaRegionsOnline()) {
-    throw new NotAllMetaRegionsOnlineException();
-  }
   HRegionInfo newRegion=new HRegionInfo(desc,null,null);
-  createTable(newRegion);
-  LOG.info("created table " + desc.getNameAsString());
+  for (int tries=0; tries < numRetries; tries++) {
+    try {
+      if (!regionManager.areAllMetaRegionsOnline()) {
+        throw new NotAllMetaRegionsOnlineException();
+      }
+      createTable(newRegion);
+      LOG.info("created table " + desc.getNameAsString());
+      break;
+    }
+ catch (    TableExistsException e) {
+      throw e;
+    }
+catch (    IOException e) {
+      if (tries == numRetries - 1) {
+        throw RemoteExceptionHandler.checkIOException(e);
+      }
+      sleeper.sleep();
+    }
+  }
 }
