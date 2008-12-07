@@ -1,14 +1,10 @@
 {
-  Long oldestOutstandingSeqNum=Collections.min(this.lastSeqWritten.values());
+  byte[] regionToFlush=null;
+  Long oldestOutstandingSeqNum=getOldestOutstandingSeqNum();
   TreeSet<Long> sequenceNumbers=new TreeSet<Long>(this.outputfiles.headMap((Long.valueOf(oldestOutstandingSeqNum.longValue() + 1L))).keySet());
+  byte[] oldestRegion=null;
   if (LOG.isDebugEnabled()) {
-    byte[] oldestRegion=null;
-    for (    Map.Entry<byte[],Long> e : this.lastSeqWritten.entrySet()) {
-      if (e.getValue().longValue() == oldestOutstandingSeqNum.longValue()) {
-        oldestRegion=e.getKey();
-        break;
-      }
-    }
+    oldestRegion=getOldestRegion(oldestOutstandingSeqNum);
     LOG.debug("Found " + sequenceNumbers.size() + " logs to remove "+ " out of total "+ this.outputfiles.size()+ "; "+ "oldest outstanding seqnum is "+ oldestOutstandingSeqNum+ " from region "+ Bytes.toString(oldestRegion));
   }
   if (sequenceNumbers.size() > 0) {
@@ -16,4 +12,10 @@
       deleteLogFile(this.outputfiles.remove(seq),seq);
     }
   }
+  int countOfLogs=this.outputfiles.size() - sequenceNumbers.size();
+  if (countOfLogs > this.maxLogs) {
+    regionToFlush=oldestRegion != null ? oldestRegion : getOldestRegion(oldestOutstandingSeqNum);
+    LOG.info("Too many logs: logs=" + countOfLogs + ", maxlogs="+ this.maxLogs+ "; forcing flush of region with oldest edits: "+ Bytes.toString(regionToFlush));
+  }
+  return regionToFlush;
 }
