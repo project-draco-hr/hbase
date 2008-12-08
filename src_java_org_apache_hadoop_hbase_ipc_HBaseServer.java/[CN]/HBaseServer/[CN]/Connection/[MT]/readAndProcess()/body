@@ -1,0 +1,52 @@
+{
+  while (true) {
+    int count=-1;
+    if (dataLengthBuffer.remaining() > 0) {
+      count=channel.read(dataLengthBuffer);
+      if (count < 0 || dataLengthBuffer.remaining() > 0)       return count;
+    }
+    if (!versionRead) {
+      ByteBuffer versionBuffer=ByteBuffer.allocate(1);
+      count=channel.read(versionBuffer);
+      if (count <= 0) {
+        return count;
+      }
+      int version=versionBuffer.get(0);
+      dataLengthBuffer.flip();
+      if (!HEADER.equals(dataLengthBuffer) || version != CURRENT_VERSION) {
+        LOG.warn("Incorrect header or version mismatch from " + hostAddress + ":"+ remotePort+ " got version "+ version+ " expected version "+ CURRENT_VERSION);
+        return -1;
+      }
+      dataLengthBuffer.clear();
+      versionRead=true;
+      continue;
+    }
+    if (data == null) {
+      dataLengthBuffer.flip();
+      dataLength=dataLengthBuffer.getInt();
+      if (dataLength == HBaseClient.PING_CALL_ID) {
+        dataLengthBuffer.clear();
+        return 0;
+      }
+      data=ByteBuffer.allocate(dataLength);
+      incRpcCount();
+    }
+    count=channel.read(data);
+    if (data.remaining() == 0) {
+      dataLengthBuffer.clear();
+      data.flip();
+      if (headerRead) {
+        processData();
+        data=null;
+        return count;
+      }
+ else {
+        processHeader();
+        headerRead=true;
+        data=null;
+        continue;
+      }
+    }
+    return count;
+  }
+}

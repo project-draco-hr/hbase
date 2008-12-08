@@ -1,0 +1,65 @@
+{
+  boolean error=true;
+  boolean done=false;
+  int numElements=0;
+  Call call=null;
+  try {
+synchronized (responseQueue) {
+      numElements=responseQueue.size();
+      if (numElements == 0) {
+        error=false;
+        return true;
+      }
+      call=responseQueue.removeFirst();
+      SocketChannel channel=call.connection.channel;
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(getName() + ": responding to #" + call.id+ " from "+ call.connection);
+      }
+      int numBytes=channel.write(call.response);
+      if (numBytes < 0) {
+        return true;
+      }
+      if (!call.response.hasRemaining()) {
+        call.connection.decRpcCount();
+        if (numElements == 1) {
+          done=true;
+        }
+ else {
+          done=false;
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(getName() + ": responding to #" + call.id+ " from "+ call.connection+ " Wrote "+ numBytes+ " bytes.");
+        }
+      }
+ else {
+        call.connection.responseQueue.addFirst(call);
+        if (inHandler) {
+          call.timestamp=System.currentTimeMillis();
+          incPending();
+          try {
+            writeSelector.wakeup();
+            channel.register(writeSelector,SelectionKey.OP_WRITE,call);
+          }
+ catch (          ClosedChannelException e) {
+            done=true;
+          }
+ finally {
+            decPending();
+          }
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(getName() + ": responding to #" + call.id+ " from "+ call.connection+ " Wrote partial "+ numBytes+ " bytes.");
+        }
+      }
+      error=false;
+    }
+  }
+  finally {
+    if (error && call != null) {
+      LOG.warn(getName() + ", call " + call+ ": output error");
+      done=true;
+      closeConnection(call.connection);
+    }
+  }
+  return done;
+}

@@ -1,0 +1,36 @@
+{
+  if (socket != null || shouldCloseConnection.get()) {
+    return;
+  }
+  short ioFailures=0;
+  short timeoutFailures=0;
+  try {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Connecting to " + remoteId.getAddress());
+    }
+    while (true) {
+      try {
+        this.socket=socketFactory.createSocket();
+        this.socket.setTcpNoDelay(tcpNoDelay);
+        this.socket.connect(remoteId.getAddress(),20000);
+        this.socket.setSoTimeout(pingInterval);
+        break;
+      }
+ catch (      SocketTimeoutException toe) {
+        handleConnectionFailure(timeoutFailures++,45,toe);
+      }
+catch (      IOException ie) {
+        handleConnectionFailure(ioFailures++,maxRetries,ie);
+      }
+    }
+    this.in=new DataInputStream(new BufferedInputStream(new PingInputStream(NetUtils.getInputStream(socket))));
+    this.out=new DataOutputStream(new BufferedOutputStream(NetUtils.getOutputStream(socket)));
+    writeHeader();
+    touch();
+    start();
+  }
+ catch (  IOException e) {
+    markClosed(e);
+    close();
+  }
+}
