@@ -10,13 +10,13 @@
   long sequenceId=-1L;
   long completeSequenceId=-1L;
   this.updatesLock.writeLock().lock();
+  final long currentMemcacheSize=this.memcacheSize.get();
   try {
     for (    HStore s : stores.values()) {
       s.snapshot();
     }
     sequenceId=log.startCacheFlush();
     completeSequenceId=this.getCompleteCacheFlushSequenceId(sequenceId);
-    this.memcacheSize.set(0);
   }
   finally {
     this.updatesLock.writeLock().unlock();
@@ -29,6 +29,7 @@
         compactionRequested=true;
       }
     }
+    this.memcacheSize.addAndGet(-currentMemcacheSize);
   }
  catch (  Throwable t) {
     this.log.abortCacheFlush();
@@ -41,8 +42,9 @@ synchronized (this) {
     notifyAll();
   }
   if (LOG.isDebugEnabled()) {
-    String timeTaken=StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime);
-    LOG.debug("Finished memcache flush for region " + this + " in "+ (System.currentTimeMillis() - startTime)+ "ms, sequence id="+ sequenceId+ ", compaction requested="+ compactionRequested);
+    long now=System.currentTimeMillis();
+    String timeTaken=StringUtils.formatTimeDiff(now,startTime);
+    LOG.debug("Finished memcache flush of ~" + StringUtils.humanReadableInt(currentMemcacheSize) + " for region "+ this+ " in "+ (now - startTime)+ "ms, sequence id="+ sequenceId+ ", compaction requested="+ compactionRequested);
     if (!regionInfo.isMetaRegion()) {
       this.historian.addRegionFlush(regionInfo,timeTaken);
     }
