@@ -2,6 +2,7 @@
   if (list.isEmpty()) {
     return;
   }
+  boolean retryOnlyOne=false;
   Collections.sort(list);
   List<BatchUpdate> tempUpdates=new ArrayList<BatchUpdate>();
   byte[] currentRegion=getRegionLocation(tableName,list.get(0).getRow(),false).getRegionInfo().getRegionName();
@@ -15,7 +16,7 @@
     if (!isLastRow) {
       region=getRegionLocation(tableName,list.get(i + 1).getRow(),false).getRegionInfo().getRegionName();
     }
-    if (!Bytes.equals(currentRegion,region) || isLastRow) {
+    if (!Bytes.equals(currentRegion,region) || isLastRow || retryOnlyOne) {
       final BatchUpdate[] updates=tempUpdates.toArray(new BatchUpdate[0]);
       int index=getRegionServerForWithoutRetries(new ServerCallable<Integer>(this,tableName,batchUpdate.getRow()){
         public Integer call() throws IOException {
@@ -30,7 +31,7 @@
         }
         long sleepTime=getPauseTime(tries);
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Eeloading table servers because region " + "server didn't accept updates; tries=" + tries + " of max="+ this.numRetries+ ", waiting="+ sleepTime+ "ms");
+          LOG.debug("Reloading table servers because region " + "server didn't accept updates; tries=" + tries + " of max="+ this.numRetries+ ", waiting="+ sleepTime+ "ms");
         }
         try {
           Thread.sleep(sleepTime);
@@ -39,7 +40,11 @@
  catch (        InterruptedException e) {
         }
         i=i - updates.length + index;
+        retryOnlyOne=true;
         region=getRegionLocation(tableName,list.get(i + 1).getRow(),true).getRegionInfo().getRegionName();
+      }
+ else {
+        retryOnlyOne=false;
       }
       currentRegion=region;
       tempUpdates.clear();
