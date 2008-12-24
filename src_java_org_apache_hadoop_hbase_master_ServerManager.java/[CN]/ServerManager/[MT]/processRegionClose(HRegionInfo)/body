@@ -1,0 +1,24 @@
+{
+synchronized (master.regionManager) {
+    if (region.isRootRegion()) {
+      master.connection.unsetRootRegionLocation();
+      master.regionManager.unsetRootRegion();
+      if (region.isOffline()) {
+        LOG.fatal("root region is marked offline");
+        master.shutdown();
+        return;
+      }
+    }
+ else     if (region.isMetaTable()) {
+      master.regionManager.offlineMetaRegion(region.getStartKey());
+    }
+    boolean offlineRegion=master.regionManager.isOfflined(region.getRegionName());
+    boolean reassignRegion=!region.isOffline() && !offlineRegion;
+    try {
+      master.toDoQueue.put(new ProcessRegionClose(master,region,offlineRegion,reassignRegion));
+    }
+ catch (    InterruptedException e) {
+      throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
+    }
+  }
+}

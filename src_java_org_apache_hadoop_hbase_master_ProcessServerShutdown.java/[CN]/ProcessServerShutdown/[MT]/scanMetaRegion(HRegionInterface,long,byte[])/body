@@ -17,7 +17,7 @@
       }
       byte[] row=values.getRow();
       String serverName=Writables.cellToString(values.get(COL_SERVER));
-      if (serverName.length() > 0 && deadServerName.compareTo(serverName) != 0) {
+      if (serverName != null && serverName.length() > 0 && deadServerName.compareTo(serverName) != 0) {
         continue;
       }
       if (LOG.isDebugEnabled() && row != null) {
@@ -28,25 +28,27 @@
         emptyRows.add(row);
         continue;
       }
-      if (info.isMetaTable()) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("removing meta region " + Bytes.toString(info.getRegionName()) + " from online meta regions");
+synchronized (master.regionManager) {
+        if (info.isMetaTable()) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("removing meta region " + Bytes.toString(info.getRegionName()) + " from online meta regions");
+          }
+          master.regionManager.offlineMetaRegion(info.getStartKey());
         }
-        master.regionManager.offlineMetaRegion(info.getStartKey());
-      }
-      ToDoEntry todo=new ToDoEntry(row,info);
-      toDoList.add(todo);
-      if (master.regionManager.isMarkedToClose(deadServerName,info.getRegionName())) {
-        master.regionManager.noLongerMarkedToClose(deadServerName,info.getRegionName());
-        master.regionManager.noLongerUnassigned(info);
-        todo.regionOffline=true;
-      }
+        ToDoEntry todo=new ToDoEntry(row,info);
+        toDoList.add(todo);
+        if (master.regionManager.isOfflined(info.getRegionName()) || info.isOffline()) {
+          master.regionManager.removeRegion(info);
+          if (!info.isOffline()) {
+            todo.regionOffline=true;
+          }
+        }
  else {
-        if (!info.isOffline() && !info.isSplit()) {
-          regions.add(info);
+          if (!info.isOffline() && !info.isSplit()) {
+            regions.add(info);
+          }
         }
       }
-      master.regionManager.noLongerPending(info.getRegionName());
     }
   }
   finally {
@@ -69,6 +71,6 @@
     }
   }
   for (  HRegionInfo info : regions) {
-    master.regionManager.setUnassigned(info);
+    master.regionManager.setUnassigned(info,true);
   }
 }

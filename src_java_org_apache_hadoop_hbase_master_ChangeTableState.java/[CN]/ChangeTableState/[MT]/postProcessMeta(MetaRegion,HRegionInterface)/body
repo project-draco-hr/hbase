@@ -17,42 +17,33 @@
     if (LOG.isDebugEnabled()) {
       LOG.debug("Updated columns in row: " + i.getRegionNameAsString());
     }
-    if (online) {
-      master.regionManager.noLongerClosing(i.getRegionName());
-      if (!master.regionManager.isUnassigned(i)) {
-        master.regionManager.setUnassigned(i);
+synchronized (master.regionManager) {
+      if (online) {
+        if (!master.regionManager.isUnassigned(i) && !master.regionManager.isAssigned(i.getRegionName()) && !master.regionManager.isPending(i.getRegionName())) {
+          master.regionManager.setUnassigned(i,false);
+        }
       }
-    }
  else {
-      master.regionManager.noLongerUnassigned(i);
+        master.regionManager.removeRegion(i);
+      }
     }
   }
   if (LOG.isDebugEnabled()) {
     LOG.debug("processing regions currently being served");
   }
-  for (  Map.Entry<String,HashSet<HRegionInfo>> e : servedRegions.entrySet()) {
-    String serverName=e.getKey();
-    if (online) {
-      LOG.debug("Already online");
-      continue;
-    }
-    Map<byte[],HRegionInfo> localKillList=new TreeMap<byte[],HRegionInfo>(Bytes.BYTES_COMPARATOR);
-    for (    HRegionInfo i : e.getValue()) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("adding region " + i.getRegionNameAsString() + " to kill list");
+synchronized (master.regionManager) {
+    for (    Map.Entry<String,HashSet<HRegionInfo>> e : servedRegions.entrySet()) {
+      String serverName=e.getKey();
+      if (online) {
+        LOG.debug("Already online");
+        continue;
       }
-      localKillList.put(i.getRegionName(),i);
-      master.regionManager.markRegionForOffline(i.getRegionName());
-    }
-    Map<byte[],HRegionInfo> killedRegions=master.regionManager.removeMarkedToClose(serverName);
-    if (killedRegions != null) {
-      localKillList.putAll(killedRegions);
-    }
-    if (localKillList.size() > 0) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("inserted local kill list into kill list for server " + serverName);
+      for (      HRegionInfo i : e.getValue()) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("adding region " + i.getRegionNameAsString() + " to kill list");
+        }
+        master.regionManager.setClosing(serverName,i,true);
       }
-      master.regionManager.markToCloseBulk(serverName,localKillList);
     }
   }
   servedRegions.clear();

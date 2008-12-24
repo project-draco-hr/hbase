@@ -1,48 +1,49 @@
 {
-  if (info.isOffline() || regionManager.isClosing(info.getRegionName())) {
-    regionManager.noLongerUnassigned(info);
-    regionManager.noLongerPending(info.getRegionName());
-    return;
-  }
-  HServerInfo storedInfo=null;
-  boolean deadServer=false;
-  if (serverName.length() != 0) {
-    if (regionManager.isMarkedToClose(serverName,info.getRegionName())) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("not assigning region (on kill list): " + info.getRegionNameAsString());
-      }
+synchronized (regionManager) {
+    if (info.isOffline() || regionManager.isOfflined(info.getRegionName())) {
+      regionManager.removeRegion(info);
       return;
     }
-    storedInfo=master.serverManager.getServerInfo(serverName);
-    deadServer=master.serverManager.isDead(serverName);
-  }
-  if (!deadServer && !regionManager.isUnassigned(info) && !regionManager.isPending(info.getRegionName())&& (storedInfo == null || storedInfo.getStartCode() != startCode)) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Current assignment of " + info.getRegionNameAsString() + " is not valid: serverInfo: "+ storedInfo+ ", passed startCode: "+ startCode+ ", storedInfo.startCode: "+ ((storedInfo != null) ? storedInfo.getStartCode() : -1)+ ", unassignedRegions: "+ regionManager.isUnassigned(info)+ ", pendingRegions: "+ regionManager.isPending(info.getRegionName()));
-    }
-    if (!regionManager.isInitialMetaScanComplete() && serverName.length() != 0) {
-      StringBuilder dirName=new StringBuilder("log_");
-      dirName.append(serverName.replace(":","_"));
-      Path logDir=new Path(master.rootdir,dirName.toString());
-      try {
-        if (master.fs.exists(logDir)) {
-          regionManager.splitLogLock.lock();
-          try {
-            HLog.splitLog(master.rootdir,logDir,master.fs,master.getConfiguration());
-          }
-  finally {
-            regionManager.splitLogLock.unlock();
-          }
-        }
+    HServerInfo storedInfo=null;
+    boolean deadServer=false;
+    if (serverName.length() != 0) {
+      if (regionManager.isOfflined(info.getRegionName())) {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Split " + logDir.toString());
+          LOG.debug("not assigning region (on kill list): " + info.getRegionNameAsString());
+        }
+        return;
+      }
+      storedInfo=master.serverManager.getServerInfo(serverName);
+      deadServer=master.serverManager.isDead(serverName);
+    }
+    if ((deadServer || (storedInfo == null || storedInfo.getStartCode() != startCode)) && (!regionManager.isUnassigned(info) && !regionManager.isPending(info.getRegionName()) && !regionManager.isAssigned(info.getRegionName()))) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Current assignment of " + info.getRegionNameAsString() + " is not valid."+ (storedInfo == null ? " Server '" + serverName + "' unknown." : " serverInfo: " + storedInfo + ", passed startCode: "+ startCode+ ", storedInfo.startCode: "+ storedInfo.getStartCode())+ " Region is not unassigned, assigned or pending");
+      }
+      if (!regionManager.isInitialMetaScanComplete() && serverName.length() != 0) {
+        StringBuilder dirName=new StringBuilder("log_");
+        dirName.append(serverName.replace(":","_"));
+        Path logDir=new Path(master.rootdir,dirName.toString());
+        try {
+          if (master.fs.exists(logDir)) {
+            regionManager.splitLogLock.lock();
+            try {
+              HLog.splitLog(master.rootdir,logDir,master.fs,master.getConfiguration());
+            }
+  finally {
+              regionManager.splitLogLock.unlock();
+            }
+          }
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Split " + logDir.toString());
+          }
+        }
+ catch (        IOException e) {
+          LOG.warn("unable to split region server log because: ",e);
+          throw e;
         }
       }
- catch (      IOException e) {
-        LOG.warn("unable to split region server log because: ",e);
-        throw e;
-      }
+      regionManager.setUnassigned(info,true);
     }
-    regionManager.setUnassigned(info);
   }
 }
