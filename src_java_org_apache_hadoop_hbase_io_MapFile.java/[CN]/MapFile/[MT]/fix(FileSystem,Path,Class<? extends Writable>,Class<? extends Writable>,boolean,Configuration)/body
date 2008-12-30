@@ -1,0 +1,41 @@
+{
+  String dr=(dryrun ? "[DRY RUN ] " : "");
+  Path data=new Path(dir,DATA_FILE_NAME);
+  Path index=new Path(dir,INDEX_FILE_NAME);
+  int indexInterval=128;
+  if (!fs.exists(data)) {
+    throw new Exception(dr + "Missing data file in " + dir+ ", impossible to fix this.");
+  }
+  if (fs.exists(index)) {
+    return -1;
+  }
+  SequenceFile.Reader dataReader=new SequenceFile.Reader(fs,data,conf);
+  if (!dataReader.getKeyClass().equals(keyClass)) {
+    throw new Exception(dr + "Wrong key class in " + dir+ ", expected"+ keyClass.getName()+ ", got "+ dataReader.getKeyClass().getName());
+  }
+  if (!dataReader.getValueClass().equals(valueClass)) {
+    throw new Exception(dr + "Wrong value class in " + dir+ ", expected"+ valueClass.getName()+ ", got "+ dataReader.getValueClass().getName());
+  }
+  long cnt=0L;
+  Writable key=ReflectionUtils.newInstance(keyClass,conf);
+  Writable value=ReflectionUtils.newInstance(valueClass,conf);
+  SequenceFile.Writer indexWriter=null;
+  if (!dryrun)   indexWriter=SequenceFile.createWriter(fs,conf,index,keyClass,LongWritable.class);
+  try {
+    long pos=0L;
+    LongWritable position=new LongWritable();
+    while (dataReader.next(key,value)) {
+      cnt++;
+      if (cnt % indexInterval == 0) {
+        position.set(pos);
+        if (!dryrun)         indexWriter.append(key,position);
+      }
+      pos=dataReader.getPosition();
+    }
+  }
+ catch (  Throwable t) {
+  }
+  dataReader.close();
+  if (!dryrun)   indexWriter.close();
+  return cnt;
+}
