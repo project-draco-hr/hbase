@@ -1,0 +1,31 @@
+{
+  HTable table=null;
+  HColumnDescriptor column2=new HColumnDescriptor(Bytes.toBytes("info2:"));
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  HTableDescriptor testTableADesc=new HTableDescriptor(tableAname);
+  testTableADesc.addFamily(column);
+  testTableADesc.addFamily(column2);
+  admin.createTable(testTableADesc);
+  table=new HTable(conf,tableAname);
+  BatchUpdate batchUpdate=new BatchUpdate(row);
+  BatchUpdate batchUpdate2=new BatchUpdate(row);
+  BatchUpdate batchUpdate3=new BatchUpdate(row);
+  HbaseMapWritable<byte[],byte[]> expectedValues=new HbaseMapWritable<byte[],byte[]>();
+  HbaseMapWritable<byte[],byte[]> badExpectedValues=new HbaseMapWritable<byte[],byte[]>();
+  for (int i=0; i < 5; i++) {
+    batchUpdate.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i));
+    expectedValues.put(Bytes.toBytes(COLUMN_FAMILY_STR + i),Bytes.toBytes(i));
+    badExpectedValues.put(Bytes.toBytes(COLUMN_FAMILY_STR + i),Bytes.toBytes(500));
+    batchUpdate2.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i + 1));
+    batchUpdate3.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i + 2));
+  }
+  table.commit(batchUpdate);
+  assertFalse(table.checkAndSave(batchUpdate2,badExpectedValues,null));
+  assertTrue(table.checkAndSave(batchUpdate2,expectedValues,null));
+  RowResult r=table.getRow(row);
+  byte[][] columns=batchUpdate2.getColumns();
+  for (int i=0; i < columns.length; i++) {
+    assertTrue(Bytes.equals(r.get(columns[i]).getValue(),batchUpdate2.get(columns[i])));
+  }
+  assertFalse(table.checkAndSave(batchUpdate3,expectedValues,null));
+}
