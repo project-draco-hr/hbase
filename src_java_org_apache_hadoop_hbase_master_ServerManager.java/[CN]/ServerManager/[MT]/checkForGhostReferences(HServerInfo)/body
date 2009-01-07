@@ -1,0 +1,39 @@
+{
+  String s=serverInfo.getServerAddress().toString().trim();
+  boolean result=false;
+  boolean lease=false;
+  for (long sleepTime=-1; !master.closed.get() && !result; ) {
+    if (sleepTime != -1) {
+      try {
+        Thread.sleep(sleepTime);
+      }
+ catch (      InterruptedException e) {
+      }
+    }
+    if (!lease) {
+      try {
+        this.serverLeases.createLease(s,new ServerExpirer(s));
+      }
+ catch (      Leases.LeaseStillHeldException e) {
+        LOG.debug("Waiting on current lease to expire for " + e.getName());
+        sleepTime=this.master.leaseTimeout / 4;
+        continue;
+      }
+      lease=true;
+    }
+    String addr=serverInfo.getServerAddress().toString();
+    if (isDead(addr) && !isDeadServerLogsSplit(addr)) {
+      LOG.debug("Waiting on " + addr + " removal from dead list before "+ "processing report-for-duty request");
+      sleepTime=this.master.threadWakeFrequency;
+      try {
+        this.serverLeases.renewLease(s);
+      }
+ catch (      LeaseException e) {
+        LOG.warn("Failed renewal. Retrying.",e);
+      }
+      continue;
+    }
+    result=true;
+  }
+  return result;
+}

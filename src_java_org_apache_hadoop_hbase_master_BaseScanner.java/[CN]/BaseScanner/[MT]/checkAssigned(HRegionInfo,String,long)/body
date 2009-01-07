@@ -5,6 +5,7 @@ synchronized (regionManager) {
       return;
     }
     HServerInfo storedInfo=null;
+    boolean deadServerAndLogsSplit=false;
     boolean deadServer=false;
     if (serverName.length() != 0) {
       if (regionManager.isOfflined(info.getRegionName())) {
@@ -13,12 +14,13 @@ synchronized (regionManager) {
         }
         return;
       }
-      storedInfo=master.serverManager.getServerInfo(serverName);
-      deadServer=master.serverManager.isDead(serverName);
+      storedInfo=this.master.serverManager.getServerInfo(serverName);
+      deadServer=this.master.serverManager.isDead(serverName);
+      deadServerAndLogsSplit=this.master.serverManager.isDeadServerLogsSplit(serverName);
     }
-    if ((deadServer || (storedInfo == null || storedInfo.getStartCode() != startCode)) && (!regionManager.isUnassigned(info) && !regionManager.isPending(info.getRegionName()) && !regionManager.isAssigned(info.getRegionName()))) {
+    if ((deadServerAndLogsSplit || (!deadServer && (storedInfo == null || (storedInfo.getStartCode() != startCode)))) && this.regionManager.assignable(info)) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("Current assignment of " + info.getRegionNameAsString() + " is not valid."+ (storedInfo == null ? " Server '" + serverName + "' unknown." : " serverInfo: " + storedInfo + ", passed startCode: "+ startCode+ ", storedInfo.startCode: "+ storedInfo.getStartCode())+ " Region is not unassigned, assigned or pending");
+        LOG.debug("Current assignment of " + info.getRegionNameAsString() + " is not valid; deadServerAndLogsSplit="+ deadServerAndLogsSplit+ ", deadServer="+ deadServer+ ". "+ (storedInfo == null ? " Server '" + serverName + "' unknown." : " serverInfo: " + storedInfo + ", passed startCode: "+ startCode+ ", storedInfo.startCode: "+ storedInfo.getStartCode())+ " Region is not unassigned, assigned or pending");
       }
       if (!regionManager.isInitialMetaScanComplete() && serverName.length() != 0) {
         StringBuilder dirName=new StringBuilder("log_");
