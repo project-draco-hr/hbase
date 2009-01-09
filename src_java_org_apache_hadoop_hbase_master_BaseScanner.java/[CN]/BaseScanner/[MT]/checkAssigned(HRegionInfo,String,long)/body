@@ -1,39 +1,28 @@
 {
-synchronized (regionManager) {
-    if (info.isOffline() || regionManager.isOfflined(info.getRegionName())) {
-      regionManager.removeRegion(info);
+synchronized (this.master.regionManager) {
+    if (info.isOffline() || this.master.regionManager.regionIsInTransition(info.getRegionName()) || this.master.serverManager.isDead(serverName)) {
       return;
     }
     HServerInfo storedInfo=null;
-    boolean deadServerAndLogsSplit=false;
-    boolean deadServer=false;
     if (serverName.length() != 0) {
-      if (regionManager.isOfflined(info.getRegionName())) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("not assigning region (on kill list): " + info.getRegionNameAsString());
-        }
-        return;
-      }
       storedInfo=this.master.serverManager.getServerInfo(serverName);
-      deadServer=this.master.serverManager.isDead(serverName);
-      deadServerAndLogsSplit=this.master.serverManager.isDeadServerLogsSplit(serverName);
     }
-    if ((deadServerAndLogsSplit || (!deadServer && (storedInfo == null || (storedInfo.getStartCode() != startCode)))) && this.regionManager.assignable(info)) {
+    if (storedInfo == null || storedInfo.getStartCode() != startCode) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("Current assignment of " + info.getRegionNameAsString() + " is not valid; deadServerAndLogsSplit="+ deadServerAndLogsSplit+ ", deadServer="+ deadServer+ ". "+ (storedInfo == null ? " Server '" + serverName + "' unknown." : " serverInfo: " + storedInfo + ", passed startCode: "+ startCode+ ", storedInfo.startCode: "+ storedInfo.getStartCode())+ " Region is not unassigned, assigned or pending");
+        LOG.debug("Current assignment of " + info.getRegionNameAsString() + " is not valid; "+ (storedInfo == null ? " Server '" + serverName + "' unknown." : " serverInfo: " + storedInfo + ", passed startCode: "+ startCode+ ", storedInfo.startCode: "+ storedInfo.getStartCode()));
       }
-      if (!regionManager.isInitialMetaScanComplete() && serverName.length() != 0) {
+      if (!this.master.regionManager.isInitialMetaScanComplete() && serverName.length() != 0) {
         StringBuilder dirName=new StringBuilder("log_");
         dirName.append(serverName.replace(":","_"));
-        Path logDir=new Path(master.rootdir,dirName.toString());
+        Path logDir=new Path(this.master.rootdir,dirName.toString());
         try {
           if (master.fs.exists(logDir)) {
-            regionManager.splitLogLock.lock();
+            this.master.regionManager.splitLogLock.lock();
             try {
               HLog.splitLog(master.rootdir,logDir,master.fs,master.getConfiguration());
             }
   finally {
-              regionManager.splitLogLock.unlock();
+              this.master.regionManager.splitLogLock.unlock();
             }
           }
           if (LOG.isDebugEnabled()) {
@@ -45,7 +34,7 @@ synchronized (regionManager) {
           throw e;
         }
       }
-      regionManager.setUnassigned(info,true);
+      this.master.regionManager.setUnassigned(info,true);
     }
   }
 }
