@@ -3,15 +3,17 @@
   if (serverInfo.getServerAddress() == null) {
     throw new NullPointerException("Server address cannot be null; " + "hbase-958 debugging");
   }
+  int openingCount=0;
   for (int i=0; i < incomingMsgs.length; i++) {
     HRegionInfo region=incomingMsgs[i].getRegionInfo();
     LOG.info("Received " + incomingMsgs[i] + " from "+ serverName);
 switch (incomingMsgs[i].getType()) {
 case MSG_REPORT_PROCESS_OPEN:
-      break;
+      openingCount++;
+    break;
 case MSG_REPORT_OPEN:
-    processRegionOpen(serverName,serverInfo,region,returnMsgs);
-  break;
+  processRegionOpen(serverName,serverInfo,region,returnMsgs);
+break;
 case MSG_REPORT_CLOSE:
 processRegionClose(region);
 break;
@@ -27,8 +29,10 @@ for (HRegionInfo i : master.regionManager.getMarkedToClose(serverName)) {
 returnMsgs.add(new HMsg(HMsg.Type.MSG_REGION_CLOSE,i));
 master.regionManager.setPendingClose(i.getRegionName());
 }
-master.regionManager.assignRegions(serverInfo,serverName,mostLoadedRegions,returnMsgs);
-master.regionManager.applyActions(serverInfo,returnMsgs);
+if (openingCount < this.nobalancingCount) {
+this.master.regionManager.assignRegions(serverInfo,serverName,mostLoadedRegions,returnMsgs);
+}
+this.master.regionManager.applyActions(serverInfo,returnMsgs);
 }
 return returnMsgs.toArray(new HMsg[returnMsgs.size()]);
 }
