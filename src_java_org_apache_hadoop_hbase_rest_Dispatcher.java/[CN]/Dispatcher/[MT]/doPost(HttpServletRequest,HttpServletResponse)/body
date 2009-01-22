@@ -1,24 +1,35 @@
 {
-  String[] pathSegments=getPathSegments(request);
-  if (pathSegments.length == 0 || pathSegments[0].length() <= 0) {
-    tableHandler.doPost(request,response,pathSegments);
-    return;
-  }
+  try {
+    Status s=createStatus(request,response);
+    byte[][] pathSegments=getPathSegments(request);
+    Map<String,String[]> queryMap=request.getParameterMap();
+    byte[] input=readInputBuffer(request);
+    IHBaseRestParser parser=this.getParser(request);
+    if ((pathSegments.length >= 0 && pathSegments.length <= 1) || Bytes.toString(pathSegments[1]).toLowerCase().equals(RESTConstants.ENABLE) || Bytes.toString(pathSegments[1]).toLowerCase().equals(RESTConstants.DISABLE)) {
+      tableController.post(s,pathSegments,queryMap,input,parser);
+    }
  else {
-    if (pathSegments.length >= 2 && pathSegments[0].length() > 0) {
-      if (pathSegments[1].toLowerCase().equals(SCANNER) && pathSegments.length >= 2) {
-        scannerHandler.doPost(request,response,pathSegments);
-        return;
-      }
- else       if (pathSegments[1].toLowerCase().equals(ROW) && pathSegments.length >= 3) {
-        rowHandler.doPost(request,response,pathSegments);
-        return;
-      }
- else       if ((pathSegments[1].toLowerCase().equals(TableHandler.DISABLE) || pathSegments[1].toLowerCase().equals(TableHandler.ENABLE)) && pathSegments.length == 2) {
-        tableHandler.doPost(request,response,pathSegments);
-        return;
+      if (pathSegments.length >= 2 && pathSegments[0].length > 0) {
+        if (Bytes.toString(pathSegments[1]).toLowerCase().equals(RESTConstants.SCANNER)) {
+          scannercontroller.post(s,pathSegments,queryMap,input,parser);
+          return;
+        }
+ else         if (Bytes.toString(pathSegments[1]).toLowerCase().equals(RESTConstants.ROW) && pathSegments.length >= 3) {
+          rowController.post(s,pathSegments,queryMap,input,parser);
+          return;
+        }
       }
     }
   }
-  GenericHandler.doNotFound(response,"No handler for " + request.getPathInfo());
+ catch (  HBaseRestException e) {
+    LOG.debug("POST - Error: " + e.toString());
+    try {
+      Status s_error=createStatus(request,response);
+      s_error.setInternalError(e);
+      s_error.respond();
+    }
+ catch (    HBaseRestException f) {
+      response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+    }
+  }
 }

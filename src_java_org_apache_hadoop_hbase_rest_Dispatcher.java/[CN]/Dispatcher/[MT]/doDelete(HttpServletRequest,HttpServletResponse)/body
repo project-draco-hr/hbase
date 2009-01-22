@@ -1,18 +1,38 @@
 {
-  String[] pathSegments=getPathSegments(request);
-  if (pathSegments.length == 1 && pathSegments[0].length() > 0) {
-    tableHandler.doDelete(request,response,pathSegments);
-    return;
-  }
- else   if (pathSegments.length >= 3 && pathSegments[0].length() > 0) {
-    if (pathSegments[1].toLowerCase().equals(SCANNER) && pathSegments.length == 3 && pathSegments[2].length() > 0) {
-      scannerHandler.doDelete(request,response,pathSegments);
+  try {
+    Status s=createStatus(request,response);
+    byte[][] pathSegments=getPathSegments(request);
+    Map<String,String[]> queryMap=request.getParameterMap();
+    if (pathSegments.length == 0) {
+      throw new HBaseRestException("method not supported");
+    }
+ else     if (pathSegments.length == 1 && pathSegments[0].length > 0) {
+      tableController.delete(s,pathSegments,queryMap);
       return;
     }
- else     if (pathSegments[1].toLowerCase().equals(ROW) && pathSegments.length >= 3) {
-      rowHandler.doDelete(request,response,pathSegments);
-      return;
+ else     if (pathSegments.length >= 3 && pathSegments[0].length > 0) {
+      if (Bytes.toString(pathSegments[1]).toLowerCase().equals(RESTConstants.SCANNER) && pathSegments.length == 3 && pathSegments[2].length > 0) {
+        scannercontroller.delete(s,pathSegments,queryMap);
+        return;
+      }
+ else       if (Bytes.toString(pathSegments[1]).toLowerCase().equals(RESTConstants.ROW) && pathSegments.length >= 3) {
+        rowController.delete(s,pathSegments,queryMap);
+        return;
+      }
+ else       if (pathSegments.length == 4) {
+        tsController.delete(s,pathSegments,queryMap);
+      }
     }
   }
-  GenericHandler.doNotFound(response,"No handler");
+ catch (  HBaseRestException e) {
+    LOG.debug("POST - Error: " + e.toString());
+    try {
+      Status s_error=createStatus(request,response);
+      s_error.setInternalError(e);
+      s_error.respond();
+    }
+ catch (    HBaseRestException f) {
+      response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+    }
+  }
 }
