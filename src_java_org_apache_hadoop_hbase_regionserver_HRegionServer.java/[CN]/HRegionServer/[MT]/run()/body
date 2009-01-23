@@ -42,6 +42,15 @@ synchronized (this.outboundMsgs) {
           boolean restart=false;
           for (int i=0; !restart && !stopRequested.get() && i < msgs.length; i++) {
             LOG.info(msgs[i].toString());
+            if (safeMode.get()) {
+              if (!msgs[i].isInSafeMode()) {
+                this.connection.unsetRootRegionLocation();
+synchronized (safeMode) {
+                  safeMode.set(false);
+                  safeMode.notifyAll();
+                }
+              }
+            }
 switch (msgs[i].getType()) {
 case MSG_CALL_SERVER_STARTUP:
               if (checkFileSystem()) {
@@ -174,7 +183,7 @@ LOG.error("Close and delete failed",RemoteExceptionHandler.checkThrowable(e));
 }
 try {
 HMsg[] exitMsg=new HMsg[closedRegions.size() + 1];
-exitMsg[0]=HMsg.REPORT_EXITING;
+exitMsg[0]=REPORT_EXITING;
 int i=1;
 for (HRegion region : closedRegions) {
 exitMsg[i++]=new HMsg(HMsg.Type.MSG_REPORT_CLOSE,region.getRegionInfo());
