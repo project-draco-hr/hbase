@@ -1,0 +1,33 @@
+{
+  QuorumStats.registerAsConcrete();
+  HashMap<Long,QuorumServer> peers=new HashMap<Long,QuorumServer>();
+  for (int id=1; id <= numPeers; ++id) {
+    int port=LEADER_PORT_START + id;
+    InetSocketAddress addr=new InetSocketAddress("localhost",port);
+    QuorumServer server=new QuorumServer(id,addr);
+    peers.put(Long.valueOf(id),server);
+  }
+  StringBuffer serversBuffer=new StringBuffer();
+  quorumPeers=new QuorumPeer[numPeers];
+  for (int id=1; id <= numPeers; ++id) {
+    File dir=new File(baseDir,"zookeeper-peer-" + id);
+    recreateDir(dir);
+    int port=CLIENT_PORT_START + id;
+    quorumPeers[id - 1]=new QuorumPeer(peers,dir,dir,port,0,id,TICK_TIME,INIT_LIMIT,SYNC_LIMIT);
+    if (id > 1) {
+      serversBuffer.append(",");
+    }
+    serversBuffer.append("localhost:" + port);
+  }
+  String servers=serversBuffer.toString();
+  ZooKeeperWrapper.setQuorumServers(servers);
+  for (  QuorumPeer qp : quorumPeers) {
+    qp.start();
+  }
+  for (int id=1; id <= numPeers; ++id) {
+    int port=CLIENT_PORT_START + id;
+    if (!waitForServerUp(port,CONNECTION_TIMEOUT)) {
+      throw new IOException("Waiting for startup of peer " + id);
+    }
+  }
+}

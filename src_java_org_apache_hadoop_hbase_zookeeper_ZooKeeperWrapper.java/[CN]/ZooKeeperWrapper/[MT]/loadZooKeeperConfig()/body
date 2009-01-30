@@ -1,0 +1,53 @@
+{
+  InputStream inputStream=ZooKeeperWrapper.class.getClassLoader().getResourceAsStream(ZOOKEEPER_CONFIG_NAME);
+  if (inputStream == null) {
+    LOG.error("fail to open ZooKeeper config file " + ZOOKEEPER_CONFIG_NAME);
+    return;
+  }
+  Properties properties=new Properties();
+  try {
+    properties.load(inputStream);
+  }
+ catch (  IOException e) {
+    LOG.error("fail to read properties from " + ZOOKEEPER_CONFIG_NAME);
+    return;
+  }
+  String clientPort=null;
+  List<String> servers=new ArrayList<String>();
+  for (  Entry<Object,Object> property : properties.entrySet()) {
+    String key=property.getKey().toString().trim();
+    String value=property.getValue().toString().trim();
+    if (key.equals("clientPort")) {
+      clientPort=value;
+    }
+ else     if (key.startsWith("server.")) {
+      String host=value.substring(0,value.indexOf(':'));
+      servers.add(host);
+    }
+  }
+  if (clientPort == null) {
+    LOG.error("no clientPort found in " + ZOOKEEPER_CONFIG_NAME);
+    return;
+  }
+  if (servers.isEmpty()) {
+    HBaseConfiguration conf=new HBaseConfiguration();
+    String masterAddress=conf.get(MASTER_ADDRESS,DEFAULT_MASTER_ADDRESS);
+    String masterHost="localhost";
+    if (!masterAddress.equals("local")) {
+      masterHost=masterAddress.substring(0,masterAddress.indexOf(':'));
+    }
+    servers.add(masterHost);
+  }
+  StringBuilder hostPortBuilder=new StringBuilder();
+  for (int i=0; i < servers.size(); ++i) {
+    String host=servers.get(i);
+    if (i > 0) {
+      hostPortBuilder.append(',');
+    }
+    hostPortBuilder.append(host);
+    hostPortBuilder.append(':');
+    hostPortBuilder.append(clientPort);
+  }
+  quorumServers=hostPortBuilder.toString();
+  LOG.info("Quorum servers: " + quorumServers);
+}
