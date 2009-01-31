@@ -1,0 +1,64 @@
+{
+  int numSegments=sortedSegmentSizes.size();
+  int origFactor=factor;
+  int passNo=1;
+  LocalDirAllocator lDirAlloc=new LocalDirAllocator("mapred.local.dir");
+  do {
+    factor=getPassFactor(passNo,numSegments);
+    List<SegmentDescriptor> segmentsToMerge=new ArrayList<SegmentDescriptor>();
+    int segmentsConsidered=0;
+    int numSegmentsToConsider=factor;
+    while (true) {
+      SegmentDescriptor[] mStream=getSegmentDescriptors(numSegmentsToConsider);
+      for (int i=0; i < mStream.length; i++) {
+        if (mStream[i].nextRawKey()) {
+          segmentsToMerge.add(mStream[i]);
+          segmentsConsidered++;
+          updateProgress(mStream[i].in.getPosition());
+        }
+ else {
+          mStream[i].cleanup();
+          numSegments--;
+        }
+      }
+      if (segmentsConsidered == factor || sortedSegmentSizes.size() == 0) {
+        break;
+      }
+      numSegmentsToConsider=factor - segmentsConsidered;
+    }
+    initialize(segmentsToMerge.size());
+    clear();
+    for (int i=0; i < segmentsToMerge.size(); i++) {
+      put(segmentsToMerge.get(i));
+    }
+    if (numSegments <= factor) {
+      long totalBytes=0;
+      for (int i=0; i < segmentsToMerge.size(); i++) {
+        totalBytes+=segmentsToMerge.get(i).segmentLength;
+      }
+      if (totalBytes != 0)       progPerByte=1.0f / (float)totalBytes;
+      factor=origFactor;
+      return this;
+    }
+ else {
+      long approxOutputSize=0;
+      for (      SegmentDescriptor s : segmentsToMerge) {
+        approxOutputSize+=s.segmentLength + ChecksumFileSystem.getApproxChkSumLength(s.segmentLength);
+      }
+      Path tmpFilename=new Path(tmpDir,"intermediate").suffix("." + passNo);
+      Path outputFile=lDirAlloc.getLocalPathForWrite(tmpFilename.toString(),approxOutputSize,conf);
+      LOG.debug("writing intermediate results to " + outputFile);
+      Writer writer=cloneFileAttributes(fs.makeQualified(segmentsToMerge.get(0).segmentPathName),fs.makeQualified(outputFile),null);
+      writer.sync=null;
+      writeFile(this,writer);
+      writer.close();
+      this.close();
+      SegmentDescriptor tempSegment=new SegmentDescriptor(0,fs.getLength(outputFile),outputFile);
+      sortedSegmentSizes.put(tempSegment,null);
+      numSegments=sortedSegmentSizes.size();
+      passNo++;
+    }
+    factor=origFactor;
+  }
+ while (true);
+}

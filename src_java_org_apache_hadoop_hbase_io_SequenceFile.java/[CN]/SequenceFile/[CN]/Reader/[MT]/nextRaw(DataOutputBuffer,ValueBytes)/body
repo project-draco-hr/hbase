@@ -1,0 +1,44 @@
+{
+  if (!blockCompressed) {
+    int length=readRecordLength();
+    if (length == -1) {
+      return -1;
+    }
+    int keyLength=in.readInt();
+    int valLength=length - keyLength;
+    key.write(in,keyLength);
+    if (decompress) {
+      CompressedBytes value=(CompressedBytes)val;
+      value.reset(in,valLength);
+    }
+ else {
+      UncompressedBytes value=(UncompressedBytes)val;
+      value.reset(in,valLength);
+    }
+    return length;
+  }
+ else {
+    syncSeen=false;
+    if (noBufferedKeys == 0) {
+      if (in.getPos() >= end)       return -1;
+      try {
+        readBlock();
+      }
+ catch (      EOFException eof) {
+        return -1;
+      }
+    }
+    int keyLength=WritableUtils.readVInt(keyLenIn);
+    if (keyLength < 0) {
+      throw new IOException("zero length key found!");
+    }
+    key.write(keyIn,keyLength);
+    --noBufferedKeys;
+    seekToCurrentValue();
+    int valLength=WritableUtils.readVInt(valLenIn);
+    UncompressedBytes rawValue=(UncompressedBytes)val;
+    rawValue.reset(valIn,valLength);
+    --noBufferedValues;
+    return (keyLength + valLength);
+  }
+}
