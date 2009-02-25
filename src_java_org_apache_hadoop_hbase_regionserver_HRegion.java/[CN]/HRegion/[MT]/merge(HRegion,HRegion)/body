@@ -19,8 +19,8 @@
   HTableDescriptor tabledesc=a.getTableDesc();
   HLog log=a.getLog();
   Path basedir=a.getBaseDir();
-  final byte[] startKey=HStoreKey.equalsTwoRowKeys(a.getRegionInfo(),a.getStartKey(),EMPTY_BYTE_ARRAY) || HStoreKey.equalsTwoRowKeys(a.getRegionInfo(),b.getStartKey(),EMPTY_BYTE_ARRAY) ? EMPTY_BYTE_ARRAY : HStoreKey.compareTwoRowKeys(a.getRegionInfo(),a.getStartKey(),b.getStartKey()) <= 0 ? a.getStartKey() : b.getStartKey();
-  final byte[] endKey=HStoreKey.equalsTwoRowKeys(a.getRegionInfo(),a.getEndKey(),EMPTY_BYTE_ARRAY) || HStoreKey.equalsTwoRowKeys(b.getRegionInfo(),b.getEndKey(),EMPTY_BYTE_ARRAY) ? EMPTY_BYTE_ARRAY : HStoreKey.compareTwoRowKeys(a.getRegionInfo(),a.getEndKey(),b.getEndKey()) <= 0 ? b.getEndKey() : a.getEndKey();
+  final byte[] startKey=HStoreKey.equalsTwoRowKeys(a.getStartKey(),EMPTY_BYTE_ARRAY) || HStoreKey.equalsTwoRowKeys(b.getStartKey(),EMPTY_BYTE_ARRAY) ? EMPTY_BYTE_ARRAY : HStoreKey.compareTwoRowKeys(a.getStartKey(),b.getStartKey()) <= 0 ? a.getStartKey() : b.getStartKey();
+  final byte[] endKey=HStoreKey.equalsTwoRowKeys(a.getEndKey(),EMPTY_BYTE_ARRAY) || HStoreKey.equalsTwoRowKeys(b.getEndKey(),EMPTY_BYTE_ARRAY) ? EMPTY_BYTE_ARRAY : HStoreKey.compareTwoRowKeys(a.getEndKey(),b.getEndKey()) <= 0 ? b.getEndKey() : a.getEndKey();
   HRegionInfo newRegionInfo=new HRegionInfo(tabledesc,startKey,endKey);
   LOG.info("Creating new region " + newRegionInfo.toString());
   int encodedName=newRegionInfo.getEncodedName();
@@ -30,29 +30,22 @@
   }
   fs.mkdirs(newRegionDir);
   LOG.info("starting merge of regions: " + a + " and "+ b+ " into new region "+ newRegionInfo.toString()+ " with start key <"+ startKey+ "> and end key <"+ endKey+ ">");
-  Map<byte[],List<HStoreFile>> byFamily=new TreeMap<byte[],List<HStoreFile>>(Bytes.BYTES_COMPARATOR);
+  Map<byte[],List<StoreFile>> byFamily=new TreeMap<byte[],List<StoreFile>>(Bytes.BYTES_COMPARATOR);
   byFamily=filesByFamily(byFamily,a.close());
   byFamily=filesByFamily(byFamily,b.close());
-  for (  Map.Entry<byte[],List<HStoreFile>> es : byFamily.entrySet()) {
+  for (  Map.Entry<byte[],List<StoreFile>> es : byFamily.entrySet()) {
     byte[] colFamily=es.getKey();
-    makeColumnFamilyDirs(fs,basedir,encodedName,colFamily,tabledesc);
-    List<HStoreFile> srcFiles=es.getValue();
+    makeColumnFamilyDirs(fs,basedir,newRegionInfo,colFamily);
+    List<StoreFile> srcFiles=es.getValue();
     if (srcFiles.size() == 2) {
-      long seqA=srcFiles.get(0).loadInfo(fs);
-      long seqB=srcFiles.get(1).loadInfo(fs);
+      long seqA=srcFiles.get(0).getMaxSequenceId();
+      long seqB=srcFiles.get(1).getMaxSequenceId();
       if (seqA == seqB) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Adjusting sequence id of storeFile " + srcFiles.get(1) + " down by one; sequence id A="+ seqA+ ", sequence id B="+ seqB);
-        }
-        srcFiles.get(1).writeInfo(fs,seqB - 1);
+        throw new IOException("Files have same sequenceid");
       }
     }
-    for (    HStoreFile hsf : srcFiles) {
-      HStoreFile dst=new HStoreFile(conf,fs,basedir,newRegionInfo,colFamily,-1,null);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Renaming " + hsf + " to "+ dst);
-      }
-      hsf.rename(fs,dst);
+    for (    StoreFile hsf : srcFiles) {
+      StoreFile.rename(fs,hsf.getPath(),StoreFile.getUniqueFile(fs,Store.getStoreHomedir(basedir,newRegionInfo.getEncodedName(),colFamily)));
     }
   }
   if (LOG.isDebugEnabled()) {

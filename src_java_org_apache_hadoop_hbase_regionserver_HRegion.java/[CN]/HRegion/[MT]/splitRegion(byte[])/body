@@ -5,11 +5,11 @@ synchronized (splitLock) {
     }
     byte[] startKey=this.regionInfo.getStartKey();
     byte[] endKey=this.regionInfo.getEndKey();
-    if (HStoreKey.equalsTwoRowKeys(this.regionInfo,startKey,midKey)) {
+    if (HStoreKey.equalsTwoRowKeys(startKey,splitRow)) {
       LOG.debug("Startkey and midkey are same, not splitting");
       return null;
     }
-    if (HStoreKey.equalsTwoRowKeys(this.regionInfo,midKey,endKey)) {
+    if (HStoreKey.equalsTwoRowKeys(splitRow,endKey)) {
       LOG.debug("Endkey and midkey are same, not splitting");
       return null;
     }
@@ -23,27 +23,24 @@ synchronized (splitLock) {
       LOG.warn("Clock skew; parent regions id is " + this.regionInfo.getRegionId() + " but current time here is "+ rid);
       rid=this.regionInfo.getRegionId() + 1;
     }
-    HRegionInfo regionAInfo=new HRegionInfo(this.regionInfo.getTableDesc(),startKey,midKey,false,rid);
+    HRegionInfo regionAInfo=new HRegionInfo(this.regionInfo.getTableDesc(),startKey,splitRow,false,rid);
     Path dirA=new Path(splits,Integer.toString(regionAInfo.getEncodedName()));
     if (fs.exists(dirA)) {
       throw new IOException("Cannot split; target file collision at " + dirA);
     }
-    HRegionInfo regionBInfo=new HRegionInfo(this.regionInfo.getTableDesc(),midKey,endKey,false,rid);
+    HRegionInfo regionBInfo=new HRegionInfo(this.regionInfo.getTableDesc(),splitRow,endKey,false,rid);
     Path dirB=new Path(splits,Integer.toString(regionBInfo.getEncodedName()));
     if (this.fs.exists(dirB)) {
       throw new IOException("Cannot split; target file collision at " + dirB);
     }
-    List<HStoreFile> hstoreFilesToSplit=close(false);
+    List<StoreFile> hstoreFilesToSplit=close(false);
     if (hstoreFilesToSplit == null) {
       LOG.warn("Close came back null (Implement abort of close?)");
       throw new RuntimeException("close returned empty vector of HStoreFiles");
     }
-    for (    HStoreFile h : hstoreFilesToSplit) {
-      Reference aReference=new Reference(this.regionInfo.getEncodedName(),h.getFileId(),new HStoreKey(midKey,this.regionInfo),Reference.Range.bottom);
-      HStoreFile a=new HStoreFile(this.conf,fs,splits,regionAInfo,h.getColFamily(),-1,aReference);
-      Reference bReference=new Reference(this.regionInfo.getEncodedName(),h.getFileId(),new HStoreKey(midKey,this.regionInfo),Reference.Range.top);
-      HStoreFile b=new HStoreFile(this.conf,fs,splits,regionBInfo,h.getColFamily(),-1,bReference);
-      h.splitStoreFile(a,b,this.fs);
+    for (    StoreFile h : hstoreFilesToSplit) {
+      StoreFile.split(fs,Store.getStoreHomedir(splits,regionAInfo.getEncodedName(),h.getFamily()),h,splitRow,Range.bottom);
+      StoreFile.split(fs,Store.getStoreHomedir(splits,regionBInfo.getEncodedName(),h.getFamily()),h,splitRow,Range.top);
     }
     HRegion regionA=new HRegion(basedir,log,fs,conf,regionAInfo,null);
     regionA.initialize(dirA,null);
