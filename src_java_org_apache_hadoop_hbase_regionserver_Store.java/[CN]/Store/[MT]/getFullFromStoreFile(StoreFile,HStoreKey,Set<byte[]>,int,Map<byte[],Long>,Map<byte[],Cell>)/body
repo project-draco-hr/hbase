@@ -1,0 +1,35 @@
+{
+  long now=System.currentTimeMillis();
+  HFileScanner scanner=f.getReader().getScanner();
+  if (!getClosest(scanner,key.getBytes())) {
+    return;
+  }
+  do {
+    HStoreKey readkey=HStoreKey.create(scanner.getKey());
+    byte[] readcol=readkey.getColumn();
+    if ((columns == null || columns.contains(readcol)) && (!results.containsKey(readcol) || results.get(readcol).getNumValues() < numVersions) && key.matchesWithoutColumn(readkey)) {
+      ByteBuffer value=scanner.getValue();
+      if (HLogEdit.isDeleted(value)) {
+        if (!deletes.containsKey(readcol) || deletes.get(readcol).longValue() < readkey.getTimestamp()) {
+          deletes.put(readcol,Long.valueOf(readkey.getTimestamp()));
+        }
+      }
+ else       if (!(deletes.containsKey(readcol) && deletes.get(readcol).longValue() >= readkey.getTimestamp())) {
+        if (!(deletes.containsKey(readcol) && deletes.get(readcol).longValue() >= readkey.getTimestamp())) {
+          if (!isExpired(readkey,ttl,now)) {
+            if (!results.containsKey(readcol)) {
+              results.put(readcol,new Cell(value,readkey.getTimestamp()));
+            }
+ else {
+              results.get(readcol).add(Bytes.toBytes(value),readkey.getTimestamp());
+            }
+          }
+        }
+      }
+    }
+ else     if (HStoreKey.compareTwoRowKeys(key.getRow(),readkey.getRow()) < 0) {
+      break;
+    }
+  }
+ while (scanner.next());
+}

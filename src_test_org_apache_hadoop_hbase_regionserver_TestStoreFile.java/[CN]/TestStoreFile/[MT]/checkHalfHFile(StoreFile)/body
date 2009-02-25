@@ -1,0 +1,123 @@
+{
+  byte[] midkey=f.getReader().midkey();
+  Path topDir=Store.getStoreHomedir(this.testDir,1,Bytes.toBytes(f.getPath().getParent().getName()));
+  if (this.fs.exists(topDir)) {
+    this.fs.delete(topDir,true);
+  }
+  Path topPath=StoreFile.split(this.fs,topDir,f,midkey,Range.top);
+  Path bottomDir=Store.getStoreHomedir(this.testDir,2,Bytes.toBytes(f.getPath().getParent().getName()));
+  if (this.fs.exists(bottomDir)) {
+    this.fs.delete(bottomDir,true);
+  }
+  Path bottomPath=StoreFile.split(this.fs,bottomDir,f,midkey,Range.bottom);
+  HFile.Reader top=new StoreFile(this.fs,topPath).getReader();
+  HFile.Reader bottom=new StoreFile(this.fs,bottomPath).getReader();
+  ByteBuffer previous=null;
+  LOG.info("Midkey: " + Bytes.toString(midkey));
+  byte[] midkeyBytes=new HStoreKey(midkey).getBytes();
+  ByteBuffer bbMidkeyBytes=ByteBuffer.wrap(midkeyBytes);
+  try {
+    boolean first=true;
+    ByteBuffer key=null;
+    HFileScanner topScanner=top.getScanner();
+    while ((!topScanner.isSeeked() && topScanner.seekTo()) || (topScanner.isSeeked() && topScanner.next())) {
+      key=topScanner.getKey();
+      assertTrue(topScanner.getReader().getComparator().compare(key.array(),key.arrayOffset(),key.limit(),midkeyBytes,0,midkeyBytes.length) >= 0);
+      if (first) {
+        first=false;
+        LOG.info("First in top: " + Bytes.toString(Bytes.toBytes(key)));
+      }
+    }
+    LOG.info("Last in top: " + Bytes.toString(Bytes.toBytes(key)));
+    first=true;
+    HFileScanner bottomScanner=bottom.getScanner();
+    while ((!bottomScanner.isSeeked() && bottomScanner.seekTo()) || bottomScanner.next()) {
+      previous=bottomScanner.getKey();
+      key=bottomScanner.getKey();
+      if (first) {
+        first=false;
+        LOG.info("First in bottom: " + Bytes.toString(Bytes.toBytes(previous)));
+      }
+      assertTrue(key.compareTo(bbMidkeyBytes) < 0);
+    }
+    if (previous != null) {
+      LOG.info("Last in bottom: " + Bytes.toString(Bytes.toBytes(previous)));
+    }
+    this.fs.delete(topPath,false);
+    this.fs.delete(bottomPath,false);
+    byte[] badmidkey=Bytes.toBytes("  .");
+    topPath=StoreFile.split(this.fs,topDir,f,badmidkey,Range.top);
+    bottomPath=StoreFile.split(this.fs,bottomDir,f,badmidkey,Range.bottom);
+    top=new StoreFile(this.fs,topPath).getReader();
+    bottom=new StoreFile(this.fs,bottomPath).getReader();
+    bottomScanner=bottom.getScanner();
+    int count=0;
+    while ((!bottomScanner.isSeeked() && bottomScanner.seekTo()) || bottomScanner.next()) {
+      count++;
+    }
+    assertTrue(count == 0);
+    first=true;
+    topScanner=top.getScanner();
+    while ((!topScanner.isSeeked() && topScanner.seekTo()) || topScanner.next()) {
+      key=topScanner.getKey();
+      assertTrue(topScanner.getReader().getComparator().compare(key.array(),key.arrayOffset(),key.limit(),badmidkey,0,badmidkey.length) >= 0);
+      if (first) {
+        first=false;
+        first=false;
+        HStoreKey keyhsk=HStoreKey.create(key);
+        LOG.info("First top when key < bottom: " + keyhsk);
+        String tmp=Bytes.toString(keyhsk.getRow());
+        for (int i=0; i < tmp.length(); i++) {
+          assertTrue(tmp.charAt(i) == 'a');
+        }
+      }
+    }
+    HStoreKey keyhsk=HStoreKey.create(key);
+    LOG.info("Last top when key < bottom: " + keyhsk);
+    String tmp=Bytes.toString(keyhsk.getRow());
+    for (int i=0; i < tmp.length(); i++) {
+      assertTrue(tmp.charAt(i) == 'z');
+    }
+    this.fs.delete(topPath,false);
+    this.fs.delete(bottomPath,false);
+    badmidkey=Bytes.toBytes("|||");
+    topPath=StoreFile.split(this.fs,topDir,f,badmidkey,Range.top);
+    bottomPath=StoreFile.split(this.fs,bottomDir,f,badmidkey,Range.bottom);
+    top=new StoreFile(this.fs,topPath).getReader();
+    bottom=new StoreFile(this.fs,bottomPath).getReader();
+    first=true;
+    bottomScanner=bottom.getScanner();
+    while ((!bottomScanner.isSeeked() && bottomScanner.seekTo()) || bottomScanner.next()) {
+      key=bottomScanner.getKey();
+      if (first) {
+        first=false;
+        keyhsk=HStoreKey.create(key);
+        LOG.info("First bottom when key > top: " + keyhsk);
+        tmp=Bytes.toString(keyhsk.getRow());
+        for (int i=0; i < tmp.length(); i++) {
+          assertTrue(tmp.charAt(i) == 'a');
+        }
+      }
+    }
+    keyhsk=HStoreKey.create(key);
+    LOG.info("Last bottom when key > top: " + keyhsk);
+    for (int i=0; i < tmp.length(); i++) {
+      assertTrue(Bytes.toString(keyhsk.getRow()).charAt(i) == 'z');
+    }
+    count=0;
+    topScanner=top.getScanner();
+    while ((!topScanner.isSeeked() && topScanner.seekTo()) || (topScanner.isSeeked() && topScanner.next())) {
+      count++;
+    }
+    assertTrue(count == 0);
+  }
+  finally {
+    if (top != null) {
+      top.close();
+    }
+    if (bottom != null) {
+      bottom.close();
+    }
+    fs.delete(f.getPath(),true);
+  }
+}

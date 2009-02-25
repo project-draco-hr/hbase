@@ -1,0 +1,33 @@
+{
+  HFile.Writer writer=null;
+  long flushed=0;
+  if (cache.size() == 0) {
+    return null;
+  }
+  long now=System.currentTimeMillis();
+synchronized (flushLock) {
+    writer=StoreFile.getWriter(this.fs,this.homedir);
+    int entries=0;
+    try {
+      for (      Map.Entry<HStoreKey,byte[]> es : cache.entrySet()) {
+        HStoreKey curkey=es.getKey();
+        byte[] bytes=es.getValue();
+        if (!isExpired(curkey,ttl,now)) {
+          writer.append(curkey.getBytes(),bytes);
+          entries++;
+          flushed+=this.memcache.heapSize(curkey,bytes,null);
+        }
+      }
+      StoreFile.appendMetadata(writer,logCacheFlushId);
+    }
+  finally {
+      writer.close();
+    }
+  }
+  StoreFile sf=new StoreFile(this.fs,writer.getPath());
+  this.storeSize+=sf.getReader().length();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Added " + sf + ", entries="+ sf.getReader().getEntries()+ ", sequenceid="+ logCacheFlushId+ ", memsize="+ StringUtils.humanReadableInt(flushed)+ ", filesize="+ StringUtils.humanReadableInt(sf.getReader().length())+ " to "+ this.regioninfo.getRegionNameAsString());
+  }
+  return sf;
+}

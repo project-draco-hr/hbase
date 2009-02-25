@@ -1,0 +1,55 @@
+{
+  HStoreKey searchKey=sk;
+  HStoreKey readkey=null;
+  HStoreKey knownNoGoodKey=null;
+  HFileScanner scanner=f.getReader().getScanner();
+  for (boolean foundCandidate=false; !foundCandidate; ) {
+    int result=scanner.seekTo(searchKey.getBytes());
+    if (result < 0) {
+      continue;
+    }
+    HStoreKey deletedOrExpiredRow=null;
+    do {
+      readkey=HStoreKey.create(scanner.getKey());
+      ByteBuffer value=scanner.getValue();
+      if (HStoreKey.equalsTwoRowKeys(readkey.getRow(),searchKey.getRow())) {
+        if (!HLogEdit.isDeleted(value)) {
+          if (handleNonDelete(readkey,now,deletes,candidateKeys)) {
+            foundCandidate=true;
+            continue;
+          }
+        }
+        HStoreKey copy=addCopyToDeletes(readkey,deletes);
+        if (deletedOrExpiredRow == null) {
+          deletedOrExpiredRow=copy;
+        }
+      }
+ else       if (HStoreKey.compareTwoRowKeys(readkey.getRow(),searchKey.getRow()) > 0) {
+        break;
+      }
+ else {
+        if (!HLogEdit.isDeleted(value)) {
+          if (handleNonDelete(readkey,now,deletes,candidateKeys)) {
+            foundCandidate=true;
+            continue;
+          }
+        }
+        HStoreKey copy=addCopyToDeletes(readkey,deletes);
+        if (deletedOrExpiredRow == null) {
+          deletedOrExpiredRow=copy;
+        }
+      }
+    }
+ while (scanner.next() && (knownNoGoodKey == null || readkey.compareTo(knownNoGoodKey) < 0));
+    if (!foundCandidate && deletedOrExpiredRow != null) {
+      knownNoGoodKey=deletedOrExpiredRow;
+      if (!scanner.seekBefore(deletedOrExpiredRow.getBytes())) {
+        break;
+      }
+      searchKey=HStoreKey.create(scanner.getKey());
+    }
+ else {
+      break;
+    }
+  }
+}

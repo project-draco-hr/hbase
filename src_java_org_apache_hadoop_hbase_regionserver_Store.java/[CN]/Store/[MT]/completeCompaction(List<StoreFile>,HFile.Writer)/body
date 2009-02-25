@@ -1,0 +1,38 @@
+{
+  Path p=null;
+  try {
+    p=StoreFile.rename(this.fs,compactedFile.getPath(),StoreFile.getRandomFilename(fs,this.homedir));
+  }
+ catch (  IOException e) {
+    LOG.error("Failed move of compacted file " + compactedFile.getPath(),e);
+    return;
+  }
+  StoreFile finalCompactedFile=new StoreFile(this.fs,p);
+  this.lock.writeLock().lock();
+  try {
+    try {
+      for (      Map.Entry<Long,StoreFile> e : this.storefiles.entrySet()) {
+        if (compactedFiles.contains(e.getValue())) {
+          this.storefiles.remove(e.getKey());
+        }
+      }
+      Long orderVal=Long.valueOf(finalCompactedFile.getMaxSequenceId());
+      this.storefiles.put(orderVal,finalCompactedFile);
+      notifyChangedReadersObservers();
+      for (      StoreFile hsf : compactedFiles) {
+        hsf.delete();
+      }
+    }
+ catch (    IOException e) {
+      e=RemoteExceptionHandler.checkIOException(e);
+      LOG.error("Failed replacing compacted files for " + this.storeNameStr + ". Compacted file is "+ finalCompactedFile.toString()+ ".  Files replaced are "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+    }
+    this.storeSize=0L;
+    for (    StoreFile hsf : this.storefiles.values()) {
+      this.storeSize+=hsf.getReader().length();
+    }
+  }
+  finally {
+    this.lock.writeLock().unlock();
+  }
+}

@@ -1,0 +1,72 @@
+{
+  StoreFile[] files=reverse(pReaders);
+  HFileScanner[] rdrs=new HFileScanner[files.length];
+  ByteBuffer[] keys=new ByteBuffer[rdrs.length];
+  ByteBuffer[] vals=new ByteBuffer[rdrs.length];
+  boolean[] done=new boolean[rdrs.length];
+  int numDone=0;
+  for (int i=0; i < rdrs.length; i++) {
+    rdrs[i]=files[i].getReader().getScanner();
+    done[i]=!rdrs[i].seekTo();
+    if (done[i]) {
+      numDone++;
+    }
+ else {
+      keys[i]=rdrs[i].getKey();
+      vals[i]=rdrs[i].getValue();
+    }
+  }
+  long now=System.currentTimeMillis();
+  int timesSeen=0;
+  HStoreKey lastSeen=new HStoreKey();
+  HStoreKey lastDelete=null;
+  while (numDone < done.length) {
+    int lowestKey=getLowestKey(rdrs,keys,done);
+    HStoreKey hsk=HStoreKey.create(keys[lowestKey]);
+    if (HStoreKey.equalsTwoRowKeys(lastSeen.getRow(),hsk.getRow()) && Bytes.equals(lastSeen.getColumn(),hsk.getColumn())) {
+      timesSeen++;
+      if (lastDelete != null && lastDelete.getTimestamp() != hsk.getTimestamp()) {
+        lastDelete=null;
+      }
+    }
+ else {
+      timesSeen=1;
+      lastDelete=null;
+    }
+    if (hsk.getRow().length != 0 && hsk.getColumn().length != 0) {
+      ByteBuffer value=vals[lowestKey];
+      if (!majorCompaction) {
+        compactedOut.append(hsk.getBytes(),Bytes.toBytes(value));
+      }
+ else {
+        boolean expired=false;
+        boolean deleted=false;
+        if (timesSeen <= family.getMaxVersions() && !(expired=isExpired(hsk,ttl,now))) {
+          if (lastDelete != null && hsk.equals(lastDelete)) {
+            deleted=true;
+          }
+ else           if (HLogEdit.isDeleted(value)) {
+            deleted=true;
+            lastDelete=hsk;
+          }
+ else {
+            compactedOut.append(hsk.getBytes(),Bytes.toBytes(value));
+          }
+        }
+        if (expired || deleted) {
+          timesSeen--;
+        }
+      }
+    }
+    lastSeen=hsk;
+    if (!rdrs[lowestKey].next()) {
+      done[lowestKey]=true;
+      rdrs[lowestKey]=null;
+      numDone++;
+    }
+ else {
+      keys[lowestKey]=rdrs[lowestKey].getKey();
+      vals[lowestKey]=rdrs[lowestKey].getValue();
+    }
+  }
+}

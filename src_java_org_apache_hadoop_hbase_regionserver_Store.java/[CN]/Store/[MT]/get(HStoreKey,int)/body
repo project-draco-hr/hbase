@@ -1,0 +1,41 @@
+{
+  long now=System.currentTimeMillis();
+  int versions=versionsToReturn(numVersions);
+  Set<HStoreKey> deletes=new HashSet<HStoreKey>();
+  this.lock.readLock().lock();
+  try {
+    List<Cell> results=this.memcache.get(key,versions,deletes,now);
+    if (results.size() == versions) {
+      return results.toArray(new Cell[results.size()]);
+    }
+    Map<Long,StoreFile> m=this.storefiles.descendingMap();
+    byte[] keyBytes=key.getBytes();
+    for (Iterator<Map.Entry<Long,StoreFile>> i=m.entrySet().iterator(); i.hasNext() && !hasEnoughVersions(versions,results); ) {
+      StoreFile f=i.next().getValue();
+      HFileScanner scanner=f.getReader().getScanner();
+      if (!getClosest(scanner,keyBytes)) {
+        continue;
+      }
+      HStoreKey readkey=HStoreKey.create(scanner.getKey());
+      if (!readkey.matchesRowCol(key)) {
+        continue;
+      }
+      if (get(readkey,scanner.getValue(),versions,results,deletes,now)) {
+        break;
+      }
+      while (scanner.next()) {
+        readkey=HStoreKey.create(scanner.getKey());
+        if (!readkey.matchesRowCol(key)) {
+          break;
+        }
+        if (get(readkey,scanner.getValue(),versions,results,deletes,now)) {
+          break;
+        }
+      }
+    }
+    return results.size() == 0 ? null : results.toArray(new Cell[results.size()]);
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+}
