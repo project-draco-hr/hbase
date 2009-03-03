@@ -7,7 +7,7 @@
       byte[] chosenRow=null;
       long chosenTimestamp=-1;
       for (int i=0; i < this.keys.length; i++) {
-        if (scanners[i] != null && (chosenRow == null || (HStoreKey.compareTwoRowKeys(this.keys[i].getRow(),chosenRow) < 0) || ((HStoreKey.compareTwoRowKeys(this.keys[i].getRow(),chosenRow) == 0) && (keys[i].getTimestamp() > chosenTimestamp)))) {
+        if (scanners[i] != null && (chosenRow == null || (this.store.rawcomparator.compareRows(this.keys[i].getRow(),chosenRow) < 0) || ((this.store.rawcomparator.compareRows(this.keys[i].getRow(),chosenRow) == 0) && (keys[i].getTimestamp() > chosenTimestamp)))) {
           chosenRow=keys[i].getRow();
           chosenTimestamp=keys[i].getTimestamp();
         }
@@ -19,7 +19,7 @@
         key.setColumn(HConstants.EMPTY_BYTE_ARRAY);
         Set<HStoreKey> deletes=new HashSet<HStoreKey>();
         for (int i=0; i < scanners.length && !filtered; i++) {
-          while ((scanners[i] != null && !filtered && moreToFollow) && (HStoreKey.compareTwoRowKeys(this.keys[i].getRow(),chosenRow) == 0)) {
+          while ((scanners[i] != null && !filtered && moreToFollow) && (this.store.rawcomparator.compareRows(this.keys[i].getRow(),chosenRow) == 0)) {
             if (!wildcardMatch && !multipleMatchers && (keys[i].getTimestamp() != chosenTimestamp)) {
               break;
             }
@@ -29,7 +29,7 @@
               if (HLogEdit.isDeleted(e.getValue().getValue())) {
                 deletes.add(new HStoreKey(hsk));
               }
- else               if (!deletes.contains(hsk) && !filtered && moreToFollow&& !results.containsKey(e.getKey())) {
+ else               if ((deletes.size() == 0 || !deletes.contains(hsk)) && !filtered && moreToFollow&& !results.containsKey(e.getKey())) {
                 if (dataFilter != null) {
                   filtered=dataFilter.filterColumn(chosenRow,e.getKey(),e.getValue().getValue());
                   if (filtered) {
@@ -48,7 +48,7 @@
         }
       }
       for (int i=0; i < scanners.length; i++) {
-        while ((scanners[i] != null) && (HStoreKey.compareTwoRowKeys(this.keys[i].getRow(),chosenRow) <= 0)) {
+        while ((scanners[i] != null) && (this.store.rawcomparator.compareRows(this.keys[i].getRow(),chosenRow) <= 0)) {
           resultSets[i].clear();
           if (!scanners[i].next(keys[i],resultSets[i])) {
             closeScanner(i);
