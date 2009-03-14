@@ -1,0 +1,34 @@
+{
+synchronized (serversToServerInfo) {
+    try {
+      if (removeServerInfo(serverInfo.getServerName())) {
+        LOG.info("Region server " + serverInfo.getServerName() + ": MSG_REPORT_EXITING");
+        if (!master.closed.get()) {
+          for (int i=1; i < msgs.length; i++) {
+            LOG.info("Processing " + msgs[i] + " from "+ serverInfo.getServerName());
+            HRegionInfo info=msgs[i].getRegionInfo();
+synchronized (master.regionManager) {
+              if (info.isRootRegion()) {
+                master.regionManager.reassignRootRegion();
+              }
+ else {
+                if (info.isMetaTable()) {
+                  master.regionManager.offlineMetaRegion(info.getStartKey());
+                }
+                if (!master.regionManager.isOfflined(info.getRegionNameAsString())) {
+                  master.regionManager.setUnassigned(info,true);
+                }
+ else {
+                  master.regionManager.removeRegion(info);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  finally {
+      serversToServerInfo.notifyAll();
+    }
+  }
+}

@@ -1,12 +1,15 @@
 {
-  String serverName=serverInfo.getServerAddress().toString().trim();
+  HServerInfo info=new HServerInfo(serverInfo);
+  if (isDead(info.getServerName())) {
+    throw new Leases.LeaseStillHeldException(info.getServerName());
+  }
   if (msgs.length > 0) {
     if (msgs[0].isType(HMsg.Type.MSG_REPORT_EXITING)) {
-      processRegionServerExit(serverName,msgs);
+      processRegionServerExit(info,msgs);
       return EMPTY_HMSG_ARRAY;
     }
  else     if (msgs[0].isType(HMsg.Type.MSG_REPORT_QUIESCED)) {
-      LOG.info("Region server " + serverName + " quiesced");
+      LOG.info("Region server " + info.getServerName() + " quiesced");
       quiescedServers.incrementAndGet();
     }
   }
@@ -25,24 +28,24 @@
   if (master.closed.get()) {
     return new HMsg[]{REGIONSERVER_STOP};
   }
-  HServerInfo storedInfo=serversToServerInfo.get(serverName);
+  HServerInfo storedInfo=serversToServerInfo.get(info.getServerName());
   if (storedInfo == null) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("received server report from unknown server: " + serverName);
+      LOG.debug("received server report from unknown server: " + info.getServerName());
     }
     return new HMsg[]{CALL_SERVER_STARTUP};
   }
- else   if (storedInfo.getStartCode() != serverInfo.getStartCode()) {
+ else   if (storedInfo.getStartCode() != info.getStartCode()) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("region server race condition detected: " + serverName);
+      LOG.debug("region server race condition detected: " + info.getServerName());
     }
 synchronized (serversToServerInfo) {
-      removeServerInfo(serverName);
+      removeServerInfo(info.getServerName());
       serversToServerInfo.notifyAll();
     }
     return new HMsg[]{REGIONSERVER_STOP};
   }
  else {
-    return processRegionServerAllsWell(serverName,serverInfo,mostLoadedRegions,msgs);
+    return processRegionServerAllsWell(info,mostLoadedRegions,msgs);
   }
 }

@@ -1,0 +1,27 @@
+{
+  int numRegionsToClose=load.getNumberOfRegions() - (int)Math.ceil(avgLoad);
+  LOG.debug("Choosing to reassign " + numRegionsToClose + " regions. mostLoadedRegions has "+ mostLoadedRegions.length+ " regions in it.");
+  int regionIdx=0;
+  int regionsClosed=0;
+  int skipped=0;
+  while (regionsClosed < numRegionsToClose && regionIdx < mostLoadedRegions.length) {
+    HRegionInfo currentRegion=mostLoadedRegions[regionIdx];
+    regionIdx++;
+    if (currentRegion.isRootRegion() || currentRegion.isMetaTable()) {
+      continue;
+    }
+    String regionName=currentRegion.getRegionNameAsString();
+    if (regionIsInTransition(regionName)) {
+      skipped++;
+      continue;
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Going to close region " + regionName);
+    }
+    returnMsgs.add(new HMsg(HMsg.Type.MSG_REGION_CLOSE,currentRegion,OVERLOADED,inSafeMode()));
+    setClosing(info.getServerName(),currentRegion,false);
+    setPendingClose(regionName);
+    regionsClosed++;
+  }
+  LOG.info("Skipped " + skipped + " region(s) that are in transition states");
+}

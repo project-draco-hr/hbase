@@ -1,22 +1,23 @@
 {
-  String s=serverInfo.getServerAddress().toString().trim();
-  Watcher watcher=new ServerExpirer(serverInfo.getServerAddress().toString().trim());
-  zooKeeperWrapper.updateRSLocationGetWatch(serverInfo,watcher);
-  LOG.info("Received start message from: " + s);
-  if (!checkForGhostReferences(serverInfo)) {
-    return;
+  HServerInfo info=new HServerInfo(serverInfo);
+  String serverName=HServerInfo.getServerName(info);
+  if (serversToServerInfo.containsKey(serverName) || deadServers.contains(serverName)) {
+    throw new Leases.LeaseStillHeldException(serverName);
   }
-  HServerLoad load=serversToLoad.remove(s);
+  Watcher watcher=new ServerExpirer(serverName);
+  zooKeeperWrapper.updateRSLocationGetWatch(info,watcher);
+  LOG.info("Received start message from: " + serverName);
+  HServerLoad load=serversToLoad.remove(serverName);
   if (load != null) {
 synchronized (loadToServers) {
       Set<String> servers=loadToServers.get(load);
       if (servers != null) {
-        servers.remove(s);
+        servers.remove(serverName);
         loadToServers.put(load,servers);
       }
     }
   }
-  HServerInfo storedInfo=serversToServerInfo.remove(s);
+  HServerInfo storedInfo=serversToServerInfo.remove(serverName);
   if (storedInfo != null && !master.closed.get()) {
     HServerAddress root=master.getRootRegionLocation();
     boolean rootServer=false;
@@ -32,15 +33,15 @@ synchronized (loadToServers) {
     }
   }
   load=new HServerLoad();
-  serverInfo.setLoad(load);
-  serversToServerInfo.put(s,serverInfo);
-  serversToLoad.put(s,load);
+  info.setLoad(load);
+  serversToServerInfo.put(serverName,info);
+  serversToLoad.put(serverName,load);
 synchronized (loadToServers) {
     Set<String> servers=loadToServers.get(load);
     if (servers == null) {
       servers=new HashSet<String>();
     }
-    servers.add(s);
+    servers.add(serverName);
     loadToServers.put(load,servers);
   }
 }

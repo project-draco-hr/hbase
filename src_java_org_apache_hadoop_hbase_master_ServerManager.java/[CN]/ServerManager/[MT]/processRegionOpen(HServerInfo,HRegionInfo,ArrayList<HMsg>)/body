@@ -1,0 +1,47 @@
+{
+  boolean duplicateAssignment=false;
+synchronized (master.regionManager) {
+    if (!master.regionManager.isUnassigned(region) && !master.regionManager.isPendingOpen(region.getRegionNameAsString())) {
+      if (region.isRootRegion()) {
+        HServerAddress rootServer=master.getRootRegionLocation();
+        if (rootServer != null) {
+          if (rootServer.compareTo(serverInfo.getServerAddress()) == 0) {
+            return;
+          }
+          duplicateAssignment=true;
+        }
+      }
+ else {
+        if (master.regionManager.isPendingOpen(region.getRegionNameAsString())) {
+          return;
+        }
+        duplicateAssignment=true;
+      }
+    }
+    if (duplicateAssignment) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("region server " + serverInfo.getServerAddress().toString() + " should not have opened region "+ region.getRegionName());
+      }
+      returnMsgs.add(new HMsg(HMsg.Type.MSG_REGION_CLOSE_WITHOUT_REPORT,region,"Duplicate assignment".getBytes(),master.regionManager.inSafeMode()));
+    }
+ else {
+      if (region.isRootRegion()) {
+        master.regionManager.removeRegion(region);
+        HServerAddress rootServer=serverInfo.getServerAddress();
+        if (master.regionManager.inSafeMode()) {
+          master.connection.setRootRegionLocation(new HRegionLocation(region,rootServer));
+        }
+        master.regionManager.setRootRegionLocation(rootServer);
+      }
+ else {
+        master.regionManager.setOpen(region.getRegionNameAsString());
+        try {
+          master.toDoQueue.put(new ProcessRegionOpen(master,serverInfo,region));
+        }
+ catch (        InterruptedException e) {
+          throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
+        }
+      }
+    }
+  }
+}
