@@ -1,0 +1,43 @@
+{
+  HBaseConfiguration conf=new HBaseConfiguration();
+  Properties properties=new Properties();
+  try {
+    properties.load(inputStream);
+  }
+ catch (  IOException e) {
+    String msg="fail to read properties from " + ZOOKEEPER_CONFIG_NAME;
+    LOG.fatal(msg);
+    throw new IOException(msg);
+  }
+  for (  Entry<Object,Object> entry : properties.entrySet()) {
+    String value=entry.getValue().toString().trim();
+    StringBuilder newValue=new StringBuilder();
+    int varStart=value.indexOf(VARIABLE_START);
+    int varEnd=0;
+    while (varStart != -1) {
+      varEnd=value.indexOf(VARIABLE_END,varStart);
+      if (varEnd == -1) {
+        String msg="variable at " + varStart + " has no end marker";
+        LOG.fatal(msg);
+        throw new IOException(msg);
+      }
+      String variable=value.substring(varStart + VARIABLE_START_LENGTH,varEnd);
+      String substituteValue=System.getProperty(variable);
+      if (substituteValue == null) {
+        substituteValue=conf.get(variable);
+      }
+      if (substituteValue == null) {
+        String msg="variable " + variable + " not set in system property "+ "or hbase configs";
+        LOG.fatal(msg);
+        throw new IOException(msg);
+      }
+      newValue.append(substituteValue);
+      varEnd+=VARIABLE_END_LENGTH;
+      varStart=value.indexOf(VARIABLE_START,varEnd);
+    }
+    newValue.append(value.substring(varEnd));
+    String key=entry.getKey().toString().trim();
+    properties.setProperty(key,newValue.toString());
+  }
+  QuorumPeerConfig.parseProperties(properties);
+}
