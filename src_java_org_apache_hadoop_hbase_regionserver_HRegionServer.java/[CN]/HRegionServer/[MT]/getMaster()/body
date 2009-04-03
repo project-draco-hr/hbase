@@ -1,0 +1,28 @@
+{
+  HServerAddress masterAddress=null;
+  while (masterAddress == null) {
+    if (stopRequested.get()) {
+      return false;
+    }
+    try {
+      masterAddress=zooKeeperWrapper.readMasterAddressOrThrow();
+    }
+ catch (    IOException e) {
+      LOG.warn("Unable to read master address from ZooKeeper. Retrying." + " Error was:",e);
+      sleeper.sleep();
+    }
+  }
+  LOG.info("Telling master at " + masterAddress + " that we are up");
+  HMasterRegionInterface master=null;
+  while (!stopRequested.get() && master == null) {
+    try {
+      master=(HMasterRegionInterface)HBaseRPC.waitForProxy(HMasterRegionInterface.class,HBaseRPCProtocolVersion.versionID,masterAddress.getInetSocketAddress(),this.conf,-1);
+    }
+ catch (    IOException e) {
+      LOG.warn("Unable to connect to master. Retrying. Error was:",e);
+      sleeper.sleep();
+    }
+  }
+  this.hbaseMaster=master;
+  return true;
+}
