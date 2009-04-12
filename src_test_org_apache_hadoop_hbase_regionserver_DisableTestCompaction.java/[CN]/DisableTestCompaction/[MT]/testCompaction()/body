@@ -1,0 +1,54 @@
+{
+  createStoreFile(r);
+  for (int i=0; i < COMPACTION_THRESHOLD; i++) {
+    createStoreFile(r);
+  }
+  addContent(new HRegionIncommon(r),Bytes.toString(COLUMN_FAMILY));
+  Cell[] cellValues=Cell.createSingleCellArray(r.get(STARTROW,COLUMN_FAMILY_TEXT,-1,100));
+  assertEquals(cellValues.length,3);
+  r.flushcache();
+  r.compactStores();
+  byte[] secondRowBytes=START_KEY.getBytes(HConstants.UTF8_ENCODING);
+  secondRowBytes[START_KEY_BYTES.length - 1]++;
+  cellValues=Cell.createSingleCellArray(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
+  LOG.info("Count of " + Bytes.toString(secondRowBytes) + ": "+ cellValues.length);
+  assertTrue(cellValues.length == 3);
+  r.deleteAll(secondRowBytes,COLUMN_FAMILY_TEXT,System.currentTimeMillis(),null);
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
+  r.flushcache();
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
+  createSmallerStoreFile(this.r);
+  r.flushcache();
+  cellValues=Cell.createSingleCellArray(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
+  r.compactStores(true);
+  assertEquals(r.getStore(COLUMN_FAMILY_TEXT).getStorefiles().size(),1);
+  assertNull(r.get(secondRowBytes,COLUMN_FAMILY_TEXT,-1,100));
+  int count=0;
+  boolean containsStartRow=false;
+  for (  StoreFile f : this.r.stores.get(Bytes.mapKey(COLUMN_FAMILY_TEXT_MINUS_COLON)).getStorefiles().values()) {
+    HFileScanner scanner=f.getReader().getScanner();
+    scanner.seekTo();
+    do {
+      HStoreKey key=HStoreKey.create(scanner.getKey());
+      if (Bytes.equals(key.getRow(),STARTROW)) {
+        containsStartRow=true;
+        count++;
+      }
+ else {
+        assertFalse(Bytes.equals(key.getRow(),secondRowBytes));
+      }
+    }
+ while (scanner.next());
+  }
+  assertTrue(containsStartRow);
+  assertTrue(count == 3);
+  final int ttlInSeconds=1;
+  for (  Store store : this.r.stores.values()) {
+    store.ttl=ttlInSeconds * 1000;
+  }
+  Thread.sleep(ttlInSeconds * 1000);
+  r.compactStores(true);
+  count=count();
+  assertTrue(count == 0);
+}

@@ -1,8 +1,7 @@
 {
   StoreFile[] files=reverse(pReaders);
   HFileScanner[] rdrs=new HFileScanner[files.length];
-  ByteBuffer[] keys=new ByteBuffer[rdrs.length];
-  ByteBuffer[] vals=new ByteBuffer[rdrs.length];
+  KeyValue[] kvs=new KeyValue[rdrs.length];
   boolean[] done=new boolean[rdrs.length];
   int numDone=0;
   for (int i=0; i < rdrs.length; i++) {
@@ -12,20 +11,20 @@
       numDone++;
     }
  else {
-      keys[i]=rdrs[i].getKey();
-      vals[i]=rdrs[i].getValue();
+      kvs[i]=rdrs[i].getKeyValue();
     }
   }
   long now=System.currentTimeMillis();
   int timesSeen=0;
-  HStoreKey lastSeen=new HStoreKey();
-  HStoreKey lastDelete=null;
+  KeyValue lastSeen=KeyValue.LOWESTKEY;
+  KeyValue lastDelete=null;
+  int maxVersions=family.getMaxVersions();
   while (numDone < done.length) {
-    int lowestKey=getLowestKey(rdrs,keys,done);
-    HStoreKey hsk=HStoreKey.create(keys[lowestKey]);
-    if (HStoreKey.equalsTwoRowKeys(lastSeen.getRow(),hsk.getRow()) && Bytes.equals(lastSeen.getColumn(),hsk.getColumn())) {
+    int lowestKey=getLowestKey(rdrs,kvs,done);
+    KeyValue kv=kvs[lowestKey];
+    if (this.comparator.matchingRowColumn(lastSeen,kv)) {
       timesSeen++;
-      if (lastDelete != null && lastDelete.getTimestamp() != hsk.getTimestamp()) {
+      if (lastDelete != null && lastDelete.getTimestamp() != kv.getTimestamp()) {
         lastDelete=null;
       }
     }
@@ -33,24 +32,23 @@
       timesSeen=1;
       lastDelete=null;
     }
-    if (hsk.getRow().length != 0 && hsk.getColumn().length != 0) {
-      ByteBuffer value=vals[lowestKey];
+    if (kv.nonNullRowAndColumn()) {
       if (!majorCompaction) {
-        compactedOut.append(hsk.getBytes(),Bytes.toBytes(value));
+        compactedOut.append(kv);
       }
  else {
         boolean expired=false;
         boolean deleted=false;
-        if (timesSeen <= family.getMaxVersions() && !(expired=isExpired(hsk,ttl,now))) {
-          if (lastDelete != null && hsk.equals(lastDelete)) {
+        if (timesSeen <= maxVersions && !(expired=isExpired(kv,ttl,now))) {
+          if (lastDelete != null && this.comparator.compare(kv,lastDelete) == 0) {
             deleted=true;
           }
- else           if (HLogEdit.isDeleted(value)) {
+ else           if (kv.isDeleteType()) {
             deleted=true;
-            lastDelete=hsk;
+            lastDelete=kv;
           }
  else {
-            compactedOut.append(hsk.getBytes(),Bytes.toBytes(value));
+            compactedOut.append(kv);
           }
         }
         if (expired || deleted) {
@@ -58,15 +56,14 @@
         }
       }
     }
-    lastSeen=hsk;
+    lastSeen=kv;
     if (!rdrs[lowestKey].next()) {
       done[lowestKey]=true;
       rdrs[lowestKey]=null;
       numDone++;
     }
  else {
-      keys[lowestKey]=rdrs[lowestKey].getKey();
-      vals[lowestKey]=rdrs[lowestKey].getValue();
+      kvs[lowestKey]=rdrs[lowestKey].getKeyValue();
     }
   }
 }

@@ -4,14 +4,14 @@
   Integer lid=obtainRowLock(row);
   splitsAndClosesLock.readLock().lock();
   try {
-    HStoreKey hsk=new HStoreKey(row,column);
+    KeyValue kv=new KeyValue(row,column);
     long ts=System.currentTimeMillis();
     byte[] value=null;
     Store store=getStore(column);
-    List<Cell> c;
+    List<KeyValue> c;
     store.lock.readLock().lock();
     try {
-      c=store.memcache.get(hsk,1);
+      c=store.memcache.get(kv,1);
     }
   finally {
       store.lock.readLock().unlock();
@@ -22,10 +22,13 @@
       value=c.get(0).getValue();
     }
     if (value == null) {
-      Cell[] cell=store.get(hsk,1);
-      if (cell != null && cell.length >= 1) {
+      c=store.get(kv,1);
+      if (c != null && c.size() == 1) {
         LOG.debug("Using HFile previous value for " + Bytes.toString(row) + "/"+ Bytes.toString(column));
-        value=cell[0].getValue();
+        value=c.get(0).getValue();
+      }
+ else       if (c != null && c.size() > 1) {
+        throw new DoNotRetryIOException("more than 1 value returned in " + "incrementColumnValue from Store");
       }
     }
     if (value == null) {

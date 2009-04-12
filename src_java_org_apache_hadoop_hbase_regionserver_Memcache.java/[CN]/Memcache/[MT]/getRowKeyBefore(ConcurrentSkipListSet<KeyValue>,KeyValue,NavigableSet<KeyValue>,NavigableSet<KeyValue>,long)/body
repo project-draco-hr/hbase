@@ -1,0 +1,49 @@
+{
+  NavigableSet<KeyValue> headSet=set.headSet(search);
+  if (headSet.isEmpty()) {
+    return;
+  }
+  if (candidates.isEmpty()) {
+    KeyValue lastFound=null;
+    for (Iterator<KeyValue> i=headSet.descendingIterator(); i.hasNext(); ) {
+      KeyValue found=i.next();
+      boolean deleted=found.isDeleteType();
+      if (lastFound != null && this.comparator.matchingRows(lastFound,found) && !deleted) {
+        break;
+      }
+      if (!deleted) {
+        if (Store.notExpiredAndNotInDeletes(this.ttl,found,now,deletes)) {
+          lastFound=found;
+          candidates.add(found);
+        }
+ else {
+          Store.expiredOrDeleted(set,found);
+        }
+      }
+ else {
+        if (Store.handleDeletes(found,candidates,deletes)) {
+          remove(set,found);
+        }
+      }
+    }
+  }
+ else {
+    SortedSet<KeyValue> rowTailMap=headSet.tailSet(headSet.last().cloneRow(HConstants.LATEST_TIMESTAMP));
+    Iterator<KeyValue> i=rowTailMap.iterator();
+    do {
+      KeyValue found=i.next();
+      if (found.isDeleteType()) {
+        Store.handleDeletes(found,candidates,deletes);
+      }
+ else {
+        if (ttl == HConstants.FOREVER || now < found.getTimestamp() + ttl || !deletes.contains(found)) {
+          candidates.add(found);
+        }
+ else {
+          Store.expiredOrDeleted(set,found);
+        }
+      }
+    }
+ while (i.hasNext());
+  }
+}

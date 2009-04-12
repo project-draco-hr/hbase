@@ -1,0 +1,42 @@
+{
+  if (columns != null) {
+    for (    byte[] column : columns) {
+      checkColumn(column);
+    }
+  }
+  List<KeyValue> keyvalues=new ArrayList<KeyValue>();
+  Map<KeyValue,Counter> versionCounter=new TreeMap<KeyValue,Counter>(this.comparatorIgnoreTimestamp);
+  Integer lid=getLock(lockid,row);
+  HashSet<Store> storeSet=new HashSet<Store>();
+  try {
+    if (columns != null) {
+      for (      byte[] bs : columns) {
+        Store store=stores.get(bs);
+        if (store != null) {
+          storeSet.add(store);
+        }
+      }
+    }
+ else {
+      storeSet.addAll(stores.values());
+    }
+    long timestamp=(ts == HConstants.LATEST_TIMESTAMP) ? System.currentTimeMillis() : ts;
+    KeyValue key=KeyValue.createFirstOnRow(row,timestamp);
+    if (columns != null) {
+      for (      byte[] bs : columns) {
+        if (KeyValue.getFamilyDelimiterIndex(bs,0,bs.length) == (bs.length - 1)) {
+          Store store=stores.get(bs);
+          store.getFull(key,null,null,numVersions,versionCounter,keyvalues,timestamp);
+          storeSet.remove(store);
+        }
+      }
+    }
+    for (    Store targetStore : storeSet) {
+      targetStore.getFull(key,columns,null,numVersions,versionCounter,keyvalues,timestamp);
+    }
+    return Cell.createCells(keyvalues);
+  }
+  finally {
+    if (lockid == null)     releaseRowLock(lid);
+  }
+}

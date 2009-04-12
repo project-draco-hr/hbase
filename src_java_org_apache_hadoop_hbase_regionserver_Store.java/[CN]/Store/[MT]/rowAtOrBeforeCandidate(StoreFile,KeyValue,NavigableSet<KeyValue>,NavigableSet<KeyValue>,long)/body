@@ -1,0 +1,59 @@
+{
+  KeyValue search=targetkey;
+  byte[] lastkey=f.getReader().getLastKey();
+  KeyValue lastKeyValue=KeyValue.createKeyValueFromKey(lastkey,0,lastkey.length);
+  if (this.comparator.compareRows(lastKeyValue,targetkey) < 0) {
+    search=lastKeyValue;
+  }
+  KeyValue knownNoGoodKey=null;
+  HFileScanner scanner=f.getReader().getScanner();
+  for (boolean foundCandidate=false; !foundCandidate; ) {
+    int result=scanner.seekTo(search.getBuffer(),search.getKeyOffset(),search.getKeyLength());
+    if (result < 0) {
+      continue;
+    }
+    KeyValue deletedOrExpiredRow=null;
+    KeyValue kv=null;
+    do {
+      kv=scanner.getKeyValue();
+      if (this.comparator.compareRows(kv,search) <= 0) {
+        if (!kv.isDeleteType()) {
+          if (handleNonDelete(kv,now,deletes,candidates)) {
+            foundCandidate=true;
+            continue;
+          }
+        }
+        deletes.add(kv);
+        if (deletedOrExpiredRow == null) {
+          deletedOrExpiredRow=kv;
+        }
+      }
+ else       if (this.comparator.compareRows(kv,search) > 0) {
+        break;
+      }
+ else {
+        if (!kv.isDeleteType()) {
+          if (handleNonDelete(kv,now,deletes,candidates)) {
+            foundCandidate=true;
+            continue;
+          }
+        }
+        deletes.add(kv);
+        if (deletedOrExpiredRow == null) {
+          deletedOrExpiredRow=kv;
+        }
+      }
+    }
+ while (scanner.next() && (knownNoGoodKey == null || this.comparator.compare(kv,knownNoGoodKey) < 0));
+    if (!foundCandidate && deletedOrExpiredRow != null) {
+      knownNoGoodKey=deletedOrExpiredRow;
+      if (!scanner.seekBefore(deletedOrExpiredRow.getBuffer(),deletedOrExpiredRow.getKeyOffset(),deletedOrExpiredRow.getKeyLength())) {
+        break;
+      }
+      search=scanner.getKeyValue();
+    }
+ else {
+      break;
+    }
+  }
+}

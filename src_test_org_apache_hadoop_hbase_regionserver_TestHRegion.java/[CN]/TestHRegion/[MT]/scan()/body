@@ -15,21 +15,20 @@
   }
   LOG.info("Write " + (vals1.length / 2) + " elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
   startTime=System.currentTimeMillis();
-  InternalScanner s=r.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis(),null);
+  ScannerIncommon s=this.region.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis());
   int numFetched=0;
   try {
-    HStoreKey curKey=new HStoreKey();
-    TreeMap<byte[],Cell> curVals=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
+    List<KeyValue> curVals=new ArrayList<KeyValue>();
     int k=0;
-    while (s.next(curKey,curVals)) {
-      for (      Map.Entry<byte[],Cell> entry : curVals.entrySet()) {
-        byte[] col=entry.getKey();
-        byte[] val=entry.getValue().getValue();
+    while (s.next(curVals)) {
+      for (      KeyValue kv : curVals) {
+        byte[] val=kv.getValue();
         int curval=Integer.parseInt(new String(val,HConstants.UTF8_ENCODING).trim());
         for (int j=0; j < cols.length; j++) {
-          if (Bytes.compareTo(col,cols[j]) == 0) {
-            assertEquals("Error at:" + Bytes.toString(curKey.getRow()) + "/"+ curKey.getTimestamp()+ ", Value for "+ Bytes.toString(col)+ " should be: "+ k+ ", but was fetched as: "+ curval,k,curval);
+          if (!kv.matchingColumn(cols[j])) {
+            assertEquals("Error at: " + kv + " "+ Bytes.toString(cols[j]),k,curval);
             numFetched++;
+            break;
           }
         }
       }
@@ -40,26 +39,26 @@
   finally {
     s.close();
   }
-  assertEquals("Inserted " + numInserted + " values, but fetched "+ numFetched,numInserted,numFetched);
+  assertEquals(numInserted,numFetched);
   LOG.info("Scanned " + (vals1.length / 2) + " rows from cache. Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
   startTime=System.currentTimeMillis();
   region.flushcache();
   LOG.info("Cache flush elapsed time: " + ((System.currentTimeMillis() - startTime) / 1000.0));
   startTime=System.currentTimeMillis();
-  s=r.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis(),null);
+  s=this.region.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis());
   numFetched=0;
   try {
-    HStoreKey curKey=new HStoreKey();
-    TreeMap<byte[],Cell> curVals=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
+    List<KeyValue> curVals=new ArrayList<KeyValue>();
     int k=0;
-    while (s.next(curKey,curVals)) {
-      for (      Map.Entry<byte[],Cell> entry : curVals.entrySet()) {
-        byte[] col=entry.getKey();
-        byte[] val=entry.getValue().getValue();
+    while (s.next(curVals)) {
+      for (Iterator<KeyValue> it=curVals.iterator(); it.hasNext(); ) {
+        KeyValue kv=it.next();
+        byte[] col=kv.getColumn();
+        byte[] val=kv.getValue();
         int curval=Integer.parseInt(new String(val,HConstants.UTF8_ENCODING).trim());
         for (int j=0; j < cols.length; j++) {
           if (Bytes.compareTo(col,cols[j]) == 0) {
-            assertEquals("Error at:" + Bytes.toString(curKey.getRow()) + "/"+ curKey.getTimestamp()+ ", Value for "+ Bytes.toString(col)+ " should be: "+ k+ ", but was fetched as: "+ curval,k,curval);
+            assertEquals("Error at:" + kv.getRow() + "/"+ kv.getTimestamp()+ ", Value for "+ col+ " should be: "+ k+ ", but was fetched as: "+ curval,k,curval);
             numFetched++;
           }
         }
@@ -84,20 +83,20 @@
   }
   LOG.info("Write " + (vals1.length / 2) + " rows (second half). Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
   startTime=System.currentTimeMillis();
-  s=r.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis(),null);
+  s=this.region.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis());
   numFetched=0;
   try {
-    HStoreKey curKey=new HStoreKey();
-    TreeMap<byte[],Cell> curVals=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
+    List<KeyValue> curVals=new ArrayList<KeyValue>();
     int k=0;
-    while (s.next(curKey,curVals)) {
-      for (      Map.Entry<byte[],Cell> entry : curVals.entrySet()) {
-        byte[] col=entry.getKey();
-        byte[] val=entry.getValue().getValue();
+    while (s.next(curVals)) {
+      for (Iterator<KeyValue> it=curVals.iterator(); it.hasNext(); ) {
+        KeyValue kv=it.next();
+        byte[] col=kv.getColumn();
+        byte[] val=kv.getValue();
         int curval=Integer.parseInt(new String(val,HConstants.UTF8_ENCODING).trim());
         for (int j=0; j < cols.length; j++) {
           if (Bytes.compareTo(col,cols[j]) == 0) {
-            assertEquals("Error at:" + Bytes.toString(curKey.getRow()) + "/"+ curKey.getTimestamp()+ ", Value for "+ Bytes.toString(col)+ " should be: "+ k+ ", but was fetched as: "+ curval,k,curval);
+            assertEquals("Error at:" + kv.getRow() + "/"+ kv.getTimestamp()+ ", Value for "+ col+ " should be: "+ k+ ", but was fetched as: "+ curval,k,curval);
             numFetched++;
           }
         }
@@ -115,16 +114,16 @@
   region.flushcache();
   LOG.info("Cache flush elapsed time: " + ((System.currentTimeMillis() - startTime) / 1000.0));
   startTime=System.currentTimeMillis();
-  s=r.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis(),null);
+  s=this.region.getScanner(cols,HConstants.EMPTY_START_ROW,System.currentTimeMillis());
   numFetched=0;
   try {
-    HStoreKey curKey=new HStoreKey();
-    TreeMap<byte[],Cell> curVals=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
+    List<KeyValue> curVals=new ArrayList<KeyValue>();
     int k=0;
-    while (s.next(curKey,curVals)) {
-      for (      Map.Entry<byte[],Cell> entry : curVals.entrySet()) {
-        byte[] col=entry.getKey();
-        byte[] val=entry.getValue().getValue();
+    while (s.next(curVals)) {
+      for (Iterator<KeyValue> it=curVals.iterator(); it.hasNext(); ) {
+        KeyValue kv=it.next();
+        byte[] col=kv.getColumn();
+        byte[] val=kv.getValue();
         int curval=Integer.parseInt(new String(val,HConstants.UTF8_ENCODING).trim());
         for (int j=0; j < cols.length; j++) {
           if (Bytes.compareTo(col,cols[j]) == 0) {
@@ -143,16 +142,16 @@
   assertEquals("Inserted " + numInserted + " values, but fetched "+ numFetched,numInserted,numFetched);
   LOG.info("Scanned " + vals1.length + " rows from disk. Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
   startTime=System.currentTimeMillis();
-  s=r.getScanner(cols,Bytes.toBytes("row_vals1_500"),System.currentTimeMillis(),null);
+  s=this.region.getScanner(cols,Bytes.toBytes("row_vals1_500"),System.currentTimeMillis());
   numFetched=0;
   try {
-    HStoreKey curKey=new HStoreKey();
-    TreeMap<byte[],Cell> curVals=new TreeMap<byte[],Cell>(Bytes.BYTES_COMPARATOR);
+    List<KeyValue> curVals=new ArrayList<KeyValue>();
     int k=500;
-    while (s.next(curKey,curVals)) {
-      for (      Map.Entry<byte[],Cell> entry : curVals.entrySet()) {
-        byte[] col=entry.getKey();
-        byte[] val=entry.getValue().getValue();
+    while (s.next(curVals)) {
+      for (Iterator<KeyValue> it=curVals.iterator(); it.hasNext(); ) {
+        KeyValue kv=it.next();
+        byte[] col=kv.getColumn();
+        byte[] val=kv.getValue();
         int curval=Integer.parseInt(new String(val,HConstants.UTF8_ENCODING).trim());
         for (int j=0; j < cols.length; j++) {
           if (Bytes.compareTo(col,cols[j]) == 0) {

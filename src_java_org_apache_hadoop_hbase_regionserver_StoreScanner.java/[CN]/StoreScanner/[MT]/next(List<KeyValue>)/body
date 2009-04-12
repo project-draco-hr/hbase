@@ -1,0 +1,77 @@
+{
+  this.lock.readLock().lock();
+  try {
+    boolean filtered=true;
+    boolean moreToFollow=true;
+    while (filtered && moreToFollow) {
+      KeyValue chosen=null;
+      long chosenTimestamp=-1;
+      for (int i=0; i < this.scanners.length; i++) {
+        KeyValue kv=this.resultSets[i] == null || this.resultSets[i].isEmpty() ? null : this.resultSets[i].get(0);
+        if (kv == null) {
+          continue;
+        }
+        if (scanners[i] != null && (chosen == null || (this.store.comparator.compareRows(kv,chosen) < 0) || ((this.store.comparator.compareRows(kv,chosen) == 0) && (kv.getTimestamp() > chosenTimestamp)))) {
+          chosen=kv;
+          chosenTimestamp=chosen.getTimestamp();
+        }
+      }
+      filtered=dataFilter == null || chosen == null ? false : dataFilter.filterRowKey(chosen.getBuffer(),chosen.getRowOffset(),chosen.getRowLength());
+      if (chosenTimestamp >= 0 && !filtered) {
+        NavigableSet<KeyValue> deletes=new TreeSet<KeyValue>(this.store.comparatorIgnoringType);
+        for (int i=0; i < scanners.length && !filtered; i++) {
+          if ((scanners[i] != null && !filtered && moreToFollow && this.resultSets[i] != null && !this.resultSets[i].isEmpty())) {
+            KeyValue firstkv=resultSets[i].get(0);
+            if (!this.store.comparator.matchingRows(firstkv,chosen)) {
+              continue;
+            }
+            for (            KeyValue kv : resultSets[i]) {
+              if (kv.isDeleteType()) {
+                deletes.add(kv);
+              }
+ else               if ((deletes.isEmpty() || !deletes.contains(kv)) && !filtered && moreToFollow&& !results.contains(kv)) {
+                if (this.dataFilter != null) {
+                  int rowlength=kv.getRowLength();
+                  int columnoffset=kv.getColumnOffset(rowlength);
+                  filtered=dataFilter.filterColumn(kv.getBuffer(),kv.getRowOffset(),rowlength,kv.getBuffer(),columnoffset,kv.getColumnLength(columnoffset),kv.getBuffer(),kv.getValueOffset(),kv.getValueLength());
+                  if (filtered) {
+                    results.clear();
+                    break;
+                  }
+                }
+                results.add(kv);
+              }
+            }
+            resultSets[i].clear();
+            if (!scanners[i].next(resultSets[i])) {
+              closeScanner(i);
+            }
+          }
+        }
+      }
+      moreToFollow=chosenTimestamp >= 0;
+      if (dataFilter != null) {
+        if (dataFilter.filterAllRemaining()) {
+          moreToFollow=false;
+        }
+      }
+      if (results.isEmpty() && !filtered) {
+        filtered=true;
+      }
+    }
+    if (results == null || results.isEmpty()) {
+      moreToFollow=false;
+    }
+    if (!moreToFollow) {
+      for (int i=0; i < scanners.length; i++) {
+        if (null != scanners[i]) {
+          closeScanner(i);
+        }
+      }
+    }
+    return moreToFollow;
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+}

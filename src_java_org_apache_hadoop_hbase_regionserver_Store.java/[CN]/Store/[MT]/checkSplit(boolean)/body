@@ -11,17 +11,17 @@
     long maxSize=0L;
     Long mapIndex=Long.valueOf(0L);
     for (    Map.Entry<Long,StoreFile> e : storefiles.entrySet()) {
-      StoreFile curHSF=e.getValue();
+      StoreFile sf=e.getValue();
       if (splitable) {
-        splitable=!curHSF.isReference();
+        splitable=!sf.isReference();
         if (!splitable) {
           if (LOG.isDebugEnabled()) {
-            LOG.debug(curHSF + " is not splittable");
+            LOG.debug(sf + " is not splittable");
           }
           return null;
         }
       }
-      long size=curHSF.getReader().length();
+      long size=sf.getReader().length();
       if (size > maxSize) {
         maxSize=size;
         mapIndex=e.getKey();
@@ -30,10 +30,12 @@
     HFile.Reader r=this.storefiles.get(mapIndex).getReader();
     byte[] midkey=r.midkey();
     if (midkey != null) {
-      HStoreKey mk=HStoreKey.create(midkey);
-      HStoreKey firstKey=HStoreKey.create(r.getFirstKey());
-      HStoreKey lastKey=HStoreKey.create(r.getLastKey());
-      if (HStoreKey.equalsTwoRowKeys(mk.getRow(),firstKey.getRow()) && HStoreKey.equalsTwoRowKeys(mk.getRow(),lastKey.getRow())) {
+      KeyValue mk=KeyValue.createKeyValueFromKey(midkey,0,midkey.length);
+      byte[] fk=r.getFirstKey();
+      KeyValue firstKey=KeyValue.createKeyValueFromKey(fk,0,fk.length);
+      byte[] lk=r.getLastKey();
+      KeyValue lastKey=KeyValue.createKeyValueFromKey(lk,0,lk.length);
+      if (this.comparator.compareRows(mk,firstKey) == 0 && this.comparator.compareRows(mk,lastKey) == 0) {
         if (LOG.isDebugEnabled()) {
           LOG.debug("cannot split because midkey is the same as first or " + "last row");
         }

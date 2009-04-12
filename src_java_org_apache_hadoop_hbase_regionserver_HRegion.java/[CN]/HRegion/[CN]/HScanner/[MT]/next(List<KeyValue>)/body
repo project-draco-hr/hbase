@@ -1,0 +1,58 @@
+{
+  boolean moreToFollow=false;
+  boolean filtered=false;
+  do {
+    KeyValue chosen=null;
+    long chosenTimestamp=-1;
+    for (int i=0; i < this.scanners.length; i++) {
+      if (this.resultSets[i] == null || this.resultSets[i].isEmpty()) {
+        continue;
+      }
+      KeyValue kv=this.resultSets[i].get(0);
+      if (chosen == null || (comparator.compareRows(kv,chosen) < 0) || ((comparator.compareRows(kv,chosen) == 0) && (kv.getTimestamp() > chosenTimestamp))) {
+        chosen=kv;
+        chosenTimestamp=chosen.getTimestamp();
+      }
+    }
+    if (chosenTimestamp >= 0) {
+      for (int i=0; i < scanners.length; i++) {
+        if (this.resultSets[i] == null || this.resultSets[i].isEmpty()) {
+          continue;
+        }
+        KeyValue kv=this.resultSets[i].get(0);
+        if (comparator.compareRows(kv,chosen) == 0) {
+          results.addAll(this.resultSets[i]);
+          resultSets[i].clear();
+          if (!scanners[i].next(resultSets[i])) {
+            closeScanner(i);
+          }
+        }
+      }
+    }
+    moreToFollow=chosenTimestamp >= 0;
+    if (results == null || results.size() <= 0) {
+      moreToFollow=false;
+    }
+    filtered=filter == null ? false : filter.filterRow(results);
+    if (filter != null && filter.filterAllRemaining()) {
+      moreToFollow=false;
+    }
+    if (moreToFollow) {
+      if (filter != null) {
+        filter.rowProcessed(filtered,chosen.getBuffer(),chosen.getRowOffset(),chosen.getRowLength());
+      }
+      if (filtered) {
+        results.clear();
+      }
+    }
+  }
+ while (filtered && moreToFollow);
+  if (!moreToFollow) {
+    for (int i=0; i < scanners.length; i++) {
+      if (null != scanners[i]) {
+        closeScanner(i);
+      }
+    }
+  }
+  return moreToFollow;
+}

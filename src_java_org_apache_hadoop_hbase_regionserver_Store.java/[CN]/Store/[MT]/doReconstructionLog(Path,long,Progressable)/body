@@ -8,15 +8,8 @@
     return;
   }
   long maxSeqIdInLog=-1;
-  NavigableMap<HStoreKey,byte[]> reconstructedCache=new TreeMap<HStoreKey,byte[]>(this.comparator);
-  SequenceFile.Reader logReader=null;
-  try {
-    logReader=new SequenceFile.Reader(this.fs,reconstructionLog,this.conf);
-  }
- catch (  IOException e) {
-    LOG.warn("Failed opening reconstruction log though check for null-size passed. " + "POSSIBLE DATA LOSS!! Soldiering on",e);
-    return;
-  }
+  ConcurrentSkipListSet<KeyValue> reconstructedCache=Memcache.createSet(this.comparator);
+  SequenceFile.Reader logReader=new SequenceFile.Reader(this.fs,reconstructionLog,this.conf);
   try {
     HLogKey key=new HLogKey();
     HLogEdit val=new HLogEdit();
@@ -29,12 +22,11 @@
         skippedEdits++;
         continue;
       }
-      byte[] column=val.getColumn();
-      if (val.isTransactionEntry() || Bytes.equals(column,HLog.METACOLUMN) || !Bytes.equals(key.getRegionName(),regioninfo.getRegionName())|| !HStoreKey.matchingFamily(family.getName(),column)) {
+      KeyValue kv=val.getKeyValue();
+      if (val.isTransactionEntry() || kv.matchingColumnNoDelimiter(HLog.METACOLUMN) || !Bytes.equals(key.getRegionName(),regioninfo.getRegionName())|| !kv.matchingFamily(family.getName())) {
         continue;
       }
-      HStoreKey k=new HStoreKey(key.getRow(),column,val.getTimestamp());
-      reconstructedCache.put(k,val.getVal());
+      reconstructedCache.add(kv);
       editsCount++;
       if (reporter != null && (editsCount % reportInterval) == 0) {
         reporter.progress();

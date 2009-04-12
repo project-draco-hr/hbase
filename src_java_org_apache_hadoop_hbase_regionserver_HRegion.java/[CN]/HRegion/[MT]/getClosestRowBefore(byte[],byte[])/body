@@ -1,24 +1,20 @@
 {
-  HStoreKey key=null;
+  KeyValue key=null;
   checkRow(row);
   splitsAndClosesLock.readLock().lock();
   try {
     Store store=getStore(columnFamily);
-    byte[] closestKey=store.getRowKeyAtOrBefore(row);
-    if (closestKey != null) {
-      if (HStoreKey.equalsTwoRowKeys(row,closestKey)) {
-        key=new HStoreKey(closestKey);
-      }
-      if (key == null) {
-        key=new HStoreKey(closestKey);
-      }
-    }
+    KeyValue kv=new KeyValue(row,HConstants.LATEST_TIMESTAMP);
+    key=store.getRowKeyAtOrBefore(kv);
     if (key == null) {
       return null;
     }
-    HbaseMapWritable<byte[],Cell> cells=new HbaseMapWritable<byte[],Cell>();
-    store.getFull(key,null,1,cells);
-    return new RowResult(key.getRow(),cells);
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    if (!this.comparator.matchingRows(kv,key)) {
+      kv=new KeyValue(key.getRow(),HConstants.LATEST_TIMESTAMP);
+    }
+    store.getFull(kv,null,null,1,null,results,System.currentTimeMillis());
+    return RowResult.createRowResult(results);
   }
   finally {
     splitsAndClosesLock.readLock().unlock();

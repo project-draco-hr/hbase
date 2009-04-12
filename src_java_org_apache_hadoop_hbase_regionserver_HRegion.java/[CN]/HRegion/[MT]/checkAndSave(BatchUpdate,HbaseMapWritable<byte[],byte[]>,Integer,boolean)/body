@@ -1,14 +1,16 @@
 {
   boolean success=true;
   checkReadOnly();
+  validateValuesLength(b);
   checkResources();
   splitsAndClosesLock.readLock().lock();
   try {
     byte[] row=b.getRow();
     Integer lid=getLock(lockid,row);
     try {
-      Set<byte[]> keySet=expectedValues.keySet();
-      Map<byte[],Cell> actualValues=this.getFull(row,keySet,HConstants.LATEST_TIMESTAMP,1,lid);
+      NavigableSet<byte[]> keySet=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+      keySet.addAll(expectedValues.keySet());
+      Map<byte[],Cell> actualValues=getFull(row,keySet,HConstants.LATEST_TIMESTAMP,1,lid);
       for (      byte[] key : keySet) {
         if (!Bytes.equals(actualValues.get(key).getValue(),expectedValues.get(key))) {
           success=false;
@@ -17,47 +19,42 @@
       }
       if (success) {
         long commitTime=(b.getTimestamp() == LATEST_TIMESTAMP) ? System.currentTimeMillis() : b.getTimestamp();
-        List<byte[]> deletes=null;
+        Set<byte[]> latestTimestampDeletes=null;
+        List<KeyValue> edits=new ArrayList<KeyValue>();
         for (        BatchOperation op : b) {
-          HStoreKey key=new HStoreKey(row,op.getColumn(),commitTime);
-          byte[] val=null;
+          byte[] column=op.getColumn();
+          KeyValue kv=null;
           if (op.isPut()) {
-            val=op.getValue();
+            byte[] val=op.getValue();
             if (HLogEdit.isDeleted(val)) {
-              throw new IOException("Cannot insert value: " + val);
+              throw new IOException("Cannot insert value: " + Bytes.toString(val));
             }
+            kv=new KeyValue(row,column,commitTime,val);
           }
  else {
             if (b.getTimestamp() == LATEST_TIMESTAMP) {
-              if (deletes == null) {
-                deletes=new ArrayList<byte[]>();
+              if (latestTimestampDeletes == null) {
+                latestTimestampDeletes=new TreeSet<byte[]>(Bytes.BYTES_RAWCOMPARATOR);
               }
-              deletes.add(op.getColumn());
+              latestTimestampDeletes.add(op.getColumn());
             }
  else {
-              val=HLogEdit.DELETED_BYTES;
+              kv=new KeyValue(row,column,commitTime,KeyValue.Type.Delete,HConstants.EMPTY_BYTE_ARRAY);
             }
           }
-          if (val != null) {
-            localput(lid,key,val);
-          }
+          edits.add(kv);
         }
-        TreeMap<HStoreKey,byte[]> edits=this.targetColumns.remove(lid);
-        if (edits != null && edits.size() > 0) {
+        if (!edits.isEmpty()) {
           update(edits,writeToWAL);
         }
-        if (deletes != null && deletes.size() > 0) {
-          for (          byte[] column : deletes) {
+        if (latestTimestampDeletes != null && !latestTimestampDeletes.isEmpty()) {
+          for (          byte[] column : latestTimestampDeletes) {
             deleteMultiple(row,column,LATEST_TIMESTAMP,1);
           }
         }
       }
     }
- catch (    IOException e) {
-      this.targetColumns.remove(Long.valueOf(lid));
-      throw e;
-    }
- finally {
+  finally {
       if (lockid == null)       releaseRowLock(lid);
     }
   }
