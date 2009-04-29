@@ -17,10 +17,24 @@
   this.leases.start();
   int port=this.conf.getInt("hbase.regionserver.info.port",60030);
   if (port >= 0) {
-    String a=this.conf.get("hbase.master.info.bindAddress","0.0.0.0");
-    this.infoServer=new InfoServer("regionserver",a,port,false);
-    this.infoServer.setAttribute("regionserver",this);
-    this.infoServer.start();
+    String addr=this.conf.get("hbase.master.info.bindAddress","0.0.0.0");
+    boolean auto=this.conf.getBoolean("hbase.regionserver.info.port.auto",false);
+    while (true) {
+      try {
+        this.infoServer=new InfoServer("regionserver",addr,port,false);
+        this.infoServer.setAttribute("regionserver",this);
+        this.infoServer.start();
+        break;
+      }
+ catch (      BindException e) {
+        if (!auto) {
+          throw e;
+        }
+        LOG.info("Failed binding http info server to port: " + port);
+        port++;
+        serverInfo.setInfoPort(port);
+      }
+    }
   }
   if (!conf.getBoolean("hbase.regionserver.safemode",true)) {
     safeMode.set(false);
