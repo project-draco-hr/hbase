@@ -1,21 +1,19 @@
 {
-  if (closed) {
+  if (this.closed) {
     throw new IOException("Cannot append; log is closed");
   }
   byte[] regionName=regionInfo.getRegionName();
   byte[] tableName=regionInfo.getTableDesc().getName();
 synchronized (updateLock) {
     long seqNum=obtainSeqNum();
-    if (!this.lastSeqWritten.containsKey(regionName)) {
-      this.lastSeqWritten.put(regionName,Long.valueOf(seqNum));
-    }
+    this.lastSeqWritten.putIfAbsent(regionName,Long.valueOf(seqNum));
     HLogKey logKey=new HLogKey(regionName,tableName,seqNum);
     boolean sync=regionInfo.isMetaRegion() || regionInfo.isRootRegion();
     doWrite(logKey,logEdit,sync);
-    this.numEntries++;
+    this.numEntries.incrementAndGet();
     updateLock.notifyAll();
   }
-  if (this.numEntries > this.maxlogentries) {
+  if (this.numEntries.get() > this.maxlogentries) {
     if (listener != null) {
       listener.logRollRequested();
     }
