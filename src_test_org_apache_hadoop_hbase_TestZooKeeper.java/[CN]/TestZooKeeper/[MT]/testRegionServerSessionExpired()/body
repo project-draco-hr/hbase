@@ -1,0 +1,29 @@
+{
+  try {
+    new HTable(conf,HConstants.META_TABLE_NAME);
+    String quorumServers=zooKeeperCluster.getQuorumServers();
+    int sessionTimeout=conf.getInt("zookeeper.session.timeout",2 * 1000);
+    Watcher watcher=new EmptyWatcher();
+    HRegionServer rs=cluster.getRegionServer(0);
+    ZooKeeperWrapper rsZK=rs.getZooKeeperWrapper();
+    long sessionID=rsZK.getSessionID();
+    byte[] password=rsZK.getSessionPassword();
+    ZooKeeper zk=new ZooKeeper(quorumServers,sessionTimeout,watcher,sessionID,password);
+    zk.close();
+    Thread.sleep(sessionTimeout * 3);
+    new HTable(conf,HConstants.META_TABLE_NAME);
+    HBaseAdmin admin=new HBaseAdmin(conf);
+    HTableDescriptor desc=new HTableDescriptor("test");
+    HColumnDescriptor family=new HColumnDescriptor("fam:");
+    desc.addFamily(family);
+    admin.createTable(desc);
+    HTable table=new HTable("test");
+    BatchUpdate batchUpdate=new BatchUpdate("testrow");
+    batchUpdate.put("fam:col",Bytes.toBytes("testdata"));
+    table.commit(batchUpdate);
+  }
+ catch (  Exception e) {
+    e.printStackTrace();
+    fail();
+  }
+}
