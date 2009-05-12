@@ -1,28 +1,24 @@
 {
-  int count=0;
-  boolean triggered=false;
-  while (count++ < (blockingWaitTime / 500)) {
+  boolean toomany;
+  do {
+    toomany=false;
     for (    Store hstore : region.stores.values()) {
       int files=hstore.getStorefilesCount();
       if (files > this.blockingStoreFilesNumber) {
-        if (!triggered) {
-          server.compactSplitThread.compactionRequested(region,getName());
-          LOG.info("Too many store files in store " + hstore + ": "+ files+ ", pausing");
-          triggered=true;
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Too many store files in store " + hstore + ": "+ files+ ", waiting");
         }
+        toomany=true;
+        server.compactSplitThread.compactionRequested(region,getName());
         try {
-          Thread.sleep(500);
+          Thread.sleep(blockingWaitTime);
         }
  catch (        InterruptedException e) {
         }
-        continue;
       }
     }
-    if (triggered) {
-      LOG.info("Compaction triggered on region " + region + ", proceeding");
-    }
-    break;
   }
+ while (toomany);
 synchronized (regionsInQueue) {
     if (regionsInQueue.remove(region) && removeFromQueue) {
       flushQueue.remove(region);
