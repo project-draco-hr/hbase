@@ -1,5 +1,6 @@
 {
-  Map<byte[],SequenceFile.Writer> logWriters=new TreeMap<byte[],SequenceFile.Writer>(Bytes.BYTES_COMPARATOR);
+  final Map<byte[],SequenceFile.Writer> logWriters=new TreeMap<byte[],SequenceFile.Writer>(Bytes.BYTES_COMPARATOR);
+  final Map<byte[],LinkedList<HLogEntry>> logEntries=new TreeMap<byte[],LinkedList<HLogEntry>>(Bytes.BYTES_COMPARATOR);
   try {
     for (int i=0; i < logfiles.length; i++) {
       if (LOG.isDebugEnabled()) {
@@ -8,62 +9,29 @@
       long length=logfiles[i].getLen();
       HLogKey key=new HLogKey();
       KeyValue val=new KeyValue();
+      SequenceFile.Reader in=null;
       try {
-        SequenceFile.Reader in=new SequenceFile.Reader(fs,logfiles[i].getPath(),conf);
+        in=new SequenceFile.Reader(fs,logfiles[i].getPath(),conf);
         try {
           int count=0;
-          for (; in.next(key,val); count++) {
-            byte[] tableName=key.getTablename();
+          while (in.next(key,val)) {
             byte[] regionName=key.getRegionName();
-            SequenceFile.Writer w=logWriters.get(regionName);
-            if (w == null) {
-              Path logfile=new Path(HRegion.getRegionDir(HTableDescriptor.getTableDir(rootDir,tableName),HRegionInfo.encodeRegionName(regionName)),HREGION_OLDLOGFILE_NAME);
-              Path oldlogfile=null;
-              SequenceFile.Reader old=null;
-              if (fs.exists(logfile)) {
-                LOG.warn("Old log file " + logfile + " already exists. Copying existing file to new file");
-                oldlogfile=new Path(logfile.toString() + ".old");
-                fs.rename(logfile,oldlogfile);
-                old=new SequenceFile.Reader(fs,oldlogfile,conf);
-              }
-              w=SequenceFile.createWriter(fs,conf,logfile,HLogKey.class,KeyValue.class,getCompressionType(conf));
-              logWriters.put(regionName,w);
-              if (LOG.isDebugEnabled()) {
-                LOG.debug("Creating new log file writer for path " + logfile + " and region "+ Bytes.toString(regionName));
-              }
-              if (old != null) {
-                HLogKey oldkey=new HLogKey();
-                KeyValue oldval=new KeyValue();
-                for (; old.next(oldkey,oldval); count++) {
-                  if (LOG.isDebugEnabled() && count > 0 && count % 10000 == 0) {
-                    LOG.debug("Copied " + count + " edits");
-                  }
-                  w.append(oldkey,oldval);
-                }
-                old.close();
-                fs.delete(oldlogfile,true);
-              }
+            LinkedList<HLogEntry> queue=logEntries.get(regionName);
+            if (queue == null) {
+              queue=new LinkedList<HLogEntry>();
+              LOG.debug("Adding queue for " + Bytes.toString(regionName));
+              logEntries.put(regionName,queue);
             }
-            w.append(key,val);
+            queue.push(new HLogEntry(val,key));
+            count++;
           }
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Applied " + count + " total edits from "+ logfiles[i].getPath().toString());
-          }
+          LOG.debug("Pushed " + count + " entries");
         }
  catch (        IOException e) {
           e=RemoteExceptionHandler.checkIOException(e);
           if (!(e instanceof EOFException)) {
             LOG.warn("Exception processing " + logfiles[i].getPath() + " -- continuing. Possible DATA LOSS!",e);
           }
-        }
- finally {
-          try {
-            in.close();
-          }
- catch (          IOException e) {
-            LOG.warn("Close in finally threw exception -- continuing",e);
-          }
-          fs.delete(logfiles[i].getPath(),true);
         }
       }
  catch (      IOException e) {
@@ -73,6 +41,82 @@
         }
         throw e;
       }
+ finally {
+        try {
+          if (in != null) {
+            in.close();
+          }
+        }
+ catch (        IOException e) {
+          LOG.warn("Close in finally threw exception -- continuing",e);
+        }
+        fs.delete(logfiles[i].getPath(),true);
+      }
+    }
+    ExecutorService threadPool=Executors.newFixedThreadPool(DEFAULT_NUMBER_LOG_WRITER_THREAD);
+    for (    final byte[] key : logEntries.keySet()) {
+      Thread thread=new Thread(Bytes.toString(key)){
+        public void run(){
+          LinkedList<HLogEntry> entries=logEntries.get(key);
+          LOG.debug("Thread got " + entries.size() + " to process");
+          long threadTime=System.currentTimeMillis();
+          try {
+            int count=0;
+            for (            HLogEntry logEntry : entries) {
+              SequenceFile.Writer w=logWriters.get(key);
+              if (w == null) {
+                Path logfile=new Path(HRegion.getRegionDir(HTableDescriptor.getTableDir(rootDir,logEntry.getKey().getTablename()),HRegionInfo.encodeRegionName(key)),HREGION_OLDLOGFILE_NAME);
+                Path oldlogfile=null;
+                SequenceFile.Reader old=null;
+                if (fs.exists(logfile)) {
+                  LOG.warn("Old log file " + logfile + " already exists. Copying existing file to new file");
+                  oldlogfile=new Path(logfile.toString() + ".old");
+                  fs.rename(logfile,oldlogfile);
+                  old=new SequenceFile.Reader(fs,oldlogfile,conf);
+                }
+                w=SequenceFile.createWriter(fs,conf,logfile,HLogKey.class,KeyValue.class,getCompressionType(conf));
+                logWriters.put(key,w);
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("Creating new log file writer for path " + logfile + " and region "+ Bytes.toString(key));
+                }
+                if (old != null) {
+                  HLogKey oldkey=new HLogKey();
+                  KeyValue oldval=new KeyValue();
+                  for (; old.next(oldkey,oldval); count++) {
+                    if (LOG.isDebugEnabled() && count > 0 && count % 10000 == 0) {
+                      LOG.debug("Copied " + count + " edits");
+                    }
+                    w.append(oldkey,oldval);
+                  }
+                  old.close();
+                  fs.delete(oldlogfile,true);
+                }
+              }
+              w.append(logEntry.getKey(),logEntry.getEdit());
+              count++;
+            }
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("Applied " + count + " total edits to "+ Bytes.toString(key)+ " in "+ (System.currentTimeMillis() - threadTime)+ "ms");
+            }
+          }
+ catch (          IOException e) {
+            e=RemoteExceptionHandler.checkIOException(e);
+            LOG.warn("Got while writing region " + Bytes.toString(key) + " log "+ e);
+            e.printStackTrace();
+          }
+        }
+      }
+;
+      threadPool.execute(thread);
+    }
+    threadPool.shutdown();
+    try {
+      for (int i=0; !threadPool.awaitTermination(5,TimeUnit.SECONDS); i++) {
+        LOG.debug("Waiting for log writers to terminate, iteration #" + i);
+      }
+    }
+ catch (    InterruptedException ex) {
+      LOG.warn("Log writers were interrupted, possible data loss!");
     }
   }
   finally {
