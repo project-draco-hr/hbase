@@ -6,12 +6,14 @@
       return regionToFlush;
     }
 synchronized (updateLock) {
-      Path oldFile=cleanupCurrentWriter();
-      this.old_filenum=this.filenum;
+      Path oldFile=cleanupCurrentWriter(this.filenum);
+      if (this.filenum >= 0) {
+        this.old_filenum=this.filenum;
+      }
       this.filenum=System.currentTimeMillis();
       Path newPath=computeFilename(this.filenum);
       this.writer=SequenceFile.createWriter(this.fs,this.conf,newPath,HLogKey.class,KeyValue.class,fs.getConf().getInt("io.file.buffer.size",4096),fs.getDefaultReplication(),this.blocksize,SequenceFile.CompressionType.NONE,new DefaultCodec(),null,new Metadata());
-      LOG.info((oldFile != null ? "Closed " + oldFile + ", entries="+ this.numEntries.get()+ ". " : "") + "New log writer: " + FSUtils.getPath(newPath));
+      LOG.info((oldFile != null ? "Roll " + FSUtils.getPath(oldFile) + ", entries="+ this.numEntries.get()+ ", calcsize="+ this.editsSize.get()+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen()+ ". " : "") + "New hlog " + FSUtils.getPath(newPath));
       if (this.outputfiles.size() > 0) {
         if (this.lastSeqWritten.size() <= 0) {
           LOG.debug("Last sequence written is empty. Deleting all old hlogs");
@@ -25,6 +27,7 @@ synchronized (updateLock) {
         }
       }
       this.numEntries.set(0);
+      this.editsSize.set(0);
       updateLock.notifyAll();
     }
   }
