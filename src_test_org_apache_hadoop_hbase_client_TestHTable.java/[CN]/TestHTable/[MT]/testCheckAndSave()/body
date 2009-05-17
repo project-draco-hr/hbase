@@ -10,14 +10,23 @@
   BatchUpdate batchUpdate=new BatchUpdate(row);
   BatchUpdate batchUpdate2=new BatchUpdate(row);
   BatchUpdate batchUpdate3=new BatchUpdate(row);
+  byte[] row1=Bytes.toBytes("row1");
+  BatchUpdate batchUpdate4=new BatchUpdate(row1);
+  BatchUpdate batchUpdate5=new BatchUpdate(row);
   HbaseMapWritable<byte[],byte[]> expectedValues=new HbaseMapWritable<byte[],byte[]>();
   HbaseMapWritable<byte[],byte[]> badExpectedValues=new HbaseMapWritable<byte[],byte[]>();
+  HbaseMapWritable<byte[],byte[]> expectedNoValues=new HbaseMapWritable<byte[],byte[]>();
+  HbaseMapWritable<byte[],byte[]> expectedNoValues1=new HbaseMapWritable<byte[],byte[]>();
   for (int i=0; i < 5; i++) {
     batchUpdate.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i));
     expectedValues.put(Bytes.toBytes(COLUMN_FAMILY_STR + i),Bytes.toBytes(i));
     badExpectedValues.put(Bytes.toBytes(COLUMN_FAMILY_STR + i),Bytes.toBytes(500));
+    expectedNoValues.put(Bytes.toBytes(COLUMN_FAMILY_STR + i),new byte[]{});
+    expectedNoValues1.put(Bytes.toBytes(COLUMN_FAMILY_STR + i + ","+ i),new byte[]{});
     batchUpdate2.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i + 1));
     batchUpdate3.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i + 2));
+    batchUpdate4.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i));
+    batchUpdate5.put(COLUMN_FAMILY_STR + i,Bytes.toBytes(i + 3));
   }
   table.commit(batchUpdate);
   assertFalse(table.checkAndSave(batchUpdate2,badExpectedValues,null));
@@ -28,4 +37,33 @@
     assertTrue(Bytes.equals(r.get(columns[i]).getValue(),batchUpdate2.get(columns[i])));
   }
   assertFalse(table.checkAndSave(batchUpdate3,expectedValues,null));
+  assertFalse(table.checkAndSave(batchUpdate4,badExpectedValues,null));
+  assertTrue(table.checkAndSave(batchUpdate4,expectedNoValues,null));
+  r=table.getRow(row1);
+  columns=batchUpdate4.getColumns();
+  for (int i=0; i < columns.length; i++) {
+    assertTrue(Bytes.equals(r.get(columns[i]).getValue(),batchUpdate4.get(columns[i])));
+  }
+  assertFalse(table.checkAndSave(batchUpdate4,expectedNoValues,null));
+  assertTrue(table.checkAndSave(batchUpdate5,expectedNoValues1,null));
+  r=table.getRow(row);
+  columns=batchUpdate5.getColumns();
+  for (int i=0; i < columns.length; i++) {
+    assertTrue(Bytes.equals(r.get(columns[i]).getValue(),batchUpdate5.get(columns[i])));
+  }
+  assertTrue(table.checkAndSave(batchUpdate,expectedNoValues1,null));
+  r=table.getRow(row);
+  columns=batchUpdate.getColumns();
+  for (int i=0; i < columns.length; i++) {
+    assertTrue(Bytes.equals(r.get(columns[i]).getValue(),batchUpdate.get(columns[i])));
+  }
+  HbaseMapWritable<byte[],byte[]> expectedValues1=new HbaseMapWritable<byte[],byte[]>();
+  expectedValues1.put(Bytes.toBytes(COLUMN_FAMILY_STR + 0),new byte[]{});
+  expectedValues1.put(Bytes.toBytes(COLUMN_FAMILY_STR + "EMPTY+ROW"),new byte[]{});
+  assertFalse(table.checkAndSave(batchUpdate5,expectedValues1,null));
+  r=table.getRow(row);
+  columns=batchUpdate.getColumns();
+  for (int i=0; i < columns.length; i++) {
+    assertTrue(Bytes.equals(r.get(columns[i]).getValue(),batchUpdate.get(columns[i])));
+  }
 }
