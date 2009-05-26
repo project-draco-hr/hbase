@@ -1,0 +1,38 @@
+{
+  try {
+    LOG.debug("Checking cluster state...");
+    HServerAddress rootLocation=zooKeeperWrapper.readRootRegionLocation();
+    List<HServerAddress> addresses=zooKeeperWrapper.scanRSDirectory();
+    if (addresses.size() == 0) {
+      LOG.debug("This is a fresh start, proceeding with normal startup");
+      return;
+    }
+    LOG.info("This is a failover, ZK inspection begins...");
+    boolean isRootRegionAssigned=false;
+    Map<byte[],HRegionInfo> assignedRegions=new HashMap<byte[],HRegionInfo>();
+    for (    HServerAddress address : addresses) {
+      HRegionInterface hri=this.connection.getHRegionConnection(address,false);
+      HServerInfo info=hri.getHServerInfo();
+      LOG.debug("Inspection found server " + info.getName());
+      serverManager.recordNewServer(info);
+      HRegionInfo[] regions=hri.getRegionsAssignment();
+      for (      HRegionInfo region : regions) {
+        if (region.isRootRegion()) {
+          connection.setRootRegionLocation(new HRegionLocation(region,rootLocation));
+          regionManager.setRootRegionLocation(rootLocation);
+          regionManager.removeRegion(region);
+          isRootRegionAssigned=true;
+        }
+ else         if (region.isMetaRegion()) {
+          MetaRegion m=new MetaRegion(new HServerAddress(address),region.getRegionName(),region.getStartKey());
+          regionManager.addMetaRegionToScan(m);
+        }
+        assignedRegions.put(region.getRegionName(),region);
+      }
+    }
+    LOG.info("Inspection found " + assignedRegions.size() + " regions, "+ (isRootRegionAssigned ? "with -ROOT-" : "but -ROOT- was MIA"));
+  }
+ catch (  IOException ex) {
+    ex.printStackTrace();
+  }
+}
