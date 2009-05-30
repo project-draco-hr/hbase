@@ -41,70 +41,54 @@ for col_name in cols.keys():
     print ('  column: %s, maxVer: %d' % (col.name, col.maxVersions))
 invalid = 'foo-\xfc\xa1\xa1\xa1\xa1\xa1'
 valid = 'foo-\xe7\x94\x9f\xe3\x83\x93\xe3\x83\xbc\xe3\x83\xab'
-mutations = [Mutation({'column': 'entry:foo', 'value': invalid, })]
+mutations = [Mutation(column='entry:foo', value=invalid)]
+print str(mutations)
 client.mutateRow(t, 'foo', mutations)
-mutations = [Mutation({'column': 'entry:', 'value': '', })]
+mutations = [Mutation(column='entry:', value='')]
 client.mutateRow(t, '', mutations)
-mutations = [Mutation({'column': 'entry:foo', 'value': valid, })]
+mutations = [Mutation(column='entry:foo', value=valid)]
 client.mutateRow(t, valid, mutations)
 try:
-    mutations = [Mutation({'column': 'entry:foo', 'value': invalid, })]
+    mutations = [Mutation(column='entry:foo', value=invalid)]
     client.mutateRow(t, invalid, mutations)
 except ttypes.IOError as e:
     print ('expected exception: %s' % e.message)
 print 'Starting scanner...'
 scanner = client.scannerOpen(t, '', ['entry:'])
-try:
-    while 1:
-        printRow(client.scannerGet(scanner))
-except ttypes.NotFound as e:
-    print 'Scanner finished'
+r = client.scannerGet(scanner)
+while r:
+    printRow(r[0])
+    r = client.scannerGet(scanner)
+print 'Scanner finished'
 for e in range(100, 0, (-1)):
     row = ('%0.5d' % e)
-    mutations = [Mutation({'column': 'unused:', 'value': 'DELETE_ME', })]
+    mutations = [Mutation(column='unused:', value='DELETE_ME')]
     client.mutateRow(t, row, mutations)
-    printRow(client.getRow(t, row))
+    printRow(client.getRow(t, row)[0])
     client.deleteAllRow(t, row)
-    mutations = [Mutation({'column': 'entry:num', 'value': '0', }), Mutation({'column': 'entry:foo', 'value': 'FOO', })]
+    mutations = [Mutation(column='entry:num', value='0'), Mutation(column='entry:foo', value='FOO')]
     client.mutateRow(t, row, mutations)
-    printRow(client.getRow(t, row))
-    mutations = []
-    m = Mutation()
-    m.column = 'entry:foo'
-    m.isDelete = 1
-    mutations.append(m)
-    m = Mutation()
-    m.column = 'entry:num'
-    m.value = '-1'
-    mutations.append(m)
+    printRow(client.getRow(t, row)[0])
+    mutations = [Mutation(column='entry:foo', isDelete=True), Mutation(column='entry:num', value='-1')]
     client.mutateRow(t, row, mutations)
-    printRow(client.getRow(t, row))
-    mutations = [Mutation({'column': 'entry:num', 'value': str(e), }), Mutation({'column': 'entry:sqr', 'value': str((e * e)), })]
+    printRow(client.getRow(t, row)[0])
+    mutations = [Mutation(column='entry:num', value=str(e)), Mutation(column='entry:sqr', value=str((e * e)))]
     client.mutateRow(t, row, mutations)
-    printRow(client.getRow(t, row))
+    printRow(client.getRow(t, row)[0])
     time.sleep(0.05)
-    mutations = []
-    m = Mutation()
-    m.column = 'entry:num'
-    m.value = '-999'
-    mutations.append(m)
-    m = Mutation()
-    m.column = 'entry:sqr'
-    m.isDelete = 1
-    mutations.append(m)
+    mutations = [Mutation(column='entry:num', value='-999'), Mutation(column='entry:sqr', isDelete=True)]
     client.mutateRowTs(t, row, mutations, 1)
-    printRow(client.getRow(t, row))
+    printRow(client.getRow(t, row)[0])
     versions = client.getVer(t, row, 'entry:num', 10)
     printVersions(row, versions)
     if (len(versions) != 4):
         print 'FATAL: wrong # of versions'
         sys.exit((-1))
-    try:
-        client.get(t, row, 'entry:foo')
+    r = client.get(t, row, 'entry:foo')
+    if (not r):
+        print "yup, we didn't find entry:foo"
+    if (len(r) > 0):
         raise "shouldn't get here!"
-    except ttypes.NotFound as e:
-        pass
-    print 
 columnNames = []
 for (col, desc) in client.getColumnDescriptors(t).items():
     print ('column with name: ' + desc.name)
@@ -112,10 +96,10 @@ for (col, desc) in client.getColumnDescriptors(t).items():
     columnNames.append((desc.name + ':'))
 print 'Starting scanner...'
 scanner = client.scannerOpenWithStop(t, '00020', '00040', columnNames)
-try:
-    while 1:
-        printRow(client.scannerGet(scanner))
-except ttypes.NotFound:
-    client.scannerClose(scanner)
-    print 'Scanner finished'
+r = client.scannerGet(scanner)
+while r:
+    printRow(r[0])
+    r = client.scannerGet(scanner)
+client.scannerClose(scanner)
+print 'Scanner finished'
 transport.close()
