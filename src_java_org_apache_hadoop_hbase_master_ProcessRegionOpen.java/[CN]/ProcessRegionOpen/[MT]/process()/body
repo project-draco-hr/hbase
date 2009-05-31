@@ -1,42 +1,37 @@
 {
-  Boolean result=new RetryableMetaOperation<Boolean>(getMetaRegion(),this.master){
-    private final RegionHistorian historian=RegionHistorian.getInstance();
-    public Boolean call() throws IOException {
-      LOG.info(regionInfo.getRegionNameAsString() + " open on " + serverInfo.getServerAddress().toString());
-      if (!metaRegionAvailable()) {
-        return true;
-      }
-      LOG.info("updating row " + regionInfo.getRegionNameAsString() + " in region "+ Bytes.toString(metaRegionName)+ " with "+ " with startcode "+ serverInfo.getStartCode()+ " and server "+ serverInfo.getServerAddress());
-      BatchUpdate b=new BatchUpdate(regionInfo.getRegionName());
-      b.put(COL_SERVER,Bytes.toBytes(serverInfo.getServerAddress().toString()));
-      b.put(COL_STARTCODE,Bytes.toBytes(serverInfo.getStartCode()));
-      server.batchUpdate(metaRegionName,b,-1L);
-      if (!this.historian.isOnline()) {
-        this.historian.online(this.master.getConfiguration());
-      }
-      this.historian.addRegionOpen(regionInfo,serverInfo.getServerAddress());
+  if (!metaRegionAvailable()) {
+    return true;
+  }
+  final RegionHistorian historian=RegionHistorian.getInstance();
+  HRegionInterface server=master.connection.getHRegionConnection(getMetaRegion().getServer());
+  LOG.info(regionInfo.getRegionNameAsString() + " open on " + serverInfo.getServerAddress().toString());
+  LOG.info("updating row " + regionInfo.getRegionNameAsString() + " in region "+ Bytes.toString(metaRegionName)+ " with "+ " with startcode "+ serverInfo.getStartCode()+ " and server "+ serverInfo.getServerAddress());
+  BatchUpdate b=new BatchUpdate(regionInfo.getRegionName());
+  b.put(COL_SERVER,Bytes.toBytes(serverInfo.getServerAddress().toString()));
+  b.put(COL_STARTCODE,Bytes.toBytes(serverInfo.getStartCode()));
+  server.batchUpdate(metaRegionName,b,-1L);
+  if (!historian.isOnline()) {
+    historian.online(this.master.getConfiguration());
+  }
+  historian.addRegionOpen(regionInfo,serverInfo.getServerAddress());
 synchronized (master.regionManager) {
-        if (isMetaTable) {
-          MetaRegion m=new MetaRegion(new HServerAddress(serverInfo.getServerAddress()),regionInfo.getRegionName(),regionInfo.getStartKey());
-          if (!master.regionManager.isInitialMetaScanComplete()) {
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Adding " + m.toString() + " to regions to scan");
-            }
-            master.regionManager.addMetaRegionToScan(m);
-          }
- else {
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Adding to onlineMetaRegions: " + m.toString());
-            }
-            master.regionManager.putMetaRegionOnline(m);
-            master.regionManager.metaScannerThread.interrupt();
-          }
+    if (isMetaTable) {
+      MetaRegion m=new MetaRegion(new HServerAddress(serverInfo.getServerAddress()),regionInfo);
+      if (!master.regionManager.isInitialMetaScanComplete()) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Adding " + m.toString() + " to regions to scan");
         }
-        master.regionManager.removeRegion(regionInfo);
-        return true;
+        master.regionManager.addMetaRegionToScan(m);
+      }
+ else {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Adding to onlineMetaRegions: " + m.toString());
+        }
+        master.regionManager.putMetaRegionOnline(m);
+        master.regionManager.metaScannerThread.interrupt();
       }
     }
+    master.regionManager.removeRegion(regionInfo);
+    return true;
   }
-.doWithRetries();
-  return result == null ? true : result;
 }
