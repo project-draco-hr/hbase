@@ -1,5 +1,6 @@
 {
-  final Map<byte[],SequenceFile.Writer> logWriters=new TreeMap<byte[],SequenceFile.Writer>(Bytes.BYTES_COMPARATOR);
+  final Map<byte[],WriterAndPath> logWriters=new TreeMap<byte[],WriterAndPath>(Bytes.BYTES_COMPARATOR);
+  List<Path> splits=null;
   try {
     int maxSteps=Double.valueOf(Math.ceil((logfiles.length * 1.0) / DEFAULT_NUMBER_CONCURRENT_LOG_READS)).intValue();
     for (int step=0; step < maxSteps; step++) {
@@ -25,7 +26,9 @@
                 LOG.debug("Adding queue for " + Bytes.toString(regionName));
                 logEntries.put(regionName,queue);
               }
-              queue.push(new HLogEntry(val,key));
+              HLogEntry hle=new HLogEntry(val,key);
+              System.out.println("REMOVE !! " + hle);
+              queue.push(hle);
               count++;
               key=new HLogKey();
               val=new KeyValue();
@@ -68,9 +71,10 @@
             long threadTime=System.currentTimeMillis();
             try {
               int count=0;
-              for (              HLogEntry logEntry : entries) {
-                SequenceFile.Writer w=logWriters.get(key);
-                if (w == null) {
+              for (ListIterator<HLogEntry> i=entries.listIterator(entries.size()); i.hasPrevious(); ) {
+                HLogEntry logEntry=i.previous();
+                WriterAndPath wap=logWriters.get(key);
+                if (wap == null) {
                   Path logfile=new Path(HRegion.getRegionDir(HTableDescriptor.getTableDir(rootDir,logEntry.getKey().getTablename()),HRegionInfo.encodeRegionName(key)),HREGION_OLDLOGFILE_NAME);
                   Path oldlogfile=null;
                   SequenceFile.Reader old=null;
@@ -80,8 +84,9 @@
                     fs.rename(logfile,oldlogfile);
                     old=new SequenceFile.Reader(fs,oldlogfile,conf);
                   }
-                  w=SequenceFile.createWriter(fs,conf,logfile,HLogKey.class,KeyValue.class,getCompressionType(conf));
-                  logWriters.put(key,w);
+                  SequenceFile.Writer w=SequenceFile.createWriter(fs,conf,logfile,HLogKey.class,KeyValue.class,getCompressionType(conf));
+                  wap=new WriterAndPath(logfile,w);
+                  logWriters.put(key,wap);
                   if (LOG.isDebugEnabled()) {
                     LOG.debug("Creating new hlog file writer for path " + logfile + " and region "+ Bytes.toString(key));
                   }
@@ -98,7 +103,10 @@
                     fs.delete(oldlogfile,true);
                   }
                 }
-                w.append(logEntry.getKey(),logEntry.getEdit());
+                if (wap == null) {
+                  throw new NullPointerException();
+                }
+                wap.w.append(logEntry.getKey(),logEntry.getEdit());
                 count++;
               }
               if (LOG.isDebugEnabled()) {
@@ -127,8 +135,11 @@
     }
   }
   finally {
-    for (    SequenceFile.Writer w : logWriters.values()) {
-      w.close();
+    splits=new ArrayList<Path>(logWriters.size());
+    for (    WriterAndPath wap : logWriters.values()) {
+      wap.w.close();
+      splits.add(wap.p);
     }
   }
+  return splits;
 }
