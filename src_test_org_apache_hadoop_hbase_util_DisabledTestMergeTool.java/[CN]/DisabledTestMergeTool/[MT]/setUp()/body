@@ -1,0 +1,42 @@
+{
+  this.conf.set("hbase.hstore.compactionThreshold","2");
+  this.desc=new HTableDescriptor("TestMergeTool");
+  this.desc.addFamily(new HColumnDescriptor(FAMILY));
+  sourceRegions[0]=new HRegionInfo(this.desc,Bytes.toBytes("row_0200"),Bytes.toBytes("row_0300"));
+  sourceRegions[1]=new HRegionInfo(this.desc,Bytes.toBytes("row_0250"),Bytes.toBytes("row_0400"));
+  sourceRegions[2]=new HRegionInfo(this.desc,Bytes.toBytes("row_0100"),Bytes.toBytes("row_0200"));
+  sourceRegions[3]=new HRegionInfo(this.desc,Bytes.toBytes("row_0500"),Bytes.toBytes("row_0600"));
+  sourceRegions[4]=new HRegionInfo(this.desc,HConstants.EMPTY_BYTE_ARRAY,HConstants.EMPTY_BYTE_ARRAY);
+  this.rows=new byte[5][][];
+  this.rows[0]=Bytes.toByteArrays(new String[]{"row_0210","row_0280"});
+  this.rows[1]=Bytes.toByteArrays(new String[]{"row_0260","row_0350","row_035"});
+  this.rows[2]=Bytes.toByteArrays(new String[]{"row_0110","row_0175","row_0175","row_0175"});
+  this.rows[3]=Bytes.toByteArrays(new String[]{"row_0525","row_0560","row_0560","row_0560","row_0560"});
+  this.rows[4]=Bytes.toByteArrays(new String[]{"row_0050","row_1000","row_1000","row_1000","row_1000","row_1000"});
+  this.dfsCluster=new MiniDFSCluster(conf,2,true,(String[])null);
+  this.fs=this.dfsCluster.getFileSystem();
+  conf.set("fs.default.name",fs.getUri().toString());
+  Path parentdir=fs.getHomeDirectory();
+  conf.set(HConstants.HBASE_DIR,parentdir.toString());
+  fs.mkdirs(parentdir);
+  FSUtils.setVersion(fs,parentdir);
+  super.setUp();
+  try {
+    createRootAndMetaRegions();
+    for (int i=0; i < sourceRegions.length; i++) {
+      regions[i]=HRegion.createHRegion(this.sourceRegions[i],this.testDir,this.conf);
+      for (int j=0; j < rows[i].length; j++) {
+        byte[] row=rows[i][j];
+        Put put=new Put(row);
+        put.add(FAMILY,QUALIFIER,row);
+        regions[i].put(put);
+      }
+      HRegion.addRegionToMETA(meta,regions[i]);
+    }
+    closeRootAndMeta();
+  }
+ catch (  Exception e) {
+    shutdownDfs(dfsCluster);
+    throw e;
+  }
+}

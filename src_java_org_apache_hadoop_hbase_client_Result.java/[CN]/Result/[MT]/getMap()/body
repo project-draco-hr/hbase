@@ -1,0 +1,33 @@
+{
+  if (this.familyMap != null) {
+    return this.familyMap;
+  }
+  if (isEmpty()) {
+    return null;
+  }
+  this.familyMap=new TreeMap<byte[],NavigableMap<byte[],NavigableMap<Long,byte[]>>>(Bytes.BYTES_COMPARATOR);
+  for (  KeyValue kv : this.kvs) {
+    SplitKeyValue splitKV=kv.split();
+    byte[] family=splitKV.getFamily();
+    NavigableMap<byte[],NavigableMap<Long,byte[]>> columnMap=familyMap.get(family);
+    if (columnMap == null) {
+      columnMap=new TreeMap<byte[],NavigableMap<Long,byte[]>>(Bytes.BYTES_COMPARATOR);
+      familyMap.put(family,columnMap);
+    }
+    byte[] qualifier=splitKV.getQualifier();
+    NavigableMap<Long,byte[]> versionMap=columnMap.get(qualifier);
+    if (versionMap == null) {
+      versionMap=new TreeMap<Long,byte[]>(new Comparator<Long>(){
+        public int compare(        Long l1,        Long l2){
+          return l2.compareTo(l1);
+        }
+      }
+);
+      columnMap.put(qualifier,versionMap);
+    }
+    Long timestamp=Bytes.toLong(splitKV.getTimestamp());
+    byte[] value=splitKV.getValue();
+    versionMap.put(timestamp,value);
+  }
+  return this.familyMap;
+}

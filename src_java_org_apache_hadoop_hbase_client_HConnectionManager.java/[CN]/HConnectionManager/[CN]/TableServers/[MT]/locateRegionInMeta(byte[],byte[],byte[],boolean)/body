@@ -17,22 +17,26 @@
     try {
       HRegionLocation metaLocation=locateRegion(parentTable,metaKey);
       HRegionInterface server=getHRegionConnection(metaLocation.getServerAddress());
-      RowResult regionInfoRow=server.getClosestRowBefore(metaLocation.getRegionInfo().getRegionName(),metaKey,HConstants.COLUMN_FAMILY);
+      Result regionInfoRow=server.getClosestRowBefore(metaLocation.getRegionInfo().getRegionName(),metaKey,HConstants.CATALOG_FAMILY);
       if (regionInfoRow == null) {
         throw new TableNotFoundException(Bytes.toString(tableName));
       }
-      Cell value=regionInfoRow.get(COL_REGIONINFO);
-      if (value == null || value.getValue().length == 0) {
+      byte[] value=regionInfoRow.getValue(CATALOG_FAMILY,REGIONINFO_QUALIFIER);
+      if (value == null || value.length == 0) {
         throw new IOException("HRegionInfo was null or empty in " + Bytes.toString(parentTable));
       }
-      HRegionInfo regionInfo=(HRegionInfo)Writables.getWritable(value.getValue(),new HRegionInfo());
+      HRegionInfo regionInfo=(HRegionInfo)Writables.getWritable(value,new HRegionInfo());
       if (!Bytes.equals(regionInfo.getTableDesc().getName(),tableName)) {
         throw new TableNotFoundException("Table '" + Bytes.toString(tableName) + "' was not found.");
       }
       if (regionInfo.isOffline()) {
         throw new RegionOfflineException("region offline: " + regionInfo.getRegionNameAsString());
       }
-      String serverAddress=Writables.cellToString(regionInfoRow.get(COL_SERVER));
+      value=regionInfoRow.getValue(CATALOG_FAMILY,SERVER_QUALIFIER);
+      String serverAddress="";
+      if (value != null) {
+        serverAddress=Bytes.toString(value);
+      }
       if (serverAddress.equals("")) {
         throw new NoServerForRegionException("No server address listed " + "in " + Bytes.toString(parentTable) + " for region "+ regionInfo.getRegionNameAsString());
       }

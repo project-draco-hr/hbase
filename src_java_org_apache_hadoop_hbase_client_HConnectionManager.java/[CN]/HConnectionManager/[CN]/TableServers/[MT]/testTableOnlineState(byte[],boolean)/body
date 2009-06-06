@@ -10,7 +10,9 @@
   byte[] startKey=HRegionInfo.createRegionName(tableName,null,HConstants.ZEROES);
   byte[] endKey=null;
   HRegionInfo currentRegion=null;
-  ScannerCallable s=new ScannerCallable(this,(Bytes.equals(tableName,HConstants.META_TABLE_NAME) ? HConstants.ROOT_TABLE_NAME : HConstants.META_TABLE_NAME),HConstants.COL_REGIONINFO_ARRAY,startKey,HConstants.LATEST_TIMESTAMP,null);
+  Scan scan=new Scan(startKey);
+  scan.addColumn(CATALOG_FAMILY,REGIONINFO_QUALIFIER);
+  ScannerCallable s=new ScannerCallable(this,(Bytes.equals(tableName,HConstants.META_TABLE_NAME) ? HConstants.ROOT_TABLE_NAME : HConstants.META_TABLE_NAME),scan.getStartRow(),scan);
   try {
     getRegionServerWithRetries(s);
     do {
@@ -19,27 +21,24 @@
         startKey=oldRegion.getEndKey();
       }
       currentRegion=s.getHRegionInfo();
-      RowResult r=null;
-      RowResult[] rrs=null;
+      Result r=null;
+      Result[] rrs=null;
       while ((rrs=getRegionServerWithRetries(s)) != null) {
         r=rrs[0];
-        Cell c=r.get(HConstants.COL_REGIONINFO);
-        if (c != null) {
-          byte[] value=c.getValue();
-          if (value != null) {
-            HRegionInfo info=Writables.getHRegionInfoOrNull(value);
-            if (info != null) {
-              if (Bytes.equals(info.getTableDesc().getName(),tableName)) {
-                rowsScanned+=1;
-                rowsOffline+=info.isOffline() ? 1 : 0;
-              }
+        byte[] value=r.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+        if (value != null) {
+          HRegionInfo info=Writables.getHRegionInfoOrNull(value);
+          if (info != null) {
+            if (Bytes.equals(info.getTableDesc().getName(),tableName)) {
+              rowsScanned+=1;
+              rowsOffline+=info.isOffline() ? 1 : 0;
             }
           }
         }
       }
       endKey=currentRegion.getEndKey();
     }
- while (!(endKey == null || HStoreKey.equalsTwoRowKeys(endKey,HConstants.EMPTY_BYTE_ARRAY)));
+ while (!(endKey == null || Bytes.equals(endKey,HConstants.EMPTY_BYTE_ARRAY)));
   }
   finally {
     s.setClose();

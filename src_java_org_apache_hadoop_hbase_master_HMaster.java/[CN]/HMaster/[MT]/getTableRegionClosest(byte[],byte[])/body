@@ -4,17 +4,20 @@
     byte[] firstRowInTable=Bytes.toBytes(Bytes.toString(tableName) + ",,");
     byte[] metaRegionName=m.getRegionName();
     HRegionInterface srvr=connection.getHRegionConnection(m.getServer());
-    long scannerid=srvr.openScanner(metaRegionName,new byte[][]{COL_REGIONINFO,COL_SERVER},firstRowInTable,LATEST_TIMESTAMP,null);
+    Scan scan=new Scan(firstRowInTable);
+    scan.addColumn(CATALOG_FAMILY,REGIONINFO_QUALIFIER);
+    scan.addColumn(CATALOG_FAMILY,SERVER_QUALIFIER);
+    long scannerid=srvr.openScanner(metaRegionName,scan);
     try {
       while (true) {
-        RowResult data=srvr.next(scannerid);
+        Result data=srvr.next(scannerid);
         if (data == null || data.size() <= 0)         break;
-        HRegionInfo info=Writables.getHRegionInfo(data.get(COL_REGIONINFO));
+        HRegionInfo info=Writables.getHRegionInfo(data.getValue(CATALOG_FAMILY,REGIONINFO_QUALIFIER));
         if (Bytes.compareTo(info.getTableDesc().getName(),tableName) == 0) {
           if ((Bytes.compareTo(info.getStartKey(),rowKey) >= 0) && (Bytes.compareTo(info.getEndKey(),rowKey) < 0)) {
-            Cell cell=data.get(COL_SERVER);
-            if (cell != null) {
-              HServerAddress server=new HServerAddress(Bytes.toString(cell.getValue()));
+            byte[] value=data.getValue(CATALOG_FAMILY,SERVER_QUALIFIER);
+            if (value != null) {
+              HServerAddress server=new HServerAddress(Bytes.toString(value));
               return new Pair<HRegionInfo,HServerAddress>(info,server);
             }
           }

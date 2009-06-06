@@ -1,0 +1,37 @@
+{
+  long now=System.currentTimeMillis();
+  boolean flush=false;
+  this.updatesLock.readLock().lock();
+  try {
+    if (writeToWAL) {
+      this.log.append(regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),kvs,(regionInfo.isMetaRegion() || regionInfo.isRootRegion()),now);
+    }
+    long size=0;
+    Store store=getStore(family);
+    for (    KeyValue kv : kvs) {
+      if (kv.isLatestTimestamp() && kv.isDeleteType()) {
+        List<KeyValue> result=new ArrayList<KeyValue>(1);
+        Get g=new Get(kv.getRow());
+        NavigableSet<byte[]> qualifiers=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+        qualifiers.add(kv.getQualifier());
+        get(store,g,qualifiers,result);
+        if (result.isEmpty()) {
+          continue;
+        }
+        if (result.size() > 1) {
+          throw new RuntimeException("Unexpected size: " + result.size());
+        }
+        KeyValue getkv=result.get(0);
+        Bytes.putBytes(kv.getBuffer(),kv.getTimestampOffset(),getkv.getBuffer(),getkv.getTimestampOffset(),Bytes.SIZEOF_LONG);
+      }
+      size=this.memcacheSize.addAndGet(store.delete(kv));
+    }
+    flush=isFlushSize(size);
+  }
+  finally {
+    this.updatesLock.readLock().unlock();
+  }
+  if (flush) {
+    requestFlush();
+  }
+}

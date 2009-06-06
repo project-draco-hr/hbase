@@ -1,0 +1,31 @@
+{
+  boolean result=false;
+  HRegionInfo split=Writables.getHRegionInfo(rowContent.getValue(splitFamily,splitQualifier));
+  if (split == null) {
+    return result;
+  }
+  Path tabledir=new Path(this.master.rootdir,split.getTableDesc().getNameAsString());
+  for (  HColumnDescriptor family : split.getTableDesc().getFamilies()) {
+    Path p=Store.getStoreHomedir(tabledir,split.getEncodedName(),family.getName());
+    FileStatus[] ps=this.master.fs.listStatus(p,new PathFilter(){
+      public boolean accept(      Path path){
+        return StoreFile.isReference(path);
+      }
+    }
+);
+    if (ps != null && ps.length > 0) {
+      result=true;
+      break;
+    }
+  }
+  if (result) {
+    return result;
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug(split.getRegionNameAsString() + " no longer has references to " + Bytes.toString(parent));
+  }
+  Delete delete=new Delete(parent);
+  delete.deleteColumns(splitFamily,splitQualifier);
+  srvr.delete(metaRegionName,delete);
+  return result;
+}

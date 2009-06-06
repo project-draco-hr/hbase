@@ -1,32 +1,34 @@
 {
-  byte[][] cols=new byte[][]{Bytes.toBytes(ANCHORNUM + "[0-9]+"),CONTENTS_BASIC};
   long startTime=System.currentTimeMillis();
-  Scanner s=table.getScanner(cols,HConstants.EMPTY_BYTE_ARRAY);
+  Scan scan=new Scan();
+  scan.addFamily(ANCHOR_CF);
+  scan.addColumn(CONTENTS_CF,CONTENTS_CQ);
+  ResultScanner s=table.getScanner(scan);
   try {
     int contentsFetched=0;
     int anchorFetched=0;
     int k=0;
-    for (    RowResult curVals : s) {
-      for (Iterator<byte[]> it=curVals.keySet().iterator(); it.hasNext(); ) {
-        byte[] col=it.next();
-        byte val[]=curVals.get(col).getValue();
-        String curval=Bytes.toString(val);
-        if (Bytes.compareTo(col,CONTENTS_BASIC) == 0) {
-          assertTrue("Error at:" + Bytes.toString(curVals.getRow()) + ", Value for "+ Bytes.toString(col)+ " should start with: "+ CONTENTSTR+ ", but was fetched as: "+ curval,curval.startsWith(CONTENTSTR));
+    for (    Result curVals : s) {
+      for (      KeyValue kv : curVals.raw()) {
+        byte[] family=kv.getFamily();
+        byte[] qualifier=kv.getQualifier();
+        String strValue=new String(kv.getValue());
+        if (Bytes.equals(family,CONTENTS_CF)) {
+          assertTrue("Error at:" + Bytes.toString(curVals.getRow()) + ", Value for "+ Bytes.toString(qualifier)+ " should start with: "+ CONTENTSTR+ ", but was fetched as: "+ strValue,strValue.startsWith(CONTENTSTR));
           contentsFetched++;
         }
- else         if (Bytes.toString(col).startsWith(ANCHORNUM)) {
-          assertTrue("Error at:" + Bytes.toString(curVals.getRow()) + ", Value for "+ Bytes.toString(col)+ " should start with: "+ ANCHORSTR+ ", but was fetched as: "+ curval,curval.startsWith(ANCHORSTR));
+ else         if (Bytes.equals(family,ANCHOR_CF)) {
+          assertTrue("Error at:" + Bytes.toString(curVals.getRow()) + ", Value for "+ Bytes.toString(qualifier)+ " should start with: "+ ANCHORSTR_VALUE+ ", but was fetched as: "+ strValue,strValue.startsWith(ANCHORSTR_VALUE));
           anchorFetched++;
         }
  else {
-          LOG.info(Bytes.toString(col));
+          LOG.info("Family: " + Bytes.toString(family) + ", Qualifier: "+ Bytes.toString(qualifier));
         }
       }
       k++;
     }
-    assertEquals("Expected " + NUM_VALS + " "+ Bytes.toString(CONTENTS_BASIC)+ " values, but fetched "+ contentsFetched,NUM_VALS,contentsFetched);
-    assertEquals("Expected " + NUM_VALS + " "+ ANCHORNUM+ " values, but fetched "+ anchorFetched,NUM_VALS,anchorFetched);
+    assertEquals("Expected " + NUM_VALS + " "+ Bytes.toString(CONTENTS_CQ)+ " values, but fetched "+ contentsFetched,NUM_VALS,contentsFetched);
+    assertEquals("Expected " + NUM_VALS + " "+ ANCHORNUM_CQ+ " values, but fetched "+ anchorFetched,NUM_VALS,anchorFetched);
     LOG.info("Scanned " + NUM_VALS + " rows. Elapsed time: "+ ((System.currentTimeMillis() - startTime) / 1000.0));
   }
   finally {

@@ -1,0 +1,44 @@
+{
+  long size=0;
+  this.lock.readLock().lock();
+  try {
+    boolean notpresent=false;
+    List<KeyValue> deletes=new ArrayList<KeyValue>();
+    SortedSet<KeyValue> tailSet=this.memcache.tailSet(delete);
+    byte[] deleteBuffer=delete.getBuffer();
+    int deleteOffset=delete.getOffset();
+    int deleteKeyLen=Bytes.toInt(deleteBuffer,deleteOffset);
+    deleteOffset+=Bytes.SIZEOF_INT + Bytes.SIZEOF_INT;
+    short deleteRowLen=Bytes.toShort(deleteBuffer,deleteOffset);
+    deleteOffset+=Bytes.SIZEOF_SHORT;
+    int deleteRowOffset=deleteOffset;
+    deleteOffset+=deleteRowLen;
+    byte deleteFamLen=deleteBuffer[deleteOffset];
+    deleteOffset+=Bytes.SIZEOF_BYTE + deleteFamLen;
+    int deleteQualifierOffset=deleteOffset;
+    int deleteQualifierLen=deleteKeyLen - deleteRowLen - deleteFamLen- Bytes.SIZEOF_SHORT- Bytes.SIZEOF_BYTE- Bytes.SIZEOF_LONG- Bytes.SIZEOF_BYTE;
+    deleteOffset+=deleteQualifierLen;
+    int deleteTimestampOffset=deleteOffset;
+    deleteOffset+=Bytes.SIZEOF_LONG;
+    byte deleteType=deleteBuffer[deleteOffset];
+    for (    KeyValue mem : tailSet) {
+      DeleteCode res=DeleteCompare.deleteCompare(mem,deleteBuffer,deleteRowOffset,deleteRowLen,deleteQualifierOffset,deleteQualifierLen,deleteTimestampOffset,deleteType,comparator.getRawComparator());
+      if (res == DeleteCode.DONE) {
+        break;
+      }
+ else       if (res == DeleteCode.DELETE) {
+        deletes.add(mem);
+      }
+    }
+    for (    KeyValue del : deletes) {
+      notpresent=this.memcache.remove(del);
+      size-=heapSize(del,notpresent);
+    }
+    notpresent=this.memcache.add(delete);
+    size+=heapSize(delete,notpresent);
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+  return size;
+}

@@ -1,15 +1,39 @@
 {
-  byte[] bytes=incommon.get(ROW,COLUMN).getValue();
-  assertEquals(Bytes.toLong(bytes),tss[0]);
-  Cell[] cellValues=incommon.get(ROW,COLUMN,tss.length);
-  assertEquals(tss.length,cellValues.length);
-  for (int i=0; i < cellValues.length; i++) {
-    long ts=Bytes.toLong(cellValues[i].getValue());
+  Get get=null;
+  byte[][] famAndQf=null;
+  get=new Get(ROW);
+  famAndQf=KeyValue.parseColumn(COLUMN);
+  get.addColumn(famAndQf[0],famAndQf[1]);
+  Result r=incommon.get(get);
+  byte[] bytes=r.getValue(famAndQf[0],famAndQf[1]);
+  long t=Bytes.toLong(bytes);
+  assertEquals(tss[0],t);
+  get=new Get(ROW);
+  famAndQf=KeyValue.parseColumn(COLUMN);
+  get.addColumn(famAndQf[0],famAndQf[1]);
+  get.setMaxVersions(tss.length);
+  Result result=incommon.get(get);
+  List<Cell> cells=new ArrayList<Cell>();
+  for (  KeyValue kv : result.sorted()) {
+    cells.add(new Cell(kv.getValue(),kv.getTimestamp()));
+  }
+  assertEquals(tss.length,cells.size());
+  for (int i=0; i < cells.size(); i++) {
+    long ts=Bytes.toLong(cells.get(i).getValue());
     assertEquals(ts,tss[i]);
   }
-  cellValues=incommon.get(ROW,COLUMN,tss[0],cellValues.length - 1);
-  for (int i=1; i < cellValues.length; i++) {
-    long ts=Bytes.toLong(cellValues[i].getValue());
+  get=new Get(ROW);
+  famAndQf=KeyValue.parseColumn(COLUMN);
+  get.addColumn(famAndQf[0],famAndQf[1]);
+  get.setTimeStamp(tss[0]);
+  get.setMaxVersions(cells.size() - 1);
+  result=incommon.get(get);
+  cells=new ArrayList<Cell>();
+  for (  KeyValue kv : result.sorted()) {
+    cells.add(new Cell(kv.getValue(),kv.getTimestamp()));
+  }
+  for (int i=1; i < cells.size(); i++) {
+    long ts=Bytes.toLong(cells.get(i).getValue());
     assertEquals(ts,tss[i]);
   }
   assertScanContentTimestamp(incommon,tss[0]);

@@ -1,0 +1,73 @@
+{
+  if (filter != null && filter.filterAllRemaining()) {
+    return MatchCode.DONE_SCAN;
+  }
+ else   if (oldFilter != null && oldFilter.filterAllRemaining()) {
+    return MatchCode.DONE_SCAN;
+  }
+  String kvStr=kv.toString();
+  byte[] bytes=kv.getBuffer();
+  int offset=kv.getOffset();
+  int initialOffset=offset;
+  int kvLength=kv.getLength();
+  int keyLength=Bytes.toInt(bytes,offset,Bytes.SIZEOF_INT);
+  offset+=KeyValue.ROW_OFFSET;
+  short rowLength=Bytes.toShort(bytes,offset,Bytes.SIZEOF_SHORT);
+  offset+=Bytes.SIZEOF_SHORT;
+  int ret=this.rowComparator.compareRows(row,0,row.length,bytes,offset,rowLength);
+  if (ret <= -1) {
+    return MatchCode.DONE;
+  }
+ else   if (ret >= 1) {
+    return MatchCode.SKIP;
+  }
+  if (this.stickyNextRow)   return MatchCode.SEEK_NEXT_ROW;
+  if (filter != null && filter.filterRowKey(bytes,offset,rowLength)) {
+    stickyNextRow=true;
+    return MatchCode.SEEK_NEXT_ROW;
+  }
+ else   if (oldFilter != null && oldFilter.filterRowKey(bytes,offset,rowLength)) {
+    stickyNextRow=true;
+    return MatchCode.SEEK_NEXT_ROW;
+  }
+  if (this.columns.done()) {
+    stickyNextRow=true;
+    return MatchCode.SEEK_NEXT_ROW;
+  }
+  offset+=rowLength;
+  byte familyLength=bytes[offset];
+  offset+=familyLength + 1;
+  int qualLength=keyLength + KeyValue.ROW_OFFSET - (offset - initialOffset) - KeyValue.TIMESTAMP_TYPE_SIZE;
+  long timestamp=kv.getTimestamp();
+  if (isExpired(timestamp)) {
+    stickyNextRow=true;
+    return MatchCode.SEEK_NEXT_ROW;
+  }
+  byte type=kv.getType();
+  if (isDelete(type)) {
+    if (tr.withinOrAfterTimeRange(timestamp)) {
+      this.deletes.add(bytes,offset,qualLength,timestamp,type);
+    }
+    return MatchCode.SKIP;
+  }
+  if (!tr.withinTimeRange(timestamp)) {
+    return MatchCode.SKIP;
+  }
+  if (deletes.isDeleted(bytes,offset,qualLength,timestamp)) {
+    return MatchCode.SKIP;
+  }
+  MatchCode colChecker=columns.checkColumn(bytes,offset,qualLength);
+  if (colChecker == MatchCode.SKIP) {
+    return MatchCode.SEEK_NEXT_COL;
+  }
+ else   if (colChecker == MatchCode.NEXT || colChecker == MatchCode.DONE) {
+    stickyNextRow=true;
+    return MatchCode.SEEK_NEXT_ROW;
+  }
+  if (filter == null)   return MatchCode.INCLUDE;
+  ReturnCode filterResponse=filter.filterKeyValue(kv);
+  if (filterResponse == ReturnCode.INCLUDE)   return MatchCode.INCLUDE;
+  if (filterResponse == ReturnCode.SKIP)   return MatchCode.SKIP;
+  stickyNextRow=true;
+  return MatchCode.SEEK_NEXT_ROW;
+}

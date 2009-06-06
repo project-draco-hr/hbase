@@ -1,0 +1,56 @@
+{
+  if (list.isEmpty()) {
+    return;
+  }
+  boolean retryOnlyOne=false;
+  int tries=0;
+  Collections.sort(list);
+  List<Put> currentPuts=new ArrayList<Put>();
+  HRegionLocation location=getRegionLocationForRowWithRetries(tableName,list.get(0).getRow(),false);
+  byte[] currentRegion=location.getRegionInfo().getRegionName();
+  byte[] region=currentRegion;
+  boolean isLastRow=false;
+  for (int i=0; i < list.size() && tries < numRetries; i++) {
+    Put put=list.get(i);
+    currentPuts.add(put);
+    isLastRow=(i + 1) == list.size();
+    if (!isLastRow) {
+      location=getRegionLocationForRowWithRetries(tableName,list.get(i + 1).getRow(),false);
+      region=location.getRegionInfo().getRegionName();
+    }
+    if (!Bytes.equals(currentRegion,region) || isLastRow || retryOnlyOne) {
+      final Put[] puts=currentPuts.toArray(new Put[0]);
+      int index=getRegionServerWithRetries(new ServerCallable<Integer>(this,tableName,put.getRow()){
+        public Integer call() throws IOException {
+          int i=server.put(location.getRegionInfo().getRegionName(),puts);
+          return i;
+        }
+      }
+);
+      if (index != -1) {
+        if (tries == numRetries - 1) {
+          throw new RetriesExhaustedException("Some server",currentRegion,put.getRow(),tries,new ArrayList<Throwable>());
+        }
+        long sleepTime=getPauseTime(tries);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Reloading region " + Bytes.toString(currentRegion) + " location because regionserver didn't accept updates; "+ "tries="+ tries+ " of max="+ this.numRetries+ ", waiting="+ sleepTime+ "ms");
+        }
+        try {
+          Thread.sleep(sleepTime);
+          tries++;
+        }
+ catch (        InterruptedException e) {
+        }
+        i=i - puts.length + index;
+        retryOnlyOne=true;
+        location=getRegionLocationForRowWithRetries(tableName,list.get(i + 1).getRow(),true);
+        region=location.getRegionInfo().getRegionName();
+      }
+ else {
+        retryOnlyOne=false;
+      }
+      currentRegion=region;
+      currentPuts.clear();
+    }
+  }
+}

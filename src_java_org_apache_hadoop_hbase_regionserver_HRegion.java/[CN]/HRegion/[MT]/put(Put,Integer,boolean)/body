@@ -1,0 +1,26 @@
+{
+  checkReadOnly();
+  checkResources();
+  splitsAndClosesLock.readLock().lock();
+  try {
+    byte[] row=put.getRow();
+    Integer lid=getLock(lockid,row);
+    byte[] now=Bytes.toBytes(System.currentTimeMillis());
+    try {
+      for (      Map.Entry<byte[],List<KeyValue>> entry : put.getFamilyMap().entrySet()) {
+        byte[] family=entry.getKey();
+        checkFamily(family);
+        List<KeyValue> puts=entry.getValue();
+        if (updateKeys(puts,now)) {
+          put(family,puts,writeToWAL);
+        }
+      }
+    }
+  finally {
+      if (lockid == null)       releaseRowLock(lid);
+    }
+  }
+  finally {
+    splitsAndClosesLock.readLock().unlock();
+  }
+}

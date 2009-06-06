@@ -1,0 +1,49 @@
+{
+  byte[] memBuffer=mem.getBuffer();
+  int memOffset=mem.getOffset();
+  int memKeyLen=Bytes.toInt(memBuffer,memOffset);
+  memOffset+=Bytes.SIZEOF_INT;
+  memOffset+=Bytes.SIZEOF_INT;
+  short memRowLen=Bytes.toShort(memBuffer,memOffset);
+  memOffset+=Bytes.SIZEOF_SHORT;
+  int res=comparator.compareRows(memBuffer,memOffset,memRowLen,deleteBuffer,deleteRowOffset,deleteRowLength);
+  if (res > 0) {
+    return DeleteCode.DONE;
+  }
+ else   if (res < 0) {
+    System.out.println("SKIPPING ROW");
+    return DeleteCode.SKIP;
+  }
+  memOffset+=memRowLen;
+  byte memFamLen=memBuffer[memOffset];
+  memOffset+=Bytes.SIZEOF_BYTE + memFamLen;
+  int memQualifierLen=memKeyLen - memRowLen - memFamLen- Bytes.SIZEOF_SHORT- Bytes.SIZEOF_BYTE- Bytes.SIZEOF_LONG- Bytes.SIZEOF_BYTE;
+  int tsOffset=memOffset + memQualifierLen;
+  int timeRes=Bytes.compareTo(memBuffer,tsOffset,Bytes.SIZEOF_LONG,deleteBuffer,deleteTimeOffset,Bytes.SIZEOF_LONG);
+  if (deleteType == KeyValue.Type.DeleteFamily.getCode()) {
+    if (timeRes <= 0) {
+      return DeleteCode.DELETE;
+    }
+    return DeleteCode.SKIP;
+  }
+  res=Bytes.compareTo(memBuffer,memOffset,memQualifierLen,deleteBuffer,deleteQualifierOffset,deleteQualifierLength);
+  if (res < 0) {
+    return DeleteCode.SKIP;
+  }
+ else   if (res > 0) {
+    return DeleteCode.DONE;
+  }
+  if (timeRes == 0) {
+    return DeleteCode.DELETE;
+  }
+ else   if (timeRes < 0) {
+    if (deleteType == KeyValue.Type.DeleteColumn.getCode()) {
+      return DeleteCode.DELETE;
+    }
+    return DeleteCode.DONE;
+  }
+ else {
+    System.out.println("SKIPPING TS");
+    return DeleteCode.SKIP;
+  }
+}

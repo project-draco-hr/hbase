@@ -1,0 +1,31 @@
+{
+  checkReadOnly();
+  checkResources();
+  splitsAndClosesLock.readLock().lock();
+  Integer lid=null;
+  try {
+    byte[] row=delete.getRow();
+    lid=getLock(lockid,row);
+    if (delete.getFamilyMap().isEmpty()) {
+      for (      byte[] family : regionInfo.getTableDesc().getFamiliesKeys()) {
+        delete.deleteFamily(family);
+      }
+    }
+ else {
+      for (      byte[] family : delete.getFamilyMap().keySet()) {
+        if (family == null) {
+          throw new NoSuchColumnFamilyException("Empty family is invalid");
+        }
+        checkFamily(family);
+      }
+    }
+    for (    Map.Entry<byte[],List<KeyValue>> e : delete.getFamilyMap().entrySet()) {
+      byte[] family=e.getKey();
+      delete(family,e.getValue(),writeToWAL);
+    }
+  }
+  finally {
+    if (lockid == null)     releaseRowLock(lid);
+    splitsAndClosesLock.readLock().unlock();
+  }
+}

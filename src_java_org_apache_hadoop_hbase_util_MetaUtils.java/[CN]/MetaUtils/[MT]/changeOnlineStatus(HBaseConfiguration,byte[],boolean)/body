@@ -1,14 +1,23 @@
 {
   HTable t=new HTable(c,HConstants.META_TABLE_NAME);
-  Cell cell=t.get(row,HConstants.COL_REGIONINFO);
-  if (cell == null) {
+  Get get=new Get(row);
+  get.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+  Result res=t.get(get);
+  KeyValue[] kvs=res.raw();
+  if (kvs.length <= 0) {
     throw new IOException("no information for row " + Bytes.toString(row));
   }
-  HRegionInfo info=Writables.getHRegionInfo(cell);
-  BatchUpdate b=new BatchUpdate(row);
+  byte[] value=kvs[0].getValue();
+  if (value == null) {
+    throw new IOException("no information for row " + Bytes.toString(row));
+  }
+  HRegionInfo info=Writables.getHRegionInfo(value);
+  Put put=new Put(row);
   info.setOffline(onlineOffline);
-  b.put(HConstants.COL_REGIONINFO,Writables.getBytes(info));
-  b.delete(HConstants.COL_SERVER);
-  b.delete(HConstants.COL_STARTCODE);
-  t.commit(b);
+  put.add(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER,Writables.getBytes(info));
+  t.put(put);
+  Delete delete=new Delete(row);
+  delete.deleteColumns(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+  delete.deleteColumns(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
+  t.delete(delete);
 }

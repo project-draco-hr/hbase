@@ -1,0 +1,55 @@
+{
+switch (op) {
+case TABLE_SET_HTD:
+    if (args == null || args.length < 1 || !(args[0] instanceof HTableDescriptor))     throw new IOException("SET_HTD request requires an HTableDescriptor");
+  HTableDescriptor htd=(HTableDescriptor)args[0];
+LOG.info("modifyTable(SET_HTD): " + htd);
+new ModifyTableMeta(this,tableName,htd).process();
+break;
+case TABLE_SPLIT:
+case TABLE_COMPACT:
+case TABLE_MAJOR_COMPACT:
+case TABLE_FLUSH:
+if (args != null && args.length > 0) {
+if (!(args[0] instanceof ImmutableBytesWritable)) throw new IOException("request argument must be ImmutableBytesWritable");
+Pair<HRegionInfo,HServerAddress> pair=null;
+if (tableName == null) {
+byte[] regionName=((ImmutableBytesWritable)args[0]).get();
+pair=getTableRegionFromName(regionName);
+}
+ else {
+byte[] rowKey=((ImmutableBytesWritable)args[0]).get();
+pair=getTableRegionClosest(tableName,rowKey);
+}
+if (pair != null) {
+this.regionManager.startAction(pair.getFirst().getRegionName(),pair.getFirst(),pair.getSecond(),op);
+}
+}
+ else {
+for (Pair<HRegionInfo,HServerAddress> pair : getTableRegions(tableName)) this.regionManager.startAction(pair.getFirst().getRegionName(),pair.getFirst(),pair.getSecond(),op);
+}
+break;
+case CLOSE_REGION:
+if (args == null || args.length < 1 || args.length > 2) {
+throw new IOException("Requires at least a region name; " + "or cannot have more than region name and servername");
+}
+byte[] regionname=((ImmutableBytesWritable)args[0]).get();
+String servername=null;
+if (args.length == 2) {
+servername=Bytes.toString(((ImmutableBytesWritable)args[1]).get());
+}
+Result rr=getFromMETA(regionname,HConstants.CATALOG_FAMILY);
+HRegionInfo hri=getHRegionInfo(rr.getRow(),rr);
+if (servername == null) {
+servername=Bytes.toString(rr.getValue(CATALOG_FAMILY,SERVER_QUALIFIER));
+}
+LOG.info("Marking " + hri.getRegionNameAsString() + " as closed on "+ servername+ "; cleaning SERVER + STARTCODE; "+ "master will tell regionserver to close region on next heartbeat");
+this.regionManager.setClosing(servername,hri,hri.isOffline());
+MetaRegion meta=this.regionManager.getMetaRegionForRow(regionname);
+HRegionInterface srvr=getMETAServer(meta);
+HRegion.cleanRegionInMETA(srvr,meta.getRegionName(),hri);
+break;
+default :
+throw new IOException("unsupported modifyTable op " + op);
+}
+}

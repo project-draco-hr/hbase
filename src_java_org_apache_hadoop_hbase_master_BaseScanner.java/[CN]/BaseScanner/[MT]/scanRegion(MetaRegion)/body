@@ -2,14 +2,14 @@
   HRegionInterface regionServer=null;
   long scannerId=-1L;
   LOG.info(Thread.currentThread().getName() + " scanning meta region " + region.toString());
-  Map<HRegionInfo,RowResult> splitParents=new HashMap<HRegionInfo,RowResult>();
+  Map<HRegionInfo,Result> splitParents=new HashMap<HRegionInfo,Result>();
   List<byte[]> emptyRows=new ArrayList<byte[]>();
   int rows=0;
   try {
     regionServer=master.connection.getHRegionConnection(region.getServer());
-    scannerId=regionServer.openScanner(region.getRegionName(),COLUMN_FAMILY_ARRAY,EMPTY_START_ROW,HConstants.LATEST_TIMESTAMP,null);
+    scannerId=regionServer.openScanner(region.getRegionName(),new Scan().addFamily(HConstants.CATALOG_FAMILY));
     while (true) {
-      RowResult values=regionServer.next(scannerId);
+      Result values=regionServer.next(scannerId);
       if (values == null || values.size() == 0) {
         break;
       }
@@ -18,8 +18,16 @@
         emptyRows.add(values.getRow());
         continue;
       }
-      String serverName=Writables.cellToString(values.get(COL_SERVER));
-      long startCode=Writables.cellToLong(values.get(COL_STARTCODE));
+      String serverName="";
+      byte[] val=values.getValue(CATALOG_FAMILY,SERVER_QUALIFIER);
+      if (val != null) {
+        serverName=Bytes.toString(val);
+      }
+      long startCode=0L;
+      val=values.getValue(CATALOG_FAMILY,STARTCODE_QUALIFIER);
+      if (val != null) {
+        startCode=Bytes.toLong(val);
+      }
       checkAssigned(info,serverName,startCode);
       if (isSplitParent(info)) {
         splitParents.put(info,values);
@@ -54,7 +62,7 @@
     this.master.deleteEmptyMetaRows(regionServer,region.getRegionName(),emptyRows);
   }
   if (splitParents.size() > 0) {
-    for (    Map.Entry<HRegionInfo,RowResult> e : splitParents.entrySet()) {
+    for (    Map.Entry<HRegionInfo,Result> e : splitParents.entrySet()) {
       HRegionInfo hri=e.getKey();
       cleanupSplits(region.getRegionName(),regionServer,hri,e.getValue());
     }

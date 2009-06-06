@@ -1,0 +1,44 @@
+{
+  checkReadOnly();
+  checkResources();
+  splitsAndClosesLock.readLock().lock();
+  try {
+    Get get=new Get(row,put.getRowLock());
+    checkFamily(family);
+    get.addColumn(family,qualifier);
+    byte[] now=Bytes.toBytes(System.currentTimeMillis());
+    Integer lid=getLock(lockId,get.getRow());
+    List<KeyValue> result=new ArrayList<KeyValue>();
+    try {
+      for (      Map.Entry<byte[],NavigableSet<byte[]>> entry : get.getFamilyMap().entrySet()) {
+        get(this.stores.get(entry.getKey()),get,entry.getValue(),result);
+      }
+      boolean matches=false;
+      if (result.size() == 0 && expectedValue.length == 0) {
+        matches=true;
+      }
+ else       if (result.size() == 1) {
+        byte[] actualValue=result.get(0).getValue();
+        matches=Bytes.equals(expectedValue,actualValue);
+      }
+      if (matches) {
+        for (        Map.Entry<byte[],List<KeyValue>> entry : put.getFamilyMap().entrySet()) {
+          byte[] fam=entry.getKey();
+          checkFamily(fam);
+          List<KeyValue> puts=entry.getValue();
+          if (updateKeys(puts,now)) {
+            put(fam,puts,writeToWAL);
+          }
+        }
+        return true;
+      }
+      return false;
+    }
+  finally {
+      if (lockId == null)       releaseRowLock(lid);
+    }
+  }
+  finally {
+    splitsAndClosesLock.readLock().unlock();
+  }
+}

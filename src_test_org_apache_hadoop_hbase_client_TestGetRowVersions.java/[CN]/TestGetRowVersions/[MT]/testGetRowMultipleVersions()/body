@@ -1,30 +1,36 @@
 {
-  BatchUpdate b=new BatchUpdate(ROW,TIMESTAMP);
-  b.put(COLUMN,Bytes.toBytes(VALUE1));
-  this.table.commit(b);
+  Put put=new Put(ROW);
+  put.setTimeStamp(TIMESTAMP1);
+  put.add(CONTENTS,CONTENTS,VALUE1);
+  this.table.put(put);
   this.cluster.shutdown();
   this.zooKeeperCluster.shutdown();
   LOG.debug("HBase cluster shut down -- restarting");
   this.hBaseClusterSetup();
   this.table=new HTable(conf,TABLE_NAME);
-  b=new BatchUpdate(ROW,TIMESTAMP);
-  b.put(COLUMN,Bytes.toBytes(VALUE2));
-  this.table.commit(b);
-  RowResult r=table.getRow(ROW);
+  put=new Put(ROW);
+  put.setTimeStamp(TIMESTAMP2);
+  put.add(CONTENTS,CONTENTS,VALUE2);
+  this.table.put(put);
+  Get get=new Get(ROW);
+  Result r=table.get(get);
   assertNotNull(r);
-  assertTrue(r.size() != 0);
-  Cell c=r.get(COLUMN);
-  assertNotNull(c);
-  assertTrue(c.getValue().length != 0);
-  String value=Bytes.toString(c.getValue());
-  assertTrue(value.compareTo(VALUE2) == 0);
-  r=table.getRow(ROW,HConstants.ALL_VERSIONS);
-  for (  Map.Entry<byte[],Cell> e : r.entrySet()) {
-    c=e.getValue();
-    for (Iterator<Map.Entry<Long,byte[]>> it=c.iterator(); it.hasNext(); ) {
-      Map.Entry<Long,byte[]> v=it.next();
-      value=Bytes.toString(v.getValue());
-      assertTrue(VALUE2.compareTo(Bytes.toString(v.getValue())) == 0);
-    }
-  }
+  assertFalse(r.isEmpty());
+  assertTrue(r.size() == 1);
+  byte[] value=r.getValue(CONTENTS,CONTENTS);
+  assertTrue(value.length != 0);
+  assertTrue(Bytes.equals(value,VALUE2));
+  get=new Get(ROW);
+  get.setMaxVersions();
+  r=table.get(get);
+  assertTrue(r.size() == 2);
+  value=r.getValue(CONTENTS,CONTENTS);
+  assertTrue(value.length != 0);
+  assertTrue(Bytes.equals(value,VALUE2));
+  NavigableMap<byte[],NavigableMap<byte[],NavigableMap<Long,byte[]>>> map=r.getMap();
+  NavigableMap<byte[],NavigableMap<Long,byte[]>> familyMap=map.get(CONTENTS);
+  NavigableMap<Long,byte[]> versionMap=familyMap.get(CONTENTS);
+  assertTrue(versionMap.size() == 2);
+  assertTrue(Bytes.equals(VALUE1,versionMap.get(TIMESTAMP1)));
+  assertTrue(Bytes.equals(VALUE2,versionMap.get(TIMESTAMP2)));
 }
