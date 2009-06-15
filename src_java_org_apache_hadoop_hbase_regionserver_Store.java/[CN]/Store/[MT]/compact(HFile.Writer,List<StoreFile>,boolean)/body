@@ -3,23 +3,35 @@
   for (int i=0; i < filesToCompact.size(); ++i) {
     scanners[i]=new StoreFileScanner(filesToCompact.get(i).getReader().getScanner());
   }
-  InternalScanner scanner;
   if (majorCompaction) {
-    Scan scan=new Scan();
-    scan.setMaxVersions(family.getMaxVersions());
-    scanner=new StoreScanner(this,scan,null);
+    InternalScanner scanner=null;
+    try {
+      Scan scan=new Scan();
+      scan.setMaxVersions(family.getMaxVersions());
+      scanner=new StoreScanner(this,scan,null);
+      ArrayList<KeyValue> row=new ArrayList<KeyValue>();
+      boolean more=true;
+      while (more) {
+        more=scanner.next(row);
+        for (        KeyValue kv : row) {
+          writer.append(kv);
+        }
+        row.clear();
+      }
+    }
+  finally {
+      if (scanner != null)       scanner.close();
+    }
   }
  else {
-    scanner=new MinorCompactingStoreScanner(this,scanners);
-  }
-  ArrayList<KeyValue> row=new ArrayList<KeyValue>();
-  boolean more=true;
-  while (more) {
-    more=scanner.next(row);
-    for (    KeyValue kv : row) {
-      writer.append(kv);
+    MinorCompactingStoreScanner scanner=null;
+    try {
+      scanner=new MinorCompactingStoreScanner(this,scanners);
+      while (scanner.next(writer)) {
+      }
     }
-    row.clear();
+  finally {
+      if (scanner != null)       scanner.close();
+    }
   }
-  scanner.close();
 }
