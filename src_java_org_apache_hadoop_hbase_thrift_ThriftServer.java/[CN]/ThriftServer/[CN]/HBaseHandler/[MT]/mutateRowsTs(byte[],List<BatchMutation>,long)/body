@@ -1,20 +1,31 @@
 {
   List<Put> puts=new ArrayList<Put>();
+  List<Delete> deletes=new ArrayList<Delete>();
   for (  BatchMutation batch : rowBatches) {
     byte[] row=batch.row;
     List<Mutation> mutations=batch.mutations;
+    Delete delete=new Delete(row);
     Put put=new Put(row);
     put.setTimeStamp(timestamp);
     for (    Mutation m : mutations) {
       byte[][] famAndQf=KeyValue.parseColumn(m.column);
-      put.add(famAndQf[0],famAndQf[1],m.value);
+      if (m.isDelete) {
+        delete.deleteColumns(famAndQf[0],famAndQf[1]);
+      }
+ else {
+        put.add(famAndQf[0],famAndQf[1],m.value);
+      }
     }
-    puts.add(put);
+    if (!delete.isEmpty())     deletes.add(delete);
+    if (!put.isEmpty())     puts.add(put);
   }
   HTable table=null;
   try {
     table=getTable(tableName);
-    table.put(puts);
+    if (!puts.isEmpty())     table.put(puts);
+    for (    Delete del : deletes) {
+      table.delete(del);
+    }
   }
  catch (  IOException e) {
     throw new IOError(e.getMessage());
