@@ -1,0 +1,20 @@
+{
+  long globalMemStoreSize=-1;
+  ArrayList<HRegion> regionsToCompact=new ArrayList<HRegion>();
+  for (SortedMap<Long,HRegion> m=this.server.getCopyOfOnlineRegionsSortedBySize(); (globalMemStoreSize=server.getGlobalMemStoreSize()) >= this.globalMemStoreLimitLowMark; ) {
+    if (m.size() <= 0) {
+      LOG.info("No online regions to flush though we've been asked flush " + "some; globalMemStoreSize=" + StringUtils.humanReadableInt(globalMemStoreSize) + ", globalMemStoreLimitLowMark="+ StringUtils.humanReadableInt(this.globalMemStoreLimitLowMark));
+      break;
+    }
+    HRegion biggestMemStoreRegion=m.remove(m.firstKey());
+    LOG.info("Forced flushing of " + biggestMemStoreRegion.toString() + " because global memstore limit of "+ StringUtils.humanReadableInt(this.globalMemStoreLimit)+ " exceeded; currently "+ StringUtils.humanReadableInt(globalMemStoreSize)+ " and flushing till "+ StringUtils.humanReadableInt(this.globalMemStoreLimitLowMark));
+    if (!flushRegion(biggestMemStoreRegion,true)) {
+      LOG.warn("Flush failed");
+      break;
+    }
+    regionsToCompact.add(biggestMemStoreRegion);
+  }
+  for (  HRegion region : regionsToCompact) {
+    server.compactSplitThread.compactionRequested(region,getName());
+  }
+}
