@@ -1,0 +1,27 @@
+{
+  checkRow(row);
+  boolean flush=false;
+  Integer lid=obtainRowLock(row);
+  long result=0L;
+  try {
+    Store store=stores.get(family);
+    Store.ICVResult vas=store.incrementColumnValue(row,family,qualifier,amount);
+    if (writeToWAL) {
+      long now=System.currentTimeMillis();
+      List<KeyValue> edits=new ArrayList<KeyValue>(1);
+      edits.add(vas.kv);
+      this.log.append(regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),edits,(regionInfo.isMetaRegion() || regionInfo.isRootRegion()),now);
+    }
+    store.add(vas.kv);
+    result=vas.value;
+    long size=this.memstoreSize.addAndGet(vas.sizeAdded);
+    flush=isFlushSize(size);
+  }
+  finally {
+    releaseRowLock(lid);
+  }
+  if (flush) {
+    requestFlush();
+  }
+  return result;
+}
