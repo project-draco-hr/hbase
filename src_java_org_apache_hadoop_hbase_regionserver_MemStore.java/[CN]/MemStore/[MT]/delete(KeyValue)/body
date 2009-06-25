@@ -4,7 +4,7 @@
   try {
     boolean notpresent=false;
     List<KeyValue> deletes=new ArrayList<KeyValue>();
-    SortedMap<KeyValue,Object> tail=this.memstore.tailMap(delete);
+    SortedSet<KeyValue> tail=this.kvset.tailSet(delete);
     byte[] deleteBuffer=delete.getBuffer();
     int deleteOffset=delete.getOffset();
     int deleteKeyLen=Bytes.toInt(deleteBuffer,deleteOffset);
@@ -21,20 +21,20 @@
     int deleteTimestampOffset=deleteOffset;
     deleteOffset+=Bytes.SIZEOF_LONG;
     byte deleteType=deleteBuffer[deleteOffset];
-    for (    Map.Entry<KeyValue,?> entry : tail.entrySet()) {
-      DeleteCode res=DeleteCompare.deleteCompare(entry.getKey(),deleteBuffer,deleteRowOffset,deleteRowLen,deleteQualifierOffset,deleteQualifierLen,deleteTimestampOffset,deleteType,comparator.getRawComparator());
+    for (    KeyValue kv : tail) {
+      DeleteCode res=DeleteCompare.deleteCompare(kv,deleteBuffer,deleteRowOffset,deleteRowLen,deleteQualifierOffset,deleteQualifierLen,deleteTimestampOffset,deleteType,comparator.getRawComparator());
       if (res == DeleteCode.DONE) {
         break;
       }
  else       if (res == DeleteCode.DELETE) {
-        deletes.add(entry.getKey());
+        deletes.add(kv);
       }
     }
-    for (    KeyValue del : deletes) {
-      notpresent=this.memstore.remove(del) == null;
-      size-=heapSize(del,notpresent);
+    for (    KeyValue kv : deletes) {
+      notpresent=this.kvset.remove(kv);
+      size-=heapSize(kv,notpresent);
     }
-    size+=heapSize(delete,this.memstore.put(delete,NULL) == null);
+    size+=heapSize(delete,this.kvset.add(delete));
   }
   finally {
     this.lock.readLock().unlock();
