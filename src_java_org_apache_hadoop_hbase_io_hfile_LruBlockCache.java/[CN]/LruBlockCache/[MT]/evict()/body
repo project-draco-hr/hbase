@@ -1,0 +1,52 @@
+{
+  if (!evictionLock.tryLock())   return;
+  try {
+    evictionInProgress=true;
+    long bytesToFree=size.get() - minSize();
+    LOG.info("Block cache LRU eviction started.  Attempting to free " + bytesToFree + " bytes");
+    if (bytesToFree <= 0)     return;
+    BlockBucket bucketSingle=new BlockBucket(bytesToFree,blockSize,singleSize(),"single");
+    BlockBucket bucketMulti=new BlockBucket(bytesToFree,blockSize,multiSize(),"multi");
+    BlockBucket bucketMemory=new BlockBucket(bytesToFree,blockSize,memorySize(),"memory");
+    for (    CachedBlock cachedBlock : map.values()) {
+switch (cachedBlock.getPriority()) {
+case SINGLE:
+{
+          bucketSingle.add(cachedBlock);
+          break;
+        }
+case MULTI:
+{
+        bucketMulti.add(cachedBlock);
+        break;
+      }
+case MEMORY:
+{
+      bucketMemory.add(cachedBlock);
+      break;
+    }
+}
+}
+PriorityQueue<BlockBucket> bucketQueue=new PriorityQueue<BlockBucket>(3);
+bucketQueue.add(bucketSingle);
+bucketQueue.add(bucketMulti);
+bucketQueue.add(bucketMemory);
+int remainingBuckets=3;
+long bytesFreed=0;
+BlockBucket bucket;
+while ((bucket=bucketQueue.poll()) != null) {
+long overflow=bucket.overflow();
+if (overflow > 0) {
+  long bucketBytesToFree=Math.min(overflow,(long)Math.ceil((bytesToFree - bytesFreed) / remainingBuckets));
+  bytesFreed+=bucket.free(bucketBytesToFree);
+}
+remainingBuckets--;
+}
+LOG.info("Block cache LRU eviction completed. " + "Freed " + bytesFreed + " bytes");
+}
+  finally {
+stats.evict();
+evictionInProgress=false;
+evictionLock.unlock();
+}
+}
