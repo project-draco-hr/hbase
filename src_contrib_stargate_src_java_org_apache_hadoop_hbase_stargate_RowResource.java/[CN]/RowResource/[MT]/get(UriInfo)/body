@@ -1,0 +1,32 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("GET " + uriInfo.getAbsolutePath());
+  }
+  try {
+    ResultGenerator generator=ResultGenerator.fromRowSpec(table,rowspec);
+    if (!generator.hasNext()) {
+      throw new WebApplicationException(Response.Status.NOT_FOUND);
+    }
+    CellSetModel model=new CellSetModel();
+    KeyValue value=generator.next();
+    byte[] rowKey=value.getRow();
+    RowModel rowModel=new RowModel(rowKey);
+    do {
+      if (!Bytes.equals(value.getRow(),rowKey)) {
+        model.addRow(rowModel);
+        rowKey=value.getRow();
+        rowModel=new RowModel(rowKey);
+      }
+      rowModel.addCell(new CellModel(value.getColumn(),value.getTimestamp(),value.getValue()));
+      value=generator.next();
+    }
+ while (value != null);
+    model.addRow(rowModel);
+    ResponseBuilder response=Response.ok(model);
+    response.cacheControl(cacheControl);
+    return response.build();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+}

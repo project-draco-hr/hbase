@@ -1,0 +1,60 @@
+{
+  if (replace) {
+    deleteRow();
+  }
+  HTablePool pool;
+  try {
+    pool=RESTServlet.getInstance().getTablePool(this.table);
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.INTERNAL_SERVER_ERROR);
+  }
+  HTable table=null;
+  try {
+    byte[] row=rowspec.getRow();
+    byte[][] columns=rowspec.getColumns();
+    byte[] column=null;
+    if (columns != null) {
+      column=columns[0];
+    }
+    long timestamp=-1;
+    List<String> vals=headers.getRequestHeader("X-Row");
+    if (vals != null && !vals.isEmpty()) {
+      row=Bytes.toBytes(vals.get(0));
+    }
+    vals=headers.getRequestHeader("X-Column");
+    if (vals != null && !vals.isEmpty()) {
+      column=Bytes.toBytes(vals.get(0));
+    }
+    vals=headers.getRequestHeader("X-Timestamp");
+    if (vals != null && !vals.isEmpty()) {
+      timestamp=Long.valueOf(vals.get(0));
+    }
+    if (column == null) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("update cell '" + Bytes.toStringBinary(column) + "' @"+ timestamp+ " length "+ message.length);
+    }
+    Put put=new Put(row);
+    byte parts[][]=KeyValue.parseColumn(column);
+    if (timestamp >= 0) {
+      put.add(parts[0],parts[1],timestamp,message);
+    }
+ else {
+      put.add(parts[0],parts[1],message);
+    }
+    table=pool.get();
+    table.put(put);
+    table.flushCommits();
+    return Response.ok().build();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+ finally {
+    if (table != null) {
+      pool.put(table);
+    }
+  }
+}

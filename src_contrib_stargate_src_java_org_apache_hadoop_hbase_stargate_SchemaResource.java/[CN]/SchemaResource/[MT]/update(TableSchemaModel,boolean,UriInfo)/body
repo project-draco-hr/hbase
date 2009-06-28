@@ -1,0 +1,34 @@
+{
+  try {
+    HTableDescriptor htd=new HTableDescriptor(table);
+    for (    Map.Entry<QName,Object> e : model.getAny().entrySet()) {
+      htd.setValue(e.getKey().getLocalPart(),e.getValue().toString());
+    }
+    for (    ColumnSchemaModel family : model.getColumns()) {
+      HColumnDescriptor hcd=new HColumnDescriptor(family.getName());
+      for (      Map.Entry<QName,Object> e : family.getAny().entrySet()) {
+        hcd.setValue(e.getKey().getLocalPart(),e.getValue().toString());
+      }
+      htd.addFamily(hcd);
+    }
+    RESTServlet server=RESTServlet.getInstance();
+    HBaseAdmin admin=new HBaseAdmin(server.getConfiguration());
+    if (admin.tableExists(table)) {
+      admin.disableTable(table);
+      admin.modifyTable(Bytes.toBytes(table),htd);
+      server.invalidateMaxAge(table);
+      admin.enableTable(table);
+      return Response.ok().build();
+    }
+ else {
+      admin.createTable(htd);
+      return Response.created(uriInfo.getAbsolutePath()).build();
+    }
+  }
+ catch (  TableExistsException e) {
+    throw new WebApplicationException(e,Response.Status.NOT_MODIFIED);
+  }
+catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+}

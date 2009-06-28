@@ -1,0 +1,31 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("GET " + uriInfo.getAbsolutePath());
+  }
+  try {
+    RESTServlet server=RESTServlet.getInstance();
+    HBaseAdmin admin=new HBaseAdmin(server.getConfiguration());
+    ClusterStatus status=admin.getClusterStatus();
+    StorageClusterStatusModel model=new StorageClusterStatusModel();
+    model.setRegions(status.getRegionsCount());
+    model.setRequests(status.getRequestsCount());
+    model.setAverageLoad(status.getAverageLoad());
+    for (    HServerInfo info : status.getServerInfo()) {
+      StorageClusterStatusModel.Node node=model.addLiveNode(info.getServerAddress().getHostname() + ":" + Integer.toString(info.getServerAddress().getPort()),info.getStartCode());
+      HServerLoad load=info.getLoad();
+      node.setRequests(load.getNumberOfRequests());
+      for (      HServerLoad.RegionLoad region : load.getRegionsLoad()) {
+        node.addRegion(region.getName());
+      }
+    }
+    for (    String name : status.getDeadServerNames()) {
+      model.addDeadNode(name);
+    }
+    ResponseBuilder response=Response.ok(model);
+    response.cacheControl(cacheControl);
+    return response.build();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+}

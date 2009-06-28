@@ -1,0 +1,37 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("DELETE " + uriInfo.getAbsolutePath());
+  }
+  Delete delete=new Delete(rowspec.getRow());
+  for (  byte[] column : rowspec.getColumns()) {
+    byte[][] split=KeyValue.parseColumn(column);
+    if (rowspec.hasTimestamp()) {
+      delete.deleteColumns(split[0],split[1],rowspec.getTimestamp());
+    }
+ else {
+      delete.deleteColumns(split[0],split[1]);
+    }
+  }
+  HTablePool pool;
+  try {
+    pool=RESTServlet.getInstance().getTablePool(this.table);
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.INTERNAL_SERVER_ERROR);
+  }
+  HTable table=null;
+  try {
+    table=pool.get();
+    table.delete(delete);
+    table.flushCommits();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+ finally {
+    if (table != null) {
+      pool.put(table);
+    }
+  }
+  return Response.ok().build();
+}
