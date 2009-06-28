@@ -1,0 +1,20 @@
+{
+  if (this.closed) {
+    throw new IOException("Cannot append; log is closed");
+  }
+  byte[] regionName=regionInfo.getRegionName();
+synchronized (updateLock) {
+    long seqNum=obtainSeqNum();
+    logKey.setLogSeqNum(seqNum);
+    this.lastSeqWritten.putIfAbsent(regionName,Long.valueOf(seqNum));
+    boolean sync=regionInfo.isMetaRegion() || regionInfo.isRootRegion();
+    doWrite(logKey,logEdit,sync,logKey.getWriteTime());
+    this.numEntries.incrementAndGet();
+    updateLock.notifyAll();
+  }
+  if (this.editsSize.get() > this.logrollsize) {
+    if (listener != null) {
+      listener.logRollRequested();
+    }
+  }
+}

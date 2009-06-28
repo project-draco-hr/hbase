@@ -1,0 +1,25 @@
+{
+  if (!getIndexes().isEmpty()) {
+    NavigableSet<byte[]> neededColumns=getColumnsForIndexes(getIndexes());
+    Get get=new Get(delete.getRow());
+    for (    byte[] col : neededColumns) {
+      get.addColumn(col);
+    }
+    Result oldRow=super.get(get,null);
+    SortedMap<byte[],byte[]> oldColumnValues=convertToValueMap(oldRow);
+    for (    IndexSpecification indexSpec : getIndexes()) {
+      removeOldIndexEntry(indexSpec,delete.getRow(),oldColumnValues);
+    }
+    if (delete.getTimeStamp() != HConstants.LATEST_TIMESTAMP) {
+      get.setTimeRange(1,delete.getTimeStamp());
+      oldRow=super.get(get,null);
+      SortedMap<byte[],byte[]> currentColumnValues=convertToValueMap(oldRow);
+      for (      IndexSpecification indexSpec : getIndexes()) {
+        if (IndexMaintenanceUtils.doesApplyToIndex(indexSpec,currentColumnValues)) {
+          updateIndex(indexSpec,delete.getRow(),currentColumnValues);
+        }
+      }
+    }
+  }
+  super.delete(delete,lockid,writeToWAL);
+}

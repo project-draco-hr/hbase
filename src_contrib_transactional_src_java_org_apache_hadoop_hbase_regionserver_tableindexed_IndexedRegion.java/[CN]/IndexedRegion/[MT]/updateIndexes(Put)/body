@@ -1,0 +1,37 @@
+{
+  List<IndexSpecification> indexesToUpdate=new LinkedList<IndexSpecification>();
+  for (  IndexSpecification index : getIndexes()) {
+    if (possiblyAppliesToIndex(index,put)) {
+      indexesToUpdate.add(index);
+    }
+  }
+  if (indexesToUpdate.size() == 0) {
+    return;
+  }
+  NavigableSet<byte[]> neededColumns=getColumnsForIndexes(indexesToUpdate);
+  NavigableMap<byte[],byte[]> newColumnValues=getColumnsFromPut(put);
+  Get oldGet=new Get(put.getRow());
+  for (  byte[] neededCol : neededColumns) {
+    oldGet.addColumn(neededCol);
+  }
+  Result oldResult=super.get(oldGet,null);
+  if (oldResult != null && oldResult.raw() != null) {
+    for (    KeyValue oldKV : oldResult.raw()) {
+      if (!newColumnValues.containsKey(oldKV.getColumn())) {
+        newColumnValues.put(oldKV.getColumn(),oldKV.getValue());
+      }
+    }
+  }
+  Iterator<IndexSpecification> indexIterator=indexesToUpdate.iterator();
+  while (indexIterator.hasNext()) {
+    IndexSpecification indexSpec=indexIterator.next();
+    if (!IndexMaintenanceUtils.doesApplyToIndex(indexSpec,newColumnValues)) {
+      indexIterator.remove();
+    }
+  }
+  SortedMap<byte[],byte[]> oldColumnValues=convertToValueMap(oldResult);
+  for (  IndexSpecification indexSpec : indexesToUpdate) {
+    removeOldIndexEntry(indexSpec,put.getRow(),oldColumnValues);
+    updateIndex(indexSpec,put.getRow(),newColumnValues);
+  }
+}

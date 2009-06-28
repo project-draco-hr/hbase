@@ -1,0 +1,41 @@
+{
+  LOG.info("Transaction [" + this.transactionName + "] expired in region ["+ getRegionInfo().getRegionNameAsString()+ "]");
+  TransactionState s=null;
+synchronized (transactionsById) {
+    s=transactionsById.remove(transactionName);
+  }
+  if (s == null) {
+    LOG.warn("Unknown transaction expired " + this.transactionName);
+    return;
+  }
+switch (s.getStatus()) {
+case PENDING:
+    s.setStatus(Status.ABORTED);
+  break;
+case COMMIT_PENDING:
+LOG.info("Transaction " + s.getTransactionId() + " expired in COMMIT_PENDING state");
+try {
+if (s.getCommitPendingWaits() > MAX_COMMIT_PENDING_WAITS) {
+  LOG.info("Checking transaction status in transaction log");
+  resolveTransactionFromLog(s);
+  break;
+}
+LOG.info("renewing lease and hoping for commit");
+s.incrementCommitPendingWaits();
+String key=Long.toString(s.getTransactionId());
+transactionsById.put(key,s);
+try {
+  transactionLeases.createLease(getLeaseId(s.getTransactionId()),this);
+}
+ catch (LeaseStillHeldException e) {
+  transactionLeases.renewLease(getLeaseId(s.getTransactionId()));
+}
+}
+ catch (IOException e) {
+throw new RuntimeException(e);
+}
+break;
+default :
+LOG.warn("Unexpected status on expired lease");
+}
+}

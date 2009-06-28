@@ -1,0 +1,25 @@
+{
+  checkClosing();
+synchronized (commitCheckLock) {
+    TransactionState state=getTransactionState(transactionId);
+    if (state == null) {
+      return TransactionalRegionInterface.COMMIT_UNSUCESSFUL;
+    }
+    if (hasConflict(state)) {
+      state.setStatus(Status.ABORTED);
+      retireTransaction(state);
+      return TransactionalRegionInterface.COMMIT_UNSUCESSFUL;
+    }
+    LOG.trace("No conflicts for transaction " + transactionId + " found in region "+ super.getRegionInfo().getRegionNameAsString()+ ". Voting for commit");
+    if (state.getWriteSet().size() > 0) {
+      state.setStatus(Status.COMMIT_PENDING);
+      commitPendingTransactions.add(state);
+      state.setSequenceNumber(nextSequenceId.getAndIncrement());
+      commitedTransactionsBySequenceNumber.put(state.getSequenceNumber(),state);
+      return TransactionalRegionInterface.COMMIT_OK;
+    }
+    state.setStatus(Status.COMMITED);
+    retireTransaction(state);
+    return TransactionalRegionInterface.COMMIT_OK_READ_ONLY;
+  }
+}

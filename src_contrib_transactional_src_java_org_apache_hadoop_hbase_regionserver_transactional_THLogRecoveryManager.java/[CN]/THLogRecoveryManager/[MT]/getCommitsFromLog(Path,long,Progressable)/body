@@ -1,0 +1,102 @@
+{
+  if (reconstructionLog == null || !fileSystem.exists(reconstructionLog)) {
+    return null;
+  }
+  FileStatus[] stats=fileSystem.listStatus(reconstructionLog);
+  if (stats == null || stats.length == 0) {
+    LOG.warn("Passed reconstruction log " + reconstructionLog + " is zero-length");
+    return null;
+  }
+  SortedMap<Long,List<KeyValue>> pendingTransactionsById=new TreeMap<Long,List<KeyValue>>();
+  SortedMap<Long,List<KeyValue>> commitedTransactionsById=new TreeMap<Long,List<KeyValue>>();
+  Set<Long> abortedTransactions=new HashSet<Long>();
+  SequenceFile.Reader logReader=new SequenceFile.Reader(fileSystem,reconstructionLog,conf);
+  try {
+    THLogKey key=new THLogKey();
+    KeyValue val=new KeyValue();
+    long skippedEdits=0;
+    long totalEdits=0;
+    long startCount=0;
+    long writeCount=0;
+    long abortCount=0;
+    long commitCount=0;
+    int reportInterval=conf.getInt("hbase.hstore.report.interval.edits",2000);
+    while (logReader.next(key,val)) {
+      LOG.debug("Processing edit: key: " + key.toString() + " val: "+ val.toString());
+      if (key.getLogSeqNum() < maxSeqID) {
+        skippedEdits++;
+        continue;
+      }
+      if (key.getTrxOp() == null || !Bytes.equals(key.getRegionName(),regionInfo.getRegionName())) {
+        continue;
+      }
+      long transactionId=key.getTransactionId();
+      List<KeyValue> updates=pendingTransactionsById.get(transactionId);
+switch (key.getTrxOp()) {
+case START:
+        if (updates != null || abortedTransactions.contains(transactionId) || commitedTransactionsById.containsKey(transactionId)) {
+          LOG.error("Processing start for transaction: " + transactionId + ", but have already seen start message");
+          throw new IOException("Corrupted transaction log");
+        }
+      updates=new LinkedList<KeyValue>();
+    pendingTransactionsById.put(transactionId,updates);
+  startCount++;
+break;
+case OP:
+if (updates == null) {
+LOG.error("Processing edit for transaction: " + transactionId + ", but have not seen start message");
+throw new IOException("Corrupted transaction log");
+}
+updates.add(val);
+val=new KeyValue();
+writeCount++;
+break;
+case ABORT:
+if (updates == null) {
+LOG.error("Processing abort for transaction: " + transactionId + ", but have not seen start message");
+throw new IOException("Corrupted transaction log");
+}
+abortedTransactions.add(transactionId);
+pendingTransactionsById.remove(transactionId);
+abortCount++;
+break;
+case COMMIT:
+if (updates == null) {
+LOG.error("Processing commit for transaction: " + transactionId + ", but have not seen start message");
+throw new IOException("Corrupted transaction log");
+}
+if (abortedTransactions.contains(transactionId)) {
+LOG.error("Processing commit for transaction: " + transactionId + ", but also have abort message");
+throw new IOException("Corrupted transaction log");
+}
+if (updates.size() == 0) {
+LOG.warn("Transaciton " + transactionId + " has no writes in log. ");
+}
+if (commitedTransactionsById.containsKey(transactionId)) {
+LOG.error("Processing commit for transaction: " + transactionId + ", but have already commited transaction with that id");
+throw new IOException("Corrupted transaction log");
+}
+pendingTransactionsById.remove(transactionId);
+commitedTransactionsById.put(transactionId,updates);
+commitCount++;
+break;
+default :
+throw new IllegalStateException("Unexpected log entry type");
+}
+totalEdits++;
+if (reporter != null && (totalEdits % reportInterval) == 0) {
+reporter.progress();
+}
+}
+if (LOG.isDebugEnabled()) {
+LOG.debug("Read " + totalEdits + " tranasctional operations (skipped "+ skippedEdits+ " because sequence id <= "+ maxSeqID+ "): "+ startCount+ " starts, "+ writeCount+ " writes, "+ abortCount+ " aborts, and "+ commitCount+ " commits.");
+}
+}
+  finally {
+logReader.close();
+}
+if (pendingTransactionsById.size() > 0) {
+resolvePendingTransaction(pendingTransactionsById,commitedTransactionsById);
+}
+return commitedTransactionsById;
+}

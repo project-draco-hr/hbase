@@ -1,0 +1,34 @@
+{
+  List<KeyValue> localKVs=new LinkedList<KeyValue>();
+  for (  Put put : writeSet) {
+    if (!Bytes.equals(get.getRow(),put.getRow())) {
+      continue;
+    }
+    if (put.getTimeStamp() > get.getTimeRange().getMax()) {
+      continue;
+    }
+    if (put.getTimeStamp() < get.getTimeRange().getMin()) {
+      continue;
+    }
+    for (    Entry<byte[],NavigableSet<byte[]>> getFamilyEntry : get.getFamilyMap().entrySet()) {
+      List<KeyValue> familyPuts=put.getFamilyMap().get(getFamilyEntry.getKey());
+      if (familyPuts == null) {
+        continue;
+      }
+      if (getFamilyEntry.getValue() == null) {
+        localKVs.addAll(familyPuts);
+      }
+ else {
+        for (        KeyValue kv : familyPuts) {
+          if (getFamilyEntry.getValue().contains(kv.getQualifier())) {
+            localKVs.add(kv);
+          }
+        }
+      }
+    }
+  }
+  if (localKVs.isEmpty()) {
+    return null;
+  }
+  return new Result(localKVs);
+}

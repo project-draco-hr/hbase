@@ -1,0 +1,33 @@
+{
+  Result[] indexResult=indexScanner.next(nbRows);
+  if (indexResult == null) {
+    return null;
+  }
+  Result[] result=new Result[indexResult.length];
+  for (int i=0; i < indexResult.length; i++) {
+    Result row=indexResult[i];
+    byte[] baseRow=row.getValue(INDEX_BASE_ROW_COLUMN);
+    LOG.debug("next index row [" + Bytes.toString(row.getRow()) + "] -> base row ["+ Bytes.toString(baseRow)+ "]");
+    HbaseMapWritable<byte[],Cell> colValues=new HbaseMapWritable<byte[],Cell>();
+    Result baseResult=null;
+    if (columns != null && columns.length > 0) {
+      LOG.debug("Going to base table for remaining columns");
+      Get baseGet=new Get(baseRow);
+      baseGet.addColumns(columns);
+      baseResult=IndexedTable.this.get(baseGet);
+    }
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    for (    KeyValue indexKV : row.list()) {
+      byte[] col=indexKV.getColumn();
+      if (HStoreKey.matchingFamily(INDEX_COL_FAMILY_NAME,col)) {
+        continue;
+      }
+      results.add(new KeyValue(baseRow,indexKV.getColumn(),indexKV.getTimestamp(),KeyValue.Type.Put,indexKV.getValue()));
+    }
+    if (baseResult != null) {
+      results.addAll(baseResult.list());
+    }
+    result[i]=new Result(results);
+  }
+  return result;
+}
