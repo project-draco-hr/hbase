@@ -1,0 +1,28 @@
+{
+  boolean printResults=false;
+  if (printResults) {
+    LOG.info("Print table contents before map/reduce");
+  }
+  scanTable(printResults);
+  MiniMRCluster mrCluster=new MiniMRCluster(2,fs.getUri().toString(),1);
+  conf.set("hbase.index.conf",createIndexConfContent());
+  try {
+    Job job=new Job(conf,"index column contents");
+    job.setNumReduceTasks(1);
+    Scan scan=new Scan();
+    scan.addFamily(INPUT_FAMILY);
+    IdentityTableMapper.initJob(Bytes.toString(TABLE_NAME),scan,IdentityTableMapper.class,job);
+    job.setReducerClass(IndexTableReducer.class);
+    job.setOutputFormatClass(IndexOutputFormat.class);
+    FileOutputFormat.setOutputPath(job,new Path(INDEX_DIR));
+    job.waitForCompletion(true);
+  }
+  finally {
+    mrCluster.shutdown();
+  }
+  if (printResults) {
+    LOG.info("Print table contents after map/reduce");
+  }
+  scanTable(printResults);
+  verify();
+}
