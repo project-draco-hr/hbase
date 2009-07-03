@@ -1,0 +1,34 @@
+{
+  ClassLoader cl=HQuorumPeer.class.getClassLoader();
+  InputStream inputStream=cl.getResourceAsStream(ZOOKEEPER_CONFIG_NAME);
+  if (inputStream != null) {
+    try {
+      return parseZooCfg(conf,inputStream);
+    }
+ catch (    IOException e) {
+      LOG.warn("Cannot read " + ZOOKEEPER_CONFIG_NAME + ", loading from XML files",e);
+    }
+  }
+  Properties zkProperties=new Properties();
+  for (  Entry<String,String> entry : conf) {
+    String key=entry.getKey();
+    if (key.startsWith(ZK_CFG_PROPERTY)) {
+      String zkKey=key.substring(ZK_CFG_PROPERTY_SIZE);
+      String value=entry.getValue();
+      if (value.contains(VARIABLE_START)) {
+        value=conf.get(key);
+      }
+      zkProperties.put(zkKey,value);
+    }
+  }
+  int peerPort=conf.getInt("hbase.zookeeper.peerport",2888);
+  int leaderPort=conf.getInt("hbase.zookeeper.leaderport",3888);
+  String[] serverHosts=conf.getStrings(ZOOKEEPER_QUORUM,"localhost");
+  for (int i=0; i < serverHosts.length; ++i) {
+    String serverHost=serverHosts[i];
+    String address=serverHost + ":" + peerPort+ ":"+ leaderPort;
+    String key="server." + i;
+    zkProperties.put(key,address);
+  }
+  return zkProperties;
+}
