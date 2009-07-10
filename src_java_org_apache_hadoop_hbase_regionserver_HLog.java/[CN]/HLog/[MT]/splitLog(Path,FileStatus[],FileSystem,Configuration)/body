@@ -7,10 +7,12 @@
       final Map<byte[],LinkedList<HLogEntry>> logEntries=new TreeMap<byte[],LinkedList<HLogEntry>>(Bytes.BYTES_COMPARATOR);
       int endIndex=step == maxSteps - 1 ? logfiles.length : step * DEFAULT_NUMBER_CONCURRENT_LOG_READS + DEFAULT_NUMBER_CONCURRENT_LOG_READS;
       for (int i=(step * 10); i < endIndex; i++) {
+        long length=logfiles[i].getLen();
         if (LOG.isDebugEnabled()) {
           LOG.debug("Splitting hlog " + (i + 1) + " of "+ logfiles.length+ ": "+ logfiles[i].getPath()+ ", length="+ logfiles[i].getLen());
         }
-        long length=logfiles[i].getLen();
+        boolean append=conf.getBoolean("dfs.support.append",false);
+        recoverLog(fs,logfiles[i].getPath(),append);
         SequenceFile.Reader in=null;
         int count=0;
         try {
@@ -32,10 +34,10 @@
               key=new HLogKey();
               val=new KeyValue();
             }
-            LOG.debug("Pushed " + count + " entries from "+ logfiles[i].getPath());
+            LOG.debug("Pushed=" + count + " entries from "+ logfiles[i].getPath());
           }
  catch (          IOException e) {
-            LOG.debug("IOE Pushed " + count + " entries from "+ logfiles[i].getPath());
+            LOG.debug("IOE Pushed=" + count + " entries from "+ logfiles[i].getPath());
             e=RemoteExceptionHandler.checkIOException(e);
             if (!(e instanceof EOFException)) {
               LOG.warn("Exception processing " + logfiles[i].getPath() + " -- continuing. Possible DATA LOSS!",e);
@@ -44,7 +46,7 @@
         }
  catch (        IOException e) {
           if (length <= 0) {
-            LOG.warn("Empty hlog, continuing: " + logfiles[i]);
+            LOG.warn("Empty hlog, continuing: " + logfiles[i] + " count="+ count,e);
             continue;
           }
           throw e;
@@ -101,9 +103,6 @@
                     old.close();
                     fs.delete(oldlogfile,true);
                   }
-                }
-                if (wap == null) {
-                  throw new NullPointerException();
                 }
                 wap.w.append(logEntry.getKey(),logEntry.getEdit());
                 count++;
