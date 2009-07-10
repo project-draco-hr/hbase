@@ -3,7 +3,6 @@
     return;
   }
   boolean retryOnlyOne=false;
-  int tries=0;
   if (list.size() > 1) {
     Collections.sort(list);
   }
@@ -12,7 +11,8 @@
   byte[] currentRegion=location.getRegionInfo().getRegionName();
   byte[] region=currentRegion;
   boolean isLastRow=false;
-  for (int i=0; i < list.size() && tries < numRetries; i++) {
+  Put[] putarray=new Put[0];
+  for (int i=0, tries=0; i < list.size() && tries < this.numRetries; i++) {
     Put put=list.get(i);
     currentPuts.add(put);
     isLastRow=(i + 1) == list.size();
@@ -21,21 +21,20 @@
       region=location.getRegionInfo().getRegionName();
     }
     if (!Bytes.equals(currentRegion,region) || isLastRow || retryOnlyOne) {
-      final Put[] puts=currentPuts.toArray(new Put[0]);
+      final Put[] puts=currentPuts.toArray(putarray);
       int index=getRegionServerWithRetries(new ServerCallable<Integer>(this,tableName,put.getRow()){
         public Integer call() throws IOException {
-          int i=server.put(location.getRegionInfo().getRegionName(),puts);
-          return i;
+          return server.put(location.getRegionInfo().getRegionName(),puts);
         }
       }
 );
       if (index != -1) {
         if (tries == numRetries - 1) {
-          throw new RetriesExhaustedException("Some server",currentRegion,put.getRow(),tries,new ArrayList<Throwable>());
+          throw new RetriesExhaustedException("Some server, retryOnlyOne=" + retryOnlyOne + ", index="+ index+ ", islastrow="+ isLastRow+ ", tries="+ tries+ ", numtries="+ numRetries+ ", i="+ i+ ", listsize="+ list.size()+ ", location="+ location+ ", region="+ Bytes.toStringBinary(region),currentRegion,put.getRow(),tries,new ArrayList<Throwable>());
         }
         long sleepTime=getPauseTime(tries);
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Reloading region " + Bytes.toString(currentRegion) + " location because regionserver didn't accept updates; "+ "tries="+ tries+ " of max="+ this.numRetries+ ", waiting="+ sleepTime+ "ms");
+          LOG.debug("Reloading region " + Bytes.toStringBinary(currentRegion) + " location because regionserver didn't accept updates; "+ "tries="+ tries+ " of max="+ this.numRetries+ ", waiting="+ sleepTime+ "ms");
         }
         try {
           Thread.sleep(sleepTime);
@@ -50,6 +49,7 @@
       }
  else {
         retryOnlyOne=false;
+        tries=0;
       }
       currentRegion=region;
       currentPuts.clear();
