@@ -1,0 +1,57 @@
+{
+  HConnectionManager.deleteConnectionInfo(conf,false);
+  LOG.info("Start a cluster against migrated FS");
+  final int retries=5;
+  this.conf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER_KEY,retries);
+  MiniZooKeeperCluster zooKeeperCluster=new MiniZooKeeperCluster();
+  int clientPort=zooKeeperCluster.startup(new java.io.File(this.testDir.toString()));
+  conf.set("hbase.zookeeper.property.clientPort",Integer.toString(clientPort));
+  MiniHBaseCluster cluster=new MiniHBaseCluster(this.conf,1);
+  try {
+    HBaseAdmin hb=new HBaseAdmin(this.conf);
+    assertTrue(hb.isMasterRunning());
+    HTableDescriptor[] tables=hb.listTables();
+    assertEquals(2,tables.length);
+    boolean foundTable=false;
+    final String tablenameStr="a";
+    final byte[] tablename=Bytes.toBytes(tablenameStr);
+    for (int i=0; i < tables.length; i++) {
+      byte[] tableName=tables[i].getName();
+      if (Bytes.equals(tablename,tables[i].getName())) {
+        foundTable=true;
+        break;
+      }
+    }
+    assertTrue(foundTable);
+    LOG.info(tablenameStr + " exists.  Now waiting till startcode " + "changes before opening a scanner");
+    waitOnStartCodeChange(retries);
+    HConnectionManager.deleteConnectionInfo(conf,false);
+    HTable t=new HTable(this.conf,tablename);
+    int count=0;
+    LOG.info("OPENING SCANNER");
+    Scan scan=new Scan();
+    ResultScanner s=t.getScanner(scan);
+    try {
+      for (      Result r : s) {
+        if (r == null || r.size() == 0) {
+          break;
+        }
+        count++;
+      }
+      assertEquals(EXPECTED_COUNT,count);
+    }
+  finally {
+      s.close();
+    }
+  }
+  finally {
+    HConnectionManager.deleteConnectionInfo(conf,false);
+    cluster.shutdown();
+    try {
+      zooKeeperCluster.shutdown();
+    }
+ catch (    IOException e) {
+      LOG.warn("Shutting down ZooKeeper cluster",e);
+    }
+  }
+}

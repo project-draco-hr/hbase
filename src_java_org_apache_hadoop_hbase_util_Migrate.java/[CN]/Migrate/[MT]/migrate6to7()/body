@@ -23,6 +23,7 @@
     }
   }
   final MetaUtils utils=new MetaUtils(this.conf);
+  final List<HRegionInfo> metas=new ArrayList<HRegionInfo>();
   try {
     rewriteHRegionInfo(utils.getRootRegion().getRegionInfo());
     utils.scanRootRegion(new MetaUtils.ScannerListener(){
@@ -31,13 +32,27 @@
           migrationNeeded=true;
           return false;
         }
+        metas.add(info);
         rewriteHRegionInfo(utils.getRootRegion(),info);
         return true;
       }
     }
 );
-    LOG.info("TODO: Note on make sure not using old hbase-default.xml");
-    LOG.info("TODO: Note on zookeeper config. before starting:");
+    for (    HRegionInfo hri : metas) {
+      final HRegionInfo metahri=hri;
+      utils.scanMetaRegion(hri,new MetaUtils.ScannerListener(){
+        public boolean processRow(        HRegionInfo info) throws IOException {
+          if (readOnly && !migrationNeeded) {
+            migrationNeeded=true;
+            return false;
+          }
+          rewriteHRegionInfo(utils.getMetaRegion(metahri),info);
+          return true;
+        }
+      }
+);
+    }
+    cleanOldLogFiles(hbaseRootDir);
   }
   finally {
     utils.shutdown();
