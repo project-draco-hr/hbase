@@ -1,0 +1,31 @@
+{
+  FileStatus[] tableDirs=fs.listStatus(FSUtils.getRootDir(conf),new DirFilter(fs));
+  for (int i=0; i < tableDirs.length; i++) {
+    Path d=tableDirs[i].getPath();
+    if (d.getName().equals(HConstants.HREGION_LOGDIR_NAME))     continue;
+    FileStatus[] regionDirs=fs.listStatus(d,new DirFilter(fs));
+    for (int j=0; j < regionDirs.length; j++) {
+      Path dd=regionDirs[j].getPath();
+      if (dd.equals(HConstants.HREGION_COMPACTIONDIR_NAME))       continue;
+      FileStatus[] familyDirs=fs.listStatus(dd,new DirFilter(fs));
+      for (int k=0; k < familyDirs.length; k++) {
+        Path family=familyDirs[k].getPath();
+        FileStatus[] infoAndMapfile=fs.listStatus(family);
+        if (infoAndMapfile.length != 0 && infoAndMapfile.length != 2) {
+          throw new IOException(family.toString() + " has more than just info and mapfile: " + infoAndMapfile.length);
+        }
+        for (int ll=0; ll < 2; ll++) {
+          if (infoAndMapfile[ll].getPath().getName().equals("info") || infoAndMapfile[ll].getPath().getName().equals("mapfiles"))           continue;
+          throw new IOException("Unexpected directory name: " + infoAndMapfile[ll].getPath());
+        }
+        FileStatus[] familyStatus=fs.listStatus(new Path(family,"mapfiles"));
+        if (familyStatus.length > 1) {
+          throw new IOException(family.toString() + " has " + familyStatus.length+ " files.");
+        }
+        String str=familyStatus[0].getPath().makeQualified(fs).toString();
+        LOG.info(str);
+        out.write(Bytes.toBytes(str + "\n"));
+      }
+    }
+  }
+}
