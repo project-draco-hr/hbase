@@ -1,0 +1,54 @@
+{
+  KeyValueScanner[] scanners=new KeyValueScanner[filesToCompact.size()];
+  for (int i=0; i < filesToCompact.size(); ++i) {
+    Reader r=filesToCompact.get(i).getReader();
+    if (r == null) {
+      LOG.warn("StoreFile " + filesToCompact.get(i) + " has a null Reader");
+      continue;
+    }
+    scanners[i]=new StoreFileScanner(r.getScanner(false));
+  }
+  HFile.Writer writer=null;
+  try {
+    if (majorCompaction) {
+      InternalScanner scanner=null;
+      try {
+        Scan scan=new Scan();
+        scan.setMaxVersions(family.getMaxVersions());
+        scanner=new StoreScanner(this,scan,scanners);
+        ArrayList<KeyValue> kvs=new ArrayList<KeyValue>();
+        boolean more=true;
+        while (more) {
+          more=scanner.next(kvs);
+          for (          KeyValue kv : kvs) {
+            if (writer == null)             writer=getWriter(this.regionCompactionDir);
+            writer.append(kv);
+          }
+          kvs.clear();
+        }
+      }
+  finally {
+        if (scanner != null)         scanner.close();
+      }
+    }
+ else {
+      MinorCompactingStoreScanner scanner=null;
+      try {
+        scanner=new MinorCompactingStoreScanner(this,scanners);
+        writer=getWriter(this.regionCompactionDir);
+        while (scanner.next(writer)) {
+        }
+      }
+  finally {
+        if (scanner != null)         scanner.close();
+      }
+    }
+  }
+  finally {
+    if (writer != null) {
+      StoreFile.appendMetadata(writer,maxId,majorCompaction);
+      writer.close();
+    }
+  }
+  return writer;
+}

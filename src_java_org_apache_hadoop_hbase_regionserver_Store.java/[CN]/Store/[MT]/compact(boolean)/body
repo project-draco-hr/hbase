@@ -2,14 +2,12 @@
   boolean forceSplit=this.regioninfo.shouldSplit(false);
   boolean majorcompaction=mc;
 synchronized (compactLock) {
-    long maxId=-1;
-    List<StoreFile> filesToCompact=null;
-    filesToCompact=new ArrayList<StoreFile>(this.storefiles.values());
-    if (filesToCompact.size() <= 0) {
+    List<StoreFile> filesToCompact=new ArrayList<StoreFile>(this.storefiles.values());
+    if (filesToCompact.isEmpty()) {
       LOG.debug(this.storeNameStr + ": no store files to compact");
       return null;
     }
-    maxId=this.storefiles.lastKey().longValue();
+    long maxId=this.storefiles.lastKey().longValue();
     if (!majorcompaction) {
       majorcompaction=isMajorCompaction(filesToCompact);
     }
@@ -60,20 +58,11 @@ synchronized (compactLock) {
         LOG.debug("Compaction size of " + this.storeNameStr + ": "+ StringUtils.humanReadableInt(totalSize)+ "; Skipped "+ point+ " file(s), size: "+ skipped);
       }
     }
-    HFile.Writer writer=getWriter(this.regionCompactionDir);
+    LOG.debug("Started compaction of " + filesToCompact.size() + " file(s)"+ (references ? ", hasReferences=true," : " ")+ " into "+ FSUtils.getPath(this.regionCompactionDir)+ ", seqid="+ maxId);
+    HFile.Writer writer=compact(filesToCompact,majorcompaction,maxId);
+    StoreFile sf=completeCompaction(filesToCompact,writer);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Started compaction of " + filesToCompact.size() + " file(s)"+ (references ? ", hasReferences=true," : " ")+ " into "+ FSUtils.getPath(writer.getPath()));
-    }
-    try {
-      compact(writer,filesToCompact,majorcompaction);
-    }
-  finally {
-      StoreFile.appendMetadata(writer,maxId,majorcompaction);
-      writer.close();
-    }
-    completeCompaction(filesToCompact,writer);
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Completed" + (majorcompaction ? " major " : " ") + "compaction of "+ this.storeNameStr+ "; store size is "+ StringUtils.humanReadableInt(storeSize));
+      LOG.debug("Completed" + (majorcompaction ? " major " : " ") + "compaction of "+ this.storeNameStr+ "; new storefile is "+ (sf == null ? "none" : sf.toString())+ "; store size is "+ StringUtils.humanReadableInt(storeSize));
     }
   }
   return checkSplit(forceSplit);

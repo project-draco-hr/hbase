@@ -1,13 +1,16 @@
 {
-  Path p=null;
-  try {
-    p=StoreFile.rename(this.fs,compactedFile.getPath(),StoreFile.getRandomFilename(fs,this.homedir));
+  StoreFile result=null;
+  if (compactedFile != null) {
+    Path p=null;
+    try {
+      p=StoreFile.rename(this.fs,compactedFile.getPath(),StoreFile.getRandomFilename(fs,this.homedir));
+    }
+ catch (    IOException e) {
+      LOG.error("Failed move of compacted file " + compactedFile.getPath(),e);
+      return null;
+    }
+    result=new StoreFile(this.fs,p,blockcache,this.conf,this.inMemory);
   }
- catch (  IOException e) {
-    LOG.error("Failed move of compacted file " + compactedFile.getPath(),e);
-    return;
-  }
-  StoreFile finalCompactedFile=new StoreFile(this.fs,p,blockcache,this.conf,this.inMemory);
   this.lock.writeLock().lock();
   try {
     try {
@@ -16,8 +19,10 @@
           this.storefiles.remove(e.getKey());
         }
       }
-      Long orderVal=Long.valueOf(finalCompactedFile.getMaxSequenceId());
-      this.storefiles.put(orderVal,finalCompactedFile);
+      if (result != null) {
+        Long orderVal=Long.valueOf(result.getMaxSequenceId());
+        this.storefiles.put(orderVal,result);
+      }
       notifyChangedReadersObservers();
       for (      StoreFile hsf : compactedFiles) {
         hsf.delete();
@@ -25,7 +30,7 @@
     }
  catch (    IOException e) {
       e=RemoteExceptionHandler.checkIOException(e);
-      LOG.error("Failed replacing compacted files for " + this.storeNameStr + ". Compacted file is "+ finalCompactedFile.toString()+ ".  Files replaced are "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+      LOG.error("Failed replacing compacted files in " + this.storeNameStr + ". Compacted file is "+ (result == null ? "none" : result.toString())+ ".  Files replaced "+ compactedFiles.toString()+ " some of which may have been already removed",e);
     }
     this.storeSize=0L;
     for (    StoreFile hsf : this.storefiles.values()) {
@@ -40,4 +45,5 @@
   finally {
     this.lock.writeLock().unlock();
   }
+  return result;
 }
