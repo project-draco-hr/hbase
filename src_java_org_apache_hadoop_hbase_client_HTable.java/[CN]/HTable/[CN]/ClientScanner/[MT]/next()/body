@@ -4,13 +4,28 @@
   }
   if (cache.size() == 0) {
     Result[] values=null;
-    int countdown=this.scannerCaching;
-    callable.setCaching(this.scannerCaching);
+    int countdown=this.caching;
+    callable.setCaching(this.caching);
+    boolean skipFirst=false;
     do {
       try {
         values=getConnection().getRegionServerWithRetries(callable);
+        if (skipFirst) {
+          skipFirst=false;
+          values=getConnection().getRegionServerWithRetries(callable);
+        }
       }
- catch (      IOException e) {
+ catch (      DoNotRetryIOException e) {
+        Throwable cause=e.getCause();
+        if (cause == null || !(cause instanceof NotServingRegionException)) {
+          throw e;
+        }
+        this.scan.setStartRow(this.lastResult.getRow());
+        this.currentRegion=null;
+        skipFirst=true;
+        continue;
+      }
+catch (      IOException e) {
         if (e instanceof UnknownScannerException && lastNext + scannerTimeout < System.currentTimeMillis()) {
           ScannerTimeoutException ex=new ScannerTimeoutException();
           ex.initCause(e);
@@ -23,6 +38,7 @@
         for (        Result rs : values) {
           cache.add(rs);
           countdown--;
+          this.lastResult=rs;
         }
       }
     }
