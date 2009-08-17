@@ -1,15 +1,13 @@
 {
-  NavigableSet<KeyValue> candidates=new TreeSet<KeyValue>(this.comparator.getComparatorIgnoringType());
-  NavigableSet<KeyValue> deletes=new TreeSet<KeyValue>(this.comparatorIgnoringType);
-  long now=System.currentTimeMillis();
+  GetClosestRowBeforeTracker state=new GetClosestRowBeforeTracker(this.comparator,kv,this.ttl,this.region.getRegionInfo().isMetaRegion());
   this.lock.readLock().lock();
   try {
-    this.memstore.getRowKeyAtOrBefore(targetkey,candidates,deletes,now);
+    this.memstore.getRowKeyAtOrBefore(state);
     Map<Long,StoreFile> m=this.storefiles.descendingMap();
     for (    Map.Entry<Long,StoreFile> e : m.entrySet()) {
-      rowAtOrBeforeFromStoreFile(e.getValue(),targetkey,candidates,deletes,now);
+      rowAtOrBeforeFromStoreFile(e.getValue(),state);
     }
-    return candidates.isEmpty() ? null : candidates.last();
+    return state.getCandidate();
   }
   finally {
     this.lock.readLock().unlock();

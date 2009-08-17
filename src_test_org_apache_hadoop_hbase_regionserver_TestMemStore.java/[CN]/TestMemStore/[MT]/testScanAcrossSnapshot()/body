@@ -9,6 +9,7 @@
     while (s.next(result)) {
       LOG.info(result);
       count++;
+      assertEquals(rowCount,result.size());
       result.clear();
     }
   }
@@ -23,9 +24,32 @@
       LOG.info(result);
       assertTrue(Bytes.compareTo(Bytes.toBytes(count),result.get(0).getRow()) == 0);
       count++;
+      assertEquals(rowCount,result.size());
       if (count == 2) {
         this.memstore.snapshot();
         LOG.info("Snapshotted");
+      }
+      result.clear();
+    }
+  }
+  finally {
+    s.close();
+  }
+  assertEquals(rowCount,count);
+  long ts=System.currentTimeMillis();
+  s=new StoreScanner(scan,null,HConstants.LATEST_TIMESTAMP,this.memstore.comparator,null,memstorescanners);
+  count=0;
+  int snapshotIndex=5;
+  try {
+    while (s.next(result)) {
+      LOG.info(result);
+      assertTrue(Bytes.compareTo(Bytes.toBytes(count),result.get(0).getRow()) == 0);
+      count++;
+      if (count == snapshotIndex) {
+        this.memstore.snapshot();
+        this.memstore.clearSnapshot(this.memstore.getSnapshot());
+        addRows(this.memstore,ts);
+        LOG.info("Snapshotted, cleared it and then added values");
       }
       result.clear();
     }
