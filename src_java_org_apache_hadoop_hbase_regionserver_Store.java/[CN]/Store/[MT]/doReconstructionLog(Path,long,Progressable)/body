@@ -1,11 +1,11 @@
 {
   if (reconstructionLog == null || !this.fs.exists(reconstructionLog)) {
-    return;
+    return -1;
   }
   FileStatus[] stats=this.fs.listStatus(reconstructionLog);
   if (stats == null || stats.length == 0) {
     LOG.warn("Passed reconstruction log " + reconstructionLog + " is zero-length");
-    return;
+    return -1;
   }
   long maxSeqIdInLog=-1;
   long firstSeqIdInLog=-1;
@@ -47,6 +47,14 @@
     if (LOG.isDebugEnabled()) {
       LOG.debug("flushing reconstructionCache");
     }
-    internalFlushCache(reconstructedCache,maxSeqIdInLog + 1);
+    long newFileSeqNo=maxSeqIdInLog + 1;
+    StoreFile sf=internalFlushCache(reconstructedCache,newFileSeqNo);
+    if (sf == null) {
+      throw new IOException("Flush failed with a null store file");
+    }
+    this.storefiles.put(newFileSeqNo,sf);
+    notifyChangedReadersObservers();
+    return newFileSeqNo;
   }
+  return -1;
 }
