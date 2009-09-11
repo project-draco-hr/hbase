@@ -2,19 +2,31 @@
   checkRow(row);
   boolean flush=false;
   Integer lid=obtainRowLock(row);
-  long result=0L;
+  long result=amount;
   try {
     Store store=stores.get(family);
-    Store.ICVResult vas=store.incrementColumnValue(row,family,qualifier,amount);
+    Get get=new Get(row);
+    get.addColumn(family,qualifier);
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    NavigableSet<byte[]> qualifiers=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+    qualifiers.add(qualifier);
+    store.get(get,qualifiers,results);
+    if (!results.isEmpty()) {
+      byte[] oldValue=results.get(0).getValue();
+      KeyValue kv=results.get(0);
+      byte[] buffer=kv.getBuffer();
+      int valueOffset=kv.getValueOffset();
+      result+=Bytes.toLong(buffer,valueOffset,Bytes.SIZEOF_LONG);
+    }
+    KeyValue newKv=new KeyValue(row,family,qualifier,System.currentTimeMillis(),Bytes.toBytes(result));
     if (writeToWAL) {
       long now=System.currentTimeMillis();
       List<KeyValue> edits=new ArrayList<KeyValue>(1);
-      edits.add(vas.kv);
+      edits.add(newKv);
       this.log.append(regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),edits,(regionInfo.isMetaRegion() || regionInfo.isRootRegion()),now);
     }
-    store.add(vas.kv);
-    result=vas.value;
-    long size=this.memstoreSize.addAndGet(vas.sizeAdded);
+    long size=store.updateColumnValue(row,family,qualifier,result);
+    size=this.memstoreSize.addAndGet(size);
     flush=isFlushSize(size);
   }
   finally {
