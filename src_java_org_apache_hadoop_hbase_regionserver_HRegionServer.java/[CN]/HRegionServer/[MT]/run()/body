@@ -12,6 +12,7 @@
       sleeper.sleep();
       LOG.warn("No response from master on reportForDuty. Sleeping and " + "then trying again.");
     }
+    HMsg outboundArray[]=null;
     long lastMsg=0;
     for (int tries=0; !stopRequested.get() && isHealthy(); ) {
       if (!haveRootRegion.get()) {
@@ -26,11 +27,6 @@
         LOG.warn("unable to report to master for " + (now - lastMsg) + " milliseconds - retrying");
       }
       if ((now - lastMsg) >= msgInterval) {
-        HMsg outboundArray[]=null;
-synchronized (this.outboundMsgs) {
-          outboundArray=this.outboundMsgs.toArray(new HMsg[outboundMsgs.size()]);
-          this.outboundMsgs.clear();
-        }
         try {
           doMetrics();
           MemoryUsage memory=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
@@ -40,8 +36,10 @@ synchronized (this.outboundMsgs) {
           }
           this.serverInfo.setLoad(hsl);
           this.requestCount.set(0);
+          outboundArray=getOutboundMsgs(outboundArray);
           HMsg msgs[]=hbaseMaster.regionServerReport(serverInfo,outboundArray,getMostLoadedRegions());
           lastMsg=System.currentTimeMillis();
+          outboundArray=updateOutboundMsgs(outboundArray);
           if (this.quiesced.get() && onlineRegions.size() == 0) {
             LOG.info("Server quiesced and not serving any regions. " + "Starting shutdown");
             stopRequested.set(true);
