@@ -1,0 +1,48 @@
+{
+  final Path outputdir=FileOutputFormat.getOutputPath(context);
+  Configuration conf=context.getConfiguration();
+  final FileSystem fs=outputdir.getFileSystem(conf);
+  final long maxsize=conf.getLong("hbase.hregion.max.filesize",268435456);
+  final int blocksize=conf.getInt("hfile.min.blocksize.size",65536);
+  final String compression=conf.get("hfile.compression",Compression.Algorithm.NONE.getName());
+  return new RecordWriter<ImmutableBytesWritable,KeyValue>(){
+    private final Map<byte[],WriterLength> writers=new TreeMap<byte[],WriterLength>(Bytes.BYTES_COMPARATOR);
+    private byte[] previousRow=HConstants.EMPTY_BYTE_ARRAY;
+    public void write(    ImmutableBytesWritable row,    KeyValue kv) throws IOException {
+      long length=kv.getLength();
+      byte[] family=kv.getFamily();
+      WriterLength wl=this.writers.get(family);
+      if (wl == null || ((length + wl.written) >= maxsize) && Bytes.compareTo(this.previousRow,0,this.previousRow.length,kv.getBuffer(),kv.getRowOffset(),kv.getRowLength()) != 0) {
+        Path basedir=new Path(outputdir,Bytes.toString(family));
+        if (wl == null) {
+          wl=new WriterLength();
+          this.writers.put(family,wl);
+          if (this.writers.size() > 1)           throw new IOException("One family only");
+          if (!fs.exists(basedir))           fs.mkdirs(basedir);
+        }
+        wl.writer=getNewWriter(wl.writer,basedir);
+        Log.info("Writer=" + wl.writer.getPath() + ((wl.written == 0) ? "" : ", wrote=" + wl.written));
+        wl.written=0;
+      }
+      wl.writer.append(kv);
+      wl.written+=length;
+      this.previousRow=kv.getRow();
+    }
+    private HFile.Writer getNewWriter(    final HFile.Writer writer,    final Path familydir) throws IOException {
+      close(writer);
+      return new HFile.Writer(fs,StoreFile.getUniqueFile(fs,familydir),blocksize,compression,KeyValue.KEY_COMPARATOR);
+    }
+    private void close(    final HFile.Writer w) throws IOException {
+      if (w != null) {
+        StoreFile.appendMetadata(w,System.currentTimeMillis(),true);
+        w.close();
+      }
+    }
+    public void close(    TaskAttemptContext c) throws IOException, InterruptedException {
+      for (      Map.Entry<byte[],WriterLength> e : this.writers.entrySet()) {
+        close(e.getValue().writer);
+      }
+    }
+  }
+;
+}
