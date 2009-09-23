@@ -1,21 +1,27 @@
 {
   KeyComparator keyComparator=this.comparator.getRawComparator();
   QueryMatcher matcher=new QueryMatcher(get,this.family.getName(),columns,this.ttl,keyComparator,versionsToReturn(get.getMaxVersions()));
-  if (this.memstore.get(matcher,result)) {
-    return;
-  }
-  if (this.storefiles.isEmpty()) {
-    return;
-  }
-  List<HFileScanner> storefileScanners=new ArrayList<HFileScanner>();
-  for (  StoreFile sf : this.storefiles.descendingMap().values()) {
-    HFile.Reader r=sf.getReader();
-    if (r == null) {
-      LOG.warn("StoreFile " + sf + " has a null Reader");
-      continue;
+  this.lock.readLock().lock();
+  try {
+    if (this.memstore.get(matcher,result)) {
+      return;
     }
-    storefileScanners.add(r.getScanner());
+    if (this.storefiles.isEmpty()) {
+      return;
+    }
+    List<HFileScanner> storefileScanners=new ArrayList<HFileScanner>();
+    for (    StoreFile sf : this.storefiles.descendingMap().values()) {
+      HFile.Reader r=sf.getReader();
+      if (r == null) {
+        LOG.warn("StoreFile " + sf + " has a null Reader");
+        continue;
+      }
+      storefileScanners.add(r.getScanner());
+    }
+    StoreFileGetScan scanner=new StoreFileGetScan(storefileScanners,matcher);
+    scanner.get(result);
   }
-  StoreFileGetScan scanner=new StoreFileGetScan(storefileScanners,matcher);
-  scanner.get(result);
+  finally {
+    this.lock.readLock().unlock();
+  }
 }
