@@ -1,9 +1,12 @@
 {
   super.doReconstructionLog(oldLogFile,minSeqId,maxSeqId,reporter);
+  if (super.getTableDesc().getNameAsString().equals(HBaseBackedTransactionLogger.TABLE_NAME)) {
+    return;
+  }
   THLogRecoveryManager recoveryManager=new THLogRecoveryManager(this);
   Map<Long,List<KeyValue>> commitedTransactionsById=recoveryManager.getCommitsFromLog(oldLogFile,minSeqId,reporter);
   if (commitedTransactionsById != null && commitedTransactionsById.size() > 0) {
-    LOG.debug("found " + commitedTransactionsById.size() + " COMMITED transactions");
+    LOG.debug("found " + commitedTransactionsById.size() + " COMMITED transactions to recover.");
     for (    Entry<Long,List<KeyValue>> entry : commitedTransactionsById.entrySet()) {
       LOG.debug("Writing " + entry.getValue().size() + " updates for transaction "+ entry.getKey());
       for (      KeyValue b : entry.getValue()) {
@@ -11,6 +14,10 @@
         put.add(b);
         super.put(put,true);
       }
+    }
+    LOG.debug("Flushing cache");
+    if (!super.flushcache()) {
+      LOG.warn("Did not flush cache");
     }
   }
 }

@@ -1,6 +1,10 @@
 {
+  SortedMap<Long,List<KeyValue>> commitedTransactionsById=new TreeMap<Long,List<KeyValue>>();
   LOG.info("Region log has " + pendingTransactionsById.size() + " unfinished transactions. Going to the transaction log to resolve");
   for (  Entry<Long,List<KeyValue>> entry : pendingTransactionsById.entrySet()) {
+    if (entry.getValue().isEmpty()) {
+      LOG.debug("Skipping resolving trx [" + entry.getKey() + "] has no writes.");
+    }
     TransactionLogger.TransactionStatus transactionStatus=getGlobalTransactionLog().getStatusForTransaction(entry.getKey());
     if (transactionStatus == null) {
       throw new RuntimeException("Cannot resolve tranasction [" + entry.getKey() + "] from global tx log.");
@@ -12,7 +16,9 @@ case COMMITTED:
     commitedTransactionsById.put(entry.getKey(),entry.getValue());
   break;
 case PENDING:
+LOG.warn("Transaction [" + entry.getKey() + "] is still pending. Asumming it will not commit."+ " If it eventually does commit, then we loose transactional semantics.");
 break;
 }
 }
+return commitedTransactionsById;
 }

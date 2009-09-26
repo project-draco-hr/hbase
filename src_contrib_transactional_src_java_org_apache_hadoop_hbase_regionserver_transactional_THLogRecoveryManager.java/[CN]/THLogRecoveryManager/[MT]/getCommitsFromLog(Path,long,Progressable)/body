@@ -8,7 +8,7 @@
     return null;
   }
   SortedMap<Long,List<KeyValue>> pendingTransactionsById=new TreeMap<Long,List<KeyValue>>();
-  SortedMap<Long,List<KeyValue>> commitedTransactionsById=new TreeMap<Long,List<KeyValue>>();
+  Set<Long> commitedTransactions=new HashSet<Long>();
   Set<Long> abortedTransactions=new HashSet<Long>();
   SequenceFile.Reader logReader=new SequenceFile.Reader(fileSystem,reconstructionLog,conf);
   try {
@@ -22,7 +22,9 @@
     long commitCount=0;
     int reportInterval=conf.getInt("hbase.hstore.report.interval.edits",2000);
     while (logReader.next(key,val)) {
-      LOG.debug("Processing edit: key: " + key.toString() + " val: "+ val.toString());
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Processing edit: key: " + key.toString() + " val: "+ val.toString());
+      }
       if (key.getLogSeqNum() < maxSeqID) {
         skippedEdits++;
         continue;
@@ -34,11 +36,11 @@
       List<KeyValue> updates=pendingTransactionsById.get(transactionId);
 switch (key.getTrxOp()) {
 case START:
-        if (updates != null || abortedTransactions.contains(transactionId) || commitedTransactionsById.containsKey(transactionId)) {
+        if (updates != null || abortedTransactions.contains(transactionId) || commitedTransactions.contains(transactionId)) {
           LOG.error("Processing start for transaction: " + transactionId + ", but have already seen start message");
           throw new IOException("Corrupted transaction log");
         }
-      updates=new LinkedList<KeyValue>();
+      updates=new ArrayList<KeyValue>();
     pendingTransactionsById.put(transactionId,updates);
   startCount++;
 break;
@@ -69,15 +71,12 @@ if (abortedTransactions.contains(transactionId)) {
 LOG.error("Processing commit for transaction: " + transactionId + ", but also have abort message");
 throw new IOException("Corrupted transaction log");
 }
-if (updates.size() == 0) {
-LOG.warn("Transaciton " + transactionId + " has no writes in log. ");
-}
-if (commitedTransactionsById.containsKey(transactionId)) {
+if (commitedTransactions.contains(transactionId)) {
 LOG.error("Processing commit for transaction: " + transactionId + ", but have already commited transaction with that id");
 throw new IOException("Corrupted transaction log");
 }
 pendingTransactionsById.remove(transactionId);
-commitedTransactionsById.put(transactionId,updates);
+commitedTransactions.add(transactionId);
 commitCount++;
 break;
 default :
@@ -96,7 +95,7 @@ LOG.debug("Read " + totalEdits + " tranasctional operations (skipped "+ skippedE
 logReader.close();
 }
 if (pendingTransactionsById.size() > 0) {
-resolvePendingTransaction(pendingTransactionsById,commitedTransactionsById);
+return resolvePendingTransaction(pendingTransactionsById);
 }
-return commitedTransactionsById;
+return null;
 }
