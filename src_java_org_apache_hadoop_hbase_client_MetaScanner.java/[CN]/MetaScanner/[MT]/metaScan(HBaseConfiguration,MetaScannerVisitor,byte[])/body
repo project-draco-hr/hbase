@@ -2,20 +2,23 @@
   HConnection connection=HConnectionManager.getConnection(configuration);
   byte[] startRow=tableName == null || tableName.length == 0 ? HConstants.EMPTY_START_ROW : HRegionInfo.createRegionName(tableName,null,ZEROES);
   ScannerCallable callable=null;
+  int rows=configuration.getInt("hbase.meta.scanner.caching",100);
   do {
     Scan scan=new Scan(startRow).addFamily(CATALOG_FAMILY);
     callable=new ScannerCallable(connection,META_TABLE_NAME,scan);
     connection.getRegionServerWithRetries(callable);
     try {
-      Result r=null;
-      do {
+      callable.setCaching(rows);
+      done:       do {
         Result[] rrs=connection.getRegionServerWithRetries(callable);
         if (rrs == null || rrs.length == 0 || rrs[0].size() == 0) {
-          break;
+          break done;
         }
-        r=rrs[0];
+        for (int i=0; i < rrs.length; i++) {
+          if (!visitor.processRow(rrs[i]))           break done;
+        }
       }
- while (visitor.processRow(r));
+ while (true);
       startRow=callable.getHRegionInfo().getEndKey();
     }
   finally {
