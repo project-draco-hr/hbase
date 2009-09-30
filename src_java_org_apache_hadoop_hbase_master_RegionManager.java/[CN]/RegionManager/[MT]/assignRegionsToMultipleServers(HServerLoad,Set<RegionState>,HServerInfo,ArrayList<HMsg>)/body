@@ -6,33 +6,31 @@
   int nRegionsToAssign=regionsToAssign.size();
   int nregions=regionsPerServer(nRegionsToAssign,thisServersLoad);
   LOG.debug("Assigning for " + info + ": total nregions to assign="+ nRegionsToAssign+ ", nregions to reach balance="+ nregions+ ", isMetaAssign="+ isMetaAssign);
-  nRegionsToAssign-=nregions;
-  if (nRegionsToAssign > 0 || isMetaAssign) {
-    HServerLoad heavierLoad=new HServerLoad();
-    int nservers=computeNextHeaviestLoad(thisServersLoad,heavierLoad);
-    nregions=0;
-    for (HServerLoad load=new HServerLoad(thisServersLoad); load.compareTo(heavierLoad) <= 0 && nregions < nRegionsToAssign; load.setNumberOfRegions(load.getNumberOfRegions() + 1), nregions++) {
-    }
-    LOG.debug("Doing for " + info + " nregions: "+ nregions+ " and nRegionsToAssign: "+ nRegionsToAssign);
-    if (nregions < nRegionsToAssign) {
-      if (nservers > 0) {
-        nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * nservers));
+  if (nRegionsToAssign <= nregions) {
+    LOG.debug("Assigning one region only (playing it safe..)");
+    assignRegions(regionsToAssign,1,info,returnMsgs);
+  }
+ else {
+    nRegionsToAssign-=nregions;
+    if (nRegionsToAssign > 0 || isMetaAssign) {
+      HServerLoad heavierLoad=new HServerLoad();
+      int nservers=computeNextHeaviestLoad(thisServersLoad,heavierLoad);
+      nregions=0;
+      for (HServerLoad load=new HServerLoad(thisServersLoad); load.compareTo(heavierLoad) <= 0 && nregions < nRegionsToAssign; load.setNumberOfRegions(load.getNumberOfRegions() + 1), nregions++) {
+      }
+      LOG.debug("Doing for " + info + " nregions: "+ nregions+ " and nRegionsToAssign: "+ nRegionsToAssign);
+      if (nregions < nRegionsToAssign) {
+        if (nservers > 0) {
+          nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * nservers));
+        }
+ else {
+          nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * master.serverManager.numServers()));
+        }
       }
  else {
-        nregions=(int)Math.ceil((1.0 * nRegionsToAssign) / (1.0 * master.serverManager.numServers()));
+        nregions=nRegionsToAssign;
       }
-    }
- else {
-      nregions=nRegionsToAssign;
-    }
-    if (nregions > this.maxAssignInOneGo) {
-      nregions=this.maxAssignInOneGo;
-    }
-    for (    RegionState s : regionsToAssign) {
-      doRegionAssignment(s,info,returnMsgs);
-      if (--nregions <= 0) {
-        break;
-      }
+      assignRegions(regionsToAssign,nregions,info,returnMsgs);
     }
   }
 }
