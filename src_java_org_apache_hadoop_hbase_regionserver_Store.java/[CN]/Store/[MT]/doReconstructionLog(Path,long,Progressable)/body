@@ -9,7 +9,6 @@
   }
   long maxSeqIdInLog=-1;
   long firstSeqIdInLog=-1;
-  KeyValueSkipListSet reconstructedCache=new KeyValueSkipListSet(this.comparator);
   SequenceFile.Reader logReader=new SequenceFile.Reader(this.fs,reconstructionLog,this.conf);
   try {
     HLogKey key=HLog.newKey(conf);
@@ -29,7 +28,12 @@
       if (val.matchingFamily(HLog.METAFAMILY) || !Bytes.equals(key.getRegionName(),region.regionInfo.getRegionName()) || !val.matchingFamily(family.getName())) {
         continue;
       }
-      reconstructedCache.add(val);
+      if (val.isDelete()) {
+        this.memstore.delete(val);
+      }
+ else {
+        this.memstore.add(val);
+      }
       editsCount++;
       if (reporter != null && (editsCount % reportInterval) == 0) {
         reporter.progress();
@@ -43,18 +47,12 @@
   finally {
     logReader.close();
   }
-  if (reconstructedCache.size() > 0) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("flushing reconstructionCache");
+  if (maxSeqIdInLog > -1) {
+    this.snapshot();
+    boolean needCompaction=this.flushCache(maxSeqIdInLog);
+    if (needCompaction) {
+      this.compact(false);
     }
-    long newFileSeqNo=maxSeqIdInLog + 1;
-    StoreFile sf=internalFlushCache(reconstructedCache,newFileSeqNo);
-    if (sf == null) {
-      throw new IOException("Flush failed with a null store file");
-    }
-    this.storefiles.put(newFileSeqNo,sf);
-    notifyChangedReadersObservers();
-    return newFileSeqNo;
   }
-  return -1;
+  return maxSeqIdInLog;
 }

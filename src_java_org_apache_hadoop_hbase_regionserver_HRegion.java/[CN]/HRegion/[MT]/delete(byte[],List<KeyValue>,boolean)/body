@@ -4,12 +4,11 @@
   boolean flush=false;
   this.updatesLock.readLock().lock();
   try {
-    if (writeToWAL) {
-      this.log.append(regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),kvs,(regionInfo.isMetaRegion() || regionInfo.isRootRegion()),now);
-    }
     long size=0;
     Store store=getStore(family);
-    for (    KeyValue kv : kvs) {
+    Iterator<KeyValue> kvIterator=kvs.iterator();
+    while (kvIterator.hasNext()) {
+      KeyValue kv=kvIterator.next();
       if (kv.isLatestTimestamp() && kv.isDeleteType()) {
         List<KeyValue> result=new ArrayList<KeyValue>(1);
         Get g=new Get(kv.getRow());
@@ -19,6 +18,7 @@
         qualifiers.add(q);
         get(store,g,qualifiers,result);
         if (result.isEmpty()) {
+          kvIterator.remove();
           continue;
         }
         if (result.size() > 1) {
@@ -31,6 +31,9 @@
         kv.updateLatestStamp(byteNow);
       }
       size=this.memstoreSize.addAndGet(store.delete(kv));
+    }
+    if (writeToWAL) {
+      this.log.append(regionInfo.getRegionName(),regionInfo.getTableDesc().getName(),kvs,(regionInfo.isMetaRegion() || regionInfo.isRootRegion()),now);
     }
     flush=isFlushSize(size);
   }
