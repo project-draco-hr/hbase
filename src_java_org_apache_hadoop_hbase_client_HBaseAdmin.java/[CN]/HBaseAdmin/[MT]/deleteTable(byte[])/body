@@ -10,6 +10,7 @@
  catch (  RemoteException e) {
     throw RemoteExceptionHandler.decodeRemoteException(e);
   }
+  final int batchCount=this.conf.getInt("hbase.admin.scanner.caching",10);
   HRegionInterface server=connection.getHRegionConnection(firstMetaServer.getServerAddress());
   HRegionInfo info=new HRegionInfo();
   for (int tries=0; tries < numRetries; tries++) {
@@ -17,17 +18,24 @@
     try {
       Scan scan=new Scan().addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
       scannerId=server.openScanner(firstMetaServer.getRegionInfo().getRegionName(),scan);
-      Result values=server.next(scannerId);
-      if (values == null || values.size() == 0) {
+      Result[] values=server.next(scannerId,batchCount);
+      if (values == null || values.length == 0) {
         break;
       }
       boolean found=false;
-      NavigableMap<byte[],byte[]> infoValues=values.getFamilyMap(HConstants.CATALOG_FAMILY);
-      for (      Map.Entry<byte[],byte[]> e : infoValues.entrySet()) {
-        if (Bytes.equals(e.getKey(),HConstants.REGIONINFO_QUALIFIER)) {
-          info=(HRegionInfo)Writables.getWritable(e.getValue(),info);
-          if (Bytes.equals(info.getTableDesc().getName(),tableName)) {
-            found=true;
+      for (int i=0; i < values.length; i++) {
+        Result r=values[i];
+        NavigableMap<byte[],byte[]> infoValues=r.getFamilyMap(HConstants.CATALOG_FAMILY);
+        for (        Map.Entry<byte[],byte[]> e : infoValues.entrySet()) {
+          if (Bytes.equals(e.getKey(),HConstants.REGIONINFO_QUALIFIER)) {
+            info=(HRegionInfo)Writables.getWritable(e.getValue(),info);
+            if (Bytes.equals(info.getTableDesc().getName(),tableName)) {
+              found=true;
+            }
+ else {
+              found=false;
+              break;
+            }
           }
         }
       }
