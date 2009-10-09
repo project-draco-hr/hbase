@@ -1,0 +1,36 @@
+{
+  byte[] bytes=Bytes.toBytes(getName());
+  Path p=new Path(this.dir,getName() + ".fsdos");
+  FSDataOutputStream out=fs.create(p);
+  out.write(bytes);
+  out.sync();
+  FSDataInputStream in=fs.open(p);
+  assertTrue(in.available() > 0);
+  byte[] buffer=new byte[1024];
+  int read=in.read(buffer);
+  assertEquals(bytes.length,read);
+  out.close();
+  in.close();
+  this.conf.setInt("hbase.regionserver.flushlogentries",100);
+  Path subdir=new Path(this.dir,"hlogdir");
+  HLog wal=new HLog(this.fs,subdir,this.conf,null);
+  final int total=20;
+  for (int i=0; i < total; i++) {
+    List<KeyValue> kvs=new ArrayList<KeyValue>();
+    kvs.add(new KeyValue(Bytes.toBytes(i),bytes,bytes));
+    wal.append(bytes,bytes,kvs,false,System.currentTimeMillis());
+  }
+  Path walPath=wal.computeFilename(wal.getFilenum());
+  wal.sync();
+  Thread.sleep(70 * 1000);
+  final HBaseConfiguration conf2=new HBaseConfiguration(conf);
+  final String username=UserGroupInformation.getCurrentUGI().getUserName() + "_" + 1;
+  UnixUserGroupInformation.saveToConf(conf2,UnixUserGroupInformation.UGI_PROPERTY_NAME,new UnixUserGroupInformation(username,new String[]{"supergroup"}));
+  final FileSystem fs2=FileSystem.get(conf2);
+  SequenceFile.Reader reader=new SequenceFile.Reader(fs2,walPath,conf2);
+  int count=0;
+  HLogKey key=new HLogKey();
+  while (reader.next(key))   count++;
+  assertEquals(total,count);
+  reader.close();
+}
