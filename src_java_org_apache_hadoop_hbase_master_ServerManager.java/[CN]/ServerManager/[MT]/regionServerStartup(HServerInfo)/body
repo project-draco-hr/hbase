@@ -1,33 +1,28 @@
 {
   HServerInfo info=new HServerInfo(serverInfo);
   String serverName=HServerInfo.getServerName(info);
-  if (serversToServerInfo.containsKey(serverName) || deadServers.contains(serverName)) {
+  if (this.serversToServerInfo.containsKey(serverName) || this.deadServers.contains(serverName)) {
     LOG.debug("Server start was rejected: " + serverInfo);
-    LOG.debug("serversToServerInfo.containsKey: " + serversToServerInfo.containsKey(serverName));
-    LOG.debug("deadServers.contains: " + deadServers.contains(serverName));
+    LOG.debug("serversToServerInfo.containsKey: " + this.serversToServerInfo.containsKey(serverName));
+    LOG.debug("deadServers.contains: " + this.deadServers.contains(serverName));
     throw new Leases.LeaseStillHeldException(serverName);
   }
   LOG.info("Received start message from: " + serverName);
-  HServerLoad load=serversToLoad.remove(serverName);
+  HServerLoad load=this.serversToLoad.remove(serverName);
   if (load != null) {
-synchronized (loadToServers) {
+synchronized (this.loadToServers) {
       Set<String> servers=loadToServers.get(load);
       if (servers != null) {
         servers.remove(serverName);
-        if (servers.size() > 0)         loadToServers.put(load,servers);
- else         loadToServers.remove(load);
+        if (servers.size() > 0)         this.loadToServers.put(load,servers);
+ else         this.loadToServers.remove(load);
       }
     }
   }
-  HServerInfo storedInfo=serversToServerInfo.remove(serverName);
-  if (storedInfo != null && !master.closed.get()) {
-    master.getRootRegionLocation();
-    try {
-      master.toDoQueue.put(new ProcessServerShutdown(master,storedInfo));
-    }
- catch (    InterruptedException e) {
-      LOG.error("Insertion into toDoQueue was interrupted",e);
-    }
+  HServerInfo storedInfo=this.serversToServerInfo.remove(serverName);
+  if (storedInfo != null && !this.master.isClosed()) {
+    this.master.getRegionManager().getRootRegionLocation();
+    this.master.queue(new ProcessServerShutdown(this.master,storedInfo));
   }
   recordNewServer(info);
 }

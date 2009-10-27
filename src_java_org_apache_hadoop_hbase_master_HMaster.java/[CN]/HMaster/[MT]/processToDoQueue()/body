@@ -1,35 +1,30 @@
 {
   RegionServerOperation op=null;
-  if (regionManager.getRootRegionLocation() != null) {
-    op=delayedToDoQueue.poll();
+  if (this.regionManager.getRootRegionLocation() != null) {
+    op=this.delayedToDoQueue.poll();
   }
   if (op == null) {
     try {
-      op=toDoQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
+      op=this.toDoQueue.poll(this.threadWakeFrequency,TimeUnit.MILLISECONDS);
     }
  catch (    InterruptedException e) {
     }
   }
-  if (op == null || closed.get()) {
+  if (op == null || this.closed.get()) {
     return true;
   }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Processing todo: " + op.toString());
+  }
   try {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Processing todo: " + op.toString());
-    }
     if (!op.process()) {
-      if (toDoQueue.size() == 0) {
-        sleeper.sleep();
+      if (this.toDoQueue.size() == 0) {
+        this.sleeper.sleep();
       }
-      try {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Put " + op.toString() + " back on queue");
-        }
-        toDoQueue.put(op);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Put " + op.toString() + " back on queue");
       }
- catch (      InterruptedException e) {
-        throw new RuntimeException("Putting into toDoQueue was interrupted.",e);
-      }
+      queue(op);
     }
   }
  catch (  Exception ex) {
@@ -45,8 +40,8 @@
     if (!checkFileSystem()) {
       return false;
     }
-    LOG.warn("Processing pending operations: " + op.toString(),ex);
-    delayedToDoQueue.put(op);
+    LOG.warn("Adding to delayed queue: " + op.toString(),ex);
+    requeue(op);
   }
   return true;
 }

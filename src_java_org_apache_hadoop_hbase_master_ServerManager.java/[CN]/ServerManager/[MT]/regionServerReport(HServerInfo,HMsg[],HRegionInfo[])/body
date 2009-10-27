@@ -6,44 +6,44 @@
   if (msgs.length > 0) {
     if (msgs[0].isType(HMsg.Type.MSG_REPORT_EXITING)) {
       processRegionServerExit(info,msgs);
-      return EMPTY_HMSG_ARRAY;
+      return HMsg.EMPTY_HMSG_ARRAY;
     }
  else     if (msgs[0].isType(HMsg.Type.MSG_REPORT_QUIESCED)) {
       LOG.info("Region server " + info.getServerName() + " quiesced");
-      quiescedServers.incrementAndGet();
+      this.quiescedServers.incrementAndGet();
     }
   }
-  if (master.shutdownRequested.get()) {
+  if (this.master.getShutdownRequested().get()) {
     if (quiescedServers.get() >= serversToServerInfo.size()) {
       LOG.info("All user tables quiesced. Proceeding with shutdown");
-      master.startShutdown();
+      this.master.startShutdown();
     }
-    if (!master.closed.get()) {
+    if (!this.master.isClosed()) {
       if (msgs.length > 0 && msgs[0].isType(HMsg.Type.MSG_REPORT_QUIESCED)) {
-        return EMPTY_HMSG_ARRAY;
+        return HMsg.EMPTY_HMSG_ARRAY;
       }
-      return new HMsg[]{REGIONSERVER_QUIESCE};
+      return new HMsg[]{HMsg.REGIONSERVER_QUIESCE};
     }
   }
-  if (master.closed.get()) {
-    return new HMsg[]{REGIONSERVER_STOP};
+  if (this.master.isClosed()) {
+    return new HMsg[]{HMsg.REGIONSERVER_STOP};
   }
-  HServerInfo storedInfo=serversToServerInfo.get(info.getServerName());
+  HServerInfo storedInfo=this.serversToServerInfo.get(info.getServerName());
   if (storedInfo == null) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Received report from unknown server -- telling it " + "to " + CALL_SERVER_STARTUP + ": "+ info.getServerName());
+      LOG.debug("Received report from unknown server -- telling it " + "to " + HMsg.CALL_SERVER_STARTUP + ": "+ info.getServerName());
     }
-    return new HMsg[]{CALL_SERVER_STARTUP};
+    return new HMsg[]{HMsg.CALL_SERVER_STARTUP};
   }
  else   if (storedInfo.getStartCode() != info.getStartCode()) {
     if (LOG.isDebugEnabled()) {
       LOG.debug("region server race condition detected: " + info.getServerName());
     }
-synchronized (serversToServerInfo) {
+synchronized (this.serversToServerInfo) {
       removeServerInfo(info.getServerName(),info.getServerAddress());
-      serversToServerInfo.notifyAll();
+      this.serversToServerInfo.notifyAll();
     }
-    return new HMsg[]{REGIONSERVER_STOP};
+    return new HMsg[]{HMsg.REGIONSERVER_STOP};
   }
  else {
     return processRegionServerAllsWell(info,mostLoadedRegions,msgs);

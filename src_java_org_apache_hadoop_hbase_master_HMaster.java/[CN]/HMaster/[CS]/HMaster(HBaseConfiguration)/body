@@ -1,63 +1,23 @@
 {
-  String addressStr=DNS.getDefaultHost(conf.get("hbase.master.dns.interface","default"),conf.get("hbase.master.dns.nameserver","default"));
-  addressStr+=":" + conf.get(MASTER_PORT,Integer.toString(DEFAULT_MASTER_PORT));
-  HServerAddress address=new HServerAddress(addressStr);
-  LOG.info("My address is " + address);
   this.conf=conf;
-  this.rootdir=new Path(conf.get(HBASE_DIR));
-  try {
-    FSUtils.validateRootPath(this.rootdir);
-  }
- catch (  IOException e) {
-    LOG.fatal("Not starting HMaster because the root directory path '" + this.rootdir + "' is not valid. Check the setting of the"+ " configuration parameter '"+ HBASE_DIR+ "'",e);
-    throw e;
-  }
-  this.threadWakeFrequency=conf.getInt(THREAD_WAKE_FREQUENCY,10 * 1000);
+  this.fs=FileSystem.get(this.conf);
+  this.rootdir=getAndCheckRootDir(this.conf,this.fs);
+  this.conf.set(HConstants.HBASE_DIR,rootdir.toString());
   this.conf.set("fs.defaultFS",this.rootdir.toString());
-  this.fs=FileSystem.get(conf);
-  if (this.fs instanceof DistributedFileSystem) {
-    String message="Waiting for dfs to exit safe mode...";
-    while (((DistributedFileSystem)fs).setSafeMode(FSConstants.SafeModeAction.SAFEMODE_GET)) {
-      LOG.info(message);
-      try {
-        Thread.sleep(this.threadWakeFrequency);
-      }
- catch (      InterruptedException e) {
-      }
-    }
-  }
-  this.conf.set(HConstants.HBASE_DIR,this.rootdir.toString());
-  this.rand=new Random();
-  try {
-    if (!fs.exists(rootdir)) {
-      fs.mkdirs(rootdir);
-      FSUtils.setVersion(fs,rootdir);
-    }
- else {
-      FSUtils.checkVersion(fs,rootdir,true);
-    }
-    if (!FSUtils.rootRegionExists(fs,rootdir)) {
-      bootstrap();
-    }
-  }
- catch (  IOException e) {
-    LOG.fatal("Not starting HMaster because:",e);
-    throw e;
-  }
+  HServerAddress a=new HServerAddress(getMyAddress());
+  this.rpcServer=HBaseRPC.getServer(this,a.getBindAddress(),a.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
+  this.address=new HServerAddress(this.rpcServer.getListenerAddress());
   this.numRetries=conf.getInt("hbase.client.retries.number",2);
-  this.maxRegionOpenTime=conf.getLong("hbase.hbasemaster.maxregionopen",120 * 1000);
-  this.leaseTimeout=conf.getInt("hbase.master.lease.period",120 * 1000);
-  this.server=HBaseRPC.getServer(this,address.getBindAddress(),address.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
-  this.address=new HServerAddress(server.getListenerAddress());
-  conf.setInt("hbase.client.retries.number",3);
-  this.connection=ServerConnectionManager.getConnection(conf);
-  this.metaRescanInterval=conf.getInt("hbase.master.meta.thread.rescanfrequency",60 * 1000);
+  this.threadWakeFrequency=conf.getInt(THREAD_WAKE_FREQUENCY,10 * 1000);
   this.sleeper=new Sleeper(this.threadWakeFrequency,this.closed);
-  zooKeeperWrapper=new ZooKeeperWrapper(conf,this);
-  zkMasterAddressWatcher=new ZKMasterAddressWatcher(this);
+  this.connection=ServerConnectionManager.getConnection(conf);
+  this.zooKeeperWrapper=new ZooKeeperWrapper(conf,this);
+  this.zkMasterAddressWatcher=new ZKMasterAddressWatcher(this.zooKeeperWrapper,this.shutdownRequested);
+  this.zkMasterAddressWatcher.writeAddressToZooKeeper(this.address);
   serverManager=new ServerManager(this);
   regionManager=new RegionManager(this);
-  writeAddressToZooKeeper();
+  setName(MASTER);
+  this.metrics=new MasterMetrics(MASTER);
   this.closed.set(false);
   LOG.info("HMaster initialized on " + this.address.toString());
 }

@@ -1,15 +1,15 @@
 {
-  LOG.info("process shutdown of server " + this.deadServer + ": logSplit: "+ logSplit+ ", rootRescanned: "+ rootRescanned+ ", numberOfMetaRegions: "+ master.regionManager.numMetaRegions()+ ", onlineMetaRegions.size(): "+ master.regionManager.numOnlineMetaRegions());
+  LOG.info("process shutdown of server " + this.deadServer + ": logSplit: "+ logSplit+ ", rootRescanned: "+ rootRescanned+ ", numberOfMetaRegions: "+ master.getRegionManager().numMetaRegions()+ ", onlineMetaRegions.size(): "+ master.getRegionManager().numOnlineMetaRegions());
   if (!logSplit) {
-    if (master.fs.exists(oldLogDir)) {
-      if (!master.regionManager.splitLogLock.tryLock()) {
+    if (this.master.getFileSystem().exists(oldLogDir)) {
+      if (!master.getRegionManager().splitLogLock.tryLock()) {
         return false;
       }
       try {
-        HLog.splitLog(master.rootdir,oldLogDir,master.fs,master.getConfiguration());
+        HLog.splitLog(master.getRootDir(),oldLogDir,this.master.getFileSystem(),this.master.getConfiguration());
       }
   finally {
-        master.regionManager.splitLogLock.unlock();
+        master.getRegionManager().splitLogLock.unlock();
       }
     }
     logSplit=true;
@@ -17,31 +17,31 @@
   LOG.info("Log split complete, meta reassignment and scanning:");
   if (this.isRootServer) {
     LOG.info("ProcessServerShutdown reassigning ROOT region");
-    master.regionManager.reassignRootRegion();
+    master.getRegionManager().reassignRootRegion();
     isRootServer=false;
   }
   for (  MetaRegion metaRegion : metaRegions) {
     LOG.info("ProcessServerShutdown setting to unassigned: " + metaRegion.toString());
-    master.regionManager.setUnassigned(metaRegion.getRegionInfo(),true);
+    master.getRegionManager().setUnassigned(metaRegion.getRegionInfo(),true);
   }
   metaRegions.clear();
   if (!rootAvailable()) {
     return true;
   }
   if (!rootRescanned) {
-    Boolean result=new ScanRootRegion(new MetaRegion(master.getRootRegionLocation(),HRegionInfo.ROOT_REGIONINFO),this.master).doWithRetries();
+    Boolean result=new ScanRootRegion(new MetaRegion(master.getRegionManager().getRootRegionLocation(),HRegionInfo.ROOT_REGIONINFO),this.master).doWithRetries();
     if (result == null) {
       return true;
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("process server shutdown scanning root region on " + master.getRootRegionLocation().getBindAddress() + " finished "+ Thread.currentThread().getName());
+      LOG.debug("process server shutdown scanning root region on " + master.getRegionManager().getRootRegionLocation().getBindAddress() + " finished "+ Thread.currentThread().getName());
     }
     rootRescanned=true;
   }
   if (!metaTableAvailable()) {
     return true;
   }
-  List<MetaRegion> regions=master.regionManager.getListOfOnlineMetaRegions();
+  List<MetaRegion> regions=master.getRegionManager().getListOfOnlineMetaRegions();
   for (  MetaRegion r : regions) {
     Boolean result=new ScanMetaRegions(r,this.master).doWithRetries();
     if (result == null) {
@@ -51,7 +51,7 @@
       LOG.debug("process server shutdown finished scanning " + Bytes.toString(r.getRegionName()) + " on "+ r.getServer());
     }
   }
-  this.master.serverManager.removeDeadServer(deadServer);
+  this.master.getServerManager().removeDeadServer(deadServer);
   if (LOG.isDebugEnabled()) {
     LOG.debug("Removed " + deadServer + " from deadservers Map");
   }

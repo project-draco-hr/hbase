@@ -1,9 +1,9 @@
 {
   boolean duplicateAssignment=false;
-synchronized (master.regionManager) {
-    if (!master.regionManager.isUnassigned(region) && !master.regionManager.isPendingOpen(region.getRegionNameAsString())) {
+synchronized (master.getRegionManager()) {
+    if (!this.master.getRegionManager().isUnassigned(region) && !this.master.getRegionManager().isPendingOpen(region.getRegionNameAsString())) {
       if (region.isRootRegion()) {
-        HServerAddress rootServer=master.getRootRegionLocation();
+        HServerAddress rootServer=this.master.getRegionManager().getRootRegionLocation();
         if (rootServer != null) {
           if (rootServer.compareTo(serverInfo.getServerAddress()) == 0) {
             return;
@@ -12,7 +12,7 @@ synchronized (master.regionManager) {
         }
       }
  else {
-        if (master.regionManager.isPendingOpen(region.getRegionNameAsString())) {
+        if (this.master.getRegionManager().isPendingOpen(region.getRegionNameAsString())) {
           return;
         }
         duplicateAssignment=true;
@@ -26,25 +26,18 @@ synchronized (master.regionManager) {
     }
  else {
       if (region.isRootRegion()) {
-        master.regionManager.removeRegion(region);
+        this.master.getRegionManager().removeRegion(region);
         HServerAddress rootServer=serverInfo.getServerAddress();
-        if (master.regionManager.inSafeMode()) {
-          master.connection.setRootRegionLocation(new HRegionLocation(region,rootServer));
+        if (this.master.getRegionManager().inSafeMode()) {
+          this.master.getServerConnection().setRootRegionLocation(new HRegionLocation(region,rootServer));
         }
-        master.regionManager.setRootRegionLocation(rootServer);
+        this.master.getRegionManager().setRootRegionLocation(rootServer);
       }
  else {
-        master.regionManager.setOpen(region.getRegionNameAsString());
+        this.master.getRegionManager().setOpen(region.getRegionNameAsString());
         boolean succeeded=false;
         for (int i=0; i < 10; i++) {
-          try {
-            master.toDoQueue.put(new ProcessRegionOpen(master,serverInfo,region));
-            succeeded=true;
-            break;
-          }
- catch (          InterruptedException e) {
-            LOG.warn("Putting into toDoQueue was interrupted.",e);
-          }
+          this.master.queue(new ProcessRegionOpen(master,serverInfo,region));
         }
         if (!succeeded) {
           LOG.warn("FAILED ADDING OPEN TO TODO QUEUE: " + serverInfo);
