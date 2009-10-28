@@ -10,7 +10,6 @@
   float multi=conf.getFloat("hbase.regionserver.logroll.multiplier",0.95f);
   this.logrollsize=(long)(this.blocksize * multi);
   this.optionalFlushInterval=conf.getLong("hbase.regionserver.optionallogflushinterval",10 * 1000);
-  this.lastLogFlushTime=System.currentTimeMillis();
   if (fs.exists(dir)) {
     throw new IOException("Target HLog directory already exists: " + dir);
   }
@@ -19,19 +18,6 @@
   this.enabled=conf.getBoolean("hbase.regionserver.hlog.enabled",true);
   LOG.info("HLog configuration: blocksize=" + this.blocksize + ", rollsize="+ this.logrollsize+ ", enabled="+ this.enabled+ ", flushlogentries="+ this.flushlogentries+ ", optionallogflushinternal="+ this.optionalFlushInterval+ "ms");
   rollWriter();
-  this.append=isAppend(conf);
-  Method m=null;
-  if (this.append) {
-    try {
-      m=this.writer.getClass().getMethod("syncFs",new Class<?>[]{});
-      LOG.debug("Using syncFs--hadoop-4379");
-    }
- catch (    SecurityException e) {
-      throw new IOException("Failed test for syncfs",e);
-    }
-catch (    NoSuchMethodException e) {
-      LOG.info("syncFs--hadoop-4379 not available");
-    }
-  }
-  this.syncfs=m;
+  logSyncerThread=new LogSyncer(this.flushlogentries);
+  Threads.setDaemonThreadRunning(logSyncerThread,Thread.currentThread().getName() + ".logSyncer");
 }
