@@ -1,7 +1,19 @@
 {
   LOG.debug(("Event " + event.getType() + " with path "+ event.getPath()));
   if (event.getState() == KeeperState.Expired || (event.getType().equals(EventType.NodeDeleted) && event.getPath().equals(this.zooKeeperWrapper.getMasterElectionZNode())) && !shutdownRequested.get()) {
-    LOG.error("Master lost its znode, killing itself now");
-    System.exit(1);
+    LOG.info("Master lost its znode, trying to get a new one");
+    zooKeeperWrapper.close();
+    try {
+      zooKeeperWrapper=new ZooKeeperWrapper(conf,this);
+      this.zkMasterAddressWatcher.setZookeeper(zooKeeperWrapper);
+      if (!this.zkMasterAddressWatcher.writeAddressToZooKeeper(this.address,false)) {
+        throw new Exception("Another Master is currently active");
+      }
+      joinCluster();
+    }
+ catch (    Exception e) {
+      LOG.error("Killing master because of",e);
+      System.exit(1);
+    }
   }
 }
