@@ -1,56 +1,35 @@
 {
-  if (this.column == null && this.newColumn == null) {
-    newColumns.add(new ColumnCount(bytes,offset,length,1));
-    this.newColumn=newColumns.get(newIndex);
-    return MatchCode.INCLUDE;
-  }
-  if (this.column == null && this.newColumn != null) {
-    int ret=Bytes.compareTo(newColumn.getBuffer(),newColumn.getOffset(),newColumn.getLength(),bytes,offset,length);
-    if (ret == 0) {
-      if (newColumn.increment() > this.maxVersions) {
-        return MatchCode.SKIP;
-      }
-      return MatchCode.INCLUDE;
-    }
-    if (ret <= -1) {
-      if (++newIndex == newColumns.size()) {
-        newColumns.add(new ColumnCount(bytes,offset,length,1));
-        this.newColumn=newColumns.get(newIndex);
-        return MatchCode.INCLUDE;
-      }
+  boolean recursive=false;
+  do {
+    if (this.column == null && this.newColumn == null) {
+      newColumns.add(new ColumnCount(bytes,offset,length,1));
       this.newColumn=newColumns.get(newIndex);
-      return checkColumn(bytes,offset,length);
-    }
-    newColumns.add(new ColumnCount(bytes,offset,length,1));
-    this.newColumn=newColumns.get(++newIndex);
-    return MatchCode.INCLUDE;
-  }
-  if (this.newColumn == null && this.column != null) {
-    int ret=Bytes.compareTo(column.getBuffer(),column.getOffset(),column.getLength(),bytes,offset,length);
-    if (ret == 0) {
-      if (column.increment() > this.maxVersions) {
-        return MatchCode.SKIP;
-      }
       return MatchCode.INCLUDE;
     }
-    if (ret <= -1) {
-      if (++index == columns.size()) {
-        newColumns.add(new ColumnCount(bytes,offset,length,1));
-        this.newColumn=newColumns.get(newIndex);
-        this.column=null;
+    if (this.column == null && this.newColumn != null) {
+      int ret=Bytes.compareTo(newColumn.getBuffer(),newColumn.getOffset(),newColumn.getLength(),bytes,offset,length);
+      if (ret == 0) {
+        if (newColumn.increment() > this.maxVersions) {
+          return MatchCode.SKIP;
+        }
         return MatchCode.INCLUDE;
       }
-      this.column=columns.get(index);
-      return checkColumn(bytes,offset,length);
+      if (ret <= -1) {
+        if (++newIndex == newColumns.size()) {
+          newColumns.add(new ColumnCount(bytes,offset,length,1));
+          this.newColumn=newColumns.get(newIndex);
+          return MatchCode.INCLUDE;
+        }
+        this.newColumn=newColumns.get(newIndex);
+        recursive=true;
+        continue;
+      }
+      newColumns.add(new ColumnCount(bytes,offset,length,1));
+      this.newColumn=newColumns.get(++newIndex);
+      return MatchCode.INCLUDE;
     }
-    newColumns.add(new ColumnCount(bytes,offset,length,1));
-    this.newColumn=newColumns.get(newIndex);
-    return MatchCode.INCLUDE;
-  }
-  if (column != null && newColumn != null) {
-    int ret=Bytes.compareTo(column.getBuffer(),column.getOffset(),column.getLength(),newColumn.getBuffer(),newColumn.getOffset(),newColumn.getLength());
-    if (ret <= -1) {
-      ret=Bytes.compareTo(column.getBuffer(),column.getOffset(),column.getLength(),bytes,offset,length);
+    if (this.newColumn == null && this.column != null) {
+      int ret=Bytes.compareTo(column.getBuffer(),column.getOffset(),column.getLength(),bytes,offset,length);
       if (ret == 0) {
         if (column.increment() > this.maxVersions) {
           return MatchCode.SKIP;
@@ -59,37 +38,66 @@
       }
       if (ret <= -1) {
         if (++index == columns.size()) {
+          newColumns.add(new ColumnCount(bytes,offset,length,1));
+          this.newColumn=newColumns.get(newIndex);
           this.column=null;
+          return MatchCode.INCLUDE;
+        }
+        this.column=columns.get(index);
+        recursive=true;
+        continue;
+      }
+      newColumns.add(new ColumnCount(bytes,offset,length,1));
+      this.newColumn=newColumns.get(newIndex);
+      return MatchCode.INCLUDE;
+    }
+    if (column != null && newColumn != null) {
+      int ret=Bytes.compareTo(column.getBuffer(),column.getOffset(),column.getLength(),newColumn.getBuffer(),newColumn.getOffset(),newColumn.getLength());
+      if (ret <= -1) {
+        ret=Bytes.compareTo(column.getBuffer(),column.getOffset(),column.getLength(),bytes,offset,length);
+        if (ret == 0) {
+          if (column.increment() > this.maxVersions) {
+            return MatchCode.SKIP;
+          }
+          return MatchCode.INCLUDE;
+        }
+        if (ret <= -1) {
+          if (++index == columns.size()) {
+            this.column=null;
+          }
+ else {
+            this.column=columns.get(index);
+          }
+          recursive=true;
+          continue;
+        }
+        newColumns.add(new ColumnCount(bytes,offset,length,1));
+        return MatchCode.INCLUDE;
+      }
+    }
+    if (newColumn != null) {
+      int ret=Bytes.compareTo(newColumn.getBuffer(),newColumn.getOffset(),newColumn.getLength(),bytes,offset,length);
+      if (ret == 0) {
+        if (newColumn.increment() > this.maxVersions) {
+          return MatchCode.SKIP;
+        }
+        return MatchCode.INCLUDE;
+      }
+      if (ret <= -1) {
+        if (++newIndex == newColumns.size()) {
+          this.newColumn=null;
         }
  else {
-          this.column=columns.get(index);
+          this.newColumn=newColumns.get(newIndex);
         }
-        return checkColumn(bytes,offset,length);
+        recursive=true;
+        continue;
       }
       newColumns.add(new ColumnCount(bytes,offset,length,1));
       return MatchCode.INCLUDE;
     }
   }
-  if (newColumn != null) {
-    int ret=Bytes.compareTo(newColumn.getBuffer(),newColumn.getOffset(),newColumn.getLength(),bytes,offset,length);
-    if (ret == 0) {
-      if (newColumn.increment() > this.maxVersions) {
-        return MatchCode.SKIP;
-      }
-      return MatchCode.INCLUDE;
-    }
-    if (ret <= -1) {
-      if (++newIndex == newColumns.size()) {
-        this.newColumn=null;
-      }
- else {
-        this.newColumn=newColumns.get(newIndex);
-      }
-      return checkColumn(bytes,offset,length);
-    }
-    newColumns.add(new ColumnCount(bytes,offset,length,1));
-    return MatchCode.INCLUDE;
-  }
+ while (recursive);
   newColumns.add(new ColumnCount(bytes,offset,length,1));
   return MatchCode.INCLUDE;
 }
