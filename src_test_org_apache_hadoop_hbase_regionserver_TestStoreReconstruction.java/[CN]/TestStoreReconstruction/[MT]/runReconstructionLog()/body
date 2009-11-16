@@ -1,0 +1,34 @@
+{
+  byte[] family=Bytes.toBytes("column");
+  HColumnDescriptor hcd=new HColumnDescriptor(family);
+  HTableDescriptor htd=new HTableDescriptor(TABLE);
+  htd.addFamily(hcd);
+  HRegionInfo info=new HRegionInfo(htd,null,null,false);
+  HLog log=new HLog(cluster.getFileSystem(),this.dir,conf,null);
+  HRegion region=new HRegion(dir,log,cluster.getFileSystem(),conf,info,null);
+  List<KeyValue> result=new ArrayList<KeyValue>();
+  NavigableSet<byte[]> qualifiers=new ConcurrentSkipListSet<byte[]>(Bytes.BYTES_COMPARATOR);
+  final byte[] tableName=Bytes.toBytes(TABLE);
+  final byte[] rowName=tableName;
+  final byte[] regionName=info.getRegionName();
+  List<KeyValue> edit=new ArrayList<KeyValue>();
+  for (int j=0; j < TOTAL_EDITS; j++) {
+    byte[] qualifier=Bytes.toBytes(Integer.toString(j));
+    byte[] column=Bytes.toBytes("column:" + Integer.toString(j));
+    edit.add(new KeyValue(rowName,family,qualifier,System.currentTimeMillis(),column));
+    log.append(regionName,tableName,edit,System.currentTimeMillis());
+    edit.clear();
+  }
+  long logSeqId=log.startCacheFlush();
+  log.completeCacheFlush(regionName,tableName,logSeqId);
+  edit.add(new KeyValue(rowName,Bytes.toBytes("another family"),rowName,System.currentTimeMillis(),rowName));
+  log.append(regionName,tableName,edit,System.currentTimeMillis());
+  log.sync();
+  List<Path> splits=HLog.splitLog(new Path(conf.get(HConstants.HBASE_DIR)),this.dir,cluster.getFileSystem(),conf);
+  assertTrue(splits.size() == 1);
+  assertTrue(cluster.getFileSystem().exists(splits.get(0)));
+  Store store=new Store(dir,region,hcd,cluster.getFileSystem(),splits.get(0),conf,null);
+  Get get=new Get(rowName);
+  store.get(get,qualifiers,result);
+  assertEquals(result.size(),TOTAL_EDITS);
+}
