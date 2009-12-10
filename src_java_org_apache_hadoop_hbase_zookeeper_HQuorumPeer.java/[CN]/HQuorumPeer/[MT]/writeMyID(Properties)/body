@@ -1,7 +1,18 @@
 {
+  long myId=-1;
   HBaseConfiguration conf=new HBaseConfiguration();
   String myAddress=DNS.getDefaultHost(conf.get("hbase.zookeeper.dns.interface","default"),conf.get("hbase.zookeeper.dns.nameserver","default"));
-  long myId=-1;
+  List<String> ips=new ArrayList<String>();
+  ips.add(myAddress.contains(".") ? myAddress : StringUtils.simpleHostname(myAddress));
+  Enumeration<?> nics=NetworkInterface.getNetworkInterfaces();
+  while (nics.hasMoreElements()) {
+    Enumeration<?> rawAdrs=((NetworkInterface)nics.nextElement()).getInetAddresses();
+    while (rawAdrs.hasMoreElements()) {
+      InetAddress inet=(InetAddress)rawAdrs.nextElement();
+      ips.add(StringUtils.simpleHostname(inet.getHostName()));
+      ips.add(inet.getHostAddress());
+    }
+  }
   for (  Entry<Object,Object> entry : properties.entrySet()) {
     String key=entry.getKey().toString().trim();
     String value=entry.getValue().toString().trim();
@@ -10,8 +21,7 @@
       long id=Long.parseLong(key.substring(dot + 1));
       String[] parts=value.split(":");
       String address=parts[0];
-      if (addressIsLocalHost(address) || hostEquals(myAddress,address)) {
-        LOG.debug("found my address: " + myAddress + ", in list: "+ address+ ", setting myId to "+ id);
+      if (addressIsLocalHost(address) || ips.contains(address)) {
         myId=id;
         break;
       }
