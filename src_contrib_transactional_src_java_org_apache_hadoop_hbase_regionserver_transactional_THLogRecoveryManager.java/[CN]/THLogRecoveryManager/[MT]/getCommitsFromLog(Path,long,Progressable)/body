@@ -10,10 +10,8 @@
   SortedMap<Long,List<KeyValue>> pendingTransactionsById=new TreeMap<Long,List<KeyValue>>();
   Set<Long> commitedTransactions=new HashSet<Long>();
   Set<Long> abortedTransactions=new HashSet<Long>();
-  SequenceFile.Reader logReader=HLog.getReader(fileSystem,reconstructionLog,conf);
+  HLog.Reader reader=HLog.getReader(fileSystem,reconstructionLog,conf);
   try {
-    THLogKey key=new THLogKey();
-    KeyValue val=new KeyValue();
     long skippedEdits=0;
     long totalEdits=0;
     long startCount=0;
@@ -21,7 +19,10 @@
     long abortCount=0;
     long commitCount=0;
     int reportInterval=conf.getInt("hbase.hstore.report.interval.edits",2000);
-    while (logReader.next(key,val)) {
+    HLog.Entry entry;
+    while ((entry=reader.next()) != null) {
+      THLogKey key=(THLogKey)entry.getKey();
+      KeyValue val=entry.getEdit();
       if (LOG.isTraceEnabled()) {
         LOG.trace("Processing edit: key: " + key.toString() + " val: "+ val.toString());
       }
@@ -84,7 +85,7 @@ LOG.debug("Read " + totalEdits + " tranasctional operations (skipped "+ skippedE
 }
 }
   finally {
-logReader.close();
+reader.close();
 }
 if (pendingTransactionsById.size() > 0) {
 return resolvePendingTransaction(pendingTransactionsById);

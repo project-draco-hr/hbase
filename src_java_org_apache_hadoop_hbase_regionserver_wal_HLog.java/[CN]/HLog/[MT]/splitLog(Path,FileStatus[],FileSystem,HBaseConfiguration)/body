@@ -6,33 +6,29 @@
   try {
     int maxSteps=Double.valueOf(Math.ceil((logfiles.length * 1.0) / concurrentLogReads)).intValue();
     for (int step=0; step < maxSteps; step++) {
-      final Map<byte[],LinkedList<HLogEntry>> logEntries=new TreeMap<byte[],LinkedList<HLogEntry>>(Bytes.BYTES_COMPARATOR);
+      final Map<byte[],LinkedList<HLog.Entry>> logEntries=new TreeMap<byte[],LinkedList<HLog.Entry>>(Bytes.BYTES_COMPARATOR);
       int endIndex=step == maxSteps - 1 ? logfiles.length : step * concurrentLogReads + concurrentLogReads;
       for (int i=(step * concurrentLogReads); i < endIndex; i++) {
         long length=logfiles[i].getLen();
         if (LOG.isDebugEnabled()) {
           LOG.debug("Splitting hlog " + (i + 1) + " of "+ logfiles.length+ ": "+ logfiles[i].getPath()+ ", length="+ logfiles[i].getLen());
         }
-        SequenceFile.Reader in=null;
+        Reader in=null;
         int count=0;
         try {
           in=HLog.getReader(fs,logfiles[i].getPath(),conf);
           try {
-            HLogKey key=newKey(conf);
-            KeyValue val=new KeyValue();
-            while (in.next(key,val)) {
-              byte[] regionName=key.getRegionName();
-              LinkedList<HLogEntry> queue=logEntries.get(regionName);
+            HLog.Entry entry;
+            while ((entry=in.next()) != null) {
+              byte[] regionName=entry.getKey().getRegionName();
+              LinkedList<HLog.Entry> queue=logEntries.get(regionName);
               if (queue == null) {
-                queue=new LinkedList<HLogEntry>();
+                queue=new LinkedList<HLog.Entry>();
                 LOG.debug("Adding queue for " + Bytes.toStringBinary(regionName));
                 logEntries.put(regionName,queue);
               }
-              HLogEntry hle=new HLogEntry(val,key);
-              queue.push(hle);
+              queue.push(entry);
               count++;
-              key=newKey(conf);
-              val=new KeyValue();
             }
             LOG.debug("Pushed=" + count + " entries from "+ logfiles[i].getPath());
           }
@@ -67,18 +63,18 @@
       for (      final byte[] key : logEntries.keySet()) {
         Thread thread=new Thread(Bytes.toStringBinary(key)){
           @Override public void run(){
-            LinkedList<HLogEntry> entries=logEntries.get(key);
+            LinkedList<HLog.Entry> entries=logEntries.get(key);
             LOG.debug("Thread got " + entries.size() + " to process");
             long threadTime=System.currentTimeMillis();
             try {
               int count=0;
-              for (ListIterator<HLogEntry> i=entries.listIterator(entries.size()); i.hasPrevious(); ) {
-                HLogEntry logEntry=i.previous();
+              for (ListIterator<HLog.Entry> i=entries.listIterator(entries.size()); i.hasPrevious(); ) {
+                HLog.Entry logEntry=i.previous();
                 WriterAndPath wap=logWriters.get(key);
                 if (wap == null) {
                   Path logfile=new Path(HRegion.getRegionDir(HTableDescriptor.getTableDir(rootDir,logEntry.getKey().getTablename()),HRegionInfo.encodeRegionName(key)),HREGION_OLDLOGFILE_NAME);
                   Path oldlogfile=null;
-                  SequenceFile.Reader old=null;
+                  Reader old=null;
                   if (fs.exists(logfile)) {
                     FileStatus stat=fs.getFileStatus(logfile);
                     if (stat.getLen() <= 0) {
@@ -89,29 +85,28 @@
                       LOG.warn("Old hlog file " + logfile + " already "+ "exists. Copying existing file to new file");
                       oldlogfile=new Path(logfile.toString() + ".old");
                       fs.rename(logfile,oldlogfile);
-                      old=new SequenceFile.Reader(fs,oldlogfile,conf);
+                      old=getReader(fs,oldlogfile,conf);
                     }
                   }
-                  SequenceFile.Writer w=SequenceFile.createWriter(fs,conf,logfile,getKeyClass(conf),KeyValue.class,getCompressionType(conf));
+                  Writer w=createWriter(fs,logfile,conf);
                   wap=new WriterAndPath(logfile,w);
                   logWriters.put(key,wap);
                   if (LOG.isDebugEnabled()) {
                     LOG.debug("Creating new hlog file writer for path " + logfile + " and region "+ Bytes.toStringBinary(key));
                   }
                   if (old != null) {
-                    HLogKey oldkey=newKey(conf);
-                    KeyValue oldval=new KeyValue();
-                    for (; old.next(oldkey,oldval); count++) {
+                    HLog.Entry entry;
+                    for (; (entry=old.next()) != null; count++) {
                       if (LOG.isDebugEnabled() && count > 0 && count % 10000 == 0) {
                         LOG.debug("Copied " + count + " edits");
                       }
-                      w.append(oldkey,oldval);
+                      w.append(entry);
                     }
                     old.close();
                     fs.delete(oldlogfile,true);
                   }
                 }
-                wap.w.append(logEntry.getKey(),logEntry.getEdit());
+                wap.w.append(logEntry);
                 count++;
               }
               if (LOG.isDebugEnabled()) {
