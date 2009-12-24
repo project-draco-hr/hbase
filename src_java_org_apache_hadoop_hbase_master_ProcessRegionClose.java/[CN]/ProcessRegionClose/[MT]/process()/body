@@ -1,22 +1,25 @@
 {
   Boolean result=null;
-  if (offlineRegion) {
+  if (offlineRegion || reassignRegion) {
     result=new RetryableMetaOperation<Boolean>(getMetaRegion(),this.master){
       public Boolean call() throws IOException {
-        LOG.info("region closed: " + regionInfo.getRegionNameAsString());
         if (metaRegionAvailable()) {
-          HRegion.offlineRegionInMETA(server,metaRegionName,regionInfo);
-          master.getRegionManager().removeRegion(regionInfo);
+          if (offlineRegion) {
+            HRegion.offlineRegionInMETA(server,metaRegionName,regionInfo);
+            master.getRegionManager().removeRegion(regionInfo);
+            LOG.info("region closed: " + regionInfo.getRegionNameAsString());
+          }
+ else {
+            HRegion.cleanRegionInMETA(server,metaRegionName,regionInfo);
+            master.getRegionManager().setUnassigned(regionInfo,false);
+            LOG.info("region set as unassigned: " + regionInfo.getRegionNameAsString());
+          }
         }
         return true;
       }
     }
 .doWithRetries();
     result=result == null ? true : result;
-  }
- else   if (reassignRegion) {
-    LOG.info("region set as unassigned: " + regionInfo.getRegionNameAsString());
-    master.getRegionManager().setUnassigned(regionInfo,false);
   }
  else {
     LOG.info("Region was neither offlined, or asked to be reassigned, what gives: " + regionInfo.getRegionNameAsString());
