@@ -1,21 +1,26 @@
 {
-  byte[] regionToFlush=null;
   Long oldestOutstandingSeqNum=getOldestOutstandingSeqNum();
   TreeSet<Long> sequenceNumbers=new TreeSet<Long>(this.outputfiles.headMap((Long.valueOf(oldestOutstandingSeqNum.longValue() + 1L))).keySet());
-  byte[] oldestRegion=null;
-  if (LOG.isDebugEnabled()) {
-    oldestRegion=getOldestRegion(oldestOutstandingSeqNum);
-    LOG.debug("Found " + sequenceNumbers.size() + " hlogs to remove "+ " out of total "+ this.outputfiles.size()+ "; "+ "oldest outstanding seqnum is "+ oldestOutstandingSeqNum+ " from region "+ Bytes.toStringBinary(oldestRegion));
-  }
-  if (sequenceNumbers.size() > 0) {
+  int logsToRemove=sequenceNumbers.size();
+  if (logsToRemove > 0) {
+    if (LOG.isDebugEnabled()) {
+      byte[] oldestRegion=getOldestRegion(oldestOutstandingSeqNum);
+      LOG.debug("Found " + logsToRemove + " hlogs to remove "+ " out of total "+ this.outputfiles.size()+ "; "+ "oldest outstanding seqnum is "+ oldestOutstandingSeqNum+ " from region "+ Bytes.toString(oldestRegion));
+    }
     for (    Long seq : sequenceNumbers) {
       deleteLogFile(this.outputfiles.remove(seq),seq);
     }
   }
-  int countOfLogs=this.outputfiles.size() - sequenceNumbers.size();
-  if (countOfLogs > this.maxLogs) {
-    regionToFlush=oldestRegion != null ? oldestRegion : getOldestRegion(oldestOutstandingSeqNum);
-    LOG.info("Too many hlogs: logs=" + countOfLogs + ", maxlogs="+ this.maxLogs+ "; forcing flush of region with oldest edits: "+ Bytes.toStringBinary(regionToFlush));
+  byte[][] regions=null;
+  int logCount=this.outputfiles.size() - logsToRemove;
+  if (logCount > this.maxLogs && this.outputfiles != null && this.outputfiles.size() > 0) {
+    regions=findMemstoresWithEditsOlderThan(this.outputfiles.firstKey(),this.lastSeqWritten);
+    StringBuilder sb=new StringBuilder();
+    for (int i=0; i < regions.length; i++) {
+      if (i > 0)       sb.append(", ");
+      sb.append(Bytes.toStringBinary(regions[i]));
+    }
+    LOG.info("Too many hlogs: logs=" + logCount + ", maxlogs="+ this.maxLogs+ "; forcing flush of "+ regions.length+ " regions(s): "+ sb.toString());
   }
-  return regionToFlush;
+  return regions;
 }
