@@ -1,0 +1,25 @@
+{
+  if (this.table == null) {
+    throw new IOException("No table was provided");
+  }
+  byte[][] startKeys=this.table.getStartKeys();
+  if (startKeys == null || startKeys.length == 0) {
+    throw new IOException("Expecting at least one region");
+  }
+  if (this.inputColumns == null || this.inputColumns.length == 0) {
+    throw new IOException("Expecting at least one column");
+  }
+  int realNumSplits=numSplits > startKeys.length ? startKeys.length : numSplits;
+  InputSplit[] splits=new InputSplit[realNumSplits];
+  int middle=startKeys.length / realNumSplits;
+  int startPos=0;
+  for (int i=0; i < realNumSplits; i++) {
+    int lastPos=startPos + middle;
+    lastPos=startKeys.length % realNumSplits > i ? lastPos + 1 : lastPos;
+    String regionLocation=table.getRegionLocation(startKeys[startPos]).getServerAddress().getHostname();
+    splits[i]=new TableSplit(this.table.getTableName(),startKeys[startPos],((i + 1) < realNumSplits) ? startKeys[lastPos] : HConstants.EMPTY_START_ROW,regionLocation);
+    LOG.info("split: " + i + "->"+ splits[i]);
+    startPos=lastPos;
+  }
+  return splits;
+}
