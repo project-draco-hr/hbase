@@ -1,0 +1,30 @@
+{
+  super.doReconstructionLog(oldLogFile,minSeqId,maxSeqId,reporter);
+  if (this.replicationSource == null) {
+    return;
+  }
+  if (oldLogFile == null || !getFilesystem().exists(oldLogFile)) {
+    return;
+  }
+  FileStatus[] stats=getFilesystem().listStatus(oldLogFile);
+  if (stats == null || stats.length == 0) {
+    LOG.warn("Passed reconstruction log " + oldLogFile + " is zero-length");
+  }
+  HLog.Reader reader=HLog.getReader(getFilesystem(),oldLogFile,getConf());
+  try {
+    HLog.Entry entry;
+    while ((entry=reader.next()) != null) {
+      HLogKey key=entry.getKey();
+      KeyValue val=entry.getEdit();
+      if (key.getLogSeqNum() < maxSeqId) {
+        continue;
+      }
+      if (!(Bytes.equals(key.getTablename(),ROOT_TABLE_NAME) || Bytes.equals(key.getTablename(),META_TABLE_NAME)) && !Bytes.equals(val.getFamily(),HLog.METAFAMILY)) {
+        this.replicationSource.enqueueLog(entry);
+      }
+    }
+  }
+  finally {
+    reader.close();
+  }
+}
