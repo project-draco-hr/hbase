@@ -12,7 +12,7 @@
       sleeper.sleep();
       LOG.warn("No response from master on reportForDuty. Sleeping and " + "then trying again.");
     }
-    HMsg outboundArray[]=null;
+    List<HMsg> outboundMessages=new ArrayList<HMsg>();
     long lastMsg=0;
     for (int tries=0; !stopRequested.get() && isHealthy(); ) {
       if (!haveRootRegion.get()) {
@@ -23,7 +23,7 @@
         }
       }
       long now=System.currentTimeMillis();
-      if ((now - lastMsg) >= msgInterval || ((outboundArray == null || outboundArray.length == 0) && !this.outboundMsgs.isEmpty())) {
+      if ((now - lastMsg) >= msgInterval || !outboundMessages.isEmpty()) {
         try {
           doMetrics();
           MemoryUsage memory=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
@@ -33,10 +33,11 @@
           }
           this.serverInfo.setLoad(hsl);
           this.requestCount.set(0);
-          outboundArray=getOutboundMsgs(outboundArray);
-          HMsg msgs[]=hbaseMaster.regionServerReport(serverInfo,outboundArray,getMostLoadedRegions());
+          addOutboundMsgs(outboundMessages);
+          HMsg msgs[]=this.hbaseMaster.regionServerReport(serverInfo,outboundMessages.toArray(EMPTY_HMSG_ARRAY),getMostLoadedRegions());
           lastMsg=System.currentTimeMillis();
-          outboundArray=updateOutboundMsgs(outboundArray);
+          updateOutboundMsgs(outboundMessages);
+          outboundMessages.clear();
           if (this.quiesced.get() && onlineRegions.size() == 0) {
             LOG.info("Server quiesced and not serving any regions. " + "Starting shutdown");
             stopRequested.set(true);
@@ -123,8 +124,10 @@ LOG.warn("Attempt=" + tries,e);
 lastMsg=System.currentTimeMillis();
 }
 }
+now=System.currentTimeMillis();
+HMsg msg=this.outboundMsgs.poll((msgInterval - (now - lastMsg)),TimeUnit.MILLISECONDS);
+if (msg != null) outboundMessages.add(msg);
 housekeeping();
-sleeper.sleep(lastMsg);
 }
 }
  catch (Throwable t) {
