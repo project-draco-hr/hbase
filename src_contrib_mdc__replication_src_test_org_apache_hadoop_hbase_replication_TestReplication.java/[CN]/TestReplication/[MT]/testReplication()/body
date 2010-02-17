@@ -3,9 +3,13 @@
   utility2.startMiniCluster();
   byte[] tableName=Bytes.toBytes("test");
   byte[] famName=Bytes.toBytes("f");
+  byte[] noRepfamName=Bytes.toBytes("norep");
   byte[] row=Bytes.toBytes("row");
   HTableDescriptor table=new HTableDescriptor(tableName);
   HColumnDescriptor fam=new HColumnDescriptor(famName);
+  fam.setScope(REPLICATION_SCOPE_GLOBAL);
+  table.addFamily(fam);
+  fam=new HColumnDescriptor(noRepfamName);
   table.addFamily(fam);
   HBaseAdmin admin1=new HBaseAdmin(conf1);
   HBaseAdmin admin2=new HBaseAdmin(conf2);
@@ -106,6 +110,23 @@
  else {
       assertArrayEquals(res.value(),row);
       break;
+    }
+  }
+  put=new Put(Bytes.toBytes("do not rep"));
+  put.add(noRepfamName,row,row);
+  table1.put(put);
+  get=new Get(Bytes.toBytes("do not rep"));
+  for (int i=0; i < NB_RETRIES; i++) {
+    if (i == NB_RETRIES - 1) {
+      break;
+    }
+    Result res=table2.get(get);
+    if (res.size() >= 1) {
+      fail("Not supposed to be replicated");
+    }
+ else {
+      LOG.info("Row not replicated, let's wait a bit more...");
+      Thread.sleep(SLEEP_TIME);
     }
   }
 }
