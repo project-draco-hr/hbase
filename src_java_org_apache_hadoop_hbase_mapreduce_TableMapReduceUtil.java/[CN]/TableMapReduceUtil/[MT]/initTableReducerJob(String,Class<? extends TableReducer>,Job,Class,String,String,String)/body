@@ -1,0 +1,32 @@
+{
+  Configuration conf=job.getConfiguration();
+  job.setOutputFormatClass(TableOutputFormat.class);
+  if (reducer != null)   job.setReducerClass(reducer);
+  conf.set(TableOutputFormat.OUTPUT_TABLE,table);
+  if (quorumAddress != null) {
+    if (quorumAddress.split(":").length == 2) {
+      conf.set(TableOutputFormat.QUORUM_ADDRESS,quorumAddress);
+    }
+ else {
+      throw new IOException("Please specify the peer cluster as " + HConstants.ZOOKEEPER_QUORUM + ":"+ HConstants.ZOOKEEPER_ZNODE_PARENT);
+    }
+  }
+  if (serverClass != null && serverImpl != null) {
+    conf.set(TableOutputFormat.REGION_SERVER_CLASS,serverClass);
+    conf.set(TableOutputFormat.REGION_SERVER_IMPL,serverImpl);
+  }
+  job.setOutputKeyClass(ImmutableBytesWritable.class);
+  job.setOutputValueClass(Writable.class);
+  if (partitioner == HRegionPartitioner.class) {
+    HBaseConfiguration.addHbaseResources(conf);
+    job.setPartitionerClass(HRegionPartitioner.class);
+    HTable outputTable=new HTable(conf,table);
+    int regions=outputTable.getRegionsInfo().size();
+    if (job.getNumReduceTasks() > regions) {
+      job.setNumReduceTasks(outputTable.getRegionsInfo().size());
+    }
+  }
+ else   if (partitioner != null) {
+    job.setPartitionerClass(partitioner);
+  }
+}
