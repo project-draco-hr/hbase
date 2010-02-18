@@ -1,0 +1,32 @@
+{
+  long millis=System.currentTimeMillis();
+  List<Path> splits=null;
+  if (!fs.exists(srcDir)) {
+    return splits;
+  }
+  FileStatus[] logfiles=fs.listStatus(srcDir);
+  if (logfiles == null || logfiles.length == 0) {
+    return splits;
+  }
+  LOG.info("Splitting " + logfiles.length + " hlog(s) in "+ srcDir.toString());
+  splits=splitLog(rootDir,oldLogDir,logfiles,fs,conf);
+  try {
+    FileStatus[] files=fs.listStatus(srcDir);
+    for (    FileStatus file : files) {
+      Path newPath=getHLogArchivePath(oldLogDir,file.getPath());
+      LOG.debug("Moving " + FSUtils.getPath(file.getPath()) + " to "+ FSUtils.getPath(newPath));
+      fs.rename(file.getPath(),newPath);
+    }
+    LOG.debug("Moved " + files.length + " log files to "+ FSUtils.getPath(oldLogDir));
+    fs.delete(srcDir,true);
+  }
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    IOException io=new IOException("Cannot delete: " + srcDir);
+    io.initCause(e);
+    throw io;
+  }
+  long endMillis=System.currentTimeMillis();
+  LOG.info("hlog file splitting completed in " + (endMillis - millis) + " millis for "+ srcDir.toString());
+  return splits;
+}
