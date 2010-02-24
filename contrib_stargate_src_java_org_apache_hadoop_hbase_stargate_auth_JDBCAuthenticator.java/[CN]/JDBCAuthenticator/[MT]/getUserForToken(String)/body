@@ -1,0 +1,30 @@
+{
+  int retries=0;
+  while (true)   try {
+    if (connection == null) {
+      connection=DriverManager.getConnection(url,user,password);
+      userFetchStmt=connection.prepareStatement("SELECT name, admin, disabled FROM " + table + " WHERE token = ?");
+    }
+    ResultSet results;
+synchronized (userFetchStmt) {
+      userFetchStmt.setString(1,token);
+      results=userFetchStmt.executeQuery();
+    }
+    if (!results.next()) {
+      return null;
+    }
+    return new User(results.getString(1),token,results.getBoolean(2),results.getBoolean(3));
+  }
+ catch (  SQLException e) {
+    connection=null;
+    if (++retries > MAX_RETRIES) {
+      throw new IOException(e);
+    }
+ else     try {
+      Log.warn(StringUtils.stringifyException(e));
+      Thread.sleep(RETRY_SLEEP_TIME);
+    }
+ catch (    InterruptedException ex) {
+    }
+  }
+}
