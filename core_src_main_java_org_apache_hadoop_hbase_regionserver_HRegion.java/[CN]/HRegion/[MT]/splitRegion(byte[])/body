@@ -25,15 +25,9 @@ synchronized (splitLock) {
       rid=this.regionInfo.getRegionId() + 1;
     }
     HRegionInfo regionAInfo=new HRegionInfo(this.regionInfo.getTableDesc(),startKey,splitRow,false,rid);
-    Path dirA=new Path(splits,Integer.toString(regionAInfo.getEncodedName()));
-    if (fs.exists(dirA)) {
-      throw new IOException("Cannot split; target file collision at " + dirA);
-    }
+    Path dirA=getSplitDirForDaughter(splits,regionAInfo);
     HRegionInfo regionBInfo=new HRegionInfo(this.regionInfo.getTableDesc(),splitRow,endKey,false,rid);
-    Path dirB=new Path(splits,Integer.toString(regionBInfo.getEncodedName()));
-    if (this.fs.exists(dirB)) {
-      throw new IOException("Cannot split; target file collision at " + dirB);
-    }
+    Path dirB=getSplitDirForDaughter(splits,regionBInfo);
     List<StoreFile> hstoreFilesToSplit=close(false);
     if (hstoreFilesToSplit == null) {
       LOG.warn("Close came back null (Implement abort of close?)");
@@ -43,16 +37,10 @@ synchronized (splitLock) {
       StoreFile.split(fs,Store.getStoreHomedir(splits,regionAInfo.getEncodedName(),h.getFamily()),h,splitRow,Range.bottom);
       StoreFile.split(fs,Store.getStoreHomedir(splits,regionBInfo.getEncodedName(),h.getFamily()),h,splitRow,Range.top);
     }
-    HRegion regionA=new HRegion(basedir,log,fs,conf,regionAInfo,null);
-    regionA.initialize(dirA,null);
-    regionA.close();
-    HRegion regionB=new HRegion(basedir,log,fs,conf,regionBInfo,null);
-    regionB.initialize(dirB,null);
-    regionB.close();
-    boolean deleted=fs.delete(splits,true);
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Cleaned up " + FSUtils.getPath(splits) + " "+ deleted);
-    }
+    HRegion regionA=HRegion.newHRegion(basedir,log,fs,conf,regionAInfo,null);
+    moveInitialFilesIntoPlace(this.fs,dirA,regionA.getRegionDir());
+    HRegion regionB=HRegion.newHRegion(basedir,log,fs,conf,regionBInfo,null);
+    moveInitialFilesIntoPlace(this.fs,dirB,regionB.getRegionDir());
     HRegion regions[]=new HRegion[]{regionA,regionB};
     return regions;
   }
