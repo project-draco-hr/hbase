@@ -1,0 +1,29 @@
+{
+  ScannerModel model=ScannerModel.fromScan(s);
+  model.setBatch(Integer.MAX_VALUE);
+  StringWriter writer=new StringWriter();
+  marshaller.marshal(model,writer);
+  LOG.debug(writer.toString());
+  byte[] body=Bytes.toBytes(writer.toString());
+  Response response=client.put("/" + getName() + "/scanner",MIMETYPE_XML,body);
+  assertEquals(response.getCode(),201);
+  String scannerURI=response.getLocation();
+  assertNotNull(scannerURI);
+  response=client.get(scannerURI,MIMETYPE_XML);
+  assertEquals(response.getCode(),200);
+  CellSetModel cellSet=(CellSetModel)unmarshaller.unmarshal(new ByteArrayInputStream(response.getBody()));
+  response=client.delete(scannerURI);
+  assertEquals(response.getCode(),200);
+  Iterator<RowModel> i=cellSet.getRows().iterator();
+  int j=0;
+  for (boolean done=true; done; j++) {
+    done=i.hasNext();
+    if (!done)     break;
+    RowModel rowModel=i.next();
+    List<CellModel> cells=rowModel.getCells();
+    if (cells.isEmpty())     break;
+    assertTrue("Scanned too many rows! Only expected " + expectedRows + " total but already scanned "+ (j + 1),expectedRows > j);
+    assertEquals("Expected " + expectedKeys + " keys per row but "+ "returned "+ cells.size(),expectedKeys,cells.size());
+  }
+  assertEquals("Expected " + expectedRows + " rows but scanned "+ j+ " rows",expectedRows,j);
+}

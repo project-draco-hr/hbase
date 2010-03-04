@@ -1,0 +1,37 @@
+{
+  ScannerModel model=ScannerModel.fromScan(s);
+  model.setBatch(Integer.MAX_VALUE);
+  StringWriter writer=new StringWriter();
+  marshaller.marshal(model,writer);
+  LOG.debug(writer.toString());
+  byte[] body=Bytes.toBytes(writer.toString());
+  Response response=client.put("/" + getName() + "/scanner",MIMETYPE_XML,body);
+  assertEquals(response.getCode(),201);
+  String scannerURI=response.getLocation();
+  assertNotNull(scannerURI);
+  response=client.get(scannerURI,MIMETYPE_XML);
+  assertEquals(response.getCode(),200);
+  CellSetModel cellSet=(CellSetModel)unmarshaller.unmarshal(new ByteArrayInputStream(response.getBody()));
+  response=client.delete(scannerURI);
+  assertEquals(response.getCode(),200);
+  int row=0;
+  int idx=0;
+  Iterator<RowModel> i=cellSet.getRows().iterator();
+  for (boolean done=true; done; row++) {
+    done=i.hasNext();
+    if (!done)     break;
+    RowModel rowModel=i.next();
+    List<CellModel> cells=rowModel.getCells();
+    if (cells.isEmpty())     break;
+    assertTrue("Scanned too many keys! Only expected " + kvs.length + " total but already scanned "+ (cells.size() + idx),kvs.length >= idx + cells.size());
+    for (    CellModel cell : cells) {
+      assertTrue("Row mismatch",Bytes.equals(rowModel.getKey(),kvs[idx].getRow()));
+      byte[][] split=KeyValue.parseColumn(cell.getColumn());
+      assertTrue("Family mismatch",Bytes.equals(split[0],kvs[idx].getFamily()));
+      assertTrue("Qualifier mismatch",Bytes.equals(split[1],kvs[idx].getQualifier()));
+      assertTrue("Value mismatch",Bytes.equals(cell.getValue(),kvs[idx].getValue()));
+      idx++;
+    }
+  }
+  assertEquals("Expected " + kvs.length + " total keys but scanned "+ idx,kvs.length,idx);
+}
