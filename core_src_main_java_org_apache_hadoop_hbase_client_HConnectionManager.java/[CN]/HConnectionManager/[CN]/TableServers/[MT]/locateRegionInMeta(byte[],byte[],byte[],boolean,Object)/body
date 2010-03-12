@@ -6,9 +6,6 @@
       return location;
     }
   }
- else {
-    deleteCachedLocation(tableName,row);
-  }
   byte[] metaKey=HRegionInfo.createRegionName(tableName,row,HConstants.NINES);
   for (int tries=0; true; tries++) {
     if (tries >= numRetries) {
@@ -17,7 +14,19 @@
     try {
       HRegionLocation metaLocation=locateRegion(parentTable,metaKey);
       HRegionInterface server=getHRegionConnection(metaLocation.getServerAddress());
-      Result regionInfoRow=server.getClosestRowBefore(metaLocation.getRegionInfo().getRegionName(),metaKey,HConstants.CATALOG_FAMILY);
+      Result regionInfoRow=null;
+synchronized (regionLockObject) {
+        if (useCache) {
+          location=getCachedLocation(tableName,row);
+          if (location != null) {
+            return location;
+          }
+        }
+ else {
+          deleteCachedLocation(tableName,row);
+        }
+        regionInfoRow=server.getClosestRowBefore(metaLocation.getRegionInfo().getRegionName(),metaKey,HConstants.CATALOG_FAMILY);
+      }
       if (regionInfoRow == null) {
         throw new TableNotFoundException(Bytes.toString(tableName));
       }
