@@ -1,0 +1,43 @@
+{
+  long now=System.currentTimeMillis();
+  if (now - lastConfigUpdated > configUpdateInterval) {
+    try {
+      updateConfig();
+    }
+ catch (    IOException e) {
+      LOG.warn(StringUtils.stringifyException(e));
+    }
+    lastConfigUpdated=now;
+  }
+  RowLock rl=table.lockRow(row);
+  try {
+    Get get=new Get(row,rl);
+    get.addColumn(USER,TOKENS);
+    List<KeyValue> kvs=table.get(get).list();
+    if (kvs != null && !kvs.isEmpty()) {
+      KeyValue kv=kvs.get(0);
+      tokens=(int)Bytes.toLong(kv.getValue());
+      lastUpdated=kv.getTimestamp();
+    }
+ else {
+      tokens=(int)rate;
+    }
+    long elapsed=now - lastUpdated;
+    int i=(int)((elapsed / 1000) * rate);
+    if (tokens + i > size) {
+      i=size - tokens;
+    }
+    if (i > 0) {
+      tokens+=i;
+      Put put=new Put(row,rl);
+      put.add(USER,TOKENS,Bytes.toBytes((long)tokens));
+      put.setWriteToWAL(false);
+      table.put(put);
+      table.flushCommits();
+    }
+  }
+  finally {
+    table.unlockRow(rl);
+  }
+  return tokens;
+}
