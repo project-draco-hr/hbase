@@ -17,7 +17,7 @@
     HLog.Entry entry;
     while ((entry=logReader.next()) != null) {
       HLogKey key=entry.getKey();
-      KeyValue val=entry.getEdit();
+      WALEdit val=entry.getEdit();
       if (firstSeqIdInLog == -1) {
         firstSeqIdInLog=key.getLogSeqNum();
       }
@@ -26,20 +26,21 @@
         skippedEdits++;
         continue;
       }
-      if (val.matchingFamily(HLog.METAFAMILY) || !Bytes.equals(key.getRegionName(),region.regionInfo.getRegionName()) || !val.matchingFamily(family.getName())) {
-        continue;
-      }
-      if (val.isDelete()) {
-        this.memstore.delete(val);
-      }
+      for (      KeyValue kv : val.getKeyValues()) {
+        if (kv.matchingFamily(HLog.METAFAMILY) || !Bytes.equals(key.getRegionName(),region.regionInfo.getRegionName()) || !kv.matchingFamily(family.getName())) {
+          continue;
+        }
+        if (kv.isDelete()) {
+          this.memstore.delete(kv);
+        }
  else {
-        this.memstore.add(val);
+          this.memstore.add(kv);
+        }
+        editsCount++;
       }
-      editsCount++;
       if (reporter != null && (editsCount % reportInterval) == 0) {
         reporter.progress();
       }
-      val=new KeyValue();
     }
     if (LOG.isDebugEnabled()) {
       LOG.debug("Applied " + editsCount + ", skipped "+ skippedEdits+ "; store maxSeqID="+ maxSeqID+ ", firstSeqIdInLog="+ firstSeqIdInLog+ ", maxSeqIdInLog="+ maxSeqIdInLog);

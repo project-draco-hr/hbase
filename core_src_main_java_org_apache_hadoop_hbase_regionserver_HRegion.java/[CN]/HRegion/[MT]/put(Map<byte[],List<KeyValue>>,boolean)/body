@@ -1,0 +1,40 @@
+{
+  long now=System.currentTimeMillis();
+  byte[] byteNow=Bytes.toBytes(now);
+  boolean flush=false;
+  this.updatesLock.readLock().lock();
+  try {
+    WALEdit walEdit=new WALEdit();
+    for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
+      List<KeyValue> edits=e.getValue();
+      byte[] family=e.getKey();
+      checkFamily(family);
+      if (updateKeys(edits,byteNow)) {
+        if (writeToWAL) {
+          for (          KeyValue kv : edits) {
+            walEdit.add(kv);
+          }
+        }
+      }
+    }
+    if (!walEdit.isEmpty()) {
+      this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdit,now);
+    }
+    long size=0;
+    for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
+      byte[] family=e.getKey();
+      List<KeyValue> edits=e.getValue();
+      Store store=getStore(family);
+      for (      KeyValue kv : edits) {
+        size=this.memstoreSize.addAndGet(store.add(kv));
+      }
+    }
+    flush=isFlushSize(size);
+  }
+  finally {
+    this.updatesLock.readLock().unlock();
+  }
+  if (flush) {
+    requestFlush();
+  }
+}

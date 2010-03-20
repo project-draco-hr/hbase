@@ -1,0 +1,56 @@
+{
+  long now=System.currentTimeMillis();
+  byte[] byteNow=Bytes.toBytes(now);
+  boolean flush=false;
+  this.updatesLock.readLock().lock();
+  try {
+    if (writeToWAL) {
+      WALEdit walEdit=new WALEdit();
+      for (      Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
+        List<KeyValue> kvs=e.getValue();
+        for (        KeyValue kv : kvs) {
+          walEdit.add(kv);
+        }
+      }
+      if (!walEdit.isEmpty()) {
+        this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdit,now);
+      }
+    }
+    long size=0;
+    for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
+      byte[] family=e.getKey();
+      List<KeyValue> kvs=e.getValue();
+      Store store=getStore(family);
+      for (      KeyValue kv : kvs) {
+        if (kv.isLatestTimestamp() && kv.isDeleteType()) {
+          List<KeyValue> result=new ArrayList<KeyValue>(1);
+          Get g=new Get(kv.getRow());
+          NavigableSet<byte[]> qualifiers=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+          byte[] q=kv.getQualifier();
+          if (q == null)           q=HConstants.EMPTY_BYTE_ARRAY;
+          qualifiers.add(q);
+          get(store,g,qualifiers,result);
+          if (result.isEmpty()) {
+            continue;
+          }
+          if (result.size() > 1) {
+            throw new RuntimeException("Unexpected size: " + result.size());
+          }
+          KeyValue getkv=result.get(0);
+          Bytes.putBytes(kv.getBuffer(),kv.getTimestampOffset(),getkv.getBuffer(),getkv.getTimestampOffset(),Bytes.SIZEOF_LONG);
+        }
+ else {
+          kv.updateLatestStamp(byteNow);
+        }
+        size=this.memstoreSize.addAndGet(store.delete(kv));
+      }
+    }
+    flush=isFlushSize(size);
+  }
+  finally {
+    this.updatesLock.readLock().unlock();
+  }
+  if (flush) {
+    requestFlush();
+  }
+}
