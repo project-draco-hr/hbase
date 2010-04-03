@@ -1,0 +1,29 @@
+{
+  StringBuilder sb=new StringBuilder();
+  sb.append('/');
+  if (accessToken != null) {
+    sb.append(accessToken);
+    sb.append('/');
+  }
+  sb.append(Bytes.toStringBinary(name));
+  sb.append('/');
+  sb.append("schema");
+  Response response=client.get(sb.toString(),Constants.MIMETYPE_PROTOBUF);
+  if (response.getCode() != 200) {
+    throw new IOException("schema request returned " + response.getCode());
+  }
+  TableSchemaModel schema=new TableSchemaModel();
+  schema.getObjectFromMessage(response.getBody());
+  HTableDescriptor htd=new HTableDescriptor(schema.getName());
+  for (  Map.Entry<QName,Object> e : schema.getAny().entrySet()) {
+    htd.setValue(e.getKey().getLocalPart(),e.getValue().toString());
+  }
+  for (  ColumnSchemaModel column : schema.getColumns()) {
+    HColumnDescriptor hcd=new HColumnDescriptor(column.getName());
+    for (    Map.Entry<QName,Object> e : column.getAny().entrySet()) {
+      hcd.setValue(e.getKey().getLocalPart(),e.getValue().toString());
+    }
+    htd.addFamily(hcd);
+  }
+  return htd;
+}

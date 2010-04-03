@@ -1,0 +1,34 @@
+{
+  TreeMap<byte[],List<KeyValue>> map=new TreeMap<byte[],List<KeyValue>>(Bytes.BYTES_COMPARATOR);
+  for (  Put put : puts) {
+    byte[] row=put.getRow();
+    List<KeyValue> kvs=map.get(row);
+    if (kvs == null) {
+      kvs=new ArrayList<KeyValue>();
+      map.put(row,kvs);
+    }
+    for (    List<KeyValue> l : put.getFamilyMap().values()) {
+      kvs.addAll(l);
+    }
+  }
+  CellSetModel model=new CellSetModel();
+  for (  Map.Entry<byte[],List<KeyValue>> e : map.entrySet()) {
+    RowModel row=new RowModel(e.getKey());
+    for (    KeyValue kv : e.getValue()) {
+      row.addCell(new CellModel(kv));
+    }
+    model.addRow(row);
+  }
+  StringBuilder sb=new StringBuilder();
+  sb.append('/');
+  if (accessToken != null) {
+    sb.append(accessToken);
+    sb.append('/');
+  }
+  sb.append(Bytes.toStringBinary(name));
+  sb.append("/$multiput");
+  Response response=client.put(sb.toString(),Constants.MIMETYPE_PROTOBUF,model.createProtobufOutput());
+  if (response.getCode() != 200) {
+    throw new IOException("multiput failed with " + response.getCode());
+  }
+}
