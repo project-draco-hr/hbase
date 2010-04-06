@@ -1,4 +1,11 @@
 {
+  ScannerModel model;
+  try {
+    model=ScannerModel.fromScan(scan);
+  }
+ catch (  Exception e) {
+    throw new IOException(e);
+  }
   StringBuffer sb=new StringBuffer();
   sb.append('/');
   if (accessToken != null) {
@@ -8,15 +15,23 @@
   sb.append(Bytes.toStringBinary(name));
   sb.append('/');
   sb.append("scanner");
-  try {
-    ScannerModel model=ScannerModel.fromScan(scan);
+  for (int i=0; i < maxRetries; i++) {
     Response response=client.post(sb.toString(),Constants.MIMETYPE_PROTOBUF,model.createProtobufOutput());
-    if (response.getCode() != 201) {
-      throw new IOException("scan request failed with " + response.getCode());
-    }
-    uri=response.getLocation();
+    int code=response.getCode();
+switch (code) {
+case 201:
+      uri=response.getLocation();
+    return;
+case 509:
+  try {
+    Thread.sleep(sleepTime);
   }
- catch (  Exception e) {
-    throw new IOException(e);
+ catch (  InterruptedException e) {
   }
+break;
+default :
+throw new IOException("scan request failed with " + code);
+}
+}
+throw new IOException("scan request timed out");
 }

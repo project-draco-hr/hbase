@@ -8,22 +8,24 @@
   sb.append(Bytes.toStringBinary(name));
   sb.append('/');
   sb.append("schema");
-  Response response=client.get(sb.toString(),Constants.MIMETYPE_PROTOBUF);
-  if (response.getCode() != 200) {
-    throw new IOException("schema request returned " + response.getCode());
-  }
-  TableSchemaModel schema=new TableSchemaModel();
-  schema.getObjectFromMessage(response.getBody());
-  HTableDescriptor htd=new HTableDescriptor(schema.getName());
-  for (  Map.Entry<QName,Object> e : schema.getAny().entrySet()) {
-    htd.setValue(e.getKey().getLocalPart(),e.getValue().toString());
-  }
-  for (  ColumnSchemaModel column : schema.getColumns()) {
-    HColumnDescriptor hcd=new HColumnDescriptor(column.getName());
-    for (    Map.Entry<QName,Object> e : column.getAny().entrySet()) {
-      hcd.setValue(e.getKey().getLocalPart(),e.getValue().toString());
-    }
-    htd.addFamily(hcd);
-  }
-  return htd;
+  for (int i=0; i < maxRetries; i++) {
+    Response response=client.get(sb.toString(),Constants.MIMETYPE_PROTOBUF);
+    int code=response.getCode();
+switch (code) {
+case 200:
+      TableSchemaModel schema=new TableSchemaModel();
+    schema.getObjectFromMessage(response.getBody());
+  return schema.getTableDescriptor();
+case 509:
+try {
+  Thread.sleep(sleepTime);
+}
+ catch (InterruptedException e) {
+}
+break;
+default :
+throw new IOException("schema request returned " + code);
+}
+}
+throw new IOException("schema request timed out");
 }
