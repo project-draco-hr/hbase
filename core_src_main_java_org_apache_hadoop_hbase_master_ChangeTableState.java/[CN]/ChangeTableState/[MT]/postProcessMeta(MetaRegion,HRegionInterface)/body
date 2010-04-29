@@ -13,12 +13,14 @@
       LOG.debug("Skipping region " + i.toString() + " because it is pending open, will tell it to close later");
       continue;
     }
-    Put put=updateRegionInfo(i);
-    server.put(m.getRegionName(),put);
-    Delete delete=new Delete(i.getRegionName());
-    delete.deleteColumns(CATALOG_FAMILY,SERVER_QUALIFIER);
-    delete.deleteColumns(CATALOG_FAMILY,STARTCODE_QUALIFIER);
-    server.delete(m.getRegionName(),delete);
+    if (!(i.isOffline() && !online) && !(!i.isOffline() && online)) {
+      Put put=updateRegionInfo(i);
+      server.put(m.getRegionName(),put);
+      Delete delete=new Delete(i.getRegionName());
+      delete.deleteColumns(CATALOG_FAMILY,SERVER_QUALIFIER);
+      delete.deleteColumns(CATALOG_FAMILY,STARTCODE_QUALIFIER);
+      server.delete(m.getRegionName(),delete);
+    }
     if (LOG.isDebugEnabled()) {
       LOG.debug("Removed server and startcode from row and set online=" + this.online + ": "+ i.getRegionNameAsString());
     }
@@ -44,6 +46,13 @@ synchronized (this.master.getRegionManager()) {
         continue;
       }
       for (      HRegionInfo i : e.getValue()) {
+        Get get=new Get(i.getRegionName());
+        get.addColumn(CATALOG_FAMILY,SERVER_QUALIFIER);
+        Result values=server.get(m.getRegionName(),get);
+        String serverAddress=BaseScanner.getServerAddress(values);
+        if (serverAddress.length() == 0) {
+          continue;
+        }
         if (LOG.isDebugEnabled()) {
           LOG.debug("Adding region " + i.getRegionNameAsString() + " to setClosing list");
         }
