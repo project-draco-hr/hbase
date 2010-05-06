@@ -2,7 +2,21 @@
   if (!isMasterRunning()) {
     throw new MasterNotRunningException();
   }
-  HRegionInfo newRegion=new HRegionInfo(desc,null,null);
+  HRegionInfo[] newRegions=null;
+  if (splitKeys == null || splitKeys.length == 0) {
+    newRegions=new HRegionInfo[]{new HRegionInfo(desc,null,null)};
+  }
+ else {
+    int numRegions=splitKeys.length + 1;
+    newRegions=new HRegionInfo[numRegions];
+    byte[] startKey=null;
+    byte[] endKey=null;
+    for (int i=0; i < numRegions; i++) {
+      endKey=(i == splitKeys.length) ? null : splitKeys[i];
+      newRegions[i]=new HRegionInfo(desc,startKey,endKey);
+      startKey=endKey;
+    }
+  }
   for (int tries=0; tries < this.numRetries; tries++) {
     try {
       if (!this.regionManager.areAllMetaRegionsOnline()) {
@@ -11,7 +25,7 @@
       if (!this.serverManager.canAssignUserRegions()) {
         throw new IOException("not enough servers to create table yet");
       }
-      createTable(newRegion);
+      createTable(newRegions);
       LOG.info("created table " + desc.getNameAsString());
       break;
     }
