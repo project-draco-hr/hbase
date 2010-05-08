@@ -1,29 +1,23 @@
 {
   HServerInfo info=new HServerInfo(serverInfo);
-  String serverName=info.getServerName();
-  if (this.serversToServerInfo.containsKey(serverName) || this.deadServers.contains(serverName)) {
-    LOG.debug("Server start was rejected: " + serverInfo);
-    LOG.debug("serversToServerInfo.containsKey: " + this.serversToServerInfo.containsKey(serverName));
-    LOG.debug("deadServers.contains: " + this.deadServers.contains(serverName));
-    throw new Leases.LeaseStillHeldException(serverName);
-  }
-  LOG.info("Received start message from: " + serverName);
-  HServerLoad load=this.serversToLoad.remove(serverName);
-  if (load != null) {
-synchronized (this.loadToServers) {
-      Set<String> servers=loadToServers.get(load);
-      if (servers != null) {
-        servers.remove(serverName);
-        if (servers.size() > 0)         this.loadToServers.put(load,servers);
- else         this.loadToServers.remove(load);
-      }
+  String hostAndPort=info.getServerAddress().toString();
+  HServerInfo existingServer=this.serverAddressToServerInfo.get(info.getServerAddress());
+  if (existingServer != null) {
+    LOG.info("Server start rejected; we already have " + hostAndPort + " registered; existingServer="+ existingServer+ ", newServer="+ info);
+    if (existingServer.getStartCode() < info.getStartCode()) {
+      LOG.info("Triggering server recovery; existingServer looks stale");
+      expireServer(existingServer);
     }
+    throw new Leases.LeaseStillHeldException(hostAndPort);
   }
-  HServerInfo storedInfo=this.serversToServerInfo.remove(serverName);
-  if (storedInfo != null && !this.master.isClosed()) {
-    this.master.getRegionManager().getRootRegionLocation();
-    RegionServerOperation op=new ProcessServerShutdown(master,storedInfo);
-    this.master.getRegionServerOperationQueue().put(op);
+  if (isDead(hostAndPort,true)) {
+    LOG.debug("Server start rejected; currently processing " + hostAndPort + " failure");
+    throw new Leases.LeaseStillHeldException(hostAndPort);
   }
+  if (isDead(hostAndPort,true)) {
+    LOG.debug("Server start rejected; currently processing " + hostAndPort + " failure");
+    throw new Leases.LeaseStillHeldException(hostAndPort);
+  }
+  LOG.info("Received start message from: " + info.getServerName());
   recordNewServer(info);
 }

@@ -1,0 +1,27 @@
+{
+  LOG.info("Running testKillRSWithOpeningRegion2482");
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  if (cluster.getLiveRegionServerThreads().size() < 2) {
+    cluster.startRegionServer();
+  }
+  int countOfMetaRegions=countOfMetaRegions();
+  HMaster m=cluster.getMaster();
+  MiniHBaseClusterRegionServer hrs=(MiniHBaseClusterRegionServer)cluster.startRegionServer().getRegionServer();
+  LOG.info("Started new regionserver: " + hrs.toString());
+  int minimumRegions=countOfMetaRegions / (cluster.getRegionServerThreads().size() * 2);
+  while (hrs.getOnlineRegions().size() < minimumRegions)   Threads.sleep(100);
+  HBase2482Listener listener=new HBase2482Listener(hrs);
+  m.getRegionServerOperationQueue().registerRegionServerOperationListener(listener);
+  try {
+    closeAllNonCatalogRegions(cluster,hrs);
+    cluster.addMessageToSendRegionServer(hrs,new HMsg(HMsg.Type.TESTING_MSG_BLOCK_RS));
+    while (!listener.closed)     Threads.sleep(100);
+    LOG.info("Past close");
+    while (!listener.abortSent)     Threads.sleep(100);
+    LOG.info("Past abort send; waiting on all regions to redeploy");
+    assertRegionIsBackOnline(listener.regionToFind);
+  }
+  finally {
+    m.getRegionServerOperationQueue().unregisterRegionServerOperationListener(listener);
+  }
+}
