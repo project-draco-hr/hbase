@@ -1,0 +1,45 @@
+{
+  final ReadWriteConsistencyControl rwcc=new ReadWriteConsistencyControl();
+  final AtomicBoolean finished=new AtomicBoolean(false);
+  final AtomicBoolean readerFailed=new AtomicBoolean(false);
+  final AtomicLong failedAt=new AtomicLong();
+  Runnable reader=new Runnable(){
+    public void run(){
+      long prev=rwcc.memstoreReadPoint();
+      while (!finished.get()) {
+        long newPrev=rwcc.memstoreReadPoint();
+        if (newPrev < prev) {
+          System.out.println("Reader got out of order, prev: " + prev + " next was: "+ newPrev);
+          readerFailed.set(true);
+          failedAt.set(newPrev);
+          return;
+        }
+      }
+    }
+  }
+;
+  int n=20;
+  Thread[] writers=new Thread[n];
+  AtomicBoolean[] statuses=new AtomicBoolean[n];
+  Thread readThread=new Thread(reader);
+  for (int i=0; i < n; ++i) {
+    statuses[i]=new AtomicBoolean(true);
+    writers[i]=new Thread(new Writer(finished,rwcc,statuses[i]));
+    writers[i].start();
+  }
+  readThread.start();
+  try {
+    Thread.sleep(10 * 1000);
+  }
+ catch (  InterruptedException ex) {
+  }
+  finished.set(true);
+  readThread.join();
+  for (int i=0; i < n; ++i) {
+    writers[i].join();
+  }
+  assertFalse(readerFailed.get());
+  for (int i=0; i < n; ++i) {
+    assertTrue(statuses[i].get());
+  }
+}

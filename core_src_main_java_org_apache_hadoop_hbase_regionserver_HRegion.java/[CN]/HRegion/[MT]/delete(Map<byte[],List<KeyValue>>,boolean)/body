@@ -2,7 +2,8 @@
   long now=System.currentTimeMillis();
   byte[] byteNow=Bytes.toBytes(now);
   boolean flush=false;
-  this.updatesLock.readLock().lock();
+  updatesLock.readLock().lock();
+  ReadWriteConsistencyControl.WriteEntry w=null;
   try {
     for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
       byte[] family=e.getKey();
@@ -15,18 +16,16 @@
           if (qual == null)           qual=HConstants.EMPTY_BYTE_ARRAY;
           Integer count=kvCount.get(qual);
           if (count == null) {
-            kvCount.put(qual,new Integer(1));
+            kvCount.put(qual,1);
           }
  else {
-            kvCount.put(qual,new Integer(count + 1));
+            kvCount.put(qual,count + 1);
           }
           count=kvCount.get(qual);
-          List<KeyValue> result=new ArrayList<KeyValue>(1);
-          Get g=new Get(kv.getRow());
-          g.setMaxVersions(count);
-          NavigableSet<byte[]> qualifiers=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
-          qualifiers.add(qual);
-          get(store,g,qualifiers,result);
+          Get get=new Get(kv.getRow());
+          get.setMaxVersions(count);
+          get.addColumn(family,qual);
+          List<KeyValue> result=get(get);
           if (result.size() < count) {
             kv.updateLatestStamp(byteNow);
             continue;
@@ -55,17 +54,20 @@
       }
     }
     long size=0;
+    w=rwcc.beginMemstoreInsert();
     for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
       byte[] family=e.getKey();
       List<KeyValue> kvs=e.getValue();
       Store store=getStore(family);
       for (      KeyValue kv : kvs) {
+        kv.setMemstoreTS(w.getWriteNumber());
         size=this.memstoreSize.addAndGet(store.delete(kv));
       }
     }
     flush=isFlushSize(size);
   }
   finally {
+    if (w != null)     rwcc.completeMemstoreInsert(w);
     this.updatesLock.readLock().unlock();
   }
   if (flush) {
