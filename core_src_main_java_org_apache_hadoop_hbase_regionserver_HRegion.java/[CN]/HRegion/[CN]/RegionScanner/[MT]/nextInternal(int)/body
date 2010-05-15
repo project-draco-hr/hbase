@@ -1,33 +1,27 @@
 {
-  byte[] currentRow=null;
-  boolean filterCurrentRow=false;
   while (true) {
-    KeyValue kv=this.storeHeap.peek();
-    if (kv == null)     return false;
-    byte[] row=kv.getRow();
-    boolean samerow=Bytes.equals(currentRow,row);
-    if (samerow && filterCurrentRow) {
-      readAndDumpCurrentResult();
-      continue;
+    byte[] currentRow=peekRow();
+    if (isStopRow(currentRow)) {
+      return false;
     }
-    if (!samerow) {
-      currentRow=row;
-      filterCurrentRow=false;
-      if (this.stopRow != null && comparator.compareRows(this.stopRow,0,this.stopRow.length,currentRow,0,currentRow.length) <= this.isScan) {
-        return false;
+ else     if (filterRowKey(currentRow)) {
+      nextRow(currentRow);
+    }
+ else {
+      byte[] nextRow;
+      do {
+        this.storeHeap.next(results,limit);
+        if (limit > 0 && results.size() == limit) {
+          return true;
+        }
       }
-      if (hasResults())       return true;
-    }
-    if (this.filter != null && this.filter.filterRowKey(row,0,row.length)) {
-      readAndDumpCurrentResult();
-      resetFilters();
-      filterCurrentRow=true;
-      currentRow=row;
-      continue;
-    }
-    this.storeHeap.next(results,limit);
-    if (limit > 0 && results.size() == limit) {
-      return true;
+ while (Bytes.equals(currentRow,nextRow=peekRow()));
+      final boolean stopRow=isStopRow(nextRow);
+      if (!stopRow && (results.isEmpty() || filterRow())) {
+        nextRow(currentRow);
+        continue;
+      }
+      return !stopRow;
     }
   }
 }
