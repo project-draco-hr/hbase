@@ -1,4 +1,6 @@
 {
+  boolean singletonList=list.size() == 1;
+  Throwable singleRowCause=null;
   for (int tries=0; tries < numRetries && !list.isEmpty(); ++tries) {
     Collections.sort(list);
     Map<HServerAddress,MultiPut> regionPuts=new HashMap<HServerAddress,MultiPut>();
@@ -43,9 +45,14 @@
         failed.addAll(request.allPuts());
       }
 catch (      ExecutionException e) {
-        System.out.println(e);
         LOG.debug("Failed all from " + request.address,e);
         failed.addAll(request.allPuts());
+        if (e.getCause() instanceof DoNotRetryIOException) {
+          throw (DoNotRetryIOException)e.getCause();
+        }
+        if (singletonList) {
+          singleRowCause=e.getCause();
+        }
       }
     }
     list.clear();
@@ -64,6 +71,9 @@ catch (      ExecutionException e) {
     }
   }
   if (!list.isEmpty()) {
-    throw new RetriesExhaustedException("Still had " + list.size() + " puts left after retrying "+ numRetries+ " times. Should have detail on which Regions failed the most");
+    if (singletonList && singleRowCause != null) {
+      throw new IOException(singleRowCause);
+    }
+    throw new RetriesExhaustedException("Still had " + list.size() + " puts left after retrying "+ numRetries+ " times.");
   }
 }
