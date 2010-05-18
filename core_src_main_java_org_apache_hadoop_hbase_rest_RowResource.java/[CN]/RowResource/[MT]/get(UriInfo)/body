@@ -1,0 +1,37 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("GET " + uriInfo.getAbsolutePath());
+  }
+  servlet.getMetrics().incrementRequests(1);
+  try {
+    ResultGenerator generator=ResultGenerator.fromRowSpec(tableName,rowspec,null);
+    if (!generator.hasNext()) {
+      throw new WebApplicationException(Response.Status.NOT_FOUND);
+    }
+    int count=0;
+    CellSetModel model=new CellSetModel();
+    KeyValue value=generator.next();
+    byte[] rowKey=value.getRow();
+    RowModel rowModel=new RowModel(rowKey);
+    do {
+      if (!Bytes.equals(value.getRow(),rowKey)) {
+        model.addRow(rowModel);
+        rowKey=value.getRow();
+        rowModel=new RowModel(rowKey);
+      }
+      rowModel.addCell(new CellModel(value.getFamily(),value.getQualifier(),value.getTimestamp(),value.getValue()));
+      if (++count > rowspec.getMaxValues()) {
+        break;
+      }
+      value=generator.next();
+    }
+ while (value != null);
+    model.addRow(rowModel);
+    ResponseBuilder response=Response.ok(model);
+    response.cacheControl(cacheControl);
+    return response.build();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+}

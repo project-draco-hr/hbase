@@ -1,0 +1,52 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("GET " + uriInfo.getAbsolutePath());
+  }
+  servlet.getMetrics().incrementRequests(1);
+  CellSetModel model=new CellSetModel();
+  RowModel rowModel=null;
+  byte[] rowKey=null;
+  int limit=batch;
+  if (maxValues > 0) {
+    limit=maxValues;
+  }
+  int count=limit;
+  do {
+    KeyValue value=null;
+    try {
+      value=generator.next();
+    }
+ catch (    IllegalStateException e) {
+      ScannerResource.delete(id);
+      throw new WebApplicationException(Response.Status.GONE);
+    }
+    if (value == null) {
+      LOG.info("generator exhausted");
+      if (count == limit) {
+        return Response.noContent().build();
+      }
+      break;
+    }
+    if (rowKey == null) {
+      rowKey=value.getRow();
+      rowModel=new RowModel(rowKey);
+    }
+    if (!Bytes.equals(value.getRow(),rowKey)) {
+      if (maxRows > 0) {
+        if (--maxRows == 0) {
+          generator.putBack(value);
+          break;
+        }
+      }
+      model.addRow(rowModel);
+      rowKey=value.getRow();
+      rowModel=new RowModel(rowKey);
+    }
+    rowModel.addCell(new CellModel(value.getFamily(),value.getQualifier(),value.getTimestamp(),value.getValue()));
+  }
+ while (--count > 0);
+  model.addRow(rowModel);
+  ResponseBuilder response=Response.ok(model);
+  response.cacheControl(cacheControl);
+  return response.build();
+}

@@ -1,0 +1,46 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("DELETE " + uriInfo.getAbsolutePath());
+  }
+  servlet.getMetrics().incrementRequests(1);
+  Delete delete=null;
+  if (rowspec.hasTimestamp())   delete=new Delete(rowspec.getRow(),rowspec.getTimestamp(),null);
+ else   delete=new Delete(rowspec.getRow());
+  for (  byte[] column : rowspec.getColumns()) {
+    byte[][] split=KeyValue.parseColumn(column);
+    if (rowspec.hasTimestamp()) {
+      if (split.length == 2 && split[1].length != 0) {
+        delete.deleteColumns(split[0],split[1],rowspec.getTimestamp());
+      }
+ else {
+        delete.deleteFamily(split[0],rowspec.getTimestamp());
+      }
+    }
+ else {
+      if (split.length == 2 && split[1].length != 0) {
+        delete.deleteColumns(split[0],split[1]);
+      }
+ else {
+        delete.deleteFamily(split[0]);
+      }
+    }
+  }
+  HTablePool pool=servlet.getTablePool();
+  HTableInterface table=null;
+  try {
+    table=pool.getTable(tableName);
+    table.delete(delete);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("DELETE " + delete.toString());
+    }
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+ finally {
+    if (table != null) {
+      pool.putTable(table);
+    }
+  }
+  return Response.ok().build();
+}
