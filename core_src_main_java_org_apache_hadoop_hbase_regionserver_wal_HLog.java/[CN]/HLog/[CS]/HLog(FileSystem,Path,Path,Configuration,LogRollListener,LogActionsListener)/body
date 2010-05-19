@@ -1,0 +1,47 @@
+{
+  super();
+  this.fs=fs;
+  this.dir=dir;
+  this.conf=conf;
+  this.listener=listener;
+  this.flushlogentries=conf.getInt("hbase.regionserver.flushlogentries",1);
+  this.blocksize=conf.getLong("hbase.regionserver.hlog.blocksize",this.fs.getDefaultBlockSize());
+  float multi=conf.getFloat("hbase.regionserver.logroll.multiplier",0.95f);
+  this.logrollsize=(long)(this.blocksize * multi);
+  this.optionalFlushInterval=conf.getLong("hbase.regionserver.optionallogflushinterval",1 * 1000);
+  if (fs.exists(dir)) {
+    throw new IOException("Target HLog directory already exists: " + dir);
+  }
+  fs.mkdirs(dir);
+  this.oldLogDir=oldLogDir;
+  if (!fs.exists(oldLogDir)) {
+    fs.mkdirs(this.oldLogDir);
+  }
+  this.maxLogs=conf.getInt("hbase.regionserver.maxlogs",32);
+  this.enabled=conf.getBoolean("hbase.regionserver.hlog.enabled",true);
+  LOG.info("HLog configuration: blocksize=" + this.blocksize + ", rollsize="+ this.logrollsize+ ", enabled="+ this.enabled+ ", flushlogentries="+ this.flushlogentries+ ", optionallogflushinternal="+ this.optionalFlushInterval+ "ms");
+  if (actionListener != null) {
+    addLogActionsListerner(actionListener);
+  }
+  rollWriter();
+  this.getNumCurrentReplicas=null;
+  if (this.hdfs_out != null) {
+    try {
+      this.getNumCurrentReplicas=this.hdfs_out.getClass().getMethod("getNumCurrentReplicas",new Class<?>[]{});
+      this.getNumCurrentReplicas.setAccessible(true);
+    }
+ catch (    NoSuchMethodException e) {
+    }
+catch (    SecurityException e) {
+      this.getNumCurrentReplicas=null;
+    }
+  }
+  if (this.getNumCurrentReplicas != null) {
+    LOG.info("Using getNumCurrentReplicas--HDFS-826");
+  }
+ else {
+    LOG.info("getNumCurrentReplicas--HDFS-826 not available");
+  }
+  logSyncerThread=new LogSyncer(this.optionalFlushInterval);
+  Threads.setDaemonThreadRunning(logSyncerThread,Thread.currentThread().getName() + ".logSyncer");
+}
