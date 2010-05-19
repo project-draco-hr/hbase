@@ -1,0 +1,60 @@
+{
+  float err=(float)0.01;
+  FileSystem fs=FileSystem.getLocal(conf);
+  conf.setFloat("io.hfile.bloom.error.rate",err);
+  conf.setBoolean("io.hfile.bloom.enabled",true);
+  int rowCount=50;
+  int colCount=10;
+  int versions=2;
+  StoreFile.BloomType[] bt={StoreFile.BloomType.ROWCOL,StoreFile.BloomType.ROW};
+  int[] expKeys={rowCount * colCount,rowCount};
+  float[] expErr={2 * rowCount * colCount* err,2 * rowCount * 2* colCount* err};
+  for (  int x : new int[]{0,1}) {
+    Path f=new Path(ROOT_DIR,getName());
+    StoreFile.Writer writer=new StoreFile.Writer(fs,f,StoreFile.DEFAULT_BLOCKSIZE_SMALL,HFile.DEFAULT_COMPRESSION_ALGORITHM,conf,KeyValue.COMPARATOR,bt[x],expKeys[x]);
+    long now=System.currentTimeMillis();
+    for (int i=0; i < rowCount * 2; i+=2) {
+      for (int j=0; j < colCount * 2; j+=2) {
+        String row=String.format(localFormatter,Integer.valueOf(i));
+        String col=String.format(localFormatter,Integer.valueOf(j));
+        for (int k=0; k < versions; ++k) {
+          KeyValue kv=new KeyValue(row.getBytes(),"family".getBytes(),("col" + col).getBytes(),now - k,Bytes.toBytes((long)-1));
+          writer.append(kv);
+        }
+      }
+    }
+    writer.close();
+    StoreFile.Reader reader=new StoreFile.Reader(fs,f,null,false);
+    reader.loadFileInfo();
+    reader.loadBloomfilter();
+    HFileScanner scanner=reader.getScanner(false,false);
+    assertEquals(expKeys[x],reader.getBloomFilter().getKeyCount());
+    int falsePos=0;
+    int falseNeg=0;
+    for (int i=0; i < rowCount * 2; ++i) {
+      for (int j=0; j < colCount * 2; ++j) {
+        String row=String.format(localFormatter,Integer.valueOf(i));
+        String col=String.format(localFormatter,Integer.valueOf(j));
+        TreeSet<byte[]> columns=new TreeSet<byte[]>();
+        columns.add(("col" + col).getBytes());
+        boolean exists=scanner.shouldSeek(row.getBytes(),columns);
+        boolean shouldRowExist=i % 2 == 0;
+        boolean shouldColExist=j % 2 == 0;
+        shouldColExist=shouldColExist || bt[x] == StoreFile.BloomType.ROW;
+        if (shouldRowExist && shouldColExist) {
+          if (!exists)           falseNeg++;
+        }
+ else {
+          if (exists)           falsePos++;
+        }
+      }
+    }
+    reader.close();
+    fs.delete(f,true);
+    System.out.println(bt[x].toString());
+    System.out.println("  False negatives: " + falseNeg);
+    System.out.println("  False positives: " + falsePos);
+    assertEquals(0,falseNeg);
+    assertTrue(falsePos < 2 * expErr[x]);
+  }
+}

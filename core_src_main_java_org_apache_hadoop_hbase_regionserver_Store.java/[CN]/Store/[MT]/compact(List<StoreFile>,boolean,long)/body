@@ -1,6 +1,13 @@
 {
-  List<KeyValueScanner> scanners=StoreFileScanner.getScannersForStoreFiles(filesToCompact,false,false);
-  HFile.Writer writer=null;
+  int maxKeyCount=0;
+  for (  StoreFile file : filesToCompact) {
+    StoreFile.Reader r=file.getReader();
+    if (r != null) {
+      maxKeyCount+=(r.getBloomFilterType() == family.getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
+    }
+  }
+  List<StoreFileScanner> scanners=StoreFileScanner.getScannersForStoreFiles(filesToCompact,false,false);
+  StoreFile.Writer writer=null;
   try {
     if (majorCompaction) {
       InternalScanner scanner=null;
@@ -12,7 +19,7 @@
         while (scanner.next(kvs)) {
           for (          KeyValue kv : kvs) {
             if (writer == null) {
-              writer=getWriter(this.regionCompactionDir);
+              writer=createWriter(this.regionCompactionDir,maxKeyCount);
             }
             writer.append(kv);
           }
@@ -29,7 +36,7 @@
       MinorCompactingStoreScanner scanner=null;
       try {
         scanner=new MinorCompactingStoreScanner(this,scanners);
-        writer=getWriter(this.regionCompactionDir);
+        writer=createWriter(this.regionCompactionDir,maxKeyCount);
         while (scanner.next(writer)) {
         }
       }
@@ -40,7 +47,7 @@
   }
   finally {
     if (writer != null) {
-      StoreFile.appendMetadata(writer,maxId,majorCompaction);
+      writer.appendMetadata(maxId,majorCompaction);
       writer.close();
     }
   }

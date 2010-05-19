@@ -1,12 +1,12 @@
 {
-  HFile.Writer writer=null;
+  StoreFile.Writer writer=null;
   long flushed=0;
   if (set.size() == 0) {
     return null;
   }
   long oldestTimestamp=System.currentTimeMillis() - ttl;
 synchronized (flushLock) {
-    writer=getWriter();
+    writer=createWriter(this.homedir,set.size());
     int entries=0;
     try {
       for (      KeyValue kv : set) {
@@ -18,12 +18,12 @@ synchronized (flushLock) {
       }
     }
   finally {
-      StoreFile.appendMetadata(writer,logCacheFlushId);
+      writer.appendMetadata(logCacheFlushId,false);
       writer.close();
     }
   }
-  StoreFile sf=new StoreFile(this.fs,writer.getPath(),blockcache,this.conf,this.inMemory);
-  Reader r=sf.getReader();
+  StoreFile sf=new StoreFile(this.fs,writer.getPath(),blockcache,this.conf,this.family.getBloomFilterType(),this.inMemory);
+  Reader r=sf.createReader();
   this.storeSize+=r.length();
   if (LOG.isDebugEnabled()) {
     LOG.debug("Added " + sf + ", entries="+ r.getEntries()+ ", sequenceid="+ logCacheFlushId+ ", memsize="+ StringUtils.humanReadableInt(flushed)+ ", filesize="+ StringUtils.humanReadableInt(r.length())+ " to "+ this.region.regionInfo.getRegionNameAsString());
