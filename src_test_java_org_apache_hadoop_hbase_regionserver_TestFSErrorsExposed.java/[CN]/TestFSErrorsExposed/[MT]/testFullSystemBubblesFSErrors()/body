@@ -1,0 +1,28 @@
+{
+  try {
+    util.startMiniCluster(1);
+    byte[] tableName=Bytes.toBytes("table");
+    byte[] fam=Bytes.toBytes("fam");
+    HBaseAdmin admin=new HBaseAdmin(util.getConfiguration());
+    HTableDescriptor desc=new HTableDescriptor(tableName);
+    desc.addFamily(new HColumnDescriptor(fam,1,HColumnDescriptor.DEFAULT_COMPRESSION,false,false,HConstants.FOREVER,"NONE"));
+    admin.createTable(desc);
+    HTable table=new HTable(tableName);
+    util.loadTable(table,fam);
+    table.flushCommits();
+    util.flush();
+    util.countRows(table);
+    util.getDFSCluster().shutdownDataNodes();
+    try {
+      util.countRows(table);
+      fail("Did not fail to count after removing data");
+    }
+ catch (    RuntimeException rte) {
+      LOG.info("Got expected error",rte);
+      assertTrue(rte.getMessage().contains("Could not seek"));
+    }
+  }
+  finally {
+    util.shutdownMiniCluster();
+  }
+}

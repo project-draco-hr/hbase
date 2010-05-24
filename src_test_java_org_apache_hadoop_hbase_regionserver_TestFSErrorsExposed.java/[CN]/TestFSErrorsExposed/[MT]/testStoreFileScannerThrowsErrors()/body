@@ -1,0 +1,26 @@
+{
+  Path hfilePath=new Path(new Path(HBaseTestingUtility.getTestDir("internalScannerExposesErrors"),"regionname"),"familyname");
+  FaultyFileSystem fs=new FaultyFileSystem(util.getTestFileSystem());
+  HFile.Writer writer=StoreFile.createWriter(fs,hfilePath,2 * 1024);
+  TestStoreFile.writeStoreFile(writer,Bytes.toBytes("cf"),Bytes.toBytes("qual"));
+  StoreFile sf=new StoreFile(fs,writer.getPath(),false,util.getConfiguration(),BloomType.NONE,false);
+  List<StoreFileScanner> scanners=StoreFileScanner.getScannersForStoreFiles(Collections.singletonList(sf),false,true);
+  KeyValueScanner scanner=scanners.get(0);
+  FaultyInputStream inStream=fs.inStreams.get(0).get();
+  assertNotNull(inStream);
+  scanner.seek(KeyValue.LOWESTKEY);
+  assertNotNull(scanner.next());
+  inStream.startFaults();
+  try {
+    int scanned=0;
+    while (scanner.next() != null) {
+      scanned++;
+    }
+    fail("Scanner didn't throw after faults injected");
+  }
+ catch (  IOException ioe) {
+    LOG.info("Got expected exception",ioe);
+    assertTrue(ioe.getMessage().contains("Could not iterate"));
+  }
+  scanner.close();
+}
