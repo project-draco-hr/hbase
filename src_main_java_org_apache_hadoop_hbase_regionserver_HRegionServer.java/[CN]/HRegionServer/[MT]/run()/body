@@ -49,76 +49,49 @@
             LOG.info(msgs[i].toString());
             this.connection.unsetRootRegionLocation();
 switch (msgs[i].getType()) {
-case MSG_CALL_SERVER_STARTUP:
-              if (checkFileSystem()) {
-                closeAllRegions();
-                try {
-                  hlog.closeAndDelete();
-                }
- catch (                Exception e) {
-                  LOG.error("error closing and deleting HLog",e);
-                }
-                try {
-                  serverInfo.setStartCode(System.currentTimeMillis());
-                  hlog=setupHLog();
-                }
- catch (                IOException e) {
-                  this.abortRequested=true;
-                  this.stopRequested.set(true);
-                  e=RemoteExceptionHandler.checkIOException(e);
-                  LOG.fatal("error restarting server",e);
-                  break;
-                }
-                reportForDuty();
-                restart=true;
-              }
- else {
-                LOG.fatal("file system available check failed. " + "Shutting down server.");
-              }
-            break;
 case MSG_REGIONSERVER_STOP:
-          stopRequested.set(true);
-        break;
+              stopRequested.set(true);
+            break;
 case MSG_REGIONSERVER_QUIESCE:
-      if (!quiesceRequested) {
+          if (!quiesceRequested) {
+            try {
+              toDo.put(new ToDoEntry(msgs[i]));
+            }
+ catch (            InterruptedException e) {
+              throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
+            }
+            quiesceRequested=true;
+          }
+        break;
+default :
+      if (fsOk) {
         try {
           toDo.put(new ToDoEntry(msgs[i]));
         }
  catch (        InterruptedException e) {
           throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
         }
-        quiesceRequested=true;
       }
-    break;
-default :
-  if (fsOk) {
-    try {
-      toDo.put(new ToDoEntry(msgs[i]));
-    }
- catch (    InterruptedException e) {
-      throw new RuntimeException("Putting into msgQueue was " + "interrupted.",e);
-    }
   }
-}
 }
 tries=0;
 if (restart || this.stopRequested.get()) {
-toDo.clear();
-continue;
+  toDo.clear();
+  continue;
 }
 }
  catch (Exception e) {
 if (e instanceof IOException) {
-e=RemoteExceptionHandler.checkIOException((IOException)e);
+  e=RemoteExceptionHandler.checkIOException((IOException)e);
 }
 tries++;
 if (tries > 0 && (tries % this.numRetries) == 0) {
-checkFileSystem();
+  checkFileSystem();
 }
 if (this.stopRequested.get()) {
-LOG.info("Stop requested, clearing toDo despite exception");
-toDo.clear();
-continue;
+  LOG.info("Stop requested, clearing toDo despite exception");
+  toDo.clear();
+  continue;
 }
 LOG.warn("Attempt=" + tries,e);
 lastMsg=System.currentTimeMillis();
