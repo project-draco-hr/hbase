@@ -1,0 +1,52 @@
+{
+  List<Path> processedLogs=new ArrayList<Path>();
+  List<Path> corruptedLogs=new ArrayList<Path>();
+  final Map<byte[],WriterAndPath> logWriters=Collections.synchronizedMap(new TreeMap<byte[],WriterAndPath>(Bytes.BYTES_COMPARATOR));
+  List<Path> splits=null;
+  int logFilesPerStep=conf.getInt("hbase.hlog.split.batch.size",3);
+  boolean skipErrors=conf.getBoolean("hbase.hlog.split.skip.errors",false);
+  try {
+    int i=-1;
+    while (i < logfiles.length) {
+      final Map<byte[],LinkedList<Entry>> editsByRegion=new TreeMap<byte[],LinkedList<Entry>>(Bytes.BYTES_COMPARATOR);
+      for (int j=0; j < logFilesPerStep; j++) {
+        i++;
+        if (i == logfiles.length) {
+          break;
+        }
+        FileStatus log=logfiles[i];
+        Path logPath=log.getPath();
+        long logLength=log.getLen();
+        LOG.debug("Splitting hlog " + (i + 1) + " of "+ logfiles.length+ ": "+ logPath+ ", length="+ logLength);
+        try {
+          recoverFileLease(fs,logPath,conf);
+          parseHLog(log,editsByRegion,fs,conf);
+          processedLogs.add(logPath);
+        }
+ catch (        IOException e) {
+          if (skipErrors) {
+            LOG.warn("Got while parsing hlog " + logPath + ". Marking as corrupted",e);
+            corruptedLogs.add(logPath);
+          }
+ else {
+            throw e;
+          }
+        }
+      }
+      writeEditsBatchToRegions(editsByRegion,logWriters,rootDir,fs,conf);
+    }
+    if (fs.listStatus(srcDir).length > processedLogs.size() + corruptedLogs.size()) {
+      throw new IOException("Discovered orphan hlog after split. Maybe " + "HRegionServer was not dead when we started");
+    }
+    archiveLogs(corruptedLogs,processedLogs,oldLogDir,fs,conf);
+  }
+  finally {
+    splits=new ArrayList<Path>(logWriters.size());
+    for (    WriterAndPath wap : logWriters.values()) {
+      wap.w.close();
+      splits.add(wap.p);
+      LOG.debug("Closed " + wap.p);
+    }
+  }
+  return splits;
+}
