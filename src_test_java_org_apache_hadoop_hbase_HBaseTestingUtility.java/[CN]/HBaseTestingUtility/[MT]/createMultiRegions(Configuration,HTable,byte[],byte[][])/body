@@ -1,0 +1,27 @@
+{
+  Arrays.sort(startKeys,Bytes.BYTES_COMPARATOR);
+  HTable meta=new HTable(c,HConstants.META_TABLE_NAME);
+  HTableDescriptor htd=table.getTableDescriptor();
+  if (!htd.hasFamily(columnFamily)) {
+    HColumnDescriptor hcd=new HColumnDescriptor(columnFamily);
+    htd.addFamily(hcd);
+  }
+  List<byte[]> rows=getMetaTableRows(htd.getName());
+  int count=0;
+  for (int i=0; i < startKeys.length; i++) {
+    int j=(i + 1) % startKeys.length;
+    HRegionInfo hri=new HRegionInfo(table.getTableDescriptor(),startKeys[i],startKeys[j]);
+    Put put=new Put(hri.getRegionName());
+    put.add(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER,Writables.getBytes(hri));
+    meta.put(put);
+    LOG.info("createMultiRegions: inserted " + hri.toString());
+    count++;
+  }
+  for (  byte[] row : rows) {
+    LOG.info("createMultiRegions: deleting meta row -> " + Bytes.toStringBinary(row));
+    meta.delete(new Delete(row));
+  }
+  HConnection conn=table.getConnection();
+  conn.clearRegionCache();
+  return count;
+}

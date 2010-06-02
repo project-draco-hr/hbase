@@ -1,0 +1,26 @@
+{
+  HConnection conn=table.getConnection();
+  if (!conn.isTableAvailable(table.getTableName())) {
+    throw new TableNotFoundException("Table " + Bytes.toStringBinary(table.getTableName()) + "is not currently available.");
+  }
+  Deque<LoadQueueItem> queue=null;
+  try {
+    queue=discoverLoadQueue(hfofDir);
+    while (!queue.isEmpty()) {
+      LoadQueueItem item=queue.remove();
+      tryLoad(item,conn,table.getTableName(),queue);
+    }
+  }
+  finally {
+    if (queue != null && !queue.isEmpty()) {
+      StringBuilder err=new StringBuilder();
+      err.append("-------------------------------------------------\n");
+      err.append("Bulk load aborted with some files not yet loaded:\n");
+      err.append("-------------------------------------------------\n");
+      for (      LoadQueueItem q : queue) {
+        err.append("  ").append(q.hfilePath).append('\n');
+      }
+      LOG.error(err);
+    }
+  }
+}

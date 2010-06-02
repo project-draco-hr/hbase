@@ -1,0 +1,43 @@
+{
+  Configuration conf=util.getConfiguration();
+  Path testDir=HBaseTestingUtility.getTestDir("testLocalMRIncrementalLoad");
+  byte[][] startKeys=generateRandomStartKeys(5);
+  try {
+    util.startMiniCluster();
+    HBaseAdmin admin=new HBaseAdmin(conf);
+    HTable table=util.createTable(TABLE_NAME,FAMILY_NAME);
+    int numRegions=util.createMultiRegions(util.getConfiguration(),table,FAMILY_NAME,startKeys);
+    assertEquals("Should make 5 regions",numRegions,5);
+    assertEquals("Should start with empty table",0,util.countRows(table));
+    util.startMiniMapReduceCluster();
+    runIncrementalPELoad(conf,table,testDir);
+    assertEquals("HFOF should not touch actual table",0,util.countRows(table));
+    if (shouldChangeRegions) {
+      LOG.info("Changing regions in table");
+      admin.disableTable(table.getTableName());
+      byte[][] newStartKeys=generateRandomStartKeys(15);
+      util.createMultiRegions(util.getConfiguration(),table,FAMILY_NAME,newStartKeys);
+      admin.enableTable(table.getTableName());
+      while (table.getRegionsInfo().size() != 15 || !admin.isTableAvailable(table.getTableName())) {
+        Thread.sleep(1000);
+        LOG.info("Waiting for new region assignment to happen");
+      }
+    }
+    new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
+    int expectedRows=conf.getInt("mapred.map.tasks",1) * ROWSPERSPLIT;
+    assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
+    String tableDigestBefore=util.checksumRows(table);
+    admin.disableTable(TABLE_NAME);
+    while (table.getRegionsInfo().size() != 0) {
+      Thread.sleep(1000);
+      LOG.info("Waiting for table to disable");
+    }
+    admin.enableTable(TABLE_NAME);
+    util.waitTableAvailable(TABLE_NAME,30000);
+    assertEquals("Data should remain after reopening of regions",tableDigestBefore,util.checksumRows(table));
+  }
+  finally {
+    util.shutdownMiniMapReduceCluster();
+    util.shutdownMiniCluster();
+  }
+}

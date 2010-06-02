@@ -1,0 +1,35 @@
+{
+  Configuration conf=job.getConfiguration();
+  job.setPartitionerClass(TotalOrderPartitioner.class);
+  job.setOutputKeyClass(ImmutableBytesWritable.class);
+  job.setOutputValueClass(KeyValue.class);
+  job.setOutputFormatClass(HFileOutputFormat.class);
+  if (KeyValue.class.equals(job.getMapOutputValueClass())) {
+    job.setReducerClass(KeyValueSortReducer.class);
+  }
+ else   if (Put.class.equals(job.getMapOutputValueClass())) {
+    job.setReducerClass(PutSortReducer.class);
+  }
+ else {
+    LOG.warn("Unknown map output value type:" + job.getMapOutputValueClass());
+  }
+  LOG.info("Looking up current regions for table " + table);
+  List<ImmutableBytesWritable> startKeys=getRegionStartKeys(table);
+  LOG.info("Configuring " + startKeys.size() + " reduce partitions "+ "to match current region count");
+  job.setNumReduceTasks(startKeys.size());
+  Path partitionsPath=new Path(job.getWorkingDirectory(),"partitions_" + System.currentTimeMillis());
+  LOG.info("Writing partition information to " + partitionsPath);
+  FileSystem fs=partitionsPath.getFileSystem(conf);
+  writePartitions(conf,partitionsPath,startKeys);
+  partitionsPath.makeQualified(fs);
+  URI cacheUri;
+  try {
+    cacheUri=new URI(partitionsPath.toString() + "#" + TotalOrderPartitioner.DEFAULT_PATH);
+  }
+ catch (  URISyntaxException e) {
+    throw new IOException(e);
+  }
+  DistributedCache.addCacheFile(cacheUri,conf);
+  DistributedCache.createSymlink(conf);
+  LOG.info("Incremental table output configured.");
+}

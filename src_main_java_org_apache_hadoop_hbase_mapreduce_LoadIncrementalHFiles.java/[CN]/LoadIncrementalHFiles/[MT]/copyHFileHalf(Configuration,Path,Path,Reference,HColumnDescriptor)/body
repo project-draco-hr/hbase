@@ -1,0 +1,29 @@
+{
+  FileSystem fs=inFile.getFileSystem(conf);
+  HalfStoreFileReader halfReader=null;
+  HFile.Writer halfWriter=null;
+  try {
+    halfReader=new HalfStoreFileReader(fs,inFile,null,reference);
+    Map<byte[],byte[]> fileInfo=halfReader.loadFileInfo();
+    int blocksize=familyDescriptor.getBlocksize();
+    Algorithm compression=familyDescriptor.getCompression();
+    BloomType bloomFilterType=familyDescriptor.getBloomFilterType();
+    halfWriter=new StoreFile.Writer(fs,outFile,blocksize,compression,conf,KeyValue.COMPARATOR,bloomFilterType,0);
+    HFileScanner scanner=halfReader.getScanner(false,false);
+    scanner.seekTo();
+    do {
+      KeyValue kv=scanner.getKeyValue();
+      halfWriter.append(kv);
+    }
+ while (scanner.next());
+    for (    Map.Entry<byte[],byte[]> entry : fileInfo.entrySet()) {
+      if (shouldCopyHFileMetaKey(entry.getKey())) {
+        halfWriter.appendFileInfo(entry.getKey(),entry.getValue());
+      }
+    }
+  }
+  finally {
+    if (halfWriter != null)     halfWriter.close();
+    if (halfReader != null)     halfReader.close();
+  }
+}

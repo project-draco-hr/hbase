@@ -1,0 +1,46 @@
+{
+  Path srcPath=new Path(srcPathStr);
+  HFile.Reader reader=null;
+  try {
+    LOG.info("Validating hfile at " + srcPath + " for inclusion in "+ "store "+ this+ " region "+ this.region);
+    reader=new HFile.Reader(srcPath.getFileSystem(conf),srcPath,null,false);
+    reader.loadFileInfo();
+    byte[] firstKey=reader.getFirstRowKey();
+    byte[] lastKey=reader.getLastRowKey();
+    LOG.debug("HFile bounds: first=" + Bytes.toStringBinary(firstKey) + " last="+ Bytes.toStringBinary(lastKey));
+    LOG.debug("Region bounds: first=" + Bytes.toStringBinary(region.getStartKey()) + " last="+ Bytes.toStringBinary(region.getEndKey()));
+    HRegionInfo hri=region.getRegionInfo();
+    if (!hri.containsRange(firstKey,lastKey)) {
+      throw new WrongRegionException("Bulk load file " + srcPathStr + " does not fit inside region "+ this.region);
+    }
+  }
+  finally {
+    if (reader != null)     reader.close();
+  }
+  FileSystem srcFs=srcPath.getFileSystem(conf);
+  if (!srcFs.equals(fs)) {
+    LOG.info("File " + srcPath + " on different filesystem than "+ "destination store - moving to this filesystem.");
+    Path tmpDir=new Path(homedir,"_tmp");
+    Path tmpPath=StoreFile.getRandomFilename(fs,tmpDir);
+    FileUtil.copy(srcFs,srcPath,fs,tmpPath,false,conf);
+    LOG.info("Copied to temporary path on dst filesystem: " + tmpPath);
+    srcPath=tmpPath;
+  }
+  Path dstPath=StoreFile.getRandomFilename(fs,homedir);
+  LOG.info("Renaming bulk load file " + srcPath + " to "+ dstPath);
+  StoreFile.rename(fs,srcPath,dstPath);
+  StoreFile sf=new StoreFile(fs,dstPath,blockcache,this.conf,this.family.getBloomFilterType(),this.inMemory);
+  sf.createReader();
+  LOG.info("Moved hfile " + srcPath + " into store directory "+ homedir+ " - updating store file list.");
+  this.lock.writeLock().lock();
+  try {
+    ArrayList<StoreFile> newFiles=new ArrayList<StoreFile>(storefiles);
+    newFiles.add(sf);
+    this.storefiles=ImmutableList.copyOf(newFiles);
+    notifyChangedReadersObservers();
+  }
+  finally {
+    this.lock.writeLock().unlock();
+  }
+  LOG.info("Successfully loaded store file " + srcPath + " into store "+ this+ " (new location: "+ dstPath+ ")");
+}

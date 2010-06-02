@@ -1,19 +1,23 @@
 {
-  this.conf.setInt("io.sort.mb",20);
-  this.conf.setLong("hbase.hregion.max.filesize",64 * 1024);
-  Job job=new Job(this.conf,getName());
-  job.setInputFormatClass(TestHFileOutputFormat.PEInputFormat.class);
-  job.setMapperClass(TestHFileOutputFormat.PEtoKVMapper.class);
-  job.setMapOutputKeyClass(ImmutableBytesWritable.class);
-  job.setMapOutputValueClass(KeyValue.class);
+  Configuration conf=util.getConfiguration();
+  Path testDir=HBaseTestingUtility.getTestDir("testWritingPEData");
+  FileSystem fs=testDir.getFileSystem(conf);
+  conf.setInt("io.sort.mb",20);
+  conf.setLong("hbase.hregion.max.filesize",64 * 1024);
+  Job job=new Job(conf,"testWritingPEData");
+  setupRandomGeneratorMapper(job);
+  byte[] startKey=new byte[RandomKVGeneratingMapper.KEYLEN_DEFAULT];
+  byte[] endKey=new byte[RandomKVGeneratingMapper.KEYLEN_DEFAULT];
+  Arrays.fill(startKey,(byte)0);
+  Arrays.fill(endKey,(byte)0xff);
   job.setPartitionerClass(SimpleTotalOrderPartitioner.class);
-  job.getConfiguration().set(SimpleTotalOrderPartitioner.START,Bytes.toString(PerformanceEvaluation.format(0)));
-  int rows=this.conf.getInt("mapred.map.tasks",1) * ROWSPERSPLIT;
-  job.getConfiguration().set(SimpleTotalOrderPartitioner.END,Bytes.toString(PerformanceEvaluation.format(rows)));
+  SimpleTotalOrderPartitioner.setStartKey(job.getConfiguration(),startKey);
+  SimpleTotalOrderPartitioner.setEndKey(job.getConfiguration(),endKey);
   job.setReducerClass(KeyValueSortReducer.class);
   job.setOutputFormatClass(HFileOutputFormat.class);
-  FileOutputFormat.setOutputPath(job,this.testDir);
+  job.setNumReduceTasks(4);
+  FileOutputFormat.setOutputPath(job,testDir);
   assertTrue(job.waitForCompletion(false));
-  FileStatus[] files=this.fs.listStatus(this.testDir);
+  FileStatus[] files=fs.listStatus(testDir);
   assertTrue(files.length > 0);
 }

@@ -1,0 +1,25 @@
+{
+  String tableName=args[0];
+  Path inputDir=new Path(args[1]);
+  Job job=new Job(conf,NAME + "_" + tableName);
+  job.setJarByClass(TsvImporter.class);
+  FileInputFormat.setInputPaths(job,inputDir);
+  job.setInputFormatClass(TextInputFormat.class);
+  job.setMapperClass(TsvImporter.class);
+  String hfileOutPath=conf.get(BULK_OUTPUT_CONF_KEY);
+  if (hfileOutPath != null) {
+    HTable table=new HTable(conf,tableName);
+    job.setReducerClass(PutSortReducer.class);
+    Path outputDir=new Path(hfileOutPath);
+    FileOutputFormat.setOutputPath(job,outputDir);
+    job.setMapOutputKeyClass(ImmutableBytesWritable.class);
+    job.setMapOutputValueClass(Put.class);
+    HFileOutputFormat.configureIncrementalLoad(job,table);
+  }
+ else {
+    TableMapReduceUtil.initTableReducerJob(tableName,null,job);
+    job.setNumReduceTasks(0);
+  }
+  TableMapReduceUtil.addDependencyJars(job);
+  return job;
+}

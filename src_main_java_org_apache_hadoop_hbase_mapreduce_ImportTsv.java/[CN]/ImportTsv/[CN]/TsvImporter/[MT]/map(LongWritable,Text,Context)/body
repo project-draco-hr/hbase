@@ -1,0 +1,27 @@
+{
+  byte[] lineBytes=value.getBytes();
+  try {
+    TsvParser.ParsedLine parsed=parser.parse(lineBytes,value.getLength());
+    ImmutableBytesWritable rowKey=new ImmutableBytesWritable(lineBytes,parsed.getRowKeyOffset(),parsed.getRowKeyLength());
+    Put put=new Put(rowKey.copyBytes());
+    for (int i=0; i < parsed.getColumnCount(); i++) {
+      if (i == parser.getRowKeyColumnIndex())       continue;
+      KeyValue kv=new KeyValue(lineBytes,parsed.getRowKeyOffset(),parsed.getRowKeyLength(),parser.getFamily(i),0,parser.getFamily(i).length,parser.getQualifier(i),0,parser.getQualifier(i).length,ts,KeyValue.Type.Put,lineBytes,parsed.getColumnOffset(i),parsed.getColumnLength(i));
+      put.add(kv);
+    }
+    context.write(rowKey,put);
+  }
+ catch (  BadTsvLineException badLine) {
+    if (skipBadLines) {
+      System.err.println("Bad line at offset: " + offset.get() + ":\n"+ badLine.getMessage());
+      badLineCount.increment(1);
+      return;
+    }
+ else {
+      throw new IOException(badLine);
+    }
+  }
+catch (  InterruptedException e) {
+    e.printStackTrace();
+  }
+}

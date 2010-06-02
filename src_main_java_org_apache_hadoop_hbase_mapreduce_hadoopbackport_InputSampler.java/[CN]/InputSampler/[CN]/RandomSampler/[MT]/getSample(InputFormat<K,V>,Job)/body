@@ -1,0 +1,34 @@
+{
+  List<InputSplit> splits=inf.getSplits(job);
+  ArrayList<K> samples=new ArrayList<K>(numSamples);
+  int splitsToSample=Math.min(maxSplitsSampled,splits.size());
+  Random r=new Random();
+  long seed=r.nextLong();
+  r.setSeed(seed);
+  LOG.debug("seed: " + seed);
+  for (int i=0; i < splits.size(); ++i) {
+    InputSplit tmp=splits.get(i);
+    int j=r.nextInt(splits.size());
+    splits.set(i,splits.get(j));
+    splits.set(j,tmp);
+  }
+  for (int i=0; i < splitsToSample || (i < splits.size() && samples.size() < numSamples); ++i) {
+    RecordReader<K,V> reader=inf.createRecordReader(splits.get(i),new TaskAttemptContext(job.getConfiguration(),new TaskAttemptID()));
+    while (reader.nextKeyValue()) {
+      if (r.nextDouble() <= freq) {
+        if (samples.size() < numSamples) {
+          samples.add(reader.getCurrentKey());
+        }
+ else {
+          int ind=r.nextInt(numSamples);
+          if (ind != numSamples) {
+            samples.set(ind,reader.getCurrentKey());
+          }
+          freq*=(numSamples - 1) / (double)numSamples;
+        }
+      }
+    }
+    reader.close();
+  }
+  return (K[])samples.toArray();
+}
