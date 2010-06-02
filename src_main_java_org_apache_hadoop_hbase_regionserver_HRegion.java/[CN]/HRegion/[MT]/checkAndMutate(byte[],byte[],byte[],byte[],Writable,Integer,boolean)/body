@@ -1,9 +1,12 @@
 {
   checkReadOnly();
   checkResources();
+  boolean isPut=w instanceof Put;
+  if (!isPut && !(w instanceof Delete))   throw new IOException("Action must be Put or Delete");
   splitsAndClosesLock.readLock().lock();
   try {
-    Get get=new Get(row,put.getRowLock());
+    RowLock lock=isPut ? ((Put)w).getRowLock() : ((Delete)w).getRowLock();
+    Get get=new Get(row,lock);
     checkFamily(family);
     get.addColumn(family,qualifier);
     byte[] now=Bytes.toBytes(System.currentTimeMillis());
@@ -20,7 +23,8 @@
         matches=Bytes.equals(expectedValue,actualValue);
       }
       if (matches) {
-        put(put.getFamilyMap(),writeToWAL);
+        if (isPut)         put(((Put)w).getFamilyMap(),writeToWAL);
+ else         delete(prepareDelete((Delete)w).getFamilyMap(),writeToWAL);
         return true;
       }
       return false;
