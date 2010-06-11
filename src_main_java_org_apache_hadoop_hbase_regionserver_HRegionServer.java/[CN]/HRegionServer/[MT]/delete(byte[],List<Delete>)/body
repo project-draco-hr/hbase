@@ -2,25 +2,26 @@
   int i=0;
   checkOpen();
   HRegion region=null;
-  boolean writeToWAL=true;
   try {
+    boolean writeToWAL=true;
     region=getRegion(regionName);
     if (!region.getRegionInfo().isMetaTable()) {
       this.cacheFlusher.reclaimMemStoreMemory();
     }
-    for (i=0; i < puts.length; i++) {
+    int size=deletes.size();
+    Integer[] locks=new Integer[size];
+    for (    Delete delete : deletes) {
       this.requestCount.incrementAndGet();
-      Integer lock=getLockFromId(puts[i].getLockId());
-      writeToWAL&=puts[i].getWriteToWAL();
-      region.put(puts[i],lock);
+      locks[i]=getLockFromId(delete.getLockId());
+      region.delete(delete,locks[i],writeToWAL);
+      i++;
     }
   }
  catch (  WrongRegionException ex) {
-    LOG.debug("Batch puts: " + i,ex);
+    LOG.debug("Batch deletes: " + i,ex);
     return i;
   }
 catch (  NotServingRegionException ex) {
-    LOG.debug("Batch puts interrupted at index=" + i + " because:"+ ex.getMessage());
     return i;
   }
 catch (  Throwable t) {
