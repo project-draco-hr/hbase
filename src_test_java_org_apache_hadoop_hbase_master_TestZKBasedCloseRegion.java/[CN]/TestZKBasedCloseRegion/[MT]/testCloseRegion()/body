@@ -1,0 +1,25 @@
+{
+  LOG.info("Running testCloseRegion");
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  LOG.info("Number of region servers = " + cluster.getLiveRegionServerThreads().size());
+  int rsIdx=0;
+  HRegionServer regionServer=TEST_UTIL.getHBaseCluster().getRegionServer(rsIdx);
+  Collection<HRegion> regions=regionServer.getOnlineRegions();
+  HRegion region=regions.iterator().next();
+  LOG.debug("Asking RS to close region " + region.getRegionNameAsString());
+  AtomicBoolean closeEventProcessed=new AtomicBoolean(false);
+  RegionServerOperationListener listener=new CloseRegionEventListener(region.getRegionNameAsString(),closeEventProcessed);
+  HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
+  master.getRegionServerOperationQueue().registerRegionServerOperationListener(listener);
+  HMsg closeRegionMsg=new HMsg(HMsg.Type.MSG_REGION_CLOSE,region.getRegionInfo(),Bytes.toBytes("Forcing close in test"));
+  TEST_UTIL.getHBaseCluster().addMessageToSendRegionServer(rsIdx,closeRegionMsg);
+synchronized (closeEventProcessed) {
+    closeEventProcessed.wait(3 * 60 * 1000);
+  }
+  if (!closeEventProcessed.get()) {
+    throw new Exception("Timed out, close event not called on master.");
+  }
+ else {
+    LOG.info("Done with test, RS informed master successfully.");
+  }
+}

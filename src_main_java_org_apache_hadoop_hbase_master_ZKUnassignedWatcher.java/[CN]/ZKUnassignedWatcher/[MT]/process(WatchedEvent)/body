@@ -1,0 +1,29 @@
+{
+  EventType type=event.getType();
+  LOG.debug("ZK-EVENT-PROCESS: Got zkEvent " + type + " state:"+ event.getState()+ " path:"+ event.getPath());
+  if (type.equals(EventType.None) || type.equals(EventType.NodeDeleted)) {
+    return;
+  }
+  if (event.getPath() == null || !event.getPath().startsWith(zkWrapper.getZNodePathForHBase(zkWrapper.getRegionInTransitionZNode()))) {
+    return;
+  }
+  try {
+    if (type.equals(EventType.NodeCreated)) {
+      zkWrapper.watchZNode(event.getPath());
+      handleRegionStateInZK(event.getPath());
+    }
+ else     if (type.equals(EventType.NodeDataChanged)) {
+      handleRegionStateInZK(event.getPath());
+    }
+ else     if (type.equals(EventType.NodeChildrenChanged)) {
+      List<ZNodePathAndData> newZNodes=zkWrapper.watchAndGetNewChildren(event.getPath());
+      for (      ZNodePathAndData zNodePathAndData : newZNodes) {
+        LOG.debug("Handling updates for znode: " + zNodePathAndData.getzNodePath());
+        handleRegionStateInZK(zNodePathAndData.getzNodePath(),zNodePathAndData.getData());
+      }
+    }
+  }
+ catch (  IOException e) {
+    LOG.error("Could not process event from ZooKeeper",e);
+  }
+}

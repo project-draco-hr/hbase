@@ -1,8 +1,10 @@
 {
   Integer mapKey=Bytes.mapKey(regionInfo.getRegionName());
   HRegion region=this.onlineRegions.get(mapKey);
+  RSZookeeperUpdater zkUpdater=new RSZookeeperUpdater(serverInfo.getServerName(),regionInfo.getEncodedName());
   if (region == null) {
     try {
+      zkUpdater.startRegionOpenEvent(null,true);
       region=instantiateRegion(regionInfo);
       if (region.hasReferences() || region.hasTooManyStoreFiles()) {
         this.compactSplitThread.compactionRequested(region,region.hasReferences() ? "Region has references on open" : "Region has too many store files");
@@ -10,7 +12,13 @@
     }
  catch (    Throwable e) {
       Throwable t=cleanup(e,"Error opening " + regionInfo.getRegionNameAsString());
-      reportClose(regionInfo,StringUtils.stringifyException(t).getBytes());
+      try {
+        HMsg hmsg=new HMsg(HMsg.Type.MSG_REPORT_CLOSE,regionInfo,StringUtils.stringifyException(t).getBytes());
+        zkUpdater.abortOpenRegion(hmsg);
+      }
+ catch (      IOException e1) {
+        LOG.error("Failed to abort open region " + regionInfo.getRegionNameAsString(),e1);
+      }
       return;
     }
     this.lock.writeLock().lock();
@@ -22,5 +30,11 @@
       this.lock.writeLock().unlock();
     }
   }
-  reportOpen(regionInfo);
+  try {
+    HMsg hmsg=new HMsg(HMsg.Type.MSG_REPORT_OPEN,regionInfo);
+    zkUpdater.finishRegionOpenEvent(hmsg);
+  }
+ catch (  IOException e) {
+    LOG.error("Failed to mark region " + regionInfo.getRegionNameAsString() + " as opened",e);
+  }
 }

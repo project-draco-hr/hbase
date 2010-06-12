@@ -16,11 +16,17 @@
   this.threadWakeFrequency=conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000);
   this.sleeper=new Sleeper(this.threadWakeFrequency,this.closed);
   this.connection=ServerConnectionManager.getConnection(conf);
-  this.zooKeeperWrapper=new ZooKeeperWrapper(conf,this);
+  zooKeeperWrapper=ZooKeeperWrapper.createInstance(conf,HMaster.class.getName());
+  zooKeeperWrapper.registerListener(this);
   this.zkMasterAddressWatcher=new ZKMasterAddressWatcher(this.zooKeeperWrapper,this.shutdownRequested);
+  zooKeeperWrapper.registerListener(zkMasterAddressWatcher);
   this.zkMasterAddressWatcher.writeAddressToZooKeeper(this.address,true);
   this.regionServerOperationQueue=new RegionServerOperationQueue(this.conf,this.closed);
   serverManager=new ServerManager(this);
+  ZKUnassignedWatcher.start();
+  HBaseEventHandler.init(serverManager);
+  HBaseEventType.RS2ZK_REGION_CLOSED.startMasterExecutorService(MASTER);
+  HBaseEventType.RS2ZK_REGION_OPENED.startMasterExecutorService(MASTER);
   regionManager=new RegionManager(this);
   setName(MASTER);
   this.metrics=new MasterMetrics(MASTER);
