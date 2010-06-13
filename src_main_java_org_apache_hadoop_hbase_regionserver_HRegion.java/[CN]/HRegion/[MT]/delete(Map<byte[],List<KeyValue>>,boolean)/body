@@ -3,13 +3,11 @@
   byte[] byteNow=Bytes.toBytes(now);
   boolean flush=false;
   updatesLock.readLock().lock();
-  ReadWriteConsistencyControl.WriteEntry w=null;
   try {
     for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
       byte[] family=e.getKey();
       List<KeyValue> kvs=e.getValue();
       Map<byte[],Integer> kvCount=new TreeMap<byte[],Integer>(Bytes.BYTES_COMPARATOR);
-      Store store=getStore(family);
       for (      KeyValue kv : kvs) {
         if (kv.isLatestTimestamp() && kv.isDeleteType()) {
           byte[] qual=kv.getQualifier();
@@ -43,31 +41,13 @@
     }
     if (writeToWAL) {
       WALEdit walEdit=new WALEdit();
-      for (      Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
-        List<KeyValue> kvs=e.getValue();
-        for (        KeyValue kv : kvs) {
-          walEdit.add(kv);
-        }
-      }
-      if (!walEdit.isEmpty()) {
-        this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdit,now);
-      }
+      addFamilyMapToWALEdit(familyMap,byteNow,walEdit);
+      this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdit,now);
     }
-    long size=0;
-    w=rwcc.beginMemstoreInsert();
-    for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
-      byte[] family=e.getKey();
-      List<KeyValue> kvs=e.getValue();
-      Store store=getStore(family);
-      for (      KeyValue kv : kvs) {
-        kv.setMemstoreTS(w.getWriteNumber());
-        size=this.memstoreSize.addAndGet(store.delete(kv));
-      }
-    }
-    flush=isFlushSize(size);
+    long addedSize=applyFamilyMapToMemstore(familyMap);
+    flush=isFlushSize(memstoreSize.addAndGet(addedSize));
   }
   finally {
-    if (w != null)     rwcc.completeMemstoreInsert(w);
     this.updatesLock.readLock().unlock();
   }
   if (flush) {

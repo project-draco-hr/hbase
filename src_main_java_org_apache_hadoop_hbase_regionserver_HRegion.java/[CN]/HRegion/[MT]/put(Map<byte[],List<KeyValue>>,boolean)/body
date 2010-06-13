@@ -3,39 +3,17 @@
   byte[] byteNow=Bytes.toBytes(now);
   boolean flush=false;
   this.updatesLock.readLock().lock();
-  ReadWriteConsistencyControl.WriteEntry w=null;
   try {
-    WALEdit walEdit=new WALEdit();
-    for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
-      List<KeyValue> edits=e.getValue();
-      byte[] family=e.getKey();
-      checkFamily(family);
-      if (updateKeys(edits,byteNow)) {
-        if (writeToWAL) {
-          for (          KeyValue kv : edits) {
-            walEdit.add(kv);
-          }
-        }
-      }
-    }
-    if (!walEdit.isEmpty()) {
+    checkFamilies(familyMap.keySet());
+    if (writeToWAL) {
+      WALEdit walEdit=new WALEdit();
+      addFamilyMapToWALEdit(familyMap,byteNow,walEdit);
       this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdit,now);
     }
-    long size=0;
-    w=rwcc.beginMemstoreInsert();
-    for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
-      byte[] family=e.getKey();
-      List<KeyValue> edits=e.getValue();
-      Store store=getStore(family);
-      for (      KeyValue kv : edits) {
-        kv.setMemstoreTS(w.getWriteNumber());
-        size=this.memstoreSize.addAndGet(store.add(kv));
-      }
-    }
-    flush=isFlushSize(size);
+    long addedSize=applyFamilyMapToMemstore(familyMap);
+    flush=isFlushSize(memstoreSize.addAndGet(addedSize));
   }
   finally {
-    if (w != null)     rwcc.completeMemstoreInsert(w);
     this.updatesLock.readLock().unlock();
   }
   if (flush) {

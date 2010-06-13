@@ -1,30 +1,25 @@
 {
-  int i=0;
   checkOpen();
   HRegion region=null;
-  boolean writeToWAL=true;
   try {
     region=getRegion(regionName);
     if (!region.getRegionInfo().isMetaTable()) {
       this.cacheFlusher.reclaimMemStoreMemory();
     }
-    for (    Put put : puts) {
-      this.requestCount.incrementAndGet();
-      Integer lock=getLockFromId(put.getLockId());
-      writeToWAL&=put.getWriteToWAL();
-      region.put(put,lock);
+    @SuppressWarnings("unchecked") Pair<Put,Integer>[] putsWithLocks=new Pair[puts.size()];
+    int i=0;
+    for (    Put p : puts) {
+      Integer lock=getLockFromId(p.getLockId());
+      putsWithLocks[i++]=new Pair<Put,Integer>(p,lock);
     }
+    this.requestCount.addAndGet(puts.size());
+    OperationStatusCode[] codes=region.put(putsWithLocks);
+    for (i=0; i < codes.length; i++) {
+      if (codes[i] != OperationStatusCode.SUCCESS)       return i;
+    }
+    return -1;
   }
- catch (  WrongRegionException ex) {
-    LOG.debug("Batch puts: " + i,ex);
-    return i;
-  }
-catch (  NotServingRegionException ex) {
-    LOG.debug("Batch puts interrupted at index=" + i + " because:"+ ex.getMessage());
-    return i;
-  }
-catch (  Throwable t) {
+ catch (  Throwable t) {
     throw convertThrowableToIOE(cleanup(t));
   }
-  return -1;
 }
