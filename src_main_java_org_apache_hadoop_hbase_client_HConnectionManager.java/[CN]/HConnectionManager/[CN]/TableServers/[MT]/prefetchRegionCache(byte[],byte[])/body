@@ -1,0 +1,37 @@
+{
+  MetaScannerVisitor visitor=new MetaScannerVisitor(){
+    public boolean processRow(    Result result) throws IOException {
+      try {
+        byte[] value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+        HRegionInfo regionInfo=null;
+        if (value != null) {
+          regionInfo=Writables.getHRegionInfo(value);
+          if (!Bytes.equals(regionInfo.getTableDesc().getName(),tableName)) {
+            return false;
+          }
+          if (regionInfo.isOffline()) {
+            return true;
+          }
+          value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+          if (value == null) {
+            return true;
+          }
+          final String serverAddress=Bytes.toString(value);
+          HRegionLocation loc=new HRegionLocation(regionInfo,new HServerAddress(serverAddress));
+          cacheLocation(tableName,loc);
+        }
+        return true;
+      }
+ catch (      RuntimeException e) {
+        throw new IOException(e);
+      }
+    }
+  }
+;
+  try {
+    MetaScanner.metaScan(conf,visitor,tableName,row,this.prefetchRegionLimit);
+  }
+ catch (  IOException e) {
+    LOG.warn("Encounted problems when prefetch META table: ",e);
+  }
+}
