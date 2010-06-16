@@ -1,0 +1,46 @@
+{
+  try {
+    Thread hdfsClientFinalizer=null;
+    Class<?>[] classes=FileSystem.class.getDeclaredClasses();
+    Class<?> cache=null;
+    for (    Class<?> c : classes) {
+      if (c.getSimpleName().equals("Cache")) {
+        cache=c;
+        break;
+      }
+    }
+    Field field=null;
+    try {
+      field=cache.getDeclaredField(CLIENT_FINALIZER_DATA_METHOD);
+    }
+ catch (    NoSuchFieldException e) {
+    }
+    if (field != null) {
+      field.setAccessible(true);
+      Field cacheField=FileSystem.class.getDeclaredField("CACHE");
+      cacheField.setAccessible(true);
+      Object cacheInstance=cacheField.get(fs);
+      hdfsClientFinalizer=(Thread)field.get(cacheInstance);
+    }
+ else {
+      field=FileSystem.class.getDeclaredField(CLIENT_FINALIZER_DATA_METHOD);
+      field.setAccessible(true);
+      hdfsClientFinalizer=(Thread)field.get(null);
+    }
+    if (hdfsClientFinalizer == null) {
+      throw new RuntimeException("Client finalizer is null, can't suppress!");
+    }
+    if (!Runtime.getRuntime().removeShutdownHook(hdfsClientFinalizer)) {
+      throw new RuntimeException("Failed suppression of fs shutdown hook: " + hdfsClientFinalizer);
+    }
+    return hdfsClientFinalizer;
+  }
+ catch (  NoSuchFieldException nsfe) {
+    LOG.fatal("Couldn't find field 'clientFinalizer' in FileSystem!",nsfe);
+    throw new RuntimeException("Failed to suppress HDFS shutdown hook");
+  }
+catch (  IllegalAccessException iae) {
+    LOG.fatal("Couldn't access field 'clientFinalizer' in FileSystem!",iae);
+    throw new RuntimeException("Failed to suppress HDFS shutdown hook");
+  }
+}
