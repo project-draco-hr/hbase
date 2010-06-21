@@ -4,16 +4,29 @@
   HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
   TEST_UTIL.createTable(TABLENAME,FAMILYNAME);
   TEST_UTIL.loadTable(new HTable(TABLENAME),FAMILYNAME);
+  List<Pair<HRegionInfo,HServerAddress>> tableRegions=m.getTableRegions(TABLENAME);
+  LOG.info("Regions after load: " + Joiner.on(',').join(tableRegions));
+  assertEquals(1,tableRegions.size());
+  assertArrayEquals(HConstants.EMPTY_START_ROW,tableRegions.get(0).getFirst().getStartKey());
+  assertArrayEquals(HConstants.EMPTY_END_ROW,tableRegions.get(0).getFirst().getEndKey());
   CountDownLatch aboutToOpen=new CountDownLatch(1);
   CountDownLatch proceed=new CountDownLatch(1);
   RegionOpenListener list=new RegionOpenListener(aboutToOpen,proceed);
   HBaseEventHandler.registerListener(list);
+  LOG.info("Splitting table");
   admin.split(TABLENAME);
+  LOG.info("Waiting for split result to be about to open");
   aboutToOpen.await(60,TimeUnit.SECONDS);
   try {
-    m.getTableRegions(TABLENAME);
-    Pair<HRegionInfo,HServerAddress> pair=m.getTableRegionClosest(TABLENAME,Bytes.toBytes("cde"));
-    m.getTableRegionFromName(pair.getFirst().getRegionName());
+    LOG.info("Making sure we can call getTableRegions while opening");
+    tableRegions=m.getTableRegions(TABLENAME);
+    LOG.info("Regions: " + Joiner.on(',').join(tableRegions));
+    assertEquals(3,tableRegions.size());
+    LOG.info("Making sure we can call getTableRegionClosest while opening");
+    Pair<HRegionInfo,HServerAddress> pair=m.getTableRegionForRow(TABLENAME,Bytes.toBytes("cde"));
+    LOG.info("Result is: " + pair);
+    Pair<HRegionInfo,HServerAddress> tableRegionFromName=m.getTableRegionFromName(pair.getFirst().getRegionName());
+    assertEquals(tableRegionFromName.getFirst(),pair.getFirst());
   }
   finally {
     proceed.countDown();
