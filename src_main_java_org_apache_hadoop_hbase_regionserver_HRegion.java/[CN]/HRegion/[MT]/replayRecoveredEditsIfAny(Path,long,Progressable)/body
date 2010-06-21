@@ -1,0 +1,27 @@
+{
+  Path edits=new Path(regiondir,HLog.RECOVERED_EDITS);
+  if (edits == null || !this.fs.exists(edits))   return -1;
+  if (isZeroLengthThenDelete(this.fs,edits))   return -1;
+  long maxSeqIdInLog=-1;
+  try {
+    maxSeqIdInLog=replayRecoveredEdits(edits,minSeqId,reporter);
+    LOG.debug("Deleting recovered edits file: " + edits);
+    if (!this.fs.delete(edits,false)) {
+      LOG.error("Failed delete of " + edits);
+    }
+  }
+ catch (  IOException e) {
+    boolean skipErrors=conf.getBoolean("hbase.skip.errors",false);
+    if (skipErrors) {
+      Path moveAsideName=new Path(edits.getParent(),edits.getName() + "." + System.currentTimeMillis());
+      LOG.error("hbase.skip.errors=true so continuing. Renamed " + edits + " as "+ moveAsideName,e);
+      if (!this.fs.rename(edits,moveAsideName)) {
+        LOG.error("hbase.skip.errors=true so continuing. Rename failed");
+      }
+    }
+ else {
+      throw e;
+    }
+  }
+  return maxSeqIdInLog;
+}

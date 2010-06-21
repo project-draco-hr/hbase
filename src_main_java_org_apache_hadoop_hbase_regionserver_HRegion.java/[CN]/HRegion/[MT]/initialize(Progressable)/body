@@ -1,0 +1,27 @@
+{
+  checkRegioninfoOnFilesystem();
+  long maxSeqId=-1;
+  long minSeqId=Integer.MAX_VALUE;
+  for (  HColumnDescriptor c : this.regionInfo.getTableDesc().getFamilies()) {
+    Store store=instantiateHStore(this.basedir,c);
+    this.stores.put(c.getName(),store);
+    long storeSeqId=store.getMaxSequenceId();
+    if (storeSeqId > maxSeqId) {
+      maxSeqId=storeSeqId;
+    }
+    if (minSeqId > storeSeqId) {
+      minSeqId=storeSeqId;
+    }
+  }
+  long seqid=replayRecoveredEditsIfAny(this.regiondir,minSeqId,reporter);
+  FSUtils.deleteDirectory(this.fs,new Path(regiondir,SPLITDIR));
+  FSUtils.deleteDirectory(this.fs,new Path(regiondir,MERGEDIR));
+  if (this.regionInfo.getTableDesc().isReadOnly()) {
+    this.writestate.setReadOnly(true);
+  }
+  this.writestate.compacting=false;
+  this.lastFlushTime=EnvironmentEdgeManager.currentTimeMillis();
+  long nextSeqid=Math.max(seqid,maxSeqId) + 1;
+  LOG.info("Onlined " + this.toString() + "; next sequenceid="+ nextSeqid);
+  return nextSeqid;
+}

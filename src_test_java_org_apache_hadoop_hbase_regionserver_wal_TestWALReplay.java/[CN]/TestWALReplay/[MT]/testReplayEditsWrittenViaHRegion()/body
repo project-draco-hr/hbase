@@ -1,0 +1,63 @@
+{
+  final String tableNameStr="testReplayEditsWrittenViaHRegion";
+  HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
+  Path basedir=new Path(this.hbaseRootDir,tableNameStr);
+  deleteDir(basedir);
+  final byte[] rowName=Bytes.toBytes(tableNameStr);
+  final int countPerFamily=10;
+  HLog wal=createWAL(this.conf);
+  HRegion region=new HRegion(basedir,wal,this.fs,this.conf,hri,null);
+  long seqid=region.initialize();
+  wal.setSequenceNumber(seqid);
+  boolean first=true;
+  for (  HColumnDescriptor hcd : hri.getTableDesc().getFamilies()) {
+    addRegionEdits(rowName,hcd.getName(),countPerFamily,this.ee,region,"x");
+    if (first) {
+      region.flushcache();
+      first=false;
+    }
+  }
+  Get g=new Get(rowName);
+  Result result=region.get(g,null);
+  assertEquals(countPerFamily * hri.getTableDesc().getFamilies().size(),result.size());
+  region.close();
+  wal.close();
+  runWALSplit(this.conf);
+  HLog wal2=createWAL(this.conf);
+  HRegion region2=new HRegion(basedir,wal2,this.fs,this.conf,hri,null){
+    @Override protected void restoreEdit(    KeyValue kv) throws IOException {
+      super.restoreEdit(kv);
+      throw new RuntimeException("Called when it should not have been!");
+    }
+  }
+;
+  long seqid2=region2.initialize();
+  wal2.setSequenceNumber(seqid2);
+  assertTrue(seqid + result.size() < seqid2);
+  for (  HColumnDescriptor hcd : hri.getTableDesc().getFamilies()) {
+    addRegionEdits(rowName,hcd.getName(),countPerFamily,this.ee,region2,"y");
+  }
+  Result result2=region2.get(g,null);
+  assertEquals(2 * result.size(),result2.size());
+  wal2.sync();
+  HBaseTestingUtility.setMaxRecoveryErrorCount(wal2.getOutputStream(),1);
+  Configuration newConf=HBaseTestingUtility.setDifferentUser(this.conf,tableNameStr);
+  runWALSplit(newConf);
+  FileSystem newFS=FileSystem.get(newConf);
+  HLog wal3=createWAL(newConf);
+  final AtomicInteger countOfRestoredEdits=new AtomicInteger(0);
+  HRegion region3=new HRegion(basedir,wal3,newFS,newConf,hri,null){
+    @Override protected void restoreEdit(    KeyValue kv) throws IOException {
+      super.restoreEdit(kv);
+      countOfRestoredEdits.incrementAndGet();
+    }
+  }
+;
+  long seqid3=region3.initialize();
+  wal3.setSequenceNumber(seqid3);
+  Result result3=region3.get(g,null);
+  assertEquals(result2.size(),result3.size());
+  assertEquals(hri.getTableDesc().getFamilies().size() * countPerFamily,countOfRestoredEdits.get());
+  region3.close();
+  wal3.closeAndDelete();
+}

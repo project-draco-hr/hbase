@@ -1,0 +1,25 @@
+{
+  final String tableNameStr="testReplayEditsWrittenViaHRegion";
+  HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
+  Path basedir=new Path(this.hbaseRootDir,tableNameStr);
+  deleteDir(basedir);
+  HLog wal=createWAL(this.conf);
+  HRegion region=HRegion.openHRegion(hri,basedir,wal,this.conf);
+  Path f=new Path(basedir,"hfile");
+  HFile.Writer writer=new HFile.Writer(this.fs,f);
+  byte[] family=hri.getTableDesc().getFamilies().iterator().next().getName();
+  byte[] row=Bytes.toBytes(tableNameStr);
+  writer.append(new KeyValue(row,family,family,row));
+  writer.close();
+  region.bulkLoadHFile(f.toString(),family);
+  region.put((new Put(row)).add(family,family,family));
+  wal.sync();
+  Configuration newConf=HBaseTestingUtility.setDifferentUser(this.conf,tableNameStr);
+  runWALSplit(newConf);
+  HLog wal2=createWAL(newConf);
+  HRegion region2=new HRegion(basedir,wal2,FileSystem.get(newConf),newConf,hri,null);
+  long seqid2=region2.initialize();
+  assertTrue(seqid2 > -1);
+  region2.close();
+  wal2.closeAndDelete();
+}
