@@ -1,0 +1,55 @@
+{
+  TreeMap<HRegionInfo,MetaEntry> tmp=new TreeMap<HRegionInfo,MetaEntry>(metaEntries);
+  long errorCount=0;
+  int showProgress=0;
+  for (  HServerInfo rsinfo : regionServerList) {
+    showProgress++;
+    try {
+      HRegionInterface server=connection.getHRegionConnection(rsinfo.getServerAddress());
+      HRegionInfo[] regions=server.getRegionsAssignment();
+      if (details) {
+        System.out.print("\nRegionServer:" + rsinfo.getServerName() + " number of regions:"+ regions.length);
+        for (        HRegionInfo rinfo : regions) {
+          System.out.print("\n\t name:" + rinfo.getRegionNameAsString() + " id:"+ rinfo.getRegionId()+ " encoded name:"+ rinfo.getEncodedName()+ " start :"+ Bytes.toStringBinary(rinfo.getStartKey())+ " end :"+ Bytes.toStringBinary(rinfo.getEndKey()));
+        }
+        showProgress=0;
+      }
+      for (      HRegionInfo r : regions) {
+        MetaEntry metaEntry=metaEntries.get(r);
+        if (metaEntry == null) {
+          if (r.isMetaRegion()) {
+            continue;
+          }
+          System.out.print("\nERROR: Region " + r.getRegionNameAsString() + " found on server "+ rsinfo.getServerAddress()+ " but is not listed in META.");
+          errorCount++;
+          showProgress=0;
+          continue;
+        }
+        if (!metaEntry.regionServer.equals(rsinfo.getServerAddress())) {
+          System.out.print("\nERROR: Region " + r.getRegionNameAsString() + " found on server "+ rsinfo.getServerAddress()+ " but is listed in META to be on server "+ metaEntry.regionServer);
+          errorCount++;
+          showProgress=0;
+        }
+        tmp.remove(r);
+      }
+    }
+ catch (    IOException e) {
+      if (details) {
+        System.out.print("\nRegionServer:" + rsinfo.getServerName() + " Unable to fetch region information. "+ e);
+      }
+    }
+    if (showProgress % 10 == 0) {
+      System.out.print(".");
+      showProgress=0;
+    }
+  }
+  for (  MetaEntry metaEntry : tmp.values()) {
+    System.out.print("\nERROR: Region " + metaEntry.getRegionNameAsString() + " is not served by any region server "+ " but is listed in META to be on server "+ metaEntry.regionServer);
+    errorCount++;
+  }
+  if (errorCount > 0) {
+    System.out.println("\nDetected " + errorCount + " inconsistencies. "+ "This might not indicate a real problem because these regions "+ "could be in the midst of a split. Consider re-running with a "+ "larger value of -timelag.");
+    return false;
+  }
+  return true;
+}

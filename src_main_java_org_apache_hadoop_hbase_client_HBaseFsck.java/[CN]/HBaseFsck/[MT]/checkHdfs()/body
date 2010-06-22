@@ -1,0 +1,52 @@
+{
+  boolean status=true;
+  TreeMap<String,MetaEntry> regions=new TreeMap<String,MetaEntry>();
+  for (  MetaEntry meta : metaEntries.values()) {
+    regions.put(meta.getTableDesc().getNameAsString(),meta);
+  }
+  TreeMap<Path,FileStatus> allTableDirs=new TreeMap<Path,FileStatus>();
+  FileStatus[] files=fs.listStatus(rootDir);
+  for (int i=0; files != null && i < files.length; i++) {
+    allTableDirs.put(files[i].getPath(),files[i]);
+  }
+  Path rdir=new Path(rootDir,Bytes.toString(HConstants.ROOT_TABLE_NAME));
+  FileStatus ignore=allTableDirs.remove(rdir);
+  if (ignore == null) {
+    status=false;
+    System.out.print("\nERROR: Path " + rdir + " for ROOT table does not exist.");
+  }
+  Path mdir=new Path(rootDir,Bytes.toString(HConstants.META_TABLE_NAME));
+  ignore=allTableDirs.remove(mdir);
+  if (ignore == null) {
+    status=false;
+    System.out.print("\nERROR: Path " + mdir + " for META table does not exist.");
+  }
+  Path vfile=new Path(rootDir,HConstants.VERSION_FILE_NAME);
+  ignore=allTableDirs.remove(vfile);
+  if (ignore == null) {
+    status=false;
+    System.out.print("\nERROR: Version file " + vfile + " does not exist.");
+  }
+  for (  HRegionInfo rinfo : metaEntries.values()) {
+    Path tableDir=HTableDescriptor.getTableDir(rootDir,rinfo.getTableDesc().getName());
+    FileStatus found=allTableDirs.remove(tableDir);
+    if (found != null) {
+      regions.remove(tableDir.getName());
+    }
+  }
+  long now=System.currentTimeMillis();
+  for (  FileStatus region : allTableDirs.values()) {
+    if (region.getModificationTime() + timelag < now) {
+      String finalComponent=region.getPath().getName();
+      if (!finalComponent.startsWith(".")) {
+        System.out.print("\nERROR: Path " + region.getPath() + " does not have a corresponding entry in META.");
+        status=false;
+      }
+    }
+  }
+  for (  HRegionInfo rinfo : regions.values()) {
+    System.out.println("\nERROR: Region " + rinfo.getRegionNameAsString() + " does not have a corresponding entry in HDFS.");
+    status=false;
+  }
+  return status;
+}

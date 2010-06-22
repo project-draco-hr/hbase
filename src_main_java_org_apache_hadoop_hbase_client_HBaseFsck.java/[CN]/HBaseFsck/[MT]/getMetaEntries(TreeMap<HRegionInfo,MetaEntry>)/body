@@ -1,0 +1,49 @@
+{
+  MetaScannerVisitor visitor=new MetaScannerVisitor(){
+    int countRecord=1;
+    final Comparator<KeyValue> comp=new Comparator<KeyValue>(){
+      public int compare(      KeyValue k1,      KeyValue k2){
+        return (int)(k1.getTimestamp() - k2.getTimestamp());
+      }
+    }
+;
+    public boolean processRow(    Result result) throws IOException {
+      try {
+        long ts=Collections.max(result.list(),comp).getTimestamp();
+        byte[] value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+        HRegionInfo info=null;
+        HServerAddress server=null;
+        byte[] startCode=null;
+        if (value != null) {
+          info=Writables.getHRegionInfo(value);
+        }
+        value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+        if (value != null && value.length > 0) {
+          String address=Bytes.toString(value);
+          server=new HServerAddress(address);
+        }
+        value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
+        if (value != null) {
+          startCode=value;
+        }
+        MetaEntry m=new MetaEntry(info,server,startCode,ts);
+        m=regionList.put(m,m);
+        if (m != null) {
+          throw new IOException("Two entries in META are same " + m);
+        }
+        if (countRecord % 100 == 0) {
+          System.out.print(".");
+        }
+        countRecord++;
+        return true;
+      }
+ catch (      RuntimeException e) {
+        LOG.error("Result=" + result);
+        throw e;
+      }
+    }
+  }
+;
+  MetaScanner.metaScan(conf,visitor);
+  System.out.println("");
+}
