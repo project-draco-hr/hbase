@@ -18,13 +18,13 @@
   Configuration conf=a.getConf();
   HTableDescriptor tabledesc=a.getTableDesc();
   HLog log=a.getLog();
-  Path basedir=a.getBaseDir();
+  Path tableDir=a.getTableDir();
   final byte[] startKey=(a.comparator.matchingRows(a.getStartKey(),0,a.getStartKey().length,HConstants.EMPTY_BYTE_ARRAY,0,HConstants.EMPTY_BYTE_ARRAY.length) || b.comparator.matchingRows(b.getStartKey(),0,b.getStartKey().length,HConstants.EMPTY_BYTE_ARRAY,0,HConstants.EMPTY_BYTE_ARRAY.length)) ? HConstants.EMPTY_BYTE_ARRAY : (a.comparator.compareRows(a.getStartKey(),0,a.getStartKey().length,b.getStartKey(),0,b.getStartKey().length) <= 0 ? a.getStartKey() : b.getStartKey());
   final byte[] endKey=(a.comparator.matchingRows(a.getEndKey(),0,a.getEndKey().length,HConstants.EMPTY_BYTE_ARRAY,0,HConstants.EMPTY_BYTE_ARRAY.length) || a.comparator.matchingRows(b.getEndKey(),0,b.getEndKey().length,HConstants.EMPTY_BYTE_ARRAY,0,HConstants.EMPTY_BYTE_ARRAY.length)) ? HConstants.EMPTY_BYTE_ARRAY : (a.comparator.compareRows(a.getEndKey(),0,a.getEndKey().length,b.getEndKey(),0,b.getEndKey().length) <= 0 ? b.getEndKey() : a.getEndKey());
   HRegionInfo newRegionInfo=new HRegionInfo(tabledesc,startKey,endKey);
   LOG.info("Creating new region " + newRegionInfo.toString());
   String encodedName=newRegionInfo.getEncodedName();
-  Path newRegionDir=HRegion.getRegionDir(a.getBaseDir(),encodedName);
+  Path newRegionDir=HRegion.getRegionDir(a.getTableDir(),encodedName);
   if (fs.exists(newRegionDir)) {
     throw new IOException("Cannot merge; target file collision at " + newRegionDir);
   }
@@ -35,7 +35,7 @@
   byFamily=filesByFamily(byFamily,b.close());
   for (  Map.Entry<byte[],List<StoreFile>> es : byFamily.entrySet()) {
     byte[] colFamily=es.getKey();
-    makeColumnFamilyDirs(fs,basedir,newRegionInfo,colFamily);
+    makeColumnFamilyDirs(fs,tableDir,newRegionInfo,colFamily);
     List<StoreFile> srcFiles=es.getValue();
     if (srcFiles.size() == 2) {
       long seqA=srcFiles.get(0).getMaxSequenceId();
@@ -45,14 +45,14 @@
       }
     }
     for (    StoreFile hsf : srcFiles) {
-      StoreFile.rename(fs,hsf.getPath(),StoreFile.getUniqueFile(fs,Store.getStoreHomedir(basedir,newRegionInfo.getEncodedName(),colFamily)));
+      StoreFile.rename(fs,hsf.getPath(),StoreFile.getUniqueFile(fs,Store.getStoreHomedir(tableDir,newRegionInfo.getEncodedName(),colFamily)));
     }
   }
   if (LOG.isDebugEnabled()) {
     LOG.debug("Files for new region");
     listPaths(fs,newRegionDir);
   }
-  HRegion dstRegion=HRegion.newHRegion(basedir,log,fs,conf,newRegionInfo,null);
+  HRegion dstRegion=HRegion.newHRegion(tableDir,log,fs,conf,newRegionInfo,null);
   dstRegion.initialize();
   dstRegion.compactStores();
   if (LOG.isDebugEnabled()) {
