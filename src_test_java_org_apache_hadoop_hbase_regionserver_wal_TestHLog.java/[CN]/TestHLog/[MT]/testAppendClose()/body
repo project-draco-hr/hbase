@@ -1,0 +1,74 @@
+{
+  this.conf.setBoolean("dfs.support.append",true);
+  byte[] tableName=Bytes.toBytes(getName());
+  HRegionInfo regioninfo=new HRegionInfo(new HTableDescriptor(tableName),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,false);
+  Path subdir=new Path(this.dir,"hlogdir");
+  Path archdir=new Path(this.dir,"hlogdir_archive");
+  HLog wal=new HLog(this.fs,subdir,archdir,this.conf,null);
+  final int total=20;
+  for (int i=0; i < total; i++) {
+    WALEdit kvs=new WALEdit();
+    kvs.add(new KeyValue(Bytes.toBytes(i),tableName,tableName));
+    wal.append(regioninfo,tableName,kvs,System.currentTimeMillis());
+  }
+  wal.sync(true);
+  final Path walPath=wal.computeFilename();
+  try {
+    this.cluster.getNameNode().setSafeMode(SafeModeAction.SAFEMODE_ENTER);
+    this.cluster.shutdown();
+    try {
+      wal.close();
+    }
+ catch (    IOException e) {
+      LOG.info(e);
+    }
+    this.fs.close();
+    LOG.info("STOPPED first instance of the cluster");
+  }
+  finally {
+    this.cluster=new MiniDFSCluster(conf,2,false,null);
+    this.cluster.waitActive();
+    this.fs=cluster.getFileSystem();
+    LOG.info("START second instance.");
+  }
+  Method setLeasePeriod=this.cluster.getClass().getDeclaredMethod("setLeasePeriod",new Class[]{Long.TYPE,Long.TYPE});
+  setLeasePeriod.setAccessible(true);
+  setLeasePeriod.invoke(cluster,new Object[]{new Long(1000),new Long(1000)});
+  try {
+    Thread.sleep(1000);
+  }
+ catch (  InterruptedException e) {
+    LOG.info(e);
+  }
+  final FileSystem recoveredFs=this.fs;
+  final Configuration rlConf=this.conf;
+class RecoverLogThread extends Thread {
+    public Exception exception=null;
+    public void run(){
+      try {
+        FSUtils.recoverFileLease(recoveredFs,walPath,rlConf);
+      }
+ catch (      IOException e) {
+        exception=e;
+      }
+    }
+  }
+  RecoverLogThread t=new RecoverLogThread();
+  t.start();
+  t.join(60 * 1000);
+  if (t.isAlive()) {
+    t.interrupt();
+    throw new Exception("Timed out waiting for HLog.recoverLog()");
+  }
+  if (t.exception != null)   throw t.exception;
+  SequenceFile.Reader reader=new SequenceFile.Reader(this.fs,walPath,this.conf);
+  int count=0;
+  HLogKey key=HLog.newKey(this.conf);
+  WALEdit val=new WALEdit();
+  while (reader.next(key,val)) {
+    count++;
+    assertTrue("Should be one KeyValue per WALEdit",val.getKeyValues().size() == 1);
+  }
+  assertEquals(total,count);
+  reader.close();
+}
