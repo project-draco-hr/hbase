@@ -1,0 +1,18 @@
+{
+  LOG.info("Running testROOTDeployedThoughProblemSplittingLog");
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  final HMaster master=cluster.getMaster();
+  byte[] rootRegion=Bytes.toBytes("-ROOT-,,0");
+  int rootIndex=cluster.getServerWith(rootRegion);
+  final HRegionServer rootHRS=cluster.getRegionServer(rootIndex);
+  PostponeShutdownProcessing listener=new PostponeShutdownProcessing(master,rootHRS.getHServerInfo().getServerAddress());
+  master.getRegionServerOperationQueue().registerRegionServerOperationListener(listener);
+  try {
+    cluster.abortRegionServer(rootIndex);
+    while (!listener.isDone())     Threads.sleep(100);
+    master.getRegionManager().waitForRootRegionLocation();
+  }
+  finally {
+    master.getRegionServerOperationQueue().unregisterRegionServerOperationListener(listener);
+  }
+}
