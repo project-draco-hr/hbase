@@ -1,0 +1,51 @@
+{
+  StoreFile result=null;
+  if (compactedFile != null) {
+    Path p=null;
+    try {
+      p=StoreFile.rename(this.fs,compactedFile.getPath(),StoreFile.getRandomFilename(fs,this.homedir));
+    }
+ catch (    IOException e) {
+      LOG.error("Failed move of compacted file " + compactedFile.getPath(),e);
+      return null;
+    }
+    result=new StoreFile(this.fs,p,blockcache,this.conf,this.family.getBloomFilterType(),this.inMemory);
+    result.createReader();
+  }
+  this.lock.writeLock().lock();
+  try {
+    try {
+      ArrayList<StoreFile> newStoreFiles=new ArrayList<StoreFile>();
+      for (      StoreFile sf : storefiles) {
+        if (!compactedFiles.contains(sf)) {
+          newStoreFiles.add(sf);
+        }
+      }
+      if (result != null) {
+        newStoreFiles.add(result);
+      }
+      this.storefiles=ImmutableList.copyOf(newStoreFiles);
+      notifyChangedReadersObservers();
+      for (      StoreFile hsf : compactedFiles) {
+        hsf.deleteReader();
+      }
+    }
+ catch (    IOException e) {
+      e=RemoteExceptionHandler.checkIOException(e);
+      LOG.error("Failed replacing compacted files in " + this.storeNameStr + ". Compacted file is "+ (result == null ? "none" : result.toString())+ ".  Files replaced "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+    }
+    this.storeSize=0L;
+    for (    StoreFile hsf : this.storefiles) {
+      StoreFile.Reader r=hsf.getReader();
+      if (r == null) {
+        LOG.warn("StoreFile " + hsf + " has a null Reader");
+        continue;
+      }
+      this.storeSize+=r.length();
+    }
+  }
+  finally {
+    this.lock.writeLock().unlock();
+  }
+  return result;
+}
