@@ -1,0 +1,37 @@
+{
+  int sleepMultiplier=1;
+  while (!stop.get()) {
+    try {
+      HRegionInterface rrs=getRS();
+      LOG.debug("Replicating " + currentNbEntries);
+      rrs.replicateLogEntries(Arrays.copyOf(this.entriesArray,currentNbEntries));
+      this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.position,queueRecovered);
+      this.totalReplicatedEdits+=currentNbEntries;
+      LOG.debug("Replicated in total: " + this.totalReplicatedEdits);
+      break;
+    }
+ catch (    IOException ioe) {
+      LOG.warn("Unable to replicate because ",ioe);
+      try {
+        boolean down;
+        do {
+          down=isSlaveDown();
+          if (down) {
+            LOG.debug("The region server we tried to ping didn't answer, " + "sleeping " + sleepForRetries + " times "+ sleepMultiplier);
+            Thread.sleep(this.sleepForRetries * sleepMultiplier);
+            if (sleepMultiplier < maxRetriesMultiplier) {
+              sleepMultiplier++;
+            }
+ else {
+              chooseSinks();
+            }
+          }
+        }
+ while (!stop.get() && down);
+      }
+ catch (      InterruptedException e) {
+        LOG.debug("Interrupted while trying to contact the peer cluster");
+      }
+    }
+  }
+}

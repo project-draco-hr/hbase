@@ -1,0 +1,62 @@
+{
+  try {
+    long totalReplicated=0;
+    byte[] lastTable=HConstants.EMPTY_BYTE_ARRAY;
+    List<Put> puts=new ArrayList<Put>();
+    for (    HLog.Entry entry : entries) {
+      WALEdit edit=entry.getEdit();
+      List<KeyValue> kvs=edit.getKeyValues();
+      if (kvs.get(0).isDelete()) {
+        Delete delete=new Delete(kvs.get(0).getRow(),kvs.get(0).getTimestamp(),null);
+        for (        KeyValue kv : kvs) {
+          if (kv.isDeleteFamily()) {
+            delete.deleteFamily(kv.getFamily());
+          }
+ else           if (!kv.isEmptyColumn()) {
+            delete.deleteColumn(kv.getFamily(),kv.getQualifier());
+          }
+        }
+        delete(entry.getKey().getTablename(),delete);
+      }
+ else {
+        if (!Bytes.equals(lastTable,entry.getKey().getTablename())) {
+          put(lastTable,puts);
+        }
+        byte[] lastKey=kvs.get(0).getRow();
+        Put put=new Put(kvs.get(0).getRow(),kvs.get(0).getTimestamp());
+        for (        KeyValue kv : kvs) {
+          if (!Bytes.equals(lastKey,kv.getRow())) {
+            puts.add(put);
+            put=new Put(kv.getRow(),kv.getTimestamp());
+          }
+          put.add(kv.getFamily(),kv.getQualifier(),kv.getValue());
+          lastKey=kv.getRow();
+        }
+        puts.add(put);
+        lastTable=entry.getKey().getTablename();
+      }
+      totalReplicated++;
+    }
+    put(lastTable,puts);
+    LOG.info("Total replicated: " + totalReplicated);
+  }
+ catch (  IOException ex) {
+    if (ex.getCause() instanceof TableNotFoundException) {
+      LOG.warn("Losing edits because: ",ex);
+    }
+ else {
+      LOG.error("Unable to accept edit because",ex);
+      this.stop.set(true);
+      throw ex;
+    }
+  }
+catch (  RuntimeException re) {
+    if (re.getCause() instanceof TableNotFoundException) {
+      LOG.warn("Losing edits because: ",re);
+    }
+ else {
+      this.stop.set(true);
+      throw re;
+    }
+  }
+}

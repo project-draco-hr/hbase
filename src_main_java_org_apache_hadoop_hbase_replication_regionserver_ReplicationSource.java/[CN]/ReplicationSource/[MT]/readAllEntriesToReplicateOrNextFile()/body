@@ -1,0 +1,23 @@
+{
+  long seenEntries=0;
+  if (this.position != 0) {
+    this.reader.seek(this.position);
+  }
+  HLog.Entry entry=this.reader.next(this.entriesArray[currentNbEntries]);
+  while (entry != null) {
+    WALEdit edit=entry.getEdit();
+    seenEntries++;
+    removeNonReplicableEdits(edit);
+    HLogKey logKey=entry.getKey();
+    if (!(Bytes.equals(logKey.getTablename(),HConstants.ROOT_TABLE_NAME) || Bytes.equals(logKey.getTablename(),HConstants.META_TABLE_NAME)) && edit.size() != 0 && replicating.get()) {
+      logKey.setClusterId(this.clusterId);
+      currentNbEntries++;
+    }
+    if ((this.reader.getPosition() - this.position) >= this.replicationQueueSizeCapacity || currentNbEntries >= this.replicationQueueNbCapacity) {
+      break;
+    }
+    entry=this.reader.next(entriesArray[currentNbEntries]);
+  }
+  LOG.debug("currentNbEntries:" + currentNbEntries + " and seenEntries:"+ seenEntries+ " and size: "+ (this.reader.getPosition() - this.position));
+  return seenEntries == 0 && processEndOfFile();
+}

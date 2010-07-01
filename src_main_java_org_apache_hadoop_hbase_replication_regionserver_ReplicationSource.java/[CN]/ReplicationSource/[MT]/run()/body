@@ -1,0 +1,90 @@
+{
+  connectToPeers();
+  if (this.stop.get()) {
+    return;
+  }
+  if (this.queueRecovered) {
+    this.position=this.zkHelper.getHLogRepPosition(this.peerClusterZnode,this.queue.peek().getName());
+  }
+  int sleepMultiplier=1;
+  while (!stop.get() && this.running) {
+    this.pathLock.lock();
+    try {
+      if (!getNextPath()) {
+        if (sleepForRetries("No log to process",sleepMultiplier)) {
+          sleepMultiplier++;
+        }
+        continue;
+      }
+      if (!openReader(sleepMultiplier)) {
+        continue;
+      }
+    }
+  finally {
+      this.pathLock.unlock();
+    }
+    if (this.reader == null) {
+      if (sleepForRetries("Unable to open a reader",sleepMultiplier)) {
+        sleepMultiplier++;
+      }
+      continue;
+    }
+    boolean gotIOE=false;
+    currentNbEntries=0;
+    try {
+      if (readAllEntriesToReplicateOrNextFile()) {
+        continue;
+      }
+    }
+ catch (    IOException ioe) {
+      LOG.warn(peerClusterZnode + " Got: ",ioe);
+      gotIOE=true;
+      if (ioe.getCause() instanceof EOFException) {
+        boolean considerDumping=false;
+        if (this.queueRecovered) {
+          try {
+            FileStatus stat=this.fs.getFileStatus(this.currentPath);
+            if (stat.getLen() == 0) {
+              LOG.warn(peerClusterZnode + " Got EOF and the file was empty");
+            }
+            considerDumping=true;
+          }
+ catch (          IOException e) {
+            LOG.warn(peerClusterZnode + " Got while getting file size: ",e);
+          }
+        }
+ else         if (currentNbEntries != 0) {
+          LOG.warn(peerClusterZnode + " Got EOF while reading, " + "looks like this file is broken? "+ currentPath);
+          considerDumping=true;
+          currentNbEntries=0;
+        }
+        if (considerDumping && sleepMultiplier == this.maxRetriesMultiplier && processEndOfFile()) {
+          continue;
+        }
+      }
+    }
+ finally {
+      try {
+        if (this.currentPath != null && !gotIOE) {
+          this.position=this.reader.getPosition();
+        }
+        if (this.reader != null) {
+          this.reader.close();
+        }
+      }
+ catch (      IOException e) {
+        gotIOE=true;
+        LOG.warn("Unable to finalize the tailing of a file",e);
+      }
+    }
+    if (!stop.get() && (gotIOE || currentNbEntries == 0)) {
+      if (sleepForRetries("Nothing to replicate",sleepMultiplier)) {
+        sleepMultiplier++;
+      }
+      continue;
+    }
+    sleepMultiplier=1;
+    shipEdits();
+  }
+  LOG.debug("Source exiting " + peerClusterId);
+}
