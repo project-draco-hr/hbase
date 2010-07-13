@@ -1,0 +1,29 @@
+{
+  byte[] family=Bytes.toBytes("familyname");
+  byte[] qualifier=Bytes.toBytes("qualifier");
+  int numRows=10;
+  long[] timestamps=new long[]{20,10,5,1};
+  Scan scan=new Scan();
+  Path storedir=new Path(new Path(this.testDir,"regionname"),"familyname");
+  Path dir=new Path(storedir,"1234567890");
+  StoreFile.Writer writer=StoreFile.createWriter(this.fs,dir,8 * 1024);
+  List<KeyValue> kvList=getKeyValueSet(timestamps,numRows,family,qualifier);
+  for (  KeyValue kv : kvList) {
+    writer.append(kv);
+  }
+  writer.appendMetadata(0,false);
+  writer.close();
+  StoreFile hsf=new StoreFile(this.fs,writer.getPath(),true,conf,StoreFile.BloomType.NONE,false);
+  StoreFile.Reader reader=hsf.createReader();
+  StoreFileScanner scanner=reader.getStoreFileScanner(false,false);
+  TreeSet<byte[]> columns=new TreeSet<byte[]>();
+  columns.add(qualifier);
+  scan.setTimeRange(20,100);
+  assertTrue(scanner.shouldSeek(scan,columns));
+  scan.setTimeRange(1,2);
+  assertTrue(scanner.shouldSeek(scan,columns));
+  scan.setTimeRange(8,10);
+  assertTrue(scanner.shouldSeek(scan,columns));
+  scan.setTimeRange(7,50);
+  assertTrue(scanner.shouldSeek(scan,columns));
+}

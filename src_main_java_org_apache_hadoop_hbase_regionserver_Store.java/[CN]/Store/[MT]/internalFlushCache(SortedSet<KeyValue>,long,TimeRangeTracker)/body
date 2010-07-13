@@ -1,0 +1,36 @@
+{
+  StoreFile.Writer writer=null;
+  long flushed=0;
+  if (set.size() == 0) {
+    return null;
+  }
+  long oldestTimestamp=System.currentTimeMillis() - ttl;
+synchronized (flushLock) {
+    writer=createWriterInTmp(set.size());
+    writer.setTimeRangeTracker(snapshotTimeRangeTracker);
+    int entries=0;
+    try {
+      for (      KeyValue kv : set) {
+        if (!isExpired(kv,oldestTimestamp)) {
+          writer.append(kv);
+          entries++;
+          flushed+=this.memstore.heapSizeChange(kv,true);
+        }
+      }
+    }
+  finally {
+      writer.appendMetadata(logCacheFlushId,false);
+      writer.close();
+    }
+  }
+  Path dstPath=StoreFile.getUniqueFile(fs,homedir);
+  LOG.info("Renaming flushed file at " + writer.getPath() + " to "+ dstPath);
+  fs.rename(writer.getPath(),dstPath);
+  StoreFile sf=new StoreFile(this.fs,dstPath,blockcache,this.conf,this.family.getBloomFilterType(),this.inMemory);
+  StoreFile.Reader r=sf.createReader();
+  this.storeSize+=r.length();
+  if (LOG.isInfoEnabled()) {
+    LOG.info("Added " + sf + ", entries="+ r.getEntries()+ ", sequenceid="+ logCacheFlushId+ ", memsize="+ StringUtils.humanReadableInt(flushed)+ ", filesize="+ StringUtils.humanReadableInt(r.length())+ " to "+ this.region.regionInfo.getRegionNameAsString());
+  }
+  return sf;
+}
