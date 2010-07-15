@@ -36,11 +36,28 @@
     }
     return MatchCode.SKIP;
   }
-  if (!tr.withinTimeRange(timestamp)) {
-    return MatchCode.SKIP;
-  }
   if (!this.deletes.isEmpty() && deletes.isDeleted(bytes,offset,qualLength,timestamp)) {
     return MatchCode.SKIP;
+  }
+  int timestampComparison=tr.compare(timestamp);
+  if (timestampComparison >= 1) {
+    return MatchCode.SKIP;
+  }
+ else   if (timestampComparison <= -1) {
+    return getNextRowOrNextColumn(bytes,offset,qualLength);
+  }
+  if (filter != null) {
+    ReturnCode filterResponse=filter.filterKeyValue(kv);
+    if (filterResponse == ReturnCode.SKIP) {
+      return MatchCode.SKIP;
+    }
+ else     if (filterResponse == ReturnCode.NEXT_COL) {
+      return getNextRowOrNextColumn(bytes,offset,qualLength);
+    }
+ else     if (filterResponse == ReturnCode.NEXT_ROW) {
+      stickyNextRow=true;
+      return MatchCode.SEEK_NEXT_ROW;
+    }
   }
   MatchCode colChecker=columns.checkColumn(bytes,offset,qualLength);
   if (colChecker == MatchCode.SKIP) {
@@ -50,11 +67,5 @@
     stickyNextRow=true;
     return MatchCode.SEEK_NEXT_ROW;
   }
-  if (filter == null)   return MatchCode.INCLUDE;
-  ReturnCode filterResponse=filter.filterKeyValue(kv);
-  if (filterResponse == ReturnCode.INCLUDE)   return MatchCode.INCLUDE;
-  if (filterResponse == ReturnCode.SKIP)   return MatchCode.SKIP;
- else   if (filterResponse == ReturnCode.NEXT_COL)   return MatchCode.SEEK_NEXT_COL;
-  stickyNextRow=true;
-  return MatchCode.SEEK_NEXT_ROW;
+  return MatchCode.INCLUDE;
 }
