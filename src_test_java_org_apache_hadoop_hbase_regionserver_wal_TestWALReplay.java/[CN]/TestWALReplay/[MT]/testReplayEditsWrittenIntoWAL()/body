@@ -28,12 +28,18 @@
   FileSystem newFS=FileSystem.get(newConf);
   newConf.setInt("hbase.hregion.memstore.flush.size",1024 * 100);
   HLog newWal=createWAL(newConf);
+  final AtomicInteger flushcount=new AtomicInteger(0);
   try {
-    TestFlusher flusher=new TestFlusher();
-    final HRegion region=new HRegion(basedir,newWal,newFS,newConf,hri,flusher);
-    flusher.r=region;
+    final HRegion region=new HRegion(basedir,newWal,newFS,newConf,hri,null){
+      protected boolean internalFlushcache(      HLog wal,      long myseqid) throws IOException {
+        boolean b=super.internalFlushcache(wal,myseqid);
+        flushcount.incrementAndGet();
+        return b;
+      }
+    }
+;
     long seqid=region.initialize();
-    assertTrue(flusher.count > 0);
+    assertTrue(flushcount.get() > 0);
     assertTrue(seqid > wal.getSequenceNumber());
     Get get=new Get(rowName);
     Result result=region.get(get,-1);

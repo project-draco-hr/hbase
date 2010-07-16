@@ -1,11 +1,10 @@
 {
-  long currentEditSeqId=-1;
+  long currentEditSeqId=minSeqId;
   long firstSeqIdInLog=-1;
   long skippedEdits=0;
   long editsCount=0;
   HLog.Entry entry;
   Store store=null;
-  Map<byte[],Long> familyToOriginalMaxSeqId=familyToMaxSeqId(this.stores);
   int interval=this.conf.getInt("hbase.hstore.report.interval.edits",2000);
   while ((entry=reader.next()) != null) {
     HLogKey key=entry.getKey();
@@ -13,11 +12,12 @@
     if (firstSeqIdInLog == -1) {
       firstSeqIdInLog=key.getLogSeqNum();
     }
-    currentEditSeqId=Math.max(currentEditSeqId,key.getLogSeqNum());
-    if (key.getLogSeqNum() <= minSeqId) {
+    if (key.getLogSeqNum() <= currentEditSeqId) {
       skippedEdits++;
       continue;
     }
+    currentEditSeqId=key.getLogSeqNum();
+    boolean flush=false;
     for (    KeyValue kv : val.getKeyValues()) {
       if (kv.matchingFamily(HLog.METAFAMILY) || !Bytes.equals(key.getRegionName(),this.regionInfo.getRegionName())) {
         skippedEdits++;
@@ -31,14 +31,10 @@
         skippedEdits++;
         continue;
       }
-      long storeMaxSeqId=familyToOriginalMaxSeqId.get(store.getFamily().getName());
-      if (currentEditSeqId < storeMaxSeqId) {
-        skippedEdits++;
-        continue;
-      }
-      restoreEdit(kv);
+      flush=restoreEdit(store,kv);
       editsCount++;
     }
+    if (flush)     internalFlushcache(null,currentEditSeqId);
     if (reporter != null && (editsCount % interval) == 0) {
       reporter.progress();
     }

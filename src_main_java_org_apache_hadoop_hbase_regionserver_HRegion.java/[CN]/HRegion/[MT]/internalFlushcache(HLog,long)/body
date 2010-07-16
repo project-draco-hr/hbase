@@ -1,0 +1,76 @@
+{
+  final long startTime=EnvironmentEdgeManager.currentTimeMillis();
+  this.lastFlushTime=startTime;
+  if (this.memstoreSize.get() <= 0) {
+    return false;
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Started memstore flush for region " + this + ". Current region memstore size "+ StringUtils.humanReadableInt(this.memstoreSize.get())+ ((wal != null) ? "" : "; wal is null, using passed myseqid=" + myseqid));
+  }
+  long sequenceId=-1L;
+  long completeSequenceId=-1L;
+  this.updatesLock.writeLock().lock();
+  final long currentMemStoreSize=this.memstoreSize.get();
+  List<StoreFlusher> storeFlushers=new ArrayList<StoreFlusher>(stores.size());
+  try {
+    sequenceId=(wal == null) ? myseqid : wal.startCacheFlush();
+    completeSequenceId=this.getCompleteCacheFlushSequenceId(sequenceId);
+    for (    Store s : stores.values()) {
+      storeFlushers.add(s.getStoreFlusher(completeSequenceId));
+    }
+    for (    StoreFlusher flusher : storeFlushers) {
+      flusher.prepare();
+    }
+  }
+  finally {
+    this.updatesLock.writeLock().unlock();
+  }
+  LOG.debug("Finished snapshotting, commencing flushing stores");
+  boolean compactionRequested=false;
+  try {
+    for (    StoreFlusher flusher : storeFlushers) {
+      flusher.flushCache();
+    }
+    Callable<Void> atomicWork=internalPreFlushcacheCommit();
+    LOG.debug("Caches flushed, doing commit now (which includes update scanners)");
+    if (atomicWork != null) {
+      LOG.debug("internalPreFlushcacheCommit gives us work to do, acquiring newScannerLock");
+      newScannerLock.writeLock().lock();
+    }
+    try {
+      if (atomicWork != null) {
+        atomicWork.call();
+      }
+      for (      StoreFlusher flusher : storeFlushers) {
+        boolean needsCompaction=flusher.commit();
+        if (needsCompaction) {
+          compactionRequested=true;
+        }
+      }
+    }
+  finally {
+      if (atomicWork != null) {
+        newScannerLock.writeLock().unlock();
+      }
+    }
+    storeFlushers.clear();
+    this.memstoreSize.addAndGet(-currentMemStoreSize);
+  }
+ catch (  Throwable t) {
+    if (wal != null)     wal.abortCacheFlush();
+    DroppedSnapshotException dse=new DroppedSnapshotException("region: " + Bytes.toStringBinary(getRegionName()));
+    dse.initCause(t);
+    throw dse;
+  }
+  if (wal != null) {
+    wal.completeCacheFlush(getRegionName(),regionInfo.getTableDesc().getName(),completeSequenceId,this.getRegionInfo().isMetaRegion());
+  }
+synchronized (this) {
+    notifyAll();
+  }
+  if (LOG.isDebugEnabled()) {
+    long now=EnvironmentEdgeManager.currentTimeMillis();
+    LOG.info("Finished memstore flush of ~" + StringUtils.humanReadableInt(currentMemStoreSize) + " for region "+ this+ " in "+ (now - startTime)+ "ms, sequence id="+ sequenceId+ ", compaction requested="+ compactionRequested+ ((wal == null) ? "; wal=null" : ""));
+  }
+  return compactionRequested;
+}
