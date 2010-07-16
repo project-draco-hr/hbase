@@ -1,0 +1,28 @@
+{
+  this.lock.readLock().lock();
+  try {
+    KeyValue newKv=new KeyValue(row,family,qualifier,now,Bytes.toBytes(newValue));
+    long addedSize=add(newKv);
+    SortedSet<KeyValue> ss=kvset.tailSet(newKv);
+    Iterator<KeyValue> it=ss.iterator();
+    while (it.hasNext()) {
+      KeyValue kv=it.next();
+      if (kv == newKv) {
+        continue;
+      }
+      if (0 != Bytes.compareTo(newKv.getBuffer(),newKv.getRowOffset(),newKv.getRowLength(),kv.getBuffer(),kv.getRowOffset(),kv.getRowLength())) {
+        break;
+      }
+      if (0 == Bytes.compareTo(newKv.getBuffer(),newKv.getQualifierOffset(),newKv.getQualifierLength(),kv.getBuffer(),kv.getQualifierOffset(),kv.getQualifierLength())) {
+        if (kv.getType() == KeyValue.Type.Put.getCode() && kv.getMemstoreTS() == 0) {
+          addedSize-=heapSizeChange(kv,false);
+          it.remove();
+        }
+      }
+    }
+    return addedSize;
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+}
