@@ -1,14 +1,28 @@
 {
-  if (args.length < 1) {
-    printUsageAndExit();
-  }
   Configuration conf=HBaseConfiguration.create();
-  for (  String cmd : args) {
-    if (cmd.startsWith("--minServers=")) {
-      conf.setInt("hbase.regions.server.count.min",Integer.valueOf(cmd.substring(13)));
-      continue;
+  Options opt=new Options();
+  opt.addOption("minServers",true,"Minimum RegionServers needed to host user tables");
+  opt.addOption("D",true,"Override HBase Configuration Settings");
+  try {
+    CommandLine cmd=new GnuParser().parse(opt,args);
+    if (cmd.hasOption("minServers")) {
+      String val=cmd.getOptionValue("minServers");
+      conf.setInt("hbase.regions.server.count.min",Integer.valueOf(val));
+      LOG.debug("minServers set to " + val);
     }
-    if (cmd.equalsIgnoreCase("start")) {
+    if (cmd.hasOption("D")) {
+      for (      String confOpt : cmd.getOptionValues("D")) {
+        String[] kv=confOpt.split("=",2);
+        if (kv.length == 2) {
+          conf.set(kv[0],kv[1]);
+          LOG.debug("-D configuration override: " + kv[0] + "="+ kv[1]);
+        }
+ else {
+          throw new ParseException("-D option format invalid: " + confOpt);
+        }
+      }
+    }
+    if (cmd.getArgList().contains("start")) {
       try {
         RuntimeMXBean runtime=ManagementFactory.getRuntimeMXBean();
         if (runtime != null) {
@@ -48,9 +62,8 @@
         LOG.error("Failed to start master",t);
         System.exit(-1);
       }
-      break;
     }
-    if (cmd.equalsIgnoreCase("stop")) {
+ else     if (cmd.getArgList().contains("stop")) {
       HBaseAdmin adm=null;
       try {
         adm=new HBaseAdmin(conf);
@@ -66,8 +79,13 @@
         LOG.error("Failed to stop master",t);
         System.exit(-1);
       }
-      break;
     }
+ else {
+      throw new ParseException("Unknown argument(s): " + org.apache.commons.lang.StringUtils.join(cmd.getArgs()," "));
+    }
+  }
+ catch (  ParseException e) {
+    LOG.error("Could not parse: ",e);
     printUsageAndExit();
   }
 }
