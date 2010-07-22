@@ -1,20 +1,44 @@
 {
   this.lock.readLock().lock();
   try {
-    KeyValue newKv=new KeyValue(row,family,qualifier,now,Bytes.toBytes(newValue));
-    long addedSize=add(newKv);
-    SortedSet<KeyValue> ss=kvset.tailSet(newKv);
+    KeyValue firstKv=KeyValue.createFirstOnRow(row,family,qualifier);
+    KeyValue newKv;
+    SortedSet<KeyValue> snSs=snapshot.tailSet(firstKv);
+    if (!snSs.isEmpty()) {
+      KeyValue snKv=snSs.first();
+      if (snKv.matchingRow(firstKv) && snKv.matchingQualifier(firstKv)) {
+        if (snKv.getTimestamp() == now) {
+          now+=1;
+        }
+      }
+    }
+    SortedSet<KeyValue> ss=kvset.tailSet(firstKv);
     Iterator<KeyValue> it=ss.iterator();
+    while (it.hasNext()) {
+      KeyValue kv=it.next();
+      if (!firstKv.matchingRow(kv)) {
+        break;
+      }
+      if (firstKv.matchingQualifier(kv)) {
+        if (kv.getType() == KeyValue.Type.Put.getCode()) {
+          now=Math.max(now,kv.getTimestamp());
+        }
+      }
+    }
+    newKv=new KeyValue(row,family,qualifier,now,Bytes.toBytes(newValue));
+    long addedSize=add(newKv);
+    ss=kvset.tailSet(firstKv);
+    it=ss.iterator();
     while (it.hasNext()) {
       KeyValue kv=it.next();
       if (kv == newKv) {
         continue;
       }
-      if (0 != Bytes.compareTo(newKv.getBuffer(),newKv.getRowOffset(),newKv.getRowLength(),kv.getBuffer(),kv.getRowOffset(),kv.getRowLength())) {
+      if (!firstKv.matchingRow(kv)) {
         break;
       }
-      if (0 == Bytes.compareTo(newKv.getBuffer(),newKv.getQualifierOffset(),newKv.getQualifierLength(),kv.getBuffer(),kv.getQualifierOffset(),kv.getQualifierLength())) {
-        if (kv.getType() == KeyValue.Type.Put.getCode() && kv.getMemstoreTS() == 0) {
+      if (firstKv.matchingQualifier(kv)) {
+        if (kv.getType() == KeyValue.Type.Put.getCode()) {
           addedSize-=heapSizeChange(kv,false);
           it.remove();
         }
