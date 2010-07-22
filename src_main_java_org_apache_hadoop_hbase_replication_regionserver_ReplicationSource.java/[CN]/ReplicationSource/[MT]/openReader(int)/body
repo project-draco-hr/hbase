@@ -1,10 +1,32 @@
 {
   try {
     LOG.info("Opening log for replication " + this.currentPath.getName() + " at "+ this.position);
-    this.reader=HLog.getReader(this.fs,this.currentPath,this.conf);
+    try {
+      this.reader=null;
+      this.reader=HLog.getReader(this.fs,this.currentPath,this.conf);
+    }
+ catch (    FileNotFoundException fnfe) {
+      if (this.queueRecovered) {
+        for (int i=this.deadRegionServers.length - 1; i > 0; i--) {
+          Path deadRsDirectory=new Path(this.manager.getLogDir(),this.deadRegionServers[i]);
+          Path possibleLogLocation=new Path(deadRsDirectory,currentPath.getName());
+          if (this.manager.getFs().exists(possibleLogLocation)) {
+            LOG.info("Log " + this.currentPath + " still exists at "+ possibleLogLocation);
+            break;
+          }
+        }
+      }
+ else {
+        Path archivedLogLocation=new Path(manager.getOldLogDir(),currentPath.getName());
+        if (this.manager.getFs().exists(archivedLogLocation)) {
+          currentPath=archivedLogLocation;
+          LOG.info("Log " + this.currentPath + " was moved to "+ archivedLogLocation);
+          this.openReader(sleepMultiplier);
+        }
+      }
+    }
   }
  catch (  IOException ioe) {
-    this.reader=null;
     LOG.warn(peerClusterZnode + " Got: ",ioe);
     if (sleepMultiplier == this.maxRetriesMultiplier) {
       LOG.warn("Waited too long for this file, considering dumping");
