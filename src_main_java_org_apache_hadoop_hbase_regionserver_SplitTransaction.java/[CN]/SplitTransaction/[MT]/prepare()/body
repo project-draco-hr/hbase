@@ -1,0 +1,27 @@
+{
+  boolean prepared=false;
+  this.parent.splitsAndClosesLock.writeLock().lock();
+  try {
+    if (this.parent.isClosed() || this.parent.isClosing())     return prepared;
+    HRegionInfo hri=this.parent.getRegionInfo();
+    byte[] startKey=hri.getStartKey();
+    byte[] endKey=hri.getEndKey();
+    KVComparator comparator=this.parent.comparator;
+    if (comparator.compareRows(startKey,0,startKey.length,this.splitrow,0,this.splitrow.length) >= 0) {
+      LOG.info("Split row is <= start key row, not splitting: " + Bytes.toString(this.splitrow));
+      return prepared;
+    }
+    if (comparator.compareRows(this.splitrow,0,this.splitrow.length,endKey,0,endKey.length) >= 0) {
+      LOG.info("Split row is >= end key row, not splitting: " + Bytes.toString(this.splitrow));
+      return prepared;
+    }
+    long rid=getDaughterRegionIdTimestamp(hri);
+    this.hri_a=new HRegionInfo(hri.getTableDesc(),startKey,this.splitrow,false,rid);
+    this.hri_b=new HRegionInfo(hri.getTableDesc(),this.splitrow,endKey,false,rid);
+    prepared=true;
+  }
+  finally {
+    if (!prepared)     this.parent.splitsAndClosesLock.writeLock().unlock();
+  }
+  return prepared;
+}

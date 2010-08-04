@@ -1,0 +1,39 @@
+{
+  final int rowcount=TEST_UTIL.loadRegion(this.parent,CF);
+  assertTrue(rowcount > 0);
+  int parentRowCount=countRows(this.parent);
+  assertEquals(rowcount,parentRowCount);
+  SplitTransaction st=prepareGOOD_SPLIT_ROW();
+  SplitTransaction spiedUponSt=spy(st);
+  when(spiedUponSt.createDaughterRegion(spiedUponSt.getSecondDaughter())).thenThrow(new MockedFailedDaughterCreation());
+  boolean expectedException=false;
+  try {
+    spiedUponSt.execute(null);
+  }
+ catch (  MockedFailedDaughterCreation e) {
+    expectedException=true;
+  }
+  assertTrue(expectedException);
+  spiedUponSt.rollback(null);
+  int parentRowCount2=countRows(this.parent);
+  assertEquals(parentRowCount,parentRowCount2);
+  assertTrue(!this.fs.exists(HRegion.getRegionDir(this.testdir,st.getFirstDaughter())));
+  assertTrue(!this.fs.exists(HRegion.getRegionDir(this.testdir,st.getSecondDaughter())));
+  assertTrue(!this.parent.splitsAndClosesLock.writeLock().isHeldByCurrentThread());
+  assertTrue(st.prepare());
+  PairOfSameType<HRegion> daughters=st.execute(null);
+  int daughtersRowCount=0;
+  for (  HRegion r : daughters) {
+    HRegion openRegion=HRegion.openHRegion(r.getRegionInfo(),this.testdir,r.getLog(),r.getConf());
+    try {
+      int count=countRows(openRegion);
+      assertTrue(count > 0 && count != rowcount);
+      daughtersRowCount+=count;
+    }
+  finally {
+      openRegion.close();
+    }
+  }
+  assertEquals(rowcount,daughtersRowCount);
+  assertTrue(!this.parent.splitsAndClosesLock.writeLock().isHeldByCurrentThread());
+}
