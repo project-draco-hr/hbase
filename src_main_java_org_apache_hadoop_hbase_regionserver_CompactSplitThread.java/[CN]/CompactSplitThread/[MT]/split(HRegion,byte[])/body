@@ -1,38 +1,22 @@
 {
-  final HRegionInfo oldRegionInfo=region.getRegionInfo();
   final long startTime=System.currentTimeMillis();
-  final HRegion[] newRegions=region.splitRegion(midKey);
-  if (newRegions == null) {
+  SplitTransaction st=new SplitTransaction(parent,midKey);
+  if (!st.prepare())   return;
+  try {
+    st.execute(this.server);
+  }
+ catch (  IOException ioe) {
+    try {
+      LOG.info("Running rollback of failed split of " + parent.getRegionNameAsString() + "; "+ ioe.getMessage());
+      st.rollback(this.server);
+      LOG.info("Successful rollback of failed split of " + parent.getRegionNameAsString());
+    }
+ catch (    RuntimeException e) {
+      LOG.info("Failed rollback of failed split of " + parent.getRegionNameAsString() + " -- aborting server",e);
+      this.server.abort("Failed split");
+    }
     return;
   }
-  HTable t=null;
-  if (region.getRegionInfo().isMetaTable()) {
-    if (this.root == null) {
-      this.root=new HTable(conf,HConstants.ROOT_TABLE_NAME);
-    }
-    t=root;
-  }
- else {
-    if (meta == null) {
-      meta=new HTable(conf,HConstants.META_TABLE_NAME);
-    }
-    t=meta;
-  }
-  oldRegionInfo.setOffline(true);
-  oldRegionInfo.setSplit(true);
-  this.server.removeFromOnlineRegions(oldRegionInfo);
-  Put put=new Put(oldRegionInfo.getRegionName());
-  put.add(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER,Writables.getBytes(oldRegionInfo));
-  put.add(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,HConstants.EMPTY_BYTE_ARRAY);
-  put.add(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,HConstants.EMPTY_BYTE_ARRAY);
-  put.add(HConstants.CATALOG_FAMILY,HConstants.SPLITA_QUALIFIER,Writables.getBytes(newRegions[0].getRegionInfo()));
-  put.add(HConstants.CATALOG_FAMILY,HConstants.SPLITB_QUALIFIER,Writables.getBytes(newRegions[1].getRegionInfo()));
-  t.put(put);
-  for (int i=0; i < newRegions.length; i++) {
-    put=new Put(newRegions[i].getRegionName());
-    put.add(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER,Writables.getBytes(newRegions[i].getRegionInfo()));
-    t.put(put);
-  }
-  server.reportSplit(oldRegionInfo,newRegions[0].getRegionInfo(),newRegions[1].getRegionInfo());
-  LOG.info("region split, META updated, and report to master all" + " successful. Old region=" + oldRegionInfo.toString() + ", new regions: "+ newRegions[0].toString()+ ", "+ newRegions[1].toString()+ ". Split took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
+  this.server.reportSplit(parent.getRegionInfo(),st.getFirstDaughter(),st.getSecondDaughter());
+  LOG.info("Region split, META updated, and report to master. Parent=" + parent.getRegionInfo() + ", new regions: "+ st.getFirstDaughter()+ ", "+ st.getSecondDaughter()+ ". Split took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
 }
