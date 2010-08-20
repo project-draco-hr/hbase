@@ -8,35 +8,39 @@
     if (closed) {
       return regionsToFlush;
     }
+    long currentFilenum=this.filenum;
+    this.filenum=System.currentTimeMillis();
+    Path newPath=computeFilename();
+    HLog.Writer nextWriter=createWriter(fs,newPath,HBaseConfiguration.create(conf));
+    int nextInitialReplication=fs.getFileStatus(newPath).getReplication();
+    OutputStream nextHdfsOut=null;
+    if (nextWriter instanceof SequenceFileLogWriter) {
+      nextHdfsOut=((SequenceFileLogWriter)nextWriter).getDFSCOutputStream();
+    }
 synchronized (updateLock) {
-      Path oldFile=cleanupCurrentWriter(this.filenum);
-      this.filenum=System.currentTimeMillis();
-      Path newPath=computeFilename();
-      this.writer=createWriter(fs,newPath,HBaseConfiguration.create(conf));
-      this.initialReplication=fs.getFileStatus(newPath).getReplication();
-      this.hdfs_out=null;
-      if (this.writer instanceof SequenceFileLogWriter) {
-        this.hdfs_out=((SequenceFileLogWriter)this.writer).getDFSCOutputStream();
-      }
+      Path oldFile=cleanupCurrentWriter(currentFilenum);
+      this.writer=nextWriter;
+      this.initialReplication=nextInitialReplication;
+      this.hdfs_out=nextHdfsOut;
       LOG.info((oldFile != null ? "Roll " + FSUtils.getPath(oldFile) + ", entries="+ this.numEntries.get()+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen()+ ". " : "") + "New hlog " + FSUtils.getPath(newPath));
-      if (!this.actionListeners.isEmpty()) {
-        for (        LogActionsListener list : this.actionListeners) {
-          list.logRolled(newPath);
-        }
-      }
-      if (this.outputfiles.size() > 0) {
-        if (this.lastSeqWritten.size() <= 0) {
-          LOG.debug("Last sequenceid written is empty. Deleting all old hlogs");
-          for (          Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
-            archiveLogFile(e.getValue(),e.getKey());
-          }
-          this.outputfiles.clear();
-        }
- else {
-          regionsToFlush=cleanOldLogs();
-        }
-      }
       this.numEntries.set(0);
+    }
+    if (!this.actionListeners.isEmpty()) {
+      for (      LogActionsListener list : this.actionListeners) {
+        list.logRolled(newPath);
+      }
+    }
+    if (this.outputfiles.size() > 0) {
+      if (this.lastSeqWritten.size() <= 0) {
+        LOG.debug("Last sequenceid written is empty. Deleting all old hlogs");
+        for (        Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
+          archiveLogFile(e.getValue(),e.getKey());
+        }
+        this.outputfiles.clear();
+      }
+ else {
+        regionsToFlush=cleanOldLogs();
+      }
     }
   }
   finally {
