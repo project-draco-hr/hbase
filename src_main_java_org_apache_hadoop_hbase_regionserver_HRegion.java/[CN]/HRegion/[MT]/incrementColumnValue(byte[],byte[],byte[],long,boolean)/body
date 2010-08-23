@@ -1,32 +1,38 @@
 {
   checkRow(row);
   boolean flush=false;
-  Integer lid=obtainRowLock(row);
   long result=amount;
+  startRegionOperation();
   try {
-    Store store=stores.get(family);
-    Get get=new Get(row);
-    get.addColumn(family,qualifier);
-    List<KeyValue> results=get(get);
-    if (!results.isEmpty()) {
-      KeyValue kv=results.get(0);
-      byte[] buffer=kv.getBuffer();
-      int valueOffset=kv.getValueOffset();
-      result+=Bytes.toLong(buffer,valueOffset,Bytes.SIZEOF_LONG);
+    Integer lid=obtainRowLock(row);
+    try {
+      Store store=stores.get(family);
+      Get get=new Get(row);
+      get.addColumn(family,qualifier);
+      List<KeyValue> results=get(get);
+      if (!results.isEmpty()) {
+        KeyValue kv=results.get(0);
+        byte[] buffer=kv.getBuffer();
+        int valueOffset=kv.getValueOffset();
+        result+=Bytes.toLong(buffer,valueOffset,Bytes.SIZEOF_LONG);
+      }
+      KeyValue newKv=new KeyValue(row,family,qualifier,EnvironmentEdgeManager.currentTimeMillis(),Bytes.toBytes(result));
+      if (writeToWAL) {
+        long now=EnvironmentEdgeManager.currentTimeMillis();
+        WALEdit walEdit=new WALEdit();
+        walEdit.add(newKv);
+        this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdit,now);
+      }
+      long size=store.updateColumnValue(row,family,qualifier,result);
+      size=this.memstoreSize.addAndGet(size);
+      flush=isFlushSize(size);
     }
-    KeyValue newKv=new KeyValue(row,family,qualifier,EnvironmentEdgeManager.currentTimeMillis(),Bytes.toBytes(result));
-    if (writeToWAL) {
-      long now=EnvironmentEdgeManager.currentTimeMillis();
-      WALEdit walEdit=new WALEdit();
-      walEdit.add(newKv);
-      this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdit,now);
+  finally {
+      releaseRowLock(lid);
     }
-    long size=store.updateColumnValue(row,family,qualifier,result);
-    size=this.memstoreSize.addAndGet(size);
-    flush=isFlushSize(size);
   }
   finally {
-    releaseRowLock(lid);
+    closeRegionOperation();
   }
   if (flush) {
     requestFlush();

@@ -21,33 +21,25 @@ synchronized (writestate) {
     LOG.info("Running close preflush of " + this.getRegionNameAsString());
     internalFlushcache();
   }
-  newScannerLock.writeLock().lock();
   this.closing.set(true);
+  lock.writeLock().lock();
   try {
-    splitsAndClosesLock.writeLock().lock();
     if (this.isClosed()) {
       return null;
     }
-    LOG.debug("Updates disabled for region, no outstanding scanners on " + this);
-    try {
-      waitOnRowLocks();
-      LOG.debug("No more row locks outstanding on region " + this);
-      if (!abort) {
-        internalFlushcache();
-      }
-      List<StoreFile> result=new ArrayList<StoreFile>();
-      for (      Store store : stores.values()) {
-        result.addAll(store.close());
-      }
-      this.closed.set(true);
-      LOG.info("Closed " + this);
-      return result;
+    LOG.debug("Updates disabled for region " + this);
+    if (!abort) {
+      internalFlushcache();
     }
-  finally {
-      splitsAndClosesLock.writeLock().unlock();
+    List<StoreFile> result=new ArrayList<StoreFile>();
+    for (    Store store : stores.values()) {
+      result.addAll(store.close());
     }
+    this.closed.set(true);
+    LOG.info("Closed " + this);
+    return result;
   }
   finally {
-    newScannerLock.writeLock().unlock();
+    lock.writeLock().unlock();
   }
 }

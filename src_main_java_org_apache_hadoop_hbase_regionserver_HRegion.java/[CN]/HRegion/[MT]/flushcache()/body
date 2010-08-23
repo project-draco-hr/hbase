@@ -1,32 +1,37 @@
 {
-  if (this.closed.get()) {
+  if (this.closing.get()) {
+    LOG.debug("Skipping flush on " + this + " because closing");
     return false;
   }
-synchronized (writestate) {
-    if (!writestate.flushing && writestate.writesEnabled) {
-      this.writestate.flushing=true;
-    }
- else {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("NOT flushing memstore for region " + this + ", flushing="+ writestate.flushing+ ", writesEnabled="+ writestate.writesEnabled);
-      }
+  lock.readLock().lock();
+  try {
+    if (this.closed.get()) {
+      LOG.debug("Skipping flush on " + this + " because closed");
       return false;
     }
-  }
-  try {
-    splitsAndClosesLock.readLock().lock();
     try {
+synchronized (writestate) {
+        if (!writestate.flushing && writestate.writesEnabled) {
+          this.writestate.flushing=true;
+        }
+ else {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("NOT flushing memstore for region " + this + ", flushing="+ writestate.flushing+ ", writesEnabled="+ writestate.writesEnabled);
+          }
+          return false;
+        }
+      }
       return internalFlushcache();
     }
   finally {
-      splitsAndClosesLock.readLock().unlock();
+synchronized (writestate) {
+        writestate.flushing=false;
+        this.writestate.flushRequested=false;
+        writestate.notifyAll();
+      }
     }
   }
   finally {
-synchronized (writestate) {
-      writestate.flushing=false;
-      this.writestate.flushRequested=false;
-      writestate.notifyAll();
-    }
+    lock.readLock().unlock();
   }
 }
