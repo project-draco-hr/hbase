@@ -1,0 +1,31 @@
+{
+  boolean thisMasterStartedCluster=true;
+  try {
+    if (ZKUtil.setAddressAndWatch(watcher,watcher.masterAddressZNode,address)) {
+      clusterHasActiveMaster.set(true);
+      return thisMasterStartedCluster;
+    }
+  }
+ catch (  KeeperException ke) {
+    master.abort("Received an unexpected KeeperException, aborting",ke);
+    return false;
+  }
+  LOG.info("Another master is already the active master, waiting to become " + "the next active master");
+  clusterHasActiveMaster.set(true);
+  thisMasterStartedCluster=false;
+synchronized (clusterHasActiveMaster) {
+    while (clusterHasActiveMaster.get() && !master.isStopped()) {
+      try {
+        clusterHasActiveMaster.wait();
+      }
+ catch (      InterruptedException e) {
+        LOG.debug("Interrupted waiting for master to die",e);
+      }
+    }
+    if (master.isStopped()) {
+      return thisMasterStartedCluster;
+    }
+    blockUntilBecomingActiveMaster();
+  }
+  return thisMasterStartedCluster;
+}

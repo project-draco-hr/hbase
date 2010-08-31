@@ -1,0 +1,22 @@
+{
+  zkw.debug("Deleting an existing unassigned node for " + regionName + " that is in expected state "+ expectedState);
+  String node=getNodeName(zkw,regionName);
+  Stat stat=new Stat();
+  byte[] bytes=ZKUtil.getDataNoWatch(zkw,node,stat);
+  if (bytes == null) {
+    throw KeeperException.create(Code.NONODE);
+  }
+  RegionTransitionData data=RegionTransitionData.fromBytes(bytes);
+  if (!data.getEventType().equals(expectedState)) {
+    zkw.warn("Attempting to delete an unassigned node in " + expectedState + " state but node is in "+ data.getEventType()+ " state");
+    return false;
+  }
+synchronized (zkw.getNodes()) {
+    zkw.getNodes().remove(node);
+    if (!ZKUtil.deleteNode(zkw,node,stat.getVersion())) {
+      zkw.warn("Attempting to delete an unassigned node in " + expectedState + " state but "+ "after verifying it was in OPENED state, we got a version mismatch");
+      return false;
+    }
+    return true;
+  }
+}

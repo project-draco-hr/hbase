@@ -1,49 +1,30 @@
 {
   this.conf=conf;
-  zooKeeperWrapper=ZooKeeperWrapper.createInstance(conf,HMaster.class.getName());
-  isClusterStartup=(zooKeeperWrapper.scanRSDirectory().size() == 0);
   HServerAddress a=new HServerAddress(getMyAddress(this.conf));
-  this.rpcServer=HBaseRPC.getServer(this,a.getBindAddress(),a.getPort(),conf.getInt("hbase.regionserver.handler.count",10),false,conf);
-  this.address=new HServerAddress(this.rpcServer.getListenerAddress());
-  this.numRetries=conf.getInt("hbase.client.retries.number",2);
-  this.threadWakeFrequency=conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000);
-  this.sleeper=new Sleeper(this.threadWakeFrequency,this.closed);
-  this.connection=ServerConnectionManager.getConnection(conf);
+  int numHandlers=conf.getInt("hbase.regionserver.handler.count",10);
+  this.rpcServer=HBaseRPC.getServer(this,a.getBindAddress(),a.getPort(),numHandlers,false,conf);
+  this.address=new HServerAddress(rpcServer.getListenerAddress());
+  setName(MASTER + "-" + this.address);
   if (this.conf.get("mapred.task.id") == null) {
     this.conf.set("mapred.task.id","hb_m_" + this.address.toString());
   }
-  this.rootdir=FSUtils.getRootDir(this.conf);
-  this.conf.set("fs.default.name",this.rootdir.toString());
-  this.conf.set("fs.defaultFS",this.rootdir.toString());
-  this.fs=FileSystem.get(this.conf);
-  checkRootDir(this.rootdir,this.conf,this.fs);
-  this.oldLogDir=new Path(this.rootdir,HConstants.HREGION_OLDLOGDIR_NAME);
-  if (!this.fs.exists(this.oldLogDir)) {
-    this.fs.mkdirs(this.oldLogDir);
-  }
-  zooKeeperWrapper.registerListener(this);
-  this.zkMasterAddressWatcher=new ZKMasterAddressWatcher(this.zooKeeperWrapper,this.shutdownRequested);
-  zooKeeperWrapper.registerListener(zkMasterAddressWatcher);
-  if (conf.getBoolean(HConstants.MASTER_TYPE_BACKUP,HConstants.DEFAULT_MASTER_TYPE_BACKUP)) {
-    while (!zooKeeperWrapper.masterAddressExists()) {
-      try {
-        LOG.debug("Waiting for master address ZNode to be written " + "(Also watching cluster state node)");
-        Thread.sleep(conf.getInt("zookeeper.session.timeout",60 * 1000));
-      }
- catch (      InterruptedException e) {
-        throw new IOException("Interrupted waiting for master address");
-      }
-    }
-  }
-  this.zkMasterAddressWatcher.writeAddressToZooKeeper(this.address,true);
-  this.regionServerOperationQueue=new RegionServerOperationQueue(this.conf,this.closed);
-  serverManager=new ServerManager(this);
-  ZKUnassignedWatcher.start(this.conf,this);
-  HBaseEventType.RS2ZK_REGION_CLOSED.startMasterExecutorService(address.toString());
-  HBaseEventType.RS2ZK_REGION_OPENED.startMasterExecutorService(address.toString());
-  regionManager=new RegionManager(this);
-  setName(MASTER);
-  this.metrics=new MasterMetrics(MASTER);
-  this.closed.set(false);
-  LOG.info("HMaster initialized on " + this.address.toString());
+  this.zooKeeper=new ZooKeeperWatcher(conf,MASTER + "-" + getMasterAddress(),this);
+  this.clusterStarter=0 == ZKUtil.getNumberOfChildren(zooKeeper,zooKeeper.rsZNode);
+  activeMasterManager=new ActiveMasterManager(zooKeeper,address,this);
+  zooKeeper.registerListener(activeMasterManager);
+  clusterStarter=activeMasterManager.blockUntilBecomingActiveMaster();
+  this.fileSystemManager=new MasterFileSystem(this);
+  this.connection=ServerConnectionManager.getConnection(conf);
+  this.executorService=new ExecutorService(getServerName());
+  this.serverManager=new ServerManager(this,this);
+  this.catalogTracker=new CatalogTracker(this.zooKeeper,this.connection,this,conf.getInt("hbase.master.catalog.timeout",-1));
+  this.catalogTracker.start();
+  this.assignmentManager=new AssignmentManager(this,serverManager,this.catalogTracker,this.executorService);
+  zooKeeper.registerListener(assignmentManager);
+  this.regionServerTracker=new RegionServerTracker(zooKeeper,this,this.serverManager);
+  regionServerTracker.start();
+  this.clusterStatusTracker=new ClusterStatusTracker(getZooKeeper(),this);
+  this.clusterStatusTracker.setClusterUp();
+  this.clusterStatusTracker.start();
+  LOG.info("Server active/primary master; " + this.address + "; clusterStarter="+ this.clusterStarter);
 }

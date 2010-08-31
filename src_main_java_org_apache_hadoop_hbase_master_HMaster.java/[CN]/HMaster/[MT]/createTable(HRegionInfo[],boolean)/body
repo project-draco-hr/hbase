@@ -1,0 +1,25 @@
+{
+  String tableName=newRegions[0].getTableDesc().getNameAsString();
+  if (MetaReader.tableExists(catalogTracker,tableName)) {
+    throw new TableExistsException(tableName);
+  }
+  for (  HRegionInfo newRegion : newRegions) {
+    HRegion region=HRegion.createHRegion(newRegion,fileSystemManager.getRootDir(),conf);
+    MetaEditor.addRegionToMeta(catalogTracker,region.getRegionInfo());
+    region.close();
+    region.getLog().closeAndDelete();
+    assignmentManager.assign(region.getRegionInfo());
+  }
+  if (sync) {
+    LOG.debug("Waiting for " + newRegions.length + " region(s) to be "+ "assigned before returning");
+    for (    HRegionInfo regionInfo : newRegions) {
+      try {
+        assignmentManager.waitForAssignment(regionInfo);
+      }
+ catch (      InterruptedException e) {
+        LOG.info("Interrupted waiting for region to be assigned during " + "create table call");
+        return;
+      }
+    }
+  }
+}

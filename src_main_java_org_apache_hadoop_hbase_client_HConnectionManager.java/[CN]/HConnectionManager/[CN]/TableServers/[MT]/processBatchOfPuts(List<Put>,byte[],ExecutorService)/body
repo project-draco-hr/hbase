@@ -1,9 +1,89 @@
 {
-  Result[] results=new Result[list.size()];
-  processBatch((List)list,tableName,pool,results);
-  for (int i=results.length - 1; i >= 0; i--) {
-    if (results[i] != null) {
-      list.remove(i);
+  boolean singletonList=list.size() == 1;
+  Throwable singleRowCause=null;
+  for (int tries=0; tries < numRetries && !list.isEmpty(); ++tries) {
+    Collections.sort(list);
+    Map<HServerAddress,MultiPut> regionPuts=new HashMap<HServerAddress,MultiPut>();
+    for (    Put put : list) {
+      byte[] row=put.getRow();
+      HRegionLocation loc=locateRegion(tableName,row,true);
+      HServerAddress address=loc.getServerAddress();
+      byte[] regionName=loc.getRegionInfo().getRegionName();
+      MultiPut mput=regionPuts.get(address);
+      if (mput == null) {
+        mput=new MultiPut(address);
+        regionPuts.put(address,mput);
+      }
+      mput.add(regionName,put);
     }
+    List<MultiPut> multiPuts=new ArrayList<MultiPut>(regionPuts.values());
+    List<Future<MultiPutResponse>> futures=new ArrayList<Future<MultiPutResponse>>(regionPuts.size());
+    for (    MultiPut put : multiPuts) {
+      futures.add(pool.submit(createPutCallable(put.address,put,tableName)));
+    }
+    List<Put> failed=new ArrayList<Put>();
+    for (int i=0; i < futures.size(); i++) {
+      Future<MultiPutResponse> future=futures.get(i);
+      MultiPut request=multiPuts.get(i);
+      try {
+        MultiPutResponse resp=future.get();
+        for (        Map.Entry<byte[],List<Put>> e : request.puts.entrySet()) {
+          Integer result=resp.getAnswer(e.getKey());
+          if (result == null) {
+            LOG.debug("Failed all for region: " + Bytes.toStringBinary(e.getKey()) + ", removing from cache");
+            failed.addAll(e.getValue());
+          }
+ else           if (result >= 0) {
+            List<Put> lst=e.getValue();
+            failed.addAll(lst.subList(result,lst.size()));
+            LOG.debug("Failed past " + result + " for region: "+ Bytes.toStringBinary(e.getKey())+ ", removing from cache");
+          }
+        }
+      }
+ catch (      InterruptedException e) {
+        LOG.debug("Failed all from " + request.address,e);
+        failed.addAll(request.allPuts());
+      }
+catch (      ExecutionException e) {
+        Throwable cause=e.getCause();
+        if (cause instanceof NotServingRegionException) {
+          String msg=cause.getMessage();
+          if (msg != null && msg.length() > 0) {
+            msg=msg.split("[\\n\\r]+\\s*at")[0];
+          }
+          LOG.debug("Failed execution of all on " + request.address + " because: "+ msg);
+        }
+ else {
+          LOG.debug("Failed execution of all on " + request.address,e.getCause());
+        }
+        failed.addAll(request.allPuts());
+        if (e.getCause() instanceof DoNotRetryIOException) {
+          throw (DoNotRetryIOException)e.getCause();
+        }
+        if (singletonList) {
+          singleRowCause=e.getCause();
+        }
+      }
+    }
+    list.clear();
+    if (!failed.isEmpty()) {
+      for (      Put failedPut : failed) {
+        deleteCachedLocation(tableName,failedPut.getRow());
+      }
+      list.addAll(failed);
+      long sleepTime=getPauseTime(tries);
+      LOG.debug("processBatchOfPuts had some failures, sleeping for " + sleepTime + " ms!");
+      try {
+        Thread.sleep(sleepTime);
+      }
+ catch (      InterruptedException ignored) {
+      }
+    }
+  }
+  if (!list.isEmpty()) {
+    if (singletonList && singleRowCause != null) {
+      throw new IOException(singleRowCause);
+    }
+    throw new RetriesExhaustedException("Still had " + list.size() + " puts left after retrying "+ numRetries+ " times.");
   }
 }

@@ -1,16 +1,18 @@
 {
-  ZooKeeperWrapper zk;
-  try {
-    zk=getZooKeeperWrapper();
-  }
- catch (  IOException e) {
-    throw new MasterNotRunningException(e);
+  if (master != null) {
+    if (master.isMasterRunning()) {
+      return master;
+    }
   }
   HServerAddress masterLocation=null;
 synchronized (this.masterLock) {
     for (int tries=0; !this.closed && !this.masterChecked && this.master == null && tries < numRetries; tries++) {
       try {
-        masterLocation=zk.readMasterAddressOrThrow();
+        masterLocation=masterAddressTracker.getMasterAddress();
+        if (masterLocation == null) {
+          LOG.info("ZooKeeper available but no active master location found");
+          throw new MasterNotRunningException();
+        }
         HMasterInterface tryMaster=(HMasterInterface)HBaseRPC.getProxy(HMasterInterface.class,HBaseRPCProtocolVersion.versionID,masterLocation.getInetSocketAddress(),this.conf);
         if (tryMaster.isMasterRunning()) {
           this.master=tryMaster;

@@ -1,0 +1,81 @@
+{
+  final byte[] tableName=Bytes.toBytes("changeTableSchema");
+  HTableDescriptor[] tables=admin.listTables();
+  int numTables=tables.length;
+  TEST_UTIL.createTable(tableName,HConstants.CATALOG_FAMILY);
+  tables=this.admin.listTables();
+  assertEquals(numTables + 1,tables.length);
+  HTableDescriptor htd=this.admin.getTableDescriptor(tableName);
+  HTableDescriptor copy=new HTableDescriptor(htd);
+  assertTrue(htd.equals(copy));
+  long newFlushSize=htd.getMemStoreFlushSize() / 2;
+  copy.setMemStoreFlushSize(newFlushSize);
+  final String key="anyoldkey";
+  assertTrue(htd.getValue(key) == null);
+  copy.setValue(key,key);
+  boolean expectedException=false;
+  try {
+    this.admin.modifyTable(tableName,copy);
+  }
+ catch (  TableNotDisabledException re) {
+    expectedException=true;
+  }
+  assertTrue(expectedException);
+  this.admin.disableTable(tableName);
+  assertTrue(this.admin.isTableDisabled(tableName));
+  modifyTable(tableName,copy);
+  HTableDescriptor modifiedHtd=this.admin.getTableDescriptor(tableName);
+  assertFalse(htd.equals(modifiedHtd));
+  assertTrue(copy.equals(modifiedHtd));
+  assertEquals(newFlushSize,modifiedHtd.getMemStoreFlushSize());
+  assertEquals(key,modifiedHtd.getValue(key));
+  this.admin.enableTable(tableName);
+  assertFalse(this.admin.isTableDisabled(tableName));
+  int countOfFamilies=modifiedHtd.getFamilies().size();
+  assertTrue(countOfFamilies > 0);
+  HColumnDescriptor hcd=modifiedHtd.getFamilies().iterator().next();
+  int maxversions=hcd.getMaxVersions();
+  final int newMaxVersions=maxversions + 1;
+  hcd.setMaxVersions(newMaxVersions);
+  final byte[] hcdName=hcd.getName();
+  expectedException=false;
+  try {
+    this.admin.modifyColumn(tableName,hcd);
+  }
+ catch (  TableNotDisabledException re) {
+    expectedException=true;
+  }
+  assertTrue(expectedException);
+  this.admin.disableTable(tableName);
+  assertTrue(this.admin.isTableDisabled(tableName));
+  this.admin.modifyColumn(tableName,hcd);
+  modifiedHtd=this.admin.getTableDescriptor(tableName);
+  HColumnDescriptor modifiedHcd=modifiedHtd.getFamily(hcdName);
+  assertEquals(newMaxVersions,modifiedHcd.getMaxVersions());
+  this.admin.enableTable(tableName);
+  assertFalse(this.admin.isTableDisabled(tableName));
+  final String xtracolName="xtracol";
+  HColumnDescriptor xtracol=new HColumnDescriptor(xtracolName);
+  xtracol.setValue(xtracolName,xtracolName);
+  try {
+    this.admin.addColumn(tableName,xtracol);
+  }
+ catch (  TableNotDisabledException re) {
+    expectedException=true;
+  }
+  assertTrue(expectedException);
+  this.admin.disableTable(tableName);
+  assertTrue(this.admin.isTableDisabled(tableName));
+  this.admin.addColumn(tableName,xtracol);
+  modifiedHtd=this.admin.getTableDescriptor(tableName);
+  hcd=modifiedHtd.getFamily(xtracol.getName());
+  assertTrue(hcd != null);
+  assertTrue(hcd.getValue(xtracolName).equals(xtracolName));
+  this.admin.deleteColumn(tableName,xtracol.getName());
+  modifiedHtd=this.admin.getTableDescriptor(tableName);
+  hcd=modifiedHtd.getFamily(xtracol.getName());
+  assertTrue(hcd == null);
+  this.admin.deleteTable(tableName);
+  this.admin.listTables();
+  assertFalse(this.admin.tableExists(tableName));
+}

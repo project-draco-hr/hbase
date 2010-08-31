@@ -1,0 +1,35 @@
+{
+  byte[] region=getRegionName(tableName,list.get(0).getRow(),false);
+  byte[] currentRegion=region;
+  boolean isLastRow;
+  boolean retryOnlyOne=false;
+  List<Row> currentList=new ArrayList<Row>();
+  int i, tries;
+  for (i=0, tries=0; i < list.size() && tries < numRetries; i++) {
+    Row row=list.get(i);
+    currentList.add(row);
+    isLastRow=(i + 1) == list.size();
+    if (!isLastRow) {
+      region=getRegionName(tableName,list.get(i + 1).getRow(),false);
+    }
+    if (!Bytes.equals(currentRegion,region) || isLastRow || retryOnlyOne) {
+      int index=doCall(currentList,row.getRow(),tableName);
+      if (index != -1) {
+        if (tries == numRetries - 1) {
+          throw new RetriesExhaustedException("Some server, retryOnlyOne=" + retryOnlyOne + ", index="+ index+ ", islastrow="+ isLastRow+ ", tries="+ tries+ ", numtries="+ numRetries+ ", i="+ i+ ", listsize="+ list.size()+ ", region="+ Bytes.toStringBinary(region),currentRegion,row.getRow(),tries,new ArrayList<Throwable>());
+        }
+        tries=doBatchPause(currentRegion,tries);
+        i=i - currentList.size() + index;
+        retryOnlyOne=true;
+        region=getRegionName(tableName,list.get(i + 1).getRow(),true);
+      }
+ else {
+        retryOnlyOne=false;
+        tries=0;
+      }
+      currentRegion=region;
+      currentList.clear();
+    }
+  }
+  return i;
+}

@@ -1,0 +1,23 @@
+{
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  LOG.info("Number of region servers = " + cluster.getLiveRegionServerThreads().size());
+  int rsIdx=0;
+  HRegionServer regionServer=TEST_UTIL.getHBaseCluster().getRegionServer(rsIdx);
+  HRegionInfo hri=getNonMetaRegion(regionServer.getOnlineRegions());
+  LOG.debug("Asking RS to close region " + hri.getRegionNameAsString());
+  AtomicBoolean closeEventProcessed=new AtomicBoolean(false);
+  AtomicBoolean reopenEventProcessed=new AtomicBoolean(false);
+  EventHandlerListener closeListener=new ReopenEventListener(hri.getRegionNameAsString(),closeEventProcessed,EventType.RS2ZK_REGION_CLOSED);
+  cluster.getMaster().executorService.registerListener(EventType.RS2ZK_REGION_CLOSED,closeListener);
+  EventHandlerListener openListener=new ReopenEventListener(hri.getRegionNameAsString(),reopenEventProcessed,EventType.RS2ZK_REGION_OPENED);
+  cluster.getMaster().executorService.registerListener(EventType.RS2ZK_REGION_OPENED,openListener);
+  LOG.info("Unassign " + hri.getRegionNameAsString());
+  cluster.getMaster().assignmentManager.unassign(hri);
+  while (!closeEventProcessed.get()) {
+    Threads.sleep(100);
+  }
+  while (!reopenEventProcessed.get()) {
+    Threads.sleep(100);
+  }
+  LOG.info("Done with testReOpenRegion");
+}

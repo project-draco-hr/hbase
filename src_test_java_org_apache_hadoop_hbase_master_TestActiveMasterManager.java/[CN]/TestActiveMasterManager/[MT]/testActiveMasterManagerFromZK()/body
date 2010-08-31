@@ -1,0 +1,45 @@
+{
+  ZooKeeperWatcher zk=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"testActiveMasterManagerFromZK",null);
+  ZKUtil.createAndFailSilent(zk,zk.baseZNode);
+  try {
+    ZKUtil.deleteNode(zk,zk.masterAddressZNode);
+  }
+ catch (  KeeperException.NoNodeException nne) {
+  }
+  HServerAddress firstMasterAddress=new HServerAddress("firstMaster",1234);
+  HServerAddress secondMasterAddress=new HServerAddress("secondMaster",1234);
+  DummyMaster ms1=new DummyMaster();
+  ActiveMasterManager activeMasterManager=new ActiveMasterManager(zk,firstMasterAddress,ms1);
+  zk.registerListener(activeMasterManager);
+  assertFalse(activeMasterManager.clusterHasActiveMaster.get());
+  activeMasterManager.blockUntilBecomingActiveMaster();
+  assertTrue(activeMasterManager.clusterHasActiveMaster.get());
+  assertMaster(zk,firstMasterAddress);
+  WaitToBeMasterThread t=new WaitToBeMasterThread(zk,secondMasterAddress);
+  zk.registerListener(t.manager);
+  t.start();
+  int sleeps=0;
+  while (!t.manager.clusterHasActiveMaster.get() && sleeps < 100) {
+    Thread.sleep(10);
+    sleeps++;
+  }
+  assertTrue(activeMasterManager.clusterHasActiveMaster.get());
+  assertTrue(t.manager.clusterHasActiveMaster.get());
+  assertFalse(t.isActiveMaster);
+  ms1.stop("stopping first server");
+  NodeDeletionListener listener=new NodeDeletionListener(zk,zk.masterAddressZNode);
+  zk.registerListener(listener);
+  LOG.info("Deleting master node");
+  ZKUtil.deleteNode(zk,zk.masterAddressZNode);
+  LOG.info("Waiting for active master manager to be notified");
+  listener.waitForDeletion();
+  LOG.info("Master node deleted");
+  sleeps=0;
+  while (!t.isActiveMaster && sleeps < 100) {
+    Thread.sleep(10);
+    sleeps++;
+  }
+  LOG.debug("Slept " + sleeps + " times");
+  assertTrue(t.manager.clusterHasActiveMaster.get());
+  assertTrue(t.isActiveMaster);
+}

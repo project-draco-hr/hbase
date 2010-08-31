@@ -1,10 +1,19 @@
 {
   Configuration c=TEST_UTIL.getConfiguration();
-  Path oldLogDir=new Path(TEST_UTIL.getTestDir(),HConstants.HREGION_OLDLOGDIR_NAME);
+  Path oldLogDir=new Path(HBaseTestingUtility.getTestDir(),HConstants.HREGION_OLDLOGDIR_NAME);
   String fakeMachineName=URLEncoder.encode("regionserver:60020","UTF8");
   FileSystem fs=FileSystem.get(c);
-  AtomicBoolean stop=new AtomicBoolean(false);
-  LogsCleaner cleaner=new LogsCleaner(1000,stop,c,fs,oldLogDir);
+  Stoppable stoppable=new Stoppable(){
+    private volatile boolean stopped=false;
+    @Override public void stop(    String why){
+      this.stopped=true;
+    }
+    @Override public boolean isStopped(){
+      return this.stopped;
+    }
+  }
+;
+  LogCleaner cleaner=new LogCleaner(1000,stoppable,c,fs,oldLogDir);
   long now=System.currentTimeMillis();
   fs.delete(oldLogDir,true);
   fs.mkdirs(oldLogDir);
@@ -16,7 +25,6 @@
     Path fileName=new Path(oldLogDir,fakeMachineName + "." + (now - 6000000 - i));
     fs.createNewFile(fileName);
     if (i % (30 / 3) == 0) {
-      zkHelper.addLogToList(fileName.getName(),fakeMachineName);
       System.out.println("Replication log file: " + fileName);
     }
   }

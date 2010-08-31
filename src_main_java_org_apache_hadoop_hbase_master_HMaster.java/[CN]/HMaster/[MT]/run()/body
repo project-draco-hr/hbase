@@ -1,45 +1,37 @@
 {
-  joinCluster();
-  startServiceThreads();
   try {
-    FINISHED:     while (!this.closed.get()) {
-      if (this.shutdownRequested.get()) {
-        this.regionManager.stopScanners();
-        if (this.serverManager.numServers() == 0) {
-          startShutdown();
-          break;
-        }
+    startServiceThreads();
+    this.serverManager.waitForMinServers();
+    if (this.clusterStarter) {
+      clusterStarterInitializations(this.fileSystemManager,this.serverManager,this.catalogTracker,this.assignmentManager);
+    }
  else {
-          LOG.debug("Waiting on " + this.serverManager.getServersToServerInfo().keySet().toString());
-        }
-      }
-switch (this.regionServerOperationQueue.process()) {
-case FAILED:
-        break FINISHED;
-case REQUEUED_BUT_PROBLEM:
-      if (!checkFileSystem())       break FINISHED;
-default :
-    break;
-}
-}
-}
- catch (Throwable t) {
-LOG.fatal("Unhandled exception. Starting shutdown.",t);
-this.closed.set(true);
-}
-this.serverManager.letRegionServersShutdown();
-if (this.infoServer != null) {
-LOG.info("Stopping infoServer");
-try {
-this.infoServer.stop();
-}
- catch (Exception ex) {
-ex.printStackTrace();
-}
-}
-this.rpcServer.stop();
-this.regionManager.stop();
-this.zooKeeperWrapper.close();
-HBaseExecutorService.shutdown();
-LOG.info("HMaster main thread exiting");
+      this.assignmentManager.processFailover();
+    }
+    Sleeper sleeper=new Sleeper(1000,this);
+    while (!this.stopped && !this.abort) {
+      sleeper.sleep();
+    }
+  }
+ catch (  Throwable t) {
+    abort("Unhandled exception. Starting shutdown.",t);
+  }
+  if (!this.abort && this.serverManager.isClusterShutdown()) {
+    this.serverManager.letRegionServersShutdown();
+  }
+  if (this.infoServer != null) {
+    LOG.info("Stopping infoServer");
+    try {
+      this.infoServer.stop();
+    }
+ catch (    Exception ex) {
+      ex.printStackTrace();
+    }
+  }
+  this.rpcServer.stop();
+  if (this.balancerChore != null)   this.balancerChore.interrupt();
+  this.activeMasterManager.stop();
+  this.zooKeeper.close();
+  this.executorService.shutdown();
+  LOG.info("HMaster main thread exiting");
 }

@@ -1,0 +1,21 @@
+{
+  ZooKeeperWatcher zk=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"testMasterAddressManagerFromZK",null);
+  ZKUtil.createAndFailSilent(zk,zk.baseZNode);
+  MasterAddressTracker addressManager=new MasterAddressTracker(zk,null);
+  addressManager.start();
+  assertFalse(addressManager.hasMaster());
+  zk.registerListener(addressManager);
+  NodeCreationListener listener=new NodeCreationListener(zk,zk.masterAddressZNode);
+  zk.registerListener(listener);
+  String host="hostname";
+  int port=1234;
+  HServerAddress dummyAddress=new HServerAddress(host,port);
+  LOG.info("Creating master node");
+  ZKUtil.setAddressAndWatch(zk,zk.masterAddressZNode,dummyAddress);
+  LOG.info("Waiting for master address manager to be notified");
+  listener.waitForCreation();
+  LOG.info("Master node created");
+  assertTrue(addressManager.hasMaster());
+  HServerAddress pulledAddress=addressManager.getMasterAddress();
+  assertTrue(pulledAddress.equals(dummyAddress));
+}

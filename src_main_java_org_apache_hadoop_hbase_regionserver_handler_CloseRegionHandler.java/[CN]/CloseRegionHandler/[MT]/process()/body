@@ -1,0 +1,25 @@
+{
+  String name=regionInfo.getRegionNameAsString();
+  LOG.debug("Processing close of " + name);
+  String encodedRegionName=regionInfo.getEncodedName();
+  HRegion region=this.rsServices.getFromOnlineRegions(encodedRegionName);
+  if (region == null) {
+    LOG.warn("Received CLOSE for region " + name + " but currently not serving");
+    return;
+  }
+  int expectedVersion=FAILED;
+  if (this.zk) {
+    expectedVersion=setClosingState();
+    if (expectedVersion == FAILED)     return;
+  }
+  try {
+    this.rsServices.removeFromOnlineRegions(regionInfo.getEncodedName());
+    region.close(abort);
+  }
+ catch (  IOException e) {
+    LOG.error("IOException closing region for " + regionInfo);
+    if (this.zk)     deleteClosingState();
+  }
+  if (this.zk)   setClosedState(expectedVersion,region);
+  LOG.debug("Closed region " + region.getRegionNameAsString());
+}

@@ -1,0 +1,81 @@
+{
+  LOG.debug("Processing open of " + regionInfo.getRegionNameAsString());
+  final String encodedName=regionInfo.getEncodedName();
+  HRegion region=this.rsServices.getFromOnlineRegions(encodedName);
+  if (region != null) {
+    LOG.warn("Attempting open of " + regionInfo.getRegionNameAsString() + " but it's already online on this server");
+    return;
+  }
+  int openingVersion=transitionZookeeperOfflineToOpening(encodedName);
+  if (openingVersion == -1)   return;
+  final AtomicInteger openingInteger=new AtomicInteger(openingVersion);
+  try {
+    region=HRegion.openHRegion(regionInfo,this.rsServices.getWAL(),server.getConfiguration(),this.rsServices.getFlushRequester(),new Progressable(){
+      public void progress(){
+        try {
+          int vsn=ZKAssign.retransitionNodeOpening(server.getZooKeeper(),regionInfo,server.getServerName(),openingInteger.get());
+          if (vsn == -1) {
+            throw KeeperException.create(Code.BADVERSION);
+          }
+          openingInteger.set(vsn);
+        }
+ catch (        KeeperException e) {
+          server.abort("ZK exception refreshing OPENING node",e);
+        }
+      }
+    }
+);
+  }
+ catch (  IOException e) {
+    LOG.error("IOException instantiating region for " + regionInfo + "; resetting state of transition node from OPENING to OFFLINE");
+    try {
+      ZKAssign.forceNodeOffline(server.getZooKeeper(),regionInfo,server.getServerName());
+    }
+ catch (    KeeperException e1) {
+      LOG.error("Error forcing node back to OFFLINE from OPENING");
+      return;
+    }
+    return;
+  }
+  openingVersion=openingInteger.get();
+  try {
+    if ((openingVersion=ZKAssign.retransitionNodeOpening(server.getZooKeeper(),regionInfo,server.getServerName(),openingVersion)) == -1) {
+      LOG.warn("Completed the OPEN of a region but when transitioning from " + " OPENING to OPENING got a version mismatch, someone else clashed " + "so now unassigning");
+      region.close();
+      return;
+    }
+  }
+ catch (  KeeperException e) {
+    LOG.error("Failed transitioning node from OPENING to OPENED",e);
+    return;
+  }
+catch (  IOException e) {
+    LOG.error("Failed to close region after failing to transition",e);
+    return;
+  }
+  try {
+    this.rsServices.postOpenDeployTasks(region,this.server.getCatalogTracker(),false);
+  }
+ catch (  IOException e) {
+    LOG.error("Error updating region location in catalog table",e);
+  }
+catch (  KeeperException e) {
+    LOG.error("ZK Error updating region location in catalog table",e);
+  }
+  try {
+    if (ZKAssign.transitionNodeOpened(server.getZooKeeper(),regionInfo,server.getServerName(),openingVersion) == -1) {
+      LOG.warn("Completed the OPEN of a region but when transitioning from " + " OPENING to OPENED got a version mismatch, someone else clashed " + "so now unassigning");
+      region.close();
+      return;
+    }
+  }
+ catch (  KeeperException e) {
+    LOG.error("Failed transitioning node from OPENING to OPENED",e);
+    return;
+  }
+catch (  IOException e) {
+    LOG.error("Failed to close region after failing to transition",e);
+    return;
+  }
+  LOG.debug("Opened " + region.getRegionNameAsString());
+}

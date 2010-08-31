@@ -1,0 +1,24 @@
+{
+  boolean masterIsRunning=false;
+  if (testMasterRunning) {
+    HConnection connection=HConnectionManager.getConnection(conf);
+    masterIsRunning=connection.isMasterRunning();
+  }
+  HConnectionManager.deleteConnectionInfo(conf,false);
+  if (Bytes.equals(tableName,HConstants.META_TABLE_NAME)) {
+    if (masterIsRunning) {
+      throw new IllegalStateException("Can not compact META table if instance is on-line");
+    }
+    new OfflineMerger(conf,fs).process();
+  }
+ else {
+    if (!masterIsRunning) {
+      throw new IllegalStateException("HBase instance must be running to merge a normal table");
+    }
+    HBaseAdmin admin=new HBaseAdmin(conf);
+    if (!admin.isTableDisabled(tableName)) {
+      throw new TableNotDisabledException(tableName);
+    }
+    new OnlineMerger(conf,fs,tableName).process();
+  }
+}

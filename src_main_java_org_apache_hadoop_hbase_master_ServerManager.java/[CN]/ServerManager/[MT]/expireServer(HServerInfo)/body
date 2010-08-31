@@ -1,26 +1,23 @@
 {
   String serverName=hsi.getServerName();
-  HServerInfo info=this.serversToServerInfo.get(serverName);
+  HServerInfo info=this.onlineServers.get(serverName);
   if (info == null) {
-    LOG.warn("No HServerInfo for " + serverName);
+    LOG.warn("Received expiration of " + hsi.getServerName() + " but server is not currently online");
     return;
   }
-  if (this.deadServers.contains(serverName)) {
-    LOG.warn("Already processing shutdown of " + serverName);
+  if (this.deadservers.contains(serverName)) {
+    LOG.warn("Received expiration of " + hsi.getServerName() + " but server shutdown is already in progress");
     return;
   }
-  this.serversToServerInfo.remove(serverName);
-  HServerLoad load=this.serversToLoad.remove(serverName);
-  if (load != null) {
-synchronized (this.loadToServers) {
-      Set<String> servers=this.loadToServers.get(load);
-      if (servers != null) {
-        servers.remove(serverName);
-        if (servers.isEmpty())         this.loadToServers.remove(load);
-      }
+  this.onlineServers.remove(serverName);
+  this.serverConnections.remove(serverName);
+  if (this.clusterShutdown) {
+    LOG.info("Cluster shutdown set; " + hsi.getServerName() + " expired; onlineServers="+ this.onlineServers.size());
+    if (this.onlineServers.isEmpty()) {
+      master.stop("Cluster shutdown set; onlineServer=0");
     }
+    return;
   }
-  LOG.debug("Added=" + serverName + " to dead servers, added shutdown processing operation");
-  this.deadServers.add(serverName);
-  this.master.getRegionServerOperationQueue().put(new ProcessServerShutdown(master,info));
+  this.services.getExecutorService().submit(new ServerShutdownHandler(this.master,this.services,deadservers,info));
+  LOG.debug("Added=" + serverName + " to dead servers, submitted shutdown handler to be executed");
 }

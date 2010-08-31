@@ -1,47 +1,30 @@
 {
   HServerInfo info=new HServerInfo(serverInfo);
   checkIsDead(info.getServerName(),"REPORT");
-  if (msgs.length > 0) {
-    if (msgs[0].isType(HMsg.Type.MSG_REPORT_EXITING)) {
-      processRegionServerExit(info,msgs);
-      return HMsg.EMPTY_HMSG_ARRAY;
-    }
- else     if (msgs[0].isType(HMsg.Type.MSG_REPORT_QUIESCED)) {
-      LOG.info("Region server " + info.getServerName() + " quiesced");
-      this.quiescedServers.incrementAndGet();
-    }
-  }
-  if (this.master.getShutdownRequested().get()) {
-    if (quiescedServers.get() >= serversToServerInfo.size()) {
-      LOG.info("All user tables quiesced. Proceeding with shutdown");
-      this.master.startShutdown();
-    }
-    if (!this.master.isClosed()) {
-      if (msgs.length > 0 && msgs[0].isType(HMsg.Type.MSG_REPORT_QUIESCED)) {
-        return HMsg.EMPTY_HMSG_ARRAY;
-      }
-      return new HMsg[]{HMsg.REGIONSERVER_QUIESCE};
-    }
-  }
-  if (this.master.isClosed()) {
-    return new HMsg[]{HMsg.REGIONSERVER_STOP};
-  }
-  HServerInfo storedInfo=this.serversToServerInfo.get(info.getServerName());
+  HServerInfo storedInfo=this.onlineServers.get(info.getServerName());
   if (storedInfo == null) {
-    LOG.warn("Received report from unknown server -- telling it " + "to " + HMsg.REGIONSERVER_STOP + ": "+ info.getServerName());
-    return new HMsg[]{HMsg.REGIONSERVER_STOP};
+    LOG.warn("Received report from unknown server -- telling it " + "to " + HMsg.Type.STOP_REGIONSERVER + ": "+ info.getServerName());
+    return HMsg.STOP_REGIONSERVER_ARRAY;
   }
- else   if (storedInfo.getStartCode() != info.getStartCode()) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("region server race condition detected: " + info.getServerName());
-    }
-synchronized (this.serversToServerInfo) {
-      removeServerInfo(info.getServerName());
-      notifyServers();
-    }
-    return new HMsg[]{HMsg.REGIONSERVER_STOP};
+  if (raceThatShouldNotHappenAnymore(storedInfo,info)) {
+    return HMsg.STOP_REGIONSERVER_ARRAY;
   }
- else {
-    return processRegionServerAllsWell(info,mostLoadedRegions,msgs);
-  }
+  for (  HMsg msg : msgs) {
+    LOG.info("Received " + msg);
+switch (msg.getType()) {
+case REGION_SPLIT:
+      this.services.getAssignmentManager().handleSplitReport(serverInfo,msg.getRegionInfo(),msg.getDaughterA(),msg.getDaughterB());
+    break;
+default :
+  LOG.error("Unhandled msg type " + msg);
+}
+}
+HMsg[] reply=null;
+int numservers=numServers();
+if (this.clusterShutdown) {
+if (numservers <= 2) {
+reply=HMsg.STOP_REGIONSERVER_ARRAY;
+}
+}
+return processRegionServerAllsWell(info,mostLoadedRegions,reply);
 }
