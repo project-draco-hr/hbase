@@ -1,15 +1,19 @@
 {
   do {
     if (this.columns.size() == 0) {
-      return ScanQueryMatcher.MatchCode.DONE;
+      return ScanQueryMatcher.MatchCode.SEEK_NEXT_ROW;
     }
     if (this.column == null) {
-      return ScanQueryMatcher.MatchCode.NEXT;
+      return ScanQueryMatcher.MatchCode.SEEK_NEXT_ROW;
     }
     int ret=Bytes.compareTo(column.getBuffer(),column.getOffset(),column.getLength(),bytes,offset,length);
     if (ret == 0) {
+      if (sameAsPreviousTS(timestamp)) {
+        return ScanQueryMatcher.MatchCode.SKIP;
+      }
       if (this.column.decrement() == 0) {
         this.columns.remove(this.index);
+        resetTS();
         if (this.columns.size() == this.index) {
           this.column=null;
         }
@@ -17,14 +21,18 @@
           this.column=this.columns.get(this.index);
         }
       }
+ else {
+        setTS(timestamp);
+      }
       return ScanQueryMatcher.MatchCode.INCLUDE;
     }
+    resetTS();
     if (ret > 0) {
-      return ScanQueryMatcher.MatchCode.SKIP;
+      return ScanQueryMatcher.MatchCode.SEEK_NEXT_COL;
     }
     if (ret <= -1) {
-      if (++this.index == this.columns.size()) {
-        return ScanQueryMatcher.MatchCode.NEXT;
+      if (++this.index >= this.columns.size()) {
+        return ScanQueryMatcher.MatchCode.SEEK_NEXT_ROW;
       }
       this.column=this.columns.get(this.index);
     }
