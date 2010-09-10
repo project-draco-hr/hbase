@@ -1,0 +1,39 @@
+{
+  Configuration conf=getConf();
+  try {
+    if (LocalHBaseCluster.isLocal(conf)) {
+      final MiniZooKeeperCluster zooKeeperCluster=new MiniZooKeeperCluster();
+      File zkDataPath=new File(conf.get("hbase.zookeeper.property.dataDir"));
+      int zkClientPort=conf.getInt("hbase.zookeeper.property.clientPort",0);
+      if (zkClientPort == 0) {
+        throw new IOException("No config value for hbase.zookeeper.property.clientPort");
+      }
+      zooKeeperCluster.setTickTime(conf.getInt("hbase.zookeeper.property.tickTime",3000));
+      zooKeeperCluster.setClientPort(zkClientPort);
+      int clientPort=zooKeeperCluster.startup(zkDataPath);
+      if (clientPort != zkClientPort) {
+        String errorMsg="Couldnt start ZK at requested address of " + zkClientPort + ", instead got: "+ clientPort+ ". Aborting. Why? "+ "Because clients (eg shell) wont be able to find this ZK quorum";
+        System.err.println(errorMsg);
+        throw new IOException(errorMsg);
+      }
+      conf.set("hbase.zookeeper.property.clientPort",Integer.toString(clientPort));
+      LocalHBaseCluster cluster=new LocalHBaseCluster(conf,1,LocalHMaster.class,HRegionServer.class);
+      ((LocalHMaster)cluster.getMaster()).setZKCluster(zooKeeperCluster);
+      cluster.startup();
+    }
+ else {
+      HMaster master=HMaster.constructMaster(masterClass,conf);
+      if (master.isStopped()) {
+        LOG.info("Won't bring the Master up as a shutdown is requested");
+        return -1;
+      }
+      master.start();
+      master.join();
+    }
+  }
+ catch (  Throwable t) {
+    LOG.error("Failed to start master",t);
+    return -1;
+  }
+  return 0;
+}
