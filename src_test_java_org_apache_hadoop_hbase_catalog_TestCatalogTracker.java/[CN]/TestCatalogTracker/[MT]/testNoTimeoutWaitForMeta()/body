@@ -1,0 +1,26 @@
+{
+  HConnection connection=Mockito.mock(HConnection.class);
+  HRegionInterface mockHRI=Mockito.mock(HRegionInterface.class);
+  Mockito.when(connection.getHRegionConnection((HServerAddress)Mockito.any(),Mockito.anyBoolean())).thenReturn(mockHRI);
+  final CatalogTracker ct=constructAndStartCatalogTracker(connection);
+  HServerAddress hsa=ct.getMetaLocation();
+  Assert.assertNull(hsa);
+  Thread t=new WaitOnMetaThread(ct){
+    @Override void doWaiting() throws InterruptedException {
+      this.ct.waitForMeta();
+    }
+  }
+;
+  startWaitAliveThenWaitItLives(t,1000);
+  List<KeyValue> kvs=new ArrayList<KeyValue>();
+  kvs.add(new KeyValue(HConstants.EMPTY_BYTE_ARRAY,HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(HSA.toString())));
+  final Result result=new Result(kvs);
+  Mockito.when(mockHRI.get((byte[])Mockito.any(),(Get)Mockito.any())).thenReturn(result);
+  Mockito.when(mockHRI.getRegionInfo((byte[])Mockito.any())).thenReturn(HRegionInfo.FIRST_META_REGIONINFO);
+  String node=ct.getMetaNodeTracker().getNode();
+  ZKUtil.createAndFailSilent(this.watcher,node);
+  MetaEditor.updateMetaLocation(ct,HRegionInfo.FIRST_META_REGIONINFO,new HServerInfo(HSA,-1,"example.com"));
+  ZKUtil.deleteNode(this.watcher,node);
+  t.join();
+  Assert.assertTrue(ct.getMetaLocation().equals(HSA));
+}

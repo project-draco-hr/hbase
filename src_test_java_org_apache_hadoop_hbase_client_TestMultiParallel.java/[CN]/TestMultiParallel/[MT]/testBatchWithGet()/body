@@ -1,0 +1,28 @@
+{
+  LOG.info("test=testBatchWithGet");
+  HTable table=new HTable(UTIL.getConfiguration(),TEST_TABLE);
+  List<Row> puts=constructPutRequests();
+  table.batch(puts);
+  List<Row> gets=new ArrayList<Row>();
+  for (  byte[] k : KEYS) {
+    Get get=new Get(k);
+    get.addColumn(BYTES_FAMILY,QUALIFIER);
+    gets.add(get);
+  }
+  Result[] multiRes=new Result[gets.size()];
+  table.batch(gets,multiRes);
+  List<Result> singleRes=new ArrayList<Result>();
+  for (  Row get : gets) {
+    singleRes.add(table.get((Get)get));
+  }
+  Assert.assertEquals(singleRes.size(),multiRes.length);
+  for (int i=0; i < singleRes.size(); i++) {
+    Assert.assertTrue(singleRes.get(i).containsColumn(BYTES_FAMILY,QUALIFIER));
+    KeyValue[] singleKvs=singleRes.get(i).raw();
+    KeyValue[] multiKvs=multiRes[i].raw();
+    for (int j=0; j < singleKvs.length; j++) {
+      Assert.assertEquals(singleKvs[j],multiKvs[j]);
+      Assert.assertEquals(0,Bytes.compareTo(singleKvs[j].getValue(),multiKvs[j].getValue()));
+    }
+  }
+}
