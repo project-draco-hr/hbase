@@ -1,31 +1,38 @@
 {
-  boolean thisMasterStartedCluster=true;
+  boolean cleanSetOfActiveMaster=true;
   try {
-    if (ZKUtil.setAddressAndWatch(watcher,watcher.masterAddressZNode,address)) {
-      clusterHasActiveMaster.set(true);
-      return thisMasterStartedCluster;
+    if (ZKUtil.setAddressAndWatch(this.watcher,this.watcher.masterAddressZNode,this.address)) {
+      this.clusterHasActiveMaster.set(true);
+      return cleanSetOfActiveMaster;
+    }
+    this.clusterHasActiveMaster.set(true);
+    cleanSetOfActiveMaster=false;
+    HServerAddress currentMaster=ZKUtil.getDataAsAddress(this.watcher,this.watcher.masterAddressZNode);
+    if (currentMaster != null && currentMaster.equals(this.address)) {
+      LOG.info("Current master has this master's address, " + currentMaster + "; master was restarted?  Waiting on znode to expire...");
+      ZKUtil.deleteNode(this.watcher,this.watcher.masterAddressZNode);
+    }
+ else {
+      LOG.info("Another master is the active master, " + currentMaster + "; waiting to become the next active master");
     }
   }
  catch (  KeeperException ke) {
     master.abort("Received an unexpected KeeperException, aborting",ke);
     return false;
   }
-  LOG.info("Another master is already the active master, waiting to become " + "the next active master");
-  clusterHasActiveMaster.set(true);
-  thisMasterStartedCluster=false;
-synchronized (clusterHasActiveMaster) {
-    while (clusterHasActiveMaster.get() && !master.isStopped()) {
+synchronized (this.clusterHasActiveMaster) {
+    while (this.clusterHasActiveMaster.get() && !this.master.isStopped()) {
       try {
-        clusterHasActiveMaster.wait();
+        this.clusterHasActiveMaster.wait();
       }
  catch (      InterruptedException e) {
         LOG.debug("Interrupted waiting for master to die",e);
       }
     }
-    if (master.isStopped()) {
-      return thisMasterStartedCluster;
+    if (this.master.isStopped()) {
+      return cleanSetOfActiveMaster;
     }
     blockUntilBecomingActiveMaster();
   }
-  return thisMasterStartedCluster;
+  return cleanSetOfActiveMaster;
 }
