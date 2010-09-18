@@ -9,21 +9,11 @@
     this.conf.set("mapred.task.id","hb_m_" + this.address.toString() + "_"+ System.currentTimeMillis());
   }
   this.zooKeeper=new ZooKeeperWatcher(conf,MASTER + "-" + getMasterAddress(),this);
-  this.clusterStarter=0 == ZKUtil.getNumberOfChildren(zooKeeper,zooKeeper.rsZNode);
   this.activeMasterManager=new ActiveMasterManager(zooKeeper,address,this);
   this.zooKeeper.registerListener(activeMasterManager);
-  if (conf.getBoolean(HConstants.MASTER_TYPE_BACKUP,HConstants.DEFAULT_MASTER_TYPE_BACKUP)) {
-    while (!this.activeMasterManager.isActiveMaster()) {
-      try {
-        LOG.debug("Waiting for master address ZNode to be written " + "(Also watching cluster state node)");
-        Thread.sleep(conf.getInt("zookeeper.session.timeout",60 * 1000));
-      }
- catch (      InterruptedException e) {
-        throw new IOException("Interrupted waiting for master address");
-      }
-    }
-  }
-  clusterStarter=activeMasterManager.blockUntilBecomingActiveMaster();
+  stallIfBackupMaster(this.conf,this.activeMasterManager);
+  activeMasterManager.blockUntilBecomingActiveMaster();
+  this.freshClusterStartup=0 == ZKUtil.getNumberOfChildren(zooKeeper,zooKeeper.rsZNode);
   this.fileSystemManager=new MasterFileSystem(this);
   this.connection=HConnectionManager.getConnection(conf);
   this.executorService=new ExecutorService(getServerName());
@@ -33,9 +23,9 @@
   this.assignmentManager=new AssignmentManager(this,serverManager,this.catalogTracker,this.executorService);
   zooKeeper.registerListener(assignmentManager);
   this.regionServerTracker=new RegionServerTracker(zooKeeper,this,this.serverManager);
-  regionServerTracker.start();
+  this.regionServerTracker.start();
   this.clusterStatusTracker=new ClusterStatusTracker(getZooKeeper(),this);
   this.clusterStatusTracker.setClusterUp();
   this.clusterStatusTracker.start();
-  LOG.info("Server active/primary master; " + this.address + "; clusterStarter="+ this.clusterStarter+ ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
+  LOG.info("Server active/primary master; " + this.address + "; freshClusterStart="+ this.freshClusterStartup+ ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
 }
