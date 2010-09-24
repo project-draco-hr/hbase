@@ -4,8 +4,7 @@
   }
   try {
     long totalReplicated=0;
-    byte[] lastTable=HConstants.EMPTY_BYTE_ARRAY;
-    List<Put> puts=new ArrayList<Put>();
+    Map<byte[],List<Put>> puts=new TreeMap<byte[],List<Put>>(Bytes.BYTES_COMPARATOR);
     for (    HLog.Entry entry : entries) {
       WALEdit edit=entry.getEdit();
       List<KeyValue> kvs=edit.getKeyValues();
@@ -22,25 +21,29 @@
         delete(entry.getKey().getTablename(),delete);
       }
  else {
-        if (!Bytes.equals(lastTable,entry.getKey().getTablename())) {
-          put(lastTable,puts);
+        byte[] table=entry.getKey().getTablename();
+        List<Put> tableList=puts.get(table);
+        if (tableList == null) {
+          tableList=new ArrayList<Put>();
+          puts.put(table,tableList);
         }
         byte[] lastKey=kvs.get(0).getRow();
         Put put=new Put(kvs.get(0).getRow(),kvs.get(0).getTimestamp());
         for (        KeyValue kv : kvs) {
           if (!Bytes.equals(lastKey,kv.getRow())) {
-            puts.add(put);
+            tableList.add(put);
             put=new Put(kv.getRow(),kv.getTimestamp());
           }
           put.add(kv.getFamily(),kv.getQualifier(),kv.getValue());
           lastKey=kv.getRow();
         }
-        puts.add(put);
-        lastTable=entry.getKey().getTablename();
+        tableList.add(put);
       }
       totalReplicated++;
     }
-    put(lastTable,puts);
+    for (    byte[] table : puts.keySet()) {
+      put(table,puts.get(table));
+    }
     this.metrics.setAgeOfLastAppliedOp(entries[entries.length - 1].getKey().getWriteTime());
     this.metrics.appliedBatchesRate.inc(1);
     LOG.info("Total replicated: " + totalReplicated);
