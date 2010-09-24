@@ -10,28 +10,21 @@
         this.assignmentManager.processFailover();
       }
     }
+    this.balancerChore=getAndStartBalancerChore(this);
+    this.catalogJanitorChore=Threads.setDaemonThreadRunning(new CatalogJanitor(this,this));
     Sleeper sleeper=new Sleeper(1000,this);
     while (!this.stopped)     sleeper.sleep();
   }
  catch (  Throwable t) {
     abort("Unhandled exception. Starting shutdown.",t);
   }
+  if (this.balancerChore != null)   this.balancerChore.interrupt();
+  if (this.catalogJanitorChore != null)   this.catalogJanitorChore.interrupt();
   if (!this.abort && this.serverManager.isClusterShutdown()) {
     this.serverManager.letRegionServersShutdown();
   }
-  if (this.infoServer != null) {
-    LOG.info("Stopping infoServer");
-    try {
-      this.infoServer.stop();
-    }
- catch (    Exception ex) {
-      ex.printStackTrace();
-    }
-  }
-  this.rpcServer.stop();
-  if (this.balancerChore != null)   this.balancerChore.interrupt();
+  stopServiceThreads();
   this.activeMasterManager.stop();
-  this.executorService.shutdown();
   HConnectionManager.deleteConnection(this.conf,true);
   this.zooKeeper.close();
   LOG.info("HMaster main thread exiting");

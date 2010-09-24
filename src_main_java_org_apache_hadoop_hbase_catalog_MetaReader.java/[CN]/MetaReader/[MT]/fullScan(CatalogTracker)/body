@@ -1,20 +1,14 @@
 {
-  HRegionInterface metaServer=catalogTracker.waitForMetaServerConnectionDefault();
-  Map<HRegionInfo,HServerAddress> allRegions=new TreeMap<HRegionInfo,HServerAddress>();
-  Scan scan=new Scan();
-  scan.addFamily(HConstants.CATALOG_FAMILY);
-  long scannerid=metaServer.openScanner(HRegionInfo.FIRST_META_REGIONINFO.getRegionName(),scan);
-  try {
-    Result data;
-    while ((data=metaServer.next(scannerid)) != null) {
-      if (!data.isEmpty()) {
-        Pair<HRegionInfo,HServerAddress> region=metaRowToRegionPair(data);
-        allRegions.put(region.getFirst(),region.getSecond());
-      }
+  final Map<HRegionInfo,HServerAddress> regions=new TreeMap<HRegionInfo,HServerAddress>();
+  Visitor v=new Visitor(){
+    @Override public boolean visit(    Result r) throws IOException {
+      if (r == null || r.isEmpty())       return true;
+      Pair<HRegionInfo,HServerAddress> region=metaRowToRegionPair(r);
+      regions.put(region.getFirst(),region.getSecond());
+      return true;
     }
   }
-  finally {
-    metaServer.close(scannerid);
-  }
-  return allRegions;
+;
+  fullScan(catalogTracker,v);
+  return regions;
 }

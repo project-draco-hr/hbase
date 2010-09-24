@@ -1,0 +1,20 @@
+{
+  final AtomicInteger count=new AtomicInteger(0);
+  final Map<HRegionInfo,Result> splitParents=new TreeMap<HRegionInfo,Result>();
+  MetaReader.Visitor visitor=new MetaReader.Visitor(){
+    @Override public boolean visit(    Result r) throws IOException {
+      if (r == null || r.isEmpty())       return true;
+      count.incrementAndGet();
+      HRegionInfo info=getHRegionInfo(r);
+      if (info.isSplitParent())       splitParents.put(info,r);
+      return true;
+    }
+  }
+;
+  MetaReader.fullScan(this.server.getCatalogTracker(),visitor);
+  int cleaned=0;
+  for (  Map.Entry<HRegionInfo,Result> e : splitParents.entrySet()) {
+    if (cleanParent(e.getKey(),e.getValue()))     cleaned++;
+  }
+  LOG.info("Scanned " + count.get() + " catalog row(s) and gc'd "+ cleaned+ " unreferenced parent region(s)");
+}
