@@ -1,8 +1,19 @@
 {
   if (this.firstGetPosInvocation) {
     this.firstGetPosInvocation=false;
-    long available=this.in.available();
-    return available >= this.length ? available - this.length : this.length;
+    long adjust=0;
+    try {
+      Field fIn=FilterInputStream.class.getDeclaredField("in");
+      fIn.setAccessible(true);
+      Object realIn=fIn.get(this.in);
+      long realLength=((Long)realIn.getClass().getMethod("getFileLength",new Class<?>[]{}).invoke(realIn,new Object[]{})).longValue();
+      assert(realLength >= this.length);
+      adjust=realLength - this.length;
+    }
+ catch (    Exception e) {
+      SequenceFileLogReader.LOG.warn("Error while trying to get accurate file length.  " + "Truncation / data loss may occur if RegionServers die.",e);
+    }
+    return adjust + super.getPos();
   }
   return super.getPos();
 }
