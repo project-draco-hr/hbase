@@ -9,15 +9,15 @@
     this.conf.set("mapred.task.id","hb_m_" + this.address.toString() + "_"+ System.currentTimeMillis());
   }
   this.zooKeeper=new ZooKeeperWatcher(conf,MASTER,this);
+  int count=ZKUtil.getNumberOfChildren(zooKeeper,zooKeeper.rsZNode);
   this.activeMasterManager=new ActiveMasterManager(zooKeeper,address,this);
   this.zooKeeper.registerListener(activeMasterManager);
   stallIfBackupMaster(this.conf,this.activeMasterManager);
   activeMasterManager.blockUntilBecomingActiveMaster();
-  this.freshClusterStartup=0 == ZKUtil.getNumberOfChildren(zooKeeper,zooKeeper.rsZNode);
   this.fileSystemManager=new MasterFileSystem(this);
   this.connection=HConnectionManager.getConnection(conf);
   this.executorService=new ExecutorService(getServerName());
-  this.serverManager=new ServerManager(this,this,this.freshClusterStartup);
+  this.serverManager=new ServerManager(this,this);
   this.catalogTracker=new CatalogTracker(this.zooKeeper,this.connection,this,conf.getInt("hbase.master.catalog.timeout",Integer.MAX_VALUE));
   this.catalogTracker.start();
   this.assignmentManager=new AssignmentManager(this,serverManager,this.catalogTracker,this.executorService);
@@ -25,7 +25,8 @@
   this.regionServerTracker=new RegionServerTracker(zooKeeper,this,this.serverManager);
   this.regionServerTracker.start();
   this.clusterStatusTracker=new ClusterStatusTracker(getZooKeeper(),this);
-  this.clusterStatusTracker.setClusterUp();
+  boolean wasUp=this.clusterStatusTracker.isClusterUp();
+  if (!wasUp)   this.clusterStatusTracker.setClusterUp();
   this.clusterStatusTracker.start();
-  LOG.info("Server active/primary master; " + this.address + "; freshClusterStart="+ this.freshClusterStartup+ ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
+  LOG.info("Server active/primary master; " + this.address + ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId())+ ", ephemeral nodes still up in zk="+ count+ ", cluster-up flag was="+ wasUp);
 }
