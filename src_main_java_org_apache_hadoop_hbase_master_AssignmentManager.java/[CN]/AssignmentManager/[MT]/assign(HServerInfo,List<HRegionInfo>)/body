@@ -1,0 +1,25 @@
+{
+  LOG.debug("Bulk assigning " + regions.size() + " region(s) to "+ destination.getServerName());
+  List<RegionState> states=new ArrayList<RegionState>(regions.size());
+synchronized (this.regionsInTransition) {
+    for (    HRegionInfo region : regions) {
+      states.add(forceRegionStateToOffline(region));
+    }
+  }
+  for (  RegionState state : states) {
+    if (!setOfflineInZooKeeper(state)) {
+      return;
+    }
+  }
+  for (  RegionState state : states) {
+    state.update(RegionState.State.PENDING_OPEN);
+  }
+  try {
+    this.serverManager.sendRegionOpen(destination,regions);
+  }
+ catch (  Throwable t) {
+    this.master.abort("Failed assignment of regions to " + destination,t);
+    return;
+  }
+  LOG.debug("Bulk assigning done for " + destination.getServerName());
+}
