@@ -1,0 +1,51 @@
+{
+  assertEquals(0,count());
+  int origWI=Store.closeCheckInterval;
+  Store.closeCheckInterval=10 * 1000;
+  try {
+    int jmax=(int)Math.ceil(15.0 / COMPACTION_THRESHOLD);
+    byte[] pad=new byte[1000];
+    for (int i=0; i < COMPACTION_THRESHOLD; i++) {
+      HRegionIncommon loader=new HRegionIncommon(r);
+      Put p=new Put(Bytes.add(STARTROW,Bytes.toBytes(i)));
+      for (int j=0; j < jmax; j++) {
+        p.add(COLUMN_FAMILY,Bytes.toBytes(j),pad);
+      }
+      addContent(loader,Bytes.toString(COLUMN_FAMILY));
+      loader.put(p);
+      loader.flushcache();
+    }
+    HRegion spyR=spy(r);
+    doAnswer(new Answer(){
+      public Object answer(      InvocationOnMock invocation) throws Throwable {
+        r.writestate.writesEnabled=false;
+        return invocation.callRealMethod();
+      }
+    }
+).when(spyR).doRegionCompactionPrep();
+    spyR.compactStores();
+    Store s=r.stores.get(COLUMN_FAMILY);
+    assertEquals(COMPACTION_THRESHOLD,s.getStorefilesCount());
+    assertTrue(s.getStorefilesSize() > 15 * 1000);
+    FileStatus[] ls=cluster.getFileSystem().listStatus(r.getTmpDir());
+    assertEquals(0,ls.length);
+  }
+  finally {
+    r.writestate.writesEnabled=true;
+    Store.closeCheckInterval=origWI;
+    for (int i=0; i < COMPACTION_THRESHOLD; i++) {
+      Delete delete=new Delete(Bytes.add(STARTROW,Bytes.toBytes(i)));
+      byte[][] famAndQf={COLUMN_FAMILY,null};
+      delete.deleteFamily(famAndQf[0]);
+      r.delete(delete,null,true);
+    }
+    r.flushcache();
+    final int ttlInSeconds=1;
+    for (    Store store : this.r.stores.values()) {
+      store.ttl=ttlInSeconds * 1000;
+    }
+    Thread.sleep(ttlInSeconds * 1000);
+    r.compactStores(true);
+    assertEquals(0,count());
+  }
+}

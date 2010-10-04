@@ -27,15 +27,24 @@ synchronized (writestate) {
       long startTime=EnvironmentEdgeManager.currentTimeMillis();
       doRegionCompactionPrep();
       long maxSize=-1;
-      for (      Store store : stores.values()) {
-        final Store.StoreSize ss=store.compact(majorCompaction);
-        if (ss != null && ss.getSize() > maxSize) {
-          maxSize=ss.getSize();
-          splitRow=ss.getSplitRow();
+      boolean completed=false;
+      try {
+        for (        Store store : stores.values()) {
+          final Store.StoreSize ss=store.compact(majorCompaction);
+          if (ss != null && ss.getSize() > maxSize) {
+            maxSize=ss.getSize();
+            splitRow=ss.getSplitRow();
+          }
         }
+        completed=true;
       }
-      String timeTaken=StringUtils.formatTimeDiff(EnvironmentEdgeManager.currentTimeMillis(),startTime);
-      LOG.info("compaction completed on region " + this + " in "+ timeTaken);
+ catch (      InterruptedIOException iioe) {
+        LOG.info("compaction interrupted by user: ",iioe);
+      }
+ finally {
+        long now=EnvironmentEdgeManager.currentTimeMillis();
+        LOG.info(((completed) ? "completed" : "aborted") + " compaction on region " + this+ " after "+ StringUtils.formatTimeDiff(now,startTime));
+      }
     }
   finally {
 synchronized (writestate) {

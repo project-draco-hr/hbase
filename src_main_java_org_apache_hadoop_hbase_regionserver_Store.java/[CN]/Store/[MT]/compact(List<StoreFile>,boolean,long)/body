@@ -15,13 +15,27 @@
         Scan scan=new Scan();
         scan.setMaxVersions(family.getMaxVersions());
         scanner=new StoreScanner(this,scan,scanners);
+        int bytesWritten=0;
         ArrayList<KeyValue> kvs=new ArrayList<KeyValue>();
         while (scanner.next(kvs)) {
-          for (          KeyValue kv : kvs) {
-            if (writer == null) {
-              writer=createWriterInTmp(maxKeyCount,this.compactionCompression);
+          if (writer == null && !kvs.isEmpty()) {
+            writer=createWriterInTmp(maxKeyCount,this.compactionCompression);
+          }
+          if (writer != null) {
+            for (            KeyValue kv : kvs) {
+              writer.append(kv);
+              if (Store.closeCheckInterval > 0) {
+                bytesWritten+=kv.getLength();
+                if (bytesWritten > Store.closeCheckInterval) {
+                  bytesWritten=0;
+                  if (!this.region.areWritesEnabled()) {
+                    writer.close();
+                    fs.delete(writer.getPath(),false);
+                    throw new InterruptedIOException("Aborting compaction of store " + this + " in region "+ this.region+ " because user requested stop.");
+                  }
+                }
+              }
             }
-            writer.append(kv);
           }
           kvs.clear();
         }
@@ -36,8 +50,24 @@
       MinorCompactingStoreScanner scanner=null;
       try {
         scanner=new MinorCompactingStoreScanner(this,scanners);
-        writer=createWriterInTmp(maxKeyCount);
-        while (scanner.next(writer)) {
+        if (scanner.peek() != null) {
+          writer=createWriterInTmp(maxKeyCount);
+          int bytesWritten=0;
+          while (scanner.peek() != null) {
+            KeyValue kv=scanner.next();
+            writer.append(kv);
+            if (Store.closeCheckInterval > 0) {
+              bytesWritten+=kv.getLength();
+              if (bytesWritten > Store.closeCheckInterval) {
+                bytesWritten=0;
+                if (!this.region.areWritesEnabled()) {
+                  writer.close();
+                  fs.delete(writer.getPath(),false);
+                  throw new InterruptedIOException("Aborting compaction of store " + this + " in region "+ this.region+ " because user requested stop.");
+                }
+              }
+            }
+          }
         }
       }
   finally {
