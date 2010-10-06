@@ -1,32 +1,29 @@
 {
   try {
-    startServiceThreads();
-    int regionCount=this.serverManager.waitForRegionServers();
-    this.fileSystemManager.splitLogAfterStartup(this.serverManager.getOnlineServers());
-    assignRootAndMeta();
-    if (regionCount == 0) {
-      this.assignmentManager.cleanoutUnassigned();
-      this.assignmentManager.assignAllUserRegions();
+    this.activeMasterManager=new ActiveMasterManager(zooKeeper,address,this);
+    this.zooKeeper.registerListener(activeMasterManager);
+    stallIfBackupMaster(this.conf,this.activeMasterManager);
+    activeMasterManager.blockUntilBecomingActiveMaster();
+    if (!this.stopped) {
+      finishInitialization();
+      loop();
+      if (this.balancerChore != null) {
+        this.balancerChore.interrupt();
+      }
+      if (this.catalogJanitorChore != null) {
+        this.catalogJanitorChore.interrupt();
+      }
+      if (!this.abort && this.serverManager.isClusterShutdown()) {
+        this.serverManager.letRegionServersShutdown();
+      }
+      stopServiceThreads();
     }
- else {
-      this.assignmentManager.processFailover();
-    }
-    this.balancerChore=getAndStartBalancerChore(this);
-    this.catalogJanitorChore=Threads.setDaemonThreadRunning(new CatalogJanitor(this,this));
-    Sleeper sleeper=new Sleeper(1000,this);
-    while (!this.stopped)     sleeper.sleep();
+    this.activeMasterManager.stop();
+    HConnectionManager.deleteConnection(this.conf,true);
+    this.zooKeeper.close();
+    LOG.info("HMaster main thread exiting");
   }
  catch (  Throwable t) {
     abort("Unhandled exception. Starting shutdown.",t);
   }
-  if (this.balancerChore != null)   this.balancerChore.interrupt();
-  if (this.catalogJanitorChore != null)   this.catalogJanitorChore.interrupt();
-  if (!this.abort && this.serverManager.isClusterShutdown()) {
-    this.serverManager.letRegionServersShutdown();
-  }
-  stopServiceThreads();
-  this.activeMasterManager.stop();
-  HConnectionManager.deleteConnection(this.conf,true);
-  this.zooKeeper.close();
-  LOG.info("HMaster main thread exiting");
 }

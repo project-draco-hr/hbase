@@ -1,0 +1,34 @@
+{
+  isActiveMaster=true;
+  this.fileSystemManager=new MasterFileSystem(this);
+  this.connection=HConnectionManager.getConnection(conf);
+  this.executorService=new ExecutorService(getServerName());
+  this.serverManager=new ServerManager(this,this);
+  this.catalogTracker=new CatalogTracker(this.zooKeeper,this.connection,this,conf.getInt("hbase.master.catalog.timeout",Integer.MAX_VALUE));
+  this.catalogTracker.start();
+  this.assignmentManager=new AssignmentManager(this,serverManager,this.catalogTracker,this.executorService);
+  zooKeeper.registerListener(assignmentManager);
+  this.regionServerTracker=new RegionServerTracker(zooKeeper,this,this.serverManager);
+  this.regionServerTracker.start();
+  this.clusterStatusTracker=new ClusterStatusTracker(getZooKeeper(),this);
+  this.clusterStatusTracker.start();
+  boolean wasUp=this.clusterStatusTracker.isClusterUp();
+  if (!wasUp)   this.clusterStatusTracker.setClusterUp();
+  LOG.info("Server active/primary master; " + this.address + ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId())+ ", cluster-up flag was="+ wasUp);
+  startServiceThreads();
+  int regionCount=this.serverManager.waitForRegionServers();
+  this.fileSystemManager.splitLogAfterStartup(this.serverManager.getOnlineServers());
+  assignRootAndMeta();
+  if (regionCount == 0) {
+    LOG.info("Master startup proceeding: cluster startup");
+    this.assignmentManager.cleanoutUnassigned();
+    this.assignmentManager.assignAllUserRegions();
+  }
+ else {
+    LOG.info("Master startup proceeding: master failover");
+    this.assignmentManager.processFailover();
+  }
+  this.balancerChore=getAndStartBalancerChore(this);
+  this.catalogJanitorChore=Threads.setDaemonThreadRunning(new CatalogJanitor(this,this));
+  isInitialized=true;
+}

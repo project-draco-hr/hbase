@@ -1,0 +1,43 @@
+{
+  final int NUM_MASTERS=3;
+  final int NUM_RS=3;
+  HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility();
+  TEST_UTIL.startMiniCluster(NUM_MASTERS,NUM_RS);
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  List<MasterThread> masterThreads=cluster.getMasterThreads();
+  for (  MasterThread mt : masterThreads) {
+    assertTrue(mt.isAlive());
+  }
+  int numActive=0;
+  int activeIndex=-1;
+  String activeName=null;
+  for (int i=0; i < masterThreads.size(); i++) {
+    if (masterThreads.get(i).getMaster().isActiveMaster()) {
+      numActive++;
+      activeIndex=i;
+      activeName=masterThreads.get(i).getMaster().getServerName();
+    }
+  }
+  assertEquals(1,numActive);
+  assertEquals(NUM_MASTERS,masterThreads.size());
+  LOG.debug("\n\nStopping a backup master\n");
+  int backupIndex=(activeIndex == 0 ? 1 : activeIndex - 1);
+  cluster.stopMaster(backupIndex,false);
+  cluster.waitOnMaster(backupIndex);
+  for (int i=0; i < masterThreads.size(); i++) {
+    if (masterThreads.get(i).getMaster().isActiveMaster()) {
+      assertTrue(activeName.equals(masterThreads.get(i).getMaster().getServerName()));
+      activeIndex=i;
+    }
+  }
+  assertEquals(1,numActive);
+  assertEquals(2,masterThreads.size());
+  LOG.debug("\n\nStopping the active master\n");
+  cluster.stopMaster(activeIndex,false);
+  cluster.waitOnMaster(activeIndex);
+  assertTrue(cluster.waitForActiveAndReadyMaster());
+  LOG.debug("\n\nVerifying backup master is now active\n");
+  assertEquals(1,masterThreads.size());
+  assertTrue(masterThreads.get(0).getMaster().isActiveMaster());
+  TEST_UTIL.shutdownMiniCluster();
+}
