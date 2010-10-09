@@ -1,7 +1,32 @@
 {
-  assertNotNull(dfsCluster);
-  Configuration c=new Configuration(this.conf);
-  HBaseAdmin admin=new HBaseAdmin(c);
-  admin.disableTable(desc.getName());
-  HMerge.merge(c,dfsCluster.getFileSystem(),desc.getName());
+  HTableDescriptor desc=new HTableDescriptor(Bytes.toBytes("test"));
+  desc.addFamily(new HColumnDescriptor(COLUMN_NAME));
+  UTIL.getConfiguration().setLong("hbase.hregion.max.filesize",64L * 1024L * 1024L);
+  UTIL.startMiniDFSCluster(1);
+  Path rootdir=UTIL.createRootDir();
+  byte[] row_70001=Bytes.toBytes("row_70001");
+  byte[] row_80001=Bytes.toBytes("row_80001");
+  HRegion[] regions={createRegion(desc,null,row_70001,1,70000,rootdir),createRegion(desc,row_70001,row_80001,70001,10000,rootdir),createRegion(desc,row_80001,null,80001,11000,rootdir)};
+  setupROOTAndMeta(rootdir,regions);
+  try {
+    LOG.info("Starting mini zk cluster");
+    UTIL.startMiniZKCluster();
+    LOG.info("Starting mini hbase cluster");
+    UTIL.startMiniHBaseCluster(1,1);
+    Configuration c=new Configuration(UTIL.getConfiguration());
+    HConnection connection=HConnectionManager.getConnection(c);
+    CatalogTracker ct=new CatalogTracker(connection);
+    ct.start();
+    List<HRegionInfo> originalTableRegions=MetaReader.getTableRegions(ct,desc.getName());
+    LOG.info("originalTableRegions size=" + originalTableRegions.size() + "; "+ originalTableRegions);
+    HBaseAdmin admin=new HBaseAdmin(new Configuration(c));
+    admin.disableTable(desc.getName());
+    HMerge.merge(c,FileSystem.get(c),desc.getName());
+    List<HRegionInfo> postMergeTableRegions=MetaReader.getTableRegions(ct,desc.getName());
+    LOG.info("postMergeTableRegions size=" + postMergeTableRegions.size() + "; "+ postMergeTableRegions);
+    assertTrue(postMergeTableRegions.size() < originalTableRegions.size());
+  }
+  finally {
+    UTIL.shutdownMiniCluster();
+  }
 }
