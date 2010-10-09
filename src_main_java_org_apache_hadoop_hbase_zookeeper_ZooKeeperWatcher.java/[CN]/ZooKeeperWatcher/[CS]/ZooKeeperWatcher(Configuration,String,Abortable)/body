@@ -5,7 +5,24 @@
   setNodeNames(conf);
   this.zooKeeper=ZKUtil.connect(conf,quorum,this,descriptor);
   try {
-    ZKUtil.createAndFailSilent(this,baseZNode);
+    long wait=conf.getLong("hbase.zookeeper.recoverable.waittime",10000);
+    long finished=System.currentTimeMillis() + wait;
+    KeeperException ke=null;
+    do {
+      try {
+        ZKUtil.createAndFailSilent(this,baseZNode);
+        ke=null;
+        break;
+      }
+ catch (      KeeperException.ConnectionLossException e) {
+        if (LOG.isDebugEnabled() && (isFinishedRetryingRecoverable(finished))) {
+          LOG.debug("Retrying zk create for another " + (finished - System.currentTimeMillis()) + "ms; set 'hbase.zookeeper.recoverable.waittime' to change "+ "wait time); "+ e.getMessage());
+        }
+        ke=e;
+      }
+    }
+ while (isFinishedRetryingRecoverable(finished));
+    if (ke != null)     throw ke;
     ZKUtil.createAndFailSilent(this,assignmentZNode);
     ZKUtil.createAndFailSilent(this,rsZNode);
     ZKUtil.createAndFailSilent(this,tableZNode);
