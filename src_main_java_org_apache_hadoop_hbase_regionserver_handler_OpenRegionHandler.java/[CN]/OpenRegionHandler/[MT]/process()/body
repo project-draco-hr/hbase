@@ -1,9 +1,10 @@
 {
-  LOG.debug("Processing open of " + regionInfo.getRegionNameAsString());
+  final String name=regionInfo.getRegionNameAsString();
+  LOG.debug("Processing open of " + name);
   final String encodedName=regionInfo.getEncodedName();
   HRegion region=this.rsServices.getFromOnlineRegions(encodedName);
   if (region != null) {
-    LOG.warn("Attempting open of " + regionInfo.getRegionNameAsString() + " but it's already online on this server");
+    LOG.warn("Attempting open of " + name + " but it's already online on this server");
     return;
   }
   int openingVersion=transitionZookeeperOfflineToOpening(encodedName);
@@ -20,7 +21,7 @@
           openingInteger.set(vsn);
         }
  catch (        KeeperException e) {
-          server.abort("ZK exception refreshing OPENING node",e);
+          server.abort("ZK exception refreshing OPENING node; " + name,e);
         }
       }
     }
@@ -32,50 +33,57 @@
       ZKAssign.forceNodeOffline(server.getZooKeeper(),regionInfo,server.getServerName());
     }
  catch (    KeeperException e1) {
-      LOG.error("Error forcing node back to OFFLINE from OPENING");
-      return;
+      LOG.error("Error forcing node back to OFFLINE from OPENING; " + name);
     }
     return;
   }
   openingVersion=openingInteger.get();
   try {
     if ((openingVersion=ZKAssign.retransitionNodeOpening(server.getZooKeeper(),regionInfo,server.getServerName(),openingVersion)) == -1) {
-      LOG.warn("Completed the OPEN of a region but when transitioning from " + " OPENING to OPENING got a version mismatch, someone else clashed " + "so now unassigning");
-      region.close();
+      LOG.warn("Completed the OPEN of region " + name + " but when transitioning from "+ " OPENING to OPENING got a version mismatch, someone else clashed "+ "-- closing region");
+      cleanupFailedOpen(region);
       return;
     }
   }
  catch (  KeeperException e) {
-    LOG.error("Failed transitioning node from OPENING to OPENED",e);
+    LOG.error("Failed transitioning node " + name + " from OPENING to OPENED -- closing region",e);
+    cleanupFailedOpen(region);
     return;
   }
 catch (  IOException e) {
-    LOG.error("Failed to close region after failing to transition",e);
+    LOG.error("Failed to close region " + name + " after failing to transition -- closing region",e);
+    cleanupFailedOpen(region);
     return;
   }
   try {
     this.rsServices.postOpenDeployTasks(region,this.server.getCatalogTracker(),false);
   }
  catch (  IOException e) {
-    LOG.error("Error updating region location in catalog table",e);
+    LOG.error("Error updating " + name + " location in catalog table -- "+ "closing region",e);
+    cleanupFailedOpen(region);
+    return;
   }
 catch (  KeeperException e) {
-    LOG.error("ZK Error updating region location in catalog table",e);
+    LOG.error("ZK Error updating " + name + " location in catalog "+ "table -- closing region",e);
+    cleanupFailedOpen(region);
+    return;
   }
   try {
     if (ZKAssign.transitionNodeOpened(server.getZooKeeper(),regionInfo,server.getServerName(),openingVersion) == -1) {
-      LOG.warn("Completed the OPEN of a region but when transitioning from " + " OPENING to OPENED got a version mismatch, someone else clashed " + "so now unassigning");
-      region.close();
+      LOG.warn("Completed the OPEN of region " + name + " but when transitioning from "+ " OPENING to OPENED got a version mismatch, someone else clashed "+ "so now unassigning -- closing region");
+      cleanupFailedOpen(region);
       return;
     }
   }
  catch (  KeeperException e) {
-    LOG.error("Failed transitioning node from OPENING to OPENED",e);
+    LOG.error("Failed transitioning node " + name + " from OPENING to OPENED -- closing region",e);
+    cleanupFailedOpen(region);
     return;
   }
 catch (  IOException e) {
-    LOG.error("Failed to close region after failing to transition",e);
+    LOG.error("Failed to close " + name + " after failing to transition -- closing region",e);
+    cleanupFailedOpen(region);
     return;
   }
-  LOG.debug("Opened " + region.getRegionNameAsString());
+  LOG.debug("Opened " + name);
 }
