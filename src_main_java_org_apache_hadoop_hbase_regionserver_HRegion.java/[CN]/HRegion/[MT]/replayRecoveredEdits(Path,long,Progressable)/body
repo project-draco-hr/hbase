@@ -2,7 +2,65 @@
   LOG.info("Replaying edits from " + edits + "; minSequenceid="+ minSeqId);
   HLog.Reader reader=HLog.getReader(this.fs,edits,conf);
   try {
-    return replayRecoveredEdits(reader,minSeqId,reporter);
+    long currentEditSeqId=minSeqId;
+    long firstSeqIdInLog=-1;
+    long skippedEdits=0;
+    long editsCount=0;
+    HLog.Entry entry;
+    Store store=null;
+    try {
+      int interval=this.conf.getInt("hbase.hstore.report.interval.edits",2000);
+      while ((entry=reader.next()) != null) {
+        HLogKey key=entry.getKey();
+        WALEdit val=entry.getEdit();
+        if (firstSeqIdInLog == -1) {
+          firstSeqIdInLog=key.getLogSeqNum();
+        }
+        if (key.getLogSeqNum() <= currentEditSeqId) {
+          skippedEdits++;
+          continue;
+        }
+        currentEditSeqId=key.getLogSeqNum();
+        boolean flush=false;
+        for (        KeyValue kv : val.getKeyValues()) {
+          if (kv.matchingFamily(HLog.METAFAMILY) || !Bytes.equals(key.getEncodedRegionName(),this.regionInfo.getEncodedNameAsBytes())) {
+            skippedEdits++;
+            continue;
+          }
+          if (store == null || !kv.matchingFamily(store.getFamily().getName())) {
+            store=this.stores.get(kv.getFamily());
+          }
+          if (store == null) {
+            LOG.warn("No family for " + kv);
+            skippedEdits++;
+            continue;
+          }
+          flush=restoreEdit(store,kv);
+          editsCount++;
+        }
+        if (flush)         internalFlushcache(null,currentEditSeqId);
+        if (reporter != null && (editsCount % interval) == 0) {
+          reporter.progress();
+        }
+      }
+    }
+ catch (    EOFException eof) {
+      Path p=HLog.moveAsideBadEditsFile(fs,edits);
+      LOG.warn("Encountered EOF. Most likely due to Master failure during " + "log spliting, so we have this data in another edit.  " + "Continuing, but renaming " + edits + " as "+ p,eof);
+    }
+catch (    IOException ioe) {
+      if (ioe.getMessage().startsWith("File is corrupt")) {
+        Path p=HLog.moveAsideBadEditsFile(fs,edits);
+        LOG.warn("File corruption encountered!  " + "Continuing, but renaming " + edits + " as "+ p,ioe);
+      }
+ else {
+        throw ioe;
+      }
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Applied " + editsCount + ", skipped "+ skippedEdits+ ", firstSequenceidInLog="+ firstSeqIdInLog+ ", maxSequenceidInLog="+ currentEditSeqId);
+    }
+    return currentEditSeqId;
   }
   finally {
     reader.close();
