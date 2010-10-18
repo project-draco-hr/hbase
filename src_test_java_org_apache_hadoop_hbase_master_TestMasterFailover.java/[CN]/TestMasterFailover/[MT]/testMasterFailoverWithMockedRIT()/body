@@ -1,0 +1,129 @@
+{
+  final int NUM_MASTERS=1;
+  final int NUM_RS=3;
+  Configuration conf=HBaseConfiguration.create();
+  conf.setInt("hbase.master.assignment.timeoutmonitor.period",2000);
+  conf.setInt("hbase.master.assignment.timeoutmonitor.timeout",4000);
+  HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility(conf);
+  TEST_UTIL.startMiniCluster(NUM_MASTERS,NUM_RS);
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  log("Cluster started");
+  ZooKeeperWatcher zkw=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"unittest",new Abortable(){
+    @Override public void abort(    String why,    Throwable e){
+      LOG.error("Fatal ZK Error: " + why,e);
+      org.junit.Assert.assertFalse("Fatal ZK error",true);
+    }
+  }
+);
+  List<MasterThread> masterThreads=cluster.getMasterThreads();
+  assertEquals(1,masterThreads.size());
+  assertTrue(cluster.waitForActiveAndReadyMaster());
+  HMaster master=masterThreads.get(0).getMaster();
+  assertTrue(master.isActiveMaster());
+  assertTrue(master.isInitialized());
+  master.balanceSwitch(false);
+  byte[] FAMILY=Bytes.toBytes("family");
+  byte[][] SPLIT_KEYS=new byte[][]{new byte[0],Bytes.toBytes("aaa"),Bytes.toBytes("bbb"),Bytes.toBytes("ccc"),Bytes.toBytes("ddd"),Bytes.toBytes("eee"),Bytes.toBytes("fff"),Bytes.toBytes("ggg"),Bytes.toBytes("hhh"),Bytes.toBytes("iii"),Bytes.toBytes("jjj")};
+  byte[] enabledTable=Bytes.toBytes("enabledTable");
+  HTableDescriptor htdEnabled=new HTableDescriptor(enabledTable);
+  htdEnabled.addFamily(new HColumnDescriptor(FAMILY));
+  List<HRegionInfo> enabledRegions=TEST_UTIL.createMultiRegionsInMeta(TEST_UTIL.getConfiguration(),htdEnabled,SPLIT_KEYS);
+  byte[] disabledTable=Bytes.toBytes("disabledTable");
+  HTableDescriptor htdDisabled=new HTableDescriptor(disabledTable);
+  htdDisabled.addFamily(new HColumnDescriptor(FAMILY));
+  List<HRegionInfo> disabledRegions=TEST_UTIL.createMultiRegionsInMeta(TEST_UTIL.getConfiguration(),htdDisabled,SPLIT_KEYS);
+  log("Regions in META have been created");
+  assertEquals(2,cluster.countServedRegions());
+  HRegionServer hrs=cluster.getRegionServer(0);
+  String serverName=hrs.getServerName();
+  HServerInfo hsiAlive=hrs.getServerInfo();
+  List<HRegionInfo> enabledAndAssignedRegions=new ArrayList<HRegionInfo>();
+  enabledAndAssignedRegions.add(enabledRegions.remove(0));
+  enabledAndAssignedRegions.add(enabledRegions.remove(0));
+  List<HRegionInfo> disabledAndAssignedRegions=new ArrayList<HRegionInfo>();
+  disabledAndAssignedRegions.add(disabledRegions.remove(0));
+  disabledAndAssignedRegions.add(disabledRegions.remove(0));
+  for (  HRegionInfo hri : enabledAndAssignedRegions) {
+    master.assignmentManager.regionPlans.put(hri.getEncodedName(),new RegionPlan(hri,null,hsiAlive));
+    master.assignRegion(hri);
+  }
+  for (  HRegionInfo hri : disabledAndAssignedRegions) {
+    master.assignmentManager.regionPlans.put(hri.getEncodedName(),new RegionPlan(hri,null,hsiAlive));
+    master.assignRegion(hri);
+  }
+  log("Waiting for assignment to finish");
+  ZKAssign.blockUntilNoRIT(zkw);
+  log("Assignment completed");
+  log("Aborting master");
+  cluster.abortMaster(0);
+  cluster.waitOnMaster(0);
+  log("Master has aborted");
+  List<HRegionInfo> regionsThatShouldBeOnline=new ArrayList<HRegionInfo>();
+  List<HRegionInfo> regionsThatShouldBeOffline=new ArrayList<HRegionInfo>();
+  log("Beginning to mock scenarios");
+  ZKTableDisable.disableTable(zkw,Bytes.toString(disabledTable));
+  HRegionInfo region=enabledRegions.remove(0);
+  regionsThatShouldBeOnline.add(region);
+  ZKAssign.createNodeOffline(zkw,region,serverName);
+  region=enabledAndAssignedRegions.remove(0);
+  regionsThatShouldBeOnline.add(region);
+  ZKAssign.createNodeClosing(zkw,region,serverName);
+  region=disabledAndAssignedRegions.remove(0);
+  regionsThatShouldBeOffline.add(region);
+  ZKAssign.createNodeClosing(zkw,region,serverName);
+  region=enabledRegions.remove(0);
+  regionsThatShouldBeOnline.add(region);
+  int version=ZKAssign.createNodeClosing(zkw,region,serverName);
+  ZKAssign.transitionNodeClosed(zkw,region,serverName,version);
+  region=disabledRegions.remove(0);
+  regionsThatShouldBeOffline.add(region);
+  version=ZKAssign.createNodeClosing(zkw,region,serverName);
+  ZKAssign.transitionNodeClosed(zkw,region,serverName,version);
+  region=enabledRegions.remove(0);
+  regionsThatShouldBeOnline.add(region);
+  ZKAssign.createNodeOffline(zkw,region,serverName);
+  ZKAssign.transitionNodeOpening(zkw,region,serverName);
+  region=enabledRegions.remove(0);
+  regionsThatShouldBeOnline.add(region);
+  ZKAssign.createNodeOffline(zkw,region,serverName);
+  hrs.openRegion(region);
+  while (true) {
+    RegionTransitionData rtd=ZKAssign.getData(zkw,region.getEncodedName());
+    if (rtd != null && rtd.getEventType() == EventType.RS_ZK_REGION_OPENED) {
+      break;
+    }
+    Thread.sleep(100);
+  }
+  region=disabledRegions.remove(0);
+  regionsThatShouldBeOffline.add(region);
+  ZKAssign.createNodeOffline(zkw,region,serverName);
+  hrs.openRegion(region);
+  while (true) {
+    RegionTransitionData rtd=ZKAssign.getData(zkw,region.getEncodedName());
+    if (rtd != null && rtd.getEventType() == EventType.RS_ZK_REGION_OPENED) {
+      break;
+    }
+    Thread.sleep(100);
+  }
+  log("Done mocking data up in ZK");
+  log("Starting up a new master");
+  master=cluster.startMaster().getMaster();
+  log("Waiting for master to be ready");
+  cluster.waitForActiveAndReadyMaster();
+  log("Master is ready");
+  log("Waiting for no more RIT");
+  ZKAssign.blockUntilNoRIT(zkw);
+  log("No more RIT in ZK, now doing final test verification");
+  Set<HRegionInfo> onlineRegions=new TreeSet<HRegionInfo>();
+  for (  JVMClusterUtil.RegionServerThread rst : cluster.getRegionServerThreads()) {
+    onlineRegions.addAll(rst.getRegionServer().getOnlineRegions());
+  }
+  for (  HRegionInfo hri : regionsThatShouldBeOnline) {
+    assertTrue(onlineRegions.contains(hri));
+  }
+  for (  HRegionInfo hri : regionsThatShouldBeOffline) {
+    assertFalse(onlineRegions.contains(hri));
+  }
+  log("Done with verification, all passed, shutting down cluster");
+  TEST_UTIL.shutdownMiniCluster();
+}

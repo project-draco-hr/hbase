@@ -1,14 +1,25 @@
 {
-  Map<HRegionInfo,HServerAddress> allRegions=MetaReader.fullScan(catalogTracker);
-  for (  Map.Entry<HRegionInfo,HServerAddress> region : allRegions.entrySet()) {
-    HServerAddress regionLocation=region.getValue();
-    HRegionInfo regionInfo=region.getKey();
+  List<Result> results=MetaReader.fullScanOfResults(catalogTracker);
+  Map<HServerInfo,List<Pair<HRegionInfo,Result>>> offlineServers=new TreeMap<HServerInfo,List<Pair<HRegionInfo,Result>>>();
+  for (  Result result : results) {
+    Pair<HRegionInfo,HServerInfo> region=MetaReader.metaRowToRegionPairWithInfo(result);
+    HServerInfo regionLocation=region.getSecond();
+    HRegionInfo regionInfo=region.getFirst();
     if (regionLocation == null) {
       this.regions.put(regionInfo,null);
-      continue;
     }
-    HServerInfo serverInfo=serverManager.getHServerInfo(regionLocation);
-    regions.put(regionInfo,serverInfo);
-    addToServers(serverInfo,regionInfo);
+ else     if (!serverManager.isServerOnline(regionLocation.getServerName())) {
+      List<Pair<HRegionInfo,Result>> offlineRegions=offlineServers.get(regionLocation);
+      if (offlineRegions == null) {
+        offlineRegions=new ArrayList<Pair<HRegionInfo,Result>>(1);
+        offlineServers.put(regionLocation,offlineRegions);
+      }
+      offlineRegions.add(new Pair<HRegionInfo,Result>(regionInfo,result));
+    }
+ else {
+      regions.put(regionInfo,regionLocation);
+      addToServers(regionLocation,regionInfo);
+    }
   }
+  return offlineServers;
 }
