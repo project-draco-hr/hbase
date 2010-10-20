@@ -1,0 +1,45 @@
+{
+  LOG.info("testAddAndRemoveClusters");
+  admin.removePeer("2");
+  Thread.sleep(SLEEP_TIME);
+  byte[] rowKey=Bytes.toBytes("Won't be replicated");
+  Put put=new Put(rowKey);
+  put.add(famName,row,row);
+  htable1.put(put);
+  Get get=new Get(rowKey);
+  for (int i=0; i < NB_RETRIES; i++) {
+    if (i == NB_RETRIES - 1) {
+      break;
+    }
+    Result res=htable2.get(get);
+    if (res.size() >= 1) {
+      fail("Not supposed to be replicated");
+    }
+ else {
+      LOG.info("Row not replicated, let's wait a bit more...");
+      Thread.sleep(SLEEP_TIME);
+    }
+  }
+  admin.addPeer("2",slaveClusterKey);
+  Thread.sleep(SLEEP_TIME);
+  rowKey=Bytes.toBytes("do rep");
+  put=new Put(rowKey);
+  put.add(famName,row,row);
+  LOG.info("Adding new row");
+  htable1.put(put);
+  get=new Get(rowKey);
+  for (int i=0; i < NB_RETRIES; i++) {
+    if (i == NB_RETRIES - 1) {
+      fail("Waited too much time for put replication");
+    }
+    Result res=htable2.get(get);
+    if (res.size() == 0) {
+      LOG.info("Row not available");
+      Thread.sleep(SLEEP_TIME * i);
+    }
+ else {
+      assertArrayEquals(res.value(),row);
+      break;
+    }
+  }
+}

@@ -8,12 +8,17 @@
       this.position=this.zkHelper.getHLogRepPosition(this.peerClusterZnode,this.queue.peek().getName());
     }
  catch (    KeeperException e) {
-      LOG.error("Couldn't get the position of this recovered queue " + peerClusterZnode,e);
-      this.abort();
+      this.terminate("Couldn't get the position of this recovered queue " + peerClusterZnode,e);
     }
   }
   int sleepMultiplier=1;
   while (!stopper.isStopped() && this.running) {
+    if (!this.replicating.get() || !this.sourceEnabled.get()) {
+      if (sleepForRetries("Replication is disabled",sleepMultiplier)) {
+        sleepMultiplier++;
+      }
+      continue;
+    }
     if (!getNextPath()) {
       if (sleepForRetries("No log to process",sleepMultiplier)) {
         sleepMultiplier++;

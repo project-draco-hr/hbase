@@ -1,0 +1,20 @@
+{
+  String znode=ZKUtil.joinZNode(this.peersZNode,peerId);
+  byte[] data=ZKUtil.getData(this.zookeeper,znode);
+  String otherClusterKey=Bytes.toString(data);
+  if (this.ourClusterKey.equals(otherClusterKey)) {
+    LOG.debug("Not connecting to " + peerId + " because it's us");
+    return null;
+  }
+  String[] ensemble=otherClusterKey.split(":");
+  if (ensemble.length != 3) {
+    LOG.warn("Wrong format of cluster address: " + Bytes.toStringBinary(data));
+    return null;
+  }
+  Configuration otherConf=new Configuration(this.conf);
+  otherConf.set(HConstants.ZOOKEEPER_QUORUM,ensemble[0]);
+  otherConf.set("hbase.zookeeper.property.clientPort",ensemble[1]);
+  otherConf.set(HConstants.ZOOKEEPER_ZNODE_PARENT,ensemble[2]);
+  ZooKeeperWatcher zkw=new ZooKeeperWatcher(otherConf,"connection to cluster: " + peerId,this.abortable);
+  return new ReplicationPeer(otherConf,peerId,otherClusterKey,zkw);
+}
