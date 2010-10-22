@@ -3,25 +3,27 @@
     this.activeMasterManager=new ActiveMasterManager(zooKeeper,address,this);
     this.zooKeeper.registerListener(activeMasterManager);
     stallIfBackupMaster(this.conf,this.activeMasterManager);
-    activeMasterManager.blockUntilBecomingActiveMaster();
+    this.activeMasterManager.blockUntilBecomingActiveMaster();
     if (!this.stopped) {
       finishInitialization();
       loop();
-      stopChores();
-      if (!this.abort && this.serverManager.isClusterShutdown()) {
-        this.serverManager.letRegionServersShutdown();
-      }
-      stopServiceThreads();
     }
-    this.activeMasterManager.stop();
+  }
+ catch (  Throwable t) {
+    abort("Unhandled exception. Starting shutdown.",t);
+  }
+ finally {
+    stopChores();
+    if (!this.abort && this.serverManager.isClusterShutdown()) {
+      this.serverManager.letRegionServersShutdown();
+    }
+    stopServiceThreads();
+    if (this.activeMasterManager != null)     this.activeMasterManager.stop();
     this.catalogTracker.stop();
     this.serverManager.stop();
     this.assignmentManager.stop();
     HConnectionManager.deleteConnection(this.conf,true);
     this.zooKeeper.close();
-    LOG.info("HMaster main thread exiting");
   }
- catch (  Throwable t) {
-    abort("Unhandled exception. Starting shutdown.",t);
-  }
+  LOG.info("HMaster main thread exiting");
 }

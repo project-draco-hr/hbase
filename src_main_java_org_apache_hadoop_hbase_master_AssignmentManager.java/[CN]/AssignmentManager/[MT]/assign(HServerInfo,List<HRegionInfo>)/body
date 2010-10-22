@@ -6,13 +6,22 @@ synchronized (this.regionsInTransition) {
       states.add(forceRegionStateToOffline(region));
     }
   }
+  AtomicInteger counter=new AtomicInteger(0);
+  CreateUnassignedAsyncCallback cb=new CreateUnassignedAsyncCallback(this.watcher,destination,counter);
   for (  RegionState state : states) {
-    if (!setOfflineInZooKeeper(state)) {
+    if (!asyncSetOfflineInZooKeeper(state,cb,state)) {
       return;
     }
   }
-  for (  RegionState state : states) {
-    state.update(RegionState.State.PENDING_OPEN);
+  int total=regions.size();
+  for (int oldCounter=0; true; ) {
+    int count=counter.get();
+    if (oldCounter != count) {
+      LOG.info(destination.getServerName() + " unassigned znodes=" + count+ " of total="+ total);
+      oldCounter=count;
+    }
+    if (count == total)     break;
+    Threads.sleep(1);
   }
   try {
     this.serverManager.sendRegionOpen(destination,regions);
