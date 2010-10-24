@@ -1,0 +1,50 @@
+{
+  InternalScan iscan=new InternalScan(get);
+  List<KeyValue> results=new ArrayList<KeyValue>();
+  iscan.checkOnlyMemStore();
+  InternalScanner scanner=null;
+  try {
+    scanner=getScanner(iscan);
+    scanner.next(results);
+  }
+  finally {
+    if (scanner != null)     scanner.close();
+  }
+  int expected=0;
+  Map<byte[],NavigableSet<byte[]>> familyMap=get.getFamilyMap();
+  for (  NavigableSet<byte[]> qfs : familyMap.values()) {
+    expected+=qfs.size();
+  }
+  if (results.size() == expected) {
+    return results;
+  }
+  if (results != null && !results.isEmpty()) {
+    for (    KeyValue kv : results) {
+      byte[] family=kv.getFamily();
+      NavigableSet<byte[]> qfs=familyMap.get(family);
+      qfs.remove(kv.getQualifier());
+      if (qfs.isEmpty())       familyMap.remove(family);
+      expected--;
+    }
+    Get newGet=new Get(get.getRow());
+    for (    Map.Entry<byte[],NavigableSet<byte[]>> f : familyMap.entrySet()) {
+      byte[] family=f.getKey();
+      for (      byte[] qualifier : f.getValue()) {
+        newGet.addColumn(family,qualifier);
+      }
+    }
+    iscan=new InternalScan(newGet);
+  }
+  List<KeyValue> fileResults=new ArrayList<KeyValue>();
+  iscan.checkOnlyStoreFiles();
+  scanner=null;
+  try {
+    scanner=getScanner(iscan);
+    scanner.next(fileResults);
+  }
+  finally {
+    if (scanner != null)     scanner.close();
+  }
+  results.addAll(fileResults);
+  return results;
+}

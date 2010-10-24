@@ -1,12 +1,25 @@
 {
-  List<StoreFileScanner> sfScanners=StoreFileScanner.getScannersForStoreFiles(store.getStorefiles(),cacheBlocks,isGet);
-  List<KeyValueScanner> scanners=new ArrayList<KeyValueScanner>(sfScanners.size() + 1);
-  for (  StoreFileScanner sfs : sfScanners) {
-    if (sfs.shouldSeek(scan,columns)) {
-      scanners.add(sfs);
+  boolean memOnly;
+  boolean filesOnly;
+  if (scan instanceof InternalScan) {
+    InternalScan iscan=(InternalScan)scan;
+    memOnly=iscan.isCheckOnlyMemStore();
+    filesOnly=iscan.isCheckOnlyStoreFiles();
+  }
+ else {
+    memOnly=false;
+    filesOnly=false;
+  }
+  List<KeyValueScanner> scanners=new LinkedList<KeyValueScanner>();
+  if (memOnly == false) {
+    List<StoreFileScanner> sfScanners=StoreFileScanner.getScannersForStoreFiles(store.getStorefiles(),cacheBlocks,isGet);
+    for (    StoreFileScanner sfs : sfScanners) {
+      if (sfs.shouldSeek(scan,columns)) {
+        scanners.add(sfs);
+      }
     }
   }
-  if (this.store.memstore.shouldSeek(scan)) {
+  if ((filesOnly == false) && (this.store.memstore.shouldSeek(scan))) {
     scanners.addAll(this.store.memstore.getScanners());
   }
   return scanners;
