@@ -2,7 +2,6 @@
   this.lock.readLock().lock();
   try {
     KeyValue firstKv=KeyValue.createFirstOnRow(row,family,qualifier);
-    KeyValue newKv;
     SortedSet<KeyValue> snSs=snapshot.tailSet(firstKv);
     if (!snSs.isEmpty()) {
       KeyValue snKv=snSs.first();
@@ -25,26 +24,7 @@
         }
       }
     }
-    newKv=new KeyValue(row,family,qualifier,now,Bytes.toBytes(newValue));
-    long addedSize=add(newKv);
-    ss=kvset.tailSet(firstKv);
-    it=ss.iterator();
-    while (it.hasNext()) {
-      KeyValue kv=it.next();
-      if (kv == newKv) {
-        continue;
-      }
-      if (!firstKv.matchingColumn(family,qualifier) || !firstKv.matchingRow(kv)) {
-        break;
-      }
-      if (firstKv.matchingQualifier(kv)) {
-        if (kv.getType() == KeyValue.Type.Put.getCode()) {
-          addedSize-=heapSizeChange(kv,true);
-          it.remove();
-        }
-      }
-    }
-    return addedSize;
+    return upsert(Arrays.asList(new KeyValue[]{new KeyValue(row,family,qualifier,now,Bytes.toBytes(newValue))}));
   }
   finally {
     this.lock.readLock().unlock();

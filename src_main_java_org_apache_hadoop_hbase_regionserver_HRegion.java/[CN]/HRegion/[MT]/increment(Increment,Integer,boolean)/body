@@ -1,0 +1,58 @@
+{
+  byte[] row=increment.getRow();
+  checkRow(row);
+  boolean flush=false;
+  WALEdit walEdits=null;
+  List<KeyValue> allKVs=new ArrayList<KeyValue>(increment.numColumns());
+  List<KeyValue> kvs=new ArrayList<KeyValue>(increment.numColumns());
+  long now=EnvironmentEdgeManager.currentTimeMillis();
+  long size=0;
+  startRegionOperation();
+  try {
+    Integer lid=getLock(lockid,row,true);
+    try {
+      for (      Map.Entry<byte[],NavigableMap<byte[],Long>> family : increment.getFamilyMap().entrySet()) {
+        Store store=stores.get(family.getKey());
+        Get get=new Get(row);
+        for (        Map.Entry<byte[],Long> column : family.getValue().entrySet()) {
+          get.addColumn(family.getKey(),column.getKey());
+        }
+        List<KeyValue> results=getLastIncrement(get);
+        int idx=0;
+        for (        Map.Entry<byte[],Long> column : family.getValue().entrySet()) {
+          long amount=column.getValue();
+          if (idx < results.size() && results.get(idx).matchingQualifier(column.getKey())) {
+            amount+=Bytes.toLong(results.get(idx).getValue());
+            idx++;
+          }
+          KeyValue newKV=new KeyValue(row,family.getKey(),column.getKey(),now,Bytes.toBytes(amount));
+          kvs.add(newKV);
+          if (writeToWAL) {
+            if (walEdits == null) {
+              walEdits=new WALEdit();
+            }
+            walEdits.add(newKV);
+          }
+        }
+        size+=store.upsert(kvs);
+        allKVs.addAll(kvs);
+        kvs.clear();
+      }
+      if (writeToWAL) {
+        this.log.append(regionInfo,regionInfo.getTableDesc().getName(),walEdits,now);
+      }
+      size=this.memstoreSize.addAndGet(size);
+      flush=isFlushSize(size);
+    }
+  finally {
+      releaseRowLock(lid);
+    }
+  }
+  finally {
+    closeRegionOperation();
+  }
+  if (flush) {
+    requestFlush();
+  }
+  return new Result(allKVs);
+}
