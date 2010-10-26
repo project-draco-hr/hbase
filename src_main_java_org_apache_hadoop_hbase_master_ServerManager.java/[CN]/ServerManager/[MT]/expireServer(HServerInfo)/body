@@ -19,6 +19,24 @@
     }
     return;
   }
-  this.services.getExecutorService().submit(new ServerShutdownHandler(this.master,this.services,this.deadservers,info));
-  LOG.debug("Added=" + serverName + " to dead servers, submitted shutdown handler to be executed");
+  CatalogTracker ct=this.master.getCatalogTracker();
+  boolean carryingRoot;
+  try {
+    HServerAddress address=ct.getRootLocation();
+    carryingRoot=address != null && hsi.getServerAddress().equals(address);
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    LOG.info("Interrupted");
+    return;
+  }
+  HServerAddress address=ct.getMetaLocation();
+  boolean carryingMeta=address != null && hsi.getServerAddress().equals(address);
+  if (carryingRoot || carryingMeta) {
+    this.services.getExecutorService().submit(new MetaServerShutdownHandler(this.master,this.services,this.deadservers,info,carryingRoot,carryingMeta));
+  }
+ else {
+    this.services.getExecutorService().submit(new ServerShutdownHandler(this.master,this.services,this.deadservers,info));
+  }
+  LOG.debug("Added=" + serverName + " to dead servers, submitted shutdown handler to be executed, root="+ carryingRoot+ ", meta="+ carryingMeta);
 }
