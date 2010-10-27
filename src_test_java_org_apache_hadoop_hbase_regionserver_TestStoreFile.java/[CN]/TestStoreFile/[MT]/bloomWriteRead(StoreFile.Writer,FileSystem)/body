@@ -1,0 +1,40 @@
+{
+  float err=conf.getFloat(StoreFile.IO_STOREFILE_BLOOM_ERROR_RATE,0);
+  Path f=writer.getPath();
+  long now=System.currentTimeMillis();
+  for (int i=0; i < 2000; i+=2) {
+    String row=String.format(localFormatter,i);
+    KeyValue kv=new KeyValue(row.getBytes(),"family".getBytes(),"col".getBytes(),now,"value".getBytes());
+    writer.append(kv);
+  }
+  writer.close();
+  StoreFile.Reader reader=new StoreFile.Reader(fs,f,null,false);
+  reader.loadFileInfo();
+  reader.loadBloomfilter();
+  StoreFileScanner scanner=reader.getStoreFileScanner(false,false);
+  int falsePos=0;
+  int falseNeg=0;
+  for (int i=0; i < 2000; i++) {
+    String row=String.format(localFormatter,i);
+    TreeSet<byte[]> columns=new TreeSet<byte[]>();
+    columns.add("family:col".getBytes());
+    Scan scan=new Scan(row.getBytes(),row.getBytes());
+    scan.addColumn("family".getBytes(),"family:col".getBytes());
+    boolean exists=scanner.shouldSeek(scan,columns);
+    if (i % 2 == 0) {
+      if (!exists)       falseNeg++;
+    }
+ else {
+      if (exists)       falsePos++;
+    }
+  }
+  reader.close();
+  fs.delete(f,true);
+  System.out.println("False negatives: " + falseNeg);
+  assertEquals(0,falseNeg);
+  System.out.println("False positives: " + falsePos);
+  if (!(falsePos <= 2 * 2000 * err)) {
+    System.out.println("WTFBBQ! " + falsePos + ", "+ (2 * 2000 * err));
+  }
+  assertTrue(falsePos <= 2 * 2000 * err);
+}
