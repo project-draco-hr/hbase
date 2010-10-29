@@ -1,0 +1,41 @@
+{
+  if (!doCommandLine(args)) {
+    return null;
+  }
+  if (!conf.getBoolean(HConstants.REPLICATION_ENABLE_KEY,false)) {
+    throw new IOException("Replication needs to be enabled to verify it.");
+  }
+  try {
+    ReplicationZookeeper zk=new ReplicationZookeeper(conf,HConnectionManager.getConnection(conf).getZooKeeperWatcher());
+    ReplicationPeer peer=zk.getPeer(peerId);
+    if (peer == null) {
+      throw new IOException("Couldn't get access to the slave cluster," + "please see the log");
+    }
+  }
+ catch (  KeeperException ex) {
+    throw new IOException("Couldn't get access to the slave cluster" + " because: ",ex);
+  }
+  conf.set(NAME + ".peerId",peerId);
+  conf.set(NAME + ".tableName",tableName);
+  conf.setLong(NAME + ".startTime",startTime);
+  conf.setLong(NAME + ".endTime",endTime);
+  if (families != null) {
+    conf.set(NAME + ".families",families);
+  }
+  Job job=new Job(conf,NAME + "_" + tableName);
+  job.setJarByClass(VerifyReplication.class);
+  Scan scan=new Scan();
+  if (startTime != 0) {
+    scan.setTimeRange(startTime,endTime == 0 ? HConstants.LATEST_TIMESTAMP : endTime);
+  }
+  if (families != null) {
+    String[] fams=families.split(",");
+    for (    String fam : fams) {
+      scan.addFamily(Bytes.toBytes(fam));
+    }
+  }
+  TableMapReduceUtil.initTableMapperJob(tableName,scan,Verifier.class,null,null,job);
+  job.setOutputFormatClass(NullOutputFormat.class);
+  job.setNumReduceTasks(0);
+  return job;
+}

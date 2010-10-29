@@ -1,0 +1,33 @@
+{
+  testSmallBatch();
+  String[] args=new String[]{"2",Bytes.toString(tableName)};
+  Job job=VerifyReplication.createSubmittableJob(conf1,args);
+  if (job == null) {
+    fail("Job wasn't created, see the log");
+  }
+  if (!job.waitForCompletion(true)) {
+    fail("Job failed, see the log");
+  }
+  assertEquals(NB_ROWS_IN_BATCH,job.getCounters().findCounter(VerifyReplication.Verifier.Counters.GOODROWS).getValue());
+  assertEquals(0,job.getCounters().findCounter(VerifyReplication.Verifier.Counters.BADROWS).getValue());
+  Scan scan=new Scan();
+  ResultScanner rs=htable2.getScanner(scan);
+  Put put=null;
+  for (  Result result : rs) {
+    put=new Put(result.getRow());
+    KeyValue firstVal=result.raw()[0];
+    put.add(firstVal.getFamily(),firstVal.getQualifier(),Bytes.toBytes("diff data"));
+    htable2.put(put);
+  }
+  Delete delete=new Delete(put.getRow());
+  htable2.delete(delete);
+  job=VerifyReplication.createSubmittableJob(conf1,args);
+  if (job == null) {
+    fail("Job wasn't created, see the log");
+  }
+  if (!job.waitForCompletion(true)) {
+    fail("Job failed, see the log");
+  }
+  assertEquals(0,job.getCounters().findCounter(VerifyReplication.Verifier.Counters.GOODROWS).getValue());
+  assertEquals(NB_ROWS_IN_BATCH,job.getCounters().findCounter(VerifyReplication.Verifier.Counters.BADROWS).getValue());
+}

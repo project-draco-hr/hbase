@@ -1,0 +1,38 @@
+{
+  if (replicatedScanner == null) {
+    Configuration conf=context.getConfiguration();
+    Scan scan=new Scan();
+    scan.setCaching(conf.getInt(TableInputFormat.SCAN_CACHEDROWS,1));
+    long startTime=conf.getLong(NAME + ".startTime",0);
+    long endTime=conf.getLong(NAME + ".endTime",0);
+    String families=conf.get(NAME + ".families",null);
+    if (families != null) {
+      String[] fams=families.split(",");
+      for (      String fam : fams) {
+        scan.addFamily(Bytes.toBytes(fam));
+      }
+    }
+    if (startTime != 0) {
+      scan.setTimeRange(startTime,endTime == 0 ? HConstants.LATEST_TIMESTAMP : endTime);
+    }
+    try {
+      ReplicationZookeeper zk=new ReplicationZookeeper(conf,HConnectionManager.getConnection(conf).getZooKeeperWatcher());
+      ReplicationPeer peer=zk.getPeer(conf.get(NAME + ".peerId"));
+      HTable replicatedTable=new HTable(peer.getConfiguration(),conf.get(NAME + ".tableName"));
+      scan.setStartRow(value.getRow());
+      replicatedScanner=replicatedTable.getScanner(scan);
+    }
+ catch (    KeeperException e) {
+      throw new IOException("Got a ZK exception",e);
+    }
+  }
+  Result res=replicatedScanner.next();
+  try {
+    Result.compareResults(value,res);
+    context.getCounter(Counters.GOODROWS).increment(1);
+  }
+ catch (  Exception e) {
+    LOG.warn("Bad row",e);
+    context.getCounter(Counters.BADROWS).increment(1);
+  }
+}
