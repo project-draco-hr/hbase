@@ -4,6 +4,7 @@
     return null;
   }
   lock.readLock().lock();
+  this.lastCompactInfo=null;
   try {
     if (this.closed.get()) {
       LOG.debug("Skipping compaction on " + this + " because closed");
@@ -26,11 +27,13 @@ synchronized (writestate) {
       LOG.info("Starting" + (majorCompaction ? " major " : " ") + "compaction on region "+ this);
       long startTime=EnvironmentEdgeManager.currentTimeMillis();
       doRegionCompactionPrep();
+      long lastCompactSize=0;
       long maxSize=-1;
       boolean completed=false;
       try {
         for (        Store store : stores.values()) {
           final Store.StoreSize ss=store.compact(majorCompaction);
+          lastCompactSize+=store.getLastCompactSize();
           if (ss != null && ss.getSize() > maxSize) {
             maxSize=ss.getSize();
             splitRow=ss.getSplitRow();
@@ -44,6 +47,9 @@ synchronized (writestate) {
  finally {
         long now=EnvironmentEdgeManager.currentTimeMillis();
         LOG.info(((completed) ? "completed" : "aborted") + " compaction on region " + this+ " after "+ StringUtils.formatTimeDiff(now,startTime));
+        if (completed) {
+          this.lastCompactInfo=new Pair<Long,Long>((now - startTime) / 1000,lastCompactSize);
+        }
       }
     }
   finally {
