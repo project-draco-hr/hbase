@@ -22,21 +22,26 @@ synchronized (regionsInTransition) {
     }
   }
   try {
-    if (!serverManager.sendRegionClose(regions.get(region),state.getRegion())) {
-      throw new NotServingRegionException("Server failed to close region");
+    if (serverManager.sendRegionClose(regions.get(region),state.getRegion())) {
+      LOG.debug("Sent CLOSE to " + regions.get(region) + " for region "+ region.getRegionNameAsString());
+      return;
     }
   }
  catch (  NotServingRegionException nsre) {
-    LOG.debug("Attempted to send CLOSE to " + regions.get(region) + " for region "+ region.getRegionNameAsString()+ " but failed, "+ "setting region as OFFLINE and reassigning");
-synchronized (regionsInTransition) {
-      forceRegionStateToOffline(region);
-      assign(region);
-    }
   }
-catch (  IOException e) {
-    this.master.abort("Remote unexpected exception",e);
+catch (  RemoteException re) {
+    if (re.unwrapRemoteException() instanceof NotServingRegionException) {
+    }
+ else {
+      this.master.abort("Remote unexpected exception",re.unwrapRemoteException());
+    }
   }
 catch (  Throwable t) {
     this.master.abort("Remote unexpected exception",t);
+  }
+  LOG.debug("Attempted to send CLOSE to " + regions.get(region) + " for region "+ region.getRegionNameAsString()+ " but failed, "+ "setting region as OFFLINE and reassigning");
+synchronized (regionsInTransition) {
+    forceRegionStateToOffline(region);
+    assign(region);
   }
 }
