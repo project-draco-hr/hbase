@@ -1,37 +1,26 @@
 {
-  for (Iterator<Map.Entry<String,RegionPlan>> i=this.regionPlans.entrySet().iterator(); i.hasNext(); ) {
-    Map.Entry<String,RegionPlan> e=i.next();
-    if (e.getValue().getDestination().equals(hsi)) {
-      i.remove();
+synchronized (this.regionPlans) {
+    for (Iterator<Map.Entry<String,RegionPlan>> i=this.regionPlans.entrySet().iterator(); i.hasNext(); ) {
+      Map.Entry<String,RegionPlan> e=i.next();
+      if (e.getValue().getDestination().equals(hsi)) {
+        i.remove();
+      }
     }
   }
+  Set<HRegionInfo> deadRegions=null;
 synchronized (this.regions) {
-    Set<HRegionInfo> hris=new HashSet<HRegionInfo>();
-    for (    Map.Entry<HRegionInfo,HServerInfo> e : this.regions.entrySet()) {
-      if (e.getValue().equals(hsi))       hris.add(e.getKey());
+    deadRegions=new TreeSet<HRegionInfo>(this.servers.remove(hsi));
+    for (    HRegionInfo region : deadRegions) {
+      this.regions.remove(region);
     }
-    for (    HRegionInfo hri : hris)     setOffline(hri);
-    this.servers.remove(hsi);
   }
+  List<HRegionInfo> rits=new ArrayList<HRegionInfo>();
 synchronized (regionsInTransition) {
-    final String serverName=hsi.getServerName();
-    for (    Map.Entry<String,RegionState> e : this.regionsInTransition.entrySet()) {
-      if (!e.getKey().equals(serverName))       continue;
-      RegionState regionState=e.getValue();
-switch (regionState.getState()) {
-case PENDING_OPEN:
-case OPENING:
-case OFFLINE:
-case CLOSED:
-case PENDING_CLOSE:
-case CLOSING:
-        LOG.info("Region " + regionState.getRegion().getRegionNameAsString() + " was in state="+ regionState.getState()+ " on shutdown server="+ serverName+ ", reassigning");
-      assign(regionState.getRegion());
-    break;
-case OPEN:
-  LOG.warn("Long-running region in OPEN state?  Should not happen");
-break;
-}
-}
-}
+    for (    RegionState region : this.regionsInTransition.values()) {
+      if (deadRegions.remove(region.getRegion())) {
+        rits.add(region.getRegion());
+      }
+    }
+  }
+  return rits;
 }

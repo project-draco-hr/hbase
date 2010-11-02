@@ -2,7 +2,7 @@
   final String serverName=this.hsi.getServerName();
   LOG.info("Splitting logs for " + serverName);
   this.services.getMasterFileSystem().splitLog(serverName);
-  this.services.getAssignmentManager().processServerShutdown(this.hsi);
+  List<HRegionInfo> regionsInTransition=this.services.getAssignmentManager().processServerShutdown(this.hsi);
   if (isCarryingRoot()) {
     try {
       this.services.getAssignmentManager().assignRoot();
@@ -13,18 +13,27 @@
     }
   }
   if (isCarryingMeta())   this.services.getAssignmentManager().assignMeta();
-  try {
-    this.server.getCatalogTracker().waitForMeta();
+  NavigableMap<HRegionInfo,Result> hris=null;
+  while (!this.server.isStopped()) {
+    try {
+      this.server.getCatalogTracker().waitForMeta();
+      hris=MetaReader.getServerUserRegions(this.server.getCatalogTracker(),this.hsi);
+      break;
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Interrupted",e);
+    }
+catch (    IOException ioe) {
+      LOG.info("Received exception accessing META during server shutdown of " + serverName + ", retrying META read");
+    }
   }
- catch (  InterruptedException e) {
-    Thread.currentThread().interrupt();
-    throw new IOException("Interrupted",e);
-  }
-  NavigableMap<HRegionInfo,Result> hris=MetaReader.getServerUserRegions(this.server.getCatalogTracker(),this.hsi);
-  LOG.info("Reassigning the " + hris.size() + " region(s) that "+ serverName+ " was carrying");
+  for (  HRegionInfo rit : regionsInTransition)   hris.remove(rit);
+  LOG.info("Reassigning the " + hris.size() + " region(s) that "+ serverName+ " was carrying (skipping "+ regionsInTransition.size()+ " regions(s) that are in transition)");
   for (  Map.Entry<HRegionInfo,Result> e : hris.entrySet()) {
-    processDeadRegion(e.getKey(),e.getValue(),this.services.getAssignmentManager(),this.server.getCatalogTracker());
-    this.services.getAssignmentManager().assign(e.getKey());
+    if (processDeadRegion(e.getKey(),e.getValue(),this.services.getAssignmentManager(),this.server.getCatalogTracker())) {
+      this.services.getAssignmentManager().assign(e.getKey(),true);
+    }
   }
   this.deadServers.remove(serverName);
   LOG.info("Finished processing of shutdown of " + serverName);

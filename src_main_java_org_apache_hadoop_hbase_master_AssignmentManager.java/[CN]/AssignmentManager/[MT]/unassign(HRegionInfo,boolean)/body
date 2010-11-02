@@ -12,8 +12,8 @@ synchronized (regionsInTransition) {
       state=new RegionState(region,RegionState.State.PENDING_CLOSE);
       regionsInTransition.put(encodedName,state);
     }
- else     if (force && (state.isClosing() || state.isPendingClose())) {
-      LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " which is already closing but "+ "forcing an additional close");
+ else     if (force && state.isPendingClose()) {
+      LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " which is already pending close "+ "but forcing an additional close");
       state.update(RegionState.State.PENDING_CLOSE);
     }
  else {
@@ -21,16 +21,23 @@ synchronized (regionsInTransition) {
       return;
     }
   }
+  HServerInfo server=null;
+synchronized (this.regions) {
+    server=regions.get(region);
+  }
   try {
-    if (serverManager.sendRegionClose(regions.get(region),state.getRegion())) {
-      LOG.debug("Sent CLOSE to " + regions.get(region) + " for region "+ region.getRegionNameAsString());
+    if (serverManager.sendRegionClose(server,state.getRegion())) {
+      LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
       return;
     }
+    LOG.debug("Server " + server + " region CLOSE RPC returned false");
   }
  catch (  NotServingRegionException nsre) {
+    LOG.debug("Server " + server + " returned NotServingRegionException");
   }
 catch (  RemoteException re) {
     if (re.unwrapRemoteException() instanceof NotServingRegionException) {
+      LOG.debug("Server " + server + " returned NotServingRegionException");
     }
  else {
       this.master.abort("Remote unexpected exception",re.unwrapRemoteException());
@@ -39,9 +46,9 @@ catch (  RemoteException re) {
 catch (  Throwable t) {
     this.master.abort("Remote unexpected exception",t);
   }
-  LOG.debug("Attempted to send CLOSE to " + regions.get(region) + " for region "+ region.getRegionNameAsString()+ " but failed, "+ "setting region as OFFLINE and reassigning");
+  LOG.debug("Attempted to send CLOSE to " + server + " for region "+ region.getRegionNameAsString()+ " but failed, "+ "setting region as OFFLINE and reassigning");
 synchronized (regionsInTransition) {
     forceRegionStateToOffline(region);
-    assign(region);
   }
+  assign(region,true);
 }

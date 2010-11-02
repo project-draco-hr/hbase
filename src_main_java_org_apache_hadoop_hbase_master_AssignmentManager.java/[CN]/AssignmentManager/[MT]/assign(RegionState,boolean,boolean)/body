@@ -1,10 +1,10 @@
 {
-  if (!setOfflineInZooKeeper(state))   return;
+  if (setOfflineInZK && !setOfflineInZooKeeper(state))   return;
   if (this.master.isStopped()) {
     LOG.debug("Server stopped; skipping assign of " + state);
     return;
   }
-  RegionPlan plan=getRegionPlan(state);
+  RegionPlan plan=getRegionPlan(state,forceNewPlan);
   if (plan == null)   return;
   try {
     LOG.debug("Assigning region " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination().getServerName());
@@ -14,8 +14,10 @@
  catch (  Throwable t) {
     LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign elsewhere instead",t);
     state.update(RegionState.State.OFFLINE);
-    this.regionPlans.remove(state.getRegion().getEncodedName());
-    if (getRegionPlan(state,plan.getDestination()) == null)     return;
-    assign(state);
+    if (getRegionPlan(state,plan.getDestination(),true) == null) {
+      LOG.warn("Unable to find a viable location to assign region " + state.getRegion().getRegionNameAsString());
+      return;
+    }
+    assign(state,false,false);
   }
 }
