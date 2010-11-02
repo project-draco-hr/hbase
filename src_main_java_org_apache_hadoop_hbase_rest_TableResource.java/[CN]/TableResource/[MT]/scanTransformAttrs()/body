@@ -1,0 +1,51 @@
+{
+  HBaseAdmin admin=new HBaseAdmin(servlet.getConfiguration());
+  HTableDescriptor htd=admin.getTableDescriptor(Bytes.toBytes(table));
+  for (  HColumnDescriptor hcd : htd.getFamilies()) {
+    for (    Map.Entry<ImmutableBytesWritable,ImmutableBytesWritable> e : hcd.getValues().entrySet()) {
+      String key=Bytes.toString(e.getKey().get());
+      if (!key.startsWith(DIRECTIVE_KEY)) {
+        continue;
+      }
+      byte[] value=e.getValue().get();
+      Matcher m=DIRECTIVE_PATTERN.matcher(Bytes.toString(value));
+      while (m.find()) {
+        byte[] qualifier=HConstants.EMPTY_BYTE_ARRAY;
+        String s=m.group(1);
+        if (s.length() > 0 && !s.equals("*")) {
+          qualifier=Bytes.toBytes(s);
+        }
+        boolean retry=false;
+        String className=m.group(2);
+        while (true) {
+          try {
+            setTransform(table,hcd.getName(),qualifier,(Transform)Class.forName(className).newInstance());
+            break;
+          }
+ catch (          InstantiationException ex) {
+            LOG.error(StringUtils.stringifyException(ex));
+            if (retry) {
+              break;
+            }
+            retry=true;
+          }
+catch (          IllegalAccessException ex) {
+            LOG.error(StringUtils.stringifyException(ex));
+            if (retry) {
+              break;
+            }
+            retry=true;
+          }
+catch (          ClassNotFoundException ex) {
+            if (retry) {
+              LOG.error(StringUtils.stringifyException(ex));
+              break;
+            }
+            className="org.apache.hadoop.hbase.rest.transform." + className;
+            retry=true;
+          }
+        }
+      }
+    }
+  }
+}
