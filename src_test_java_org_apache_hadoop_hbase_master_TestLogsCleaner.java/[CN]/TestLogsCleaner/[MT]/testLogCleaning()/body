@@ -1,19 +1,12 @@
 {
-  Configuration c=TEST_UTIL.getConfiguration();
+  Configuration conf=TEST_UTIL.getConfiguration();
+  conf.setBoolean(HConstants.REPLICATION_ENABLE_KEY,true);
+  Server server=new DummyServer();
+  ReplicationZookeeper zkHelper=new ReplicationZookeeper(server,new AtomicBoolean(true));
   Path oldLogDir=new Path(HBaseTestingUtility.getTestDir(),HConstants.HREGION_OLDLOGDIR_NAME);
-  String fakeMachineName=URLEncoder.encode("regionserver:60020","UTF8");
-  FileSystem fs=FileSystem.get(c);
-  Stoppable stoppable=new Stoppable(){
-    private volatile boolean stopped=false;
-    @Override public void stop(    String why){
-      this.stopped=true;
-    }
-    @Override public boolean isStopped(){
-      return this.stopped;
-    }
-  }
-;
-  LogCleaner cleaner=new LogCleaner(1000,stoppable,c,fs,oldLogDir);
+  String fakeMachineName=URLEncoder.encode(server.getServerName(),"UTF8");
+  FileSystem fs=FileSystem.get(conf);
+  LogCleaner cleaner=new LogCleaner(1000,server,conf,fs,oldLogDir);
   long now=System.currentTimeMillis();
   fs.delete(oldLogDir,true);
   fs.mkdirs(oldLogDir);
@@ -25,6 +18,7 @@
     Path fileName=new Path(oldLogDir,fakeMachineName + "." + (now - 6000000 - i));
     fs.createNewFile(fileName);
     if (i % (30 / 3) == 0) {
+      zkHelper.addLogToList(fileName.getName(),fakeMachineName);
       System.out.println("Replication log file: " + fileName);
     }
   }
@@ -38,6 +32,6 @@
   cleaner.chore();
   assertEquals(5,fs.listStatus(oldLogDir).length);
   for (  FileStatus file : fs.listStatus(oldLogDir)) {
-    System.out.println("Keeped log files: " + file.getPath().getName());
+    System.out.println("Kept log files: " + file.getPath().getName());
   }
 }
