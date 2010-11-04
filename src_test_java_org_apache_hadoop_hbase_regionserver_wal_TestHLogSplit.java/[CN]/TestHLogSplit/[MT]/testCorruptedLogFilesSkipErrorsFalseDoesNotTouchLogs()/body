@@ -1,13 +1,23 @@
 {
   conf.setBoolean(HBASE_SKIP_ERRORS,false);
-  generateHLogs(-1);
-  corruptHLog(new Path(hlogDir,HLOG_FILE_PREFIX + "5"),Corruptions.APPEND_GARBAGE,true,fs);
-  fs.initialize(fs.getUri(),conf);
+  Class<?> backupClass=conf.getClass("hbase.regionserver.hlog.reader.impl",Reader.class);
+  InstrumentedSequenceFileLogWriter.activateFailure=false;
+  HLog.resetLogReaderClass();
   try {
+    conf.setClass("hbase.regionserver.hlog.reader.impl",FaultySequenceFileLogReader.class,HLog.Reader.class);
+    conf.set("faultysequencefilelogreader.failuretype",FaultySequenceFileLogReader.FailureType.BEGINNING.name());
+    generateHLogs(-1);
+    fs.initialize(fs.getUri(),conf);
     HLogSplitter logSplitter=HLogSplitter.createLogSplitter(conf);
-    logSplitter.splitLog(hbaseDir,hlogDir,oldLogDir,fs,conf);
+    try {
+      logSplitter.splitLog(hbaseDir,hlogDir,oldLogDir,fs,conf);
+    }
+ catch (    IOException e) {
+      assertEquals("if skip.errors is false all files should remain in place",NUM_WRITERS,fs.listStatus(hlogDir).length);
+    }
   }
- catch (  IOException e) {
+  finally {
+    conf.setClass("hbase.regionserver.hlog.reader.impl",backupClass,Reader.class);
+    HLog.resetLogReaderClass();
   }
-  assertEquals("if skip.errors is false all files should remain in place",NUM_WRITERS,fs.listStatus(hlogDir).length);
 }
