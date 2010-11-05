@@ -1,40 +1,46 @@
 {
-  System.out.println("Version: " + status.getHBaseVersion());
-  getMetaEntries(metaEntries);
+  errors.print("Version: " + status.getHBaseVersion());
+  regionInfo.clear();
+  tablesInfo.clear();
+  if (!recordRootRegion()) {
+    errors.reportError("Encountered fatal error. Exitting...");
+    return -1;
+  }
+  getMetaEntries();
+  if (!checkMetaEntries()) {
+    errors.reportError("Encountered fatal error. Exitting...");
+    return -1;
+  }
   AtomicInteger numSkipped=new AtomicInteger(0);
-  HTableDescriptor[] allTables=getTables(metaEntries,numSkipped);
-  System.out.println("Number of Tables: " + allTables.length);
+  HTableDescriptor[] allTables=getTables(numSkipped);
+  errors.print("Number of Tables: " + allTables.length);
   if (details) {
     if (numSkipped.get() > 0) {
-      System.out.println("\n Number of Tables in flux: " + numSkipped.get());
+      errors.detail("Number of Tables in flux: " + numSkipped.get());
     }
     for (    HTableDescriptor td : allTables) {
       String tableName=td.getNameAsString();
-      System.out.println("\t Table: " + tableName + "\t"+ (td.isReadOnly() ? "ro" : "rw")+ "\t"+ (td.isRootRegion() ? "ROOT" : (td.isMetaRegion() ? "META" : "    "))+ "\t"+ " families:"+ td.getFamilies().size());
+      errors.detail("  Table: " + tableName + "\t"+ (td.isReadOnly() ? "ro" : "rw")+ "\t"+ (td.isRootRegion() ? "ROOT" : (td.isMetaRegion() ? "META" : "    "))+ "\t"+ " families: "+ td.getFamilies().size());
     }
   }
   Collection<HServerInfo> regionServers=status.getServerInfo();
-  System.out.println("Number of live region servers:" + regionServers.size());
+  errors.print("Number of live region servers: " + regionServers.size());
   if (details) {
     for (    HServerInfo rsinfo : regionServers) {
-      System.out.println("\t RegionServer:" + rsinfo.getServerName());
+      errors.print("  " + rsinfo.getServerName());
     }
   }
   Collection<String> deadRegionServers=status.getDeadServerNames();
-  System.out.println("Number of dead region servers:" + deadRegionServers.size());
+  errors.print("Number of dead region servers: " + deadRegionServers.size());
   if (details) {
     for (    String name : deadRegionServers) {
-      System.out.println("\t RegionServer(dead):" + name);
+      errors.print("  " + name);
     }
   }
-  boolean status1=processRegionServers(regionServers);
-  boolean status2=checkHdfs();
-  if (status1 == true && status2 == true) {
-    System.out.println("\nRest easy, buddy! HBase is clean. ");
-    return 0;
-  }
- else {
-    System.out.println("\nInconsistencies detected.");
-    return -1;
-  }
+  processRegionServers(regionServers);
+  checkHdfs();
+  checkConsistency();
+  checkIntegrity();
+  printTableSummary();
+  return errors.summarize();
 }

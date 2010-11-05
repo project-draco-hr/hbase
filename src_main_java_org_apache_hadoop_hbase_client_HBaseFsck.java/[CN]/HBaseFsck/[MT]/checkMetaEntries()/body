@@ -1,0 +1,34 @@
+{
+  List<HbckInfo> metaRegions=Lists.newArrayList();
+  for (  HbckInfo value : regionInfo.values()) {
+    if (value.metaEntry.isMetaTable()) {
+      metaRegions.add(value);
+    }
+  }
+  if (metaRegions.size() != 1) {
+    HRegionLocation rootLocation=connection.locateRegion(HConstants.ROOT_TABLE_NAME,HConstants.EMPTY_START_ROW);
+    HbckInfo root=regionInfo.get(rootLocation.getRegionInfo().getEncodedName());
+    if (metaRegions.size() == 0) {
+      errors.reportError(".META. is not found on any region.");
+      if (shouldFix()) {
+        errors.print("Trying to fix a problem with .META...");
+        setShouldRerun();
+        HBaseFsckRepair.fixUnassigned(conf,root.metaEntry);
+      }
+    }
+ else     if (metaRegions.size() > 1) {
+      errors.reportError(".META. is found on more than one region.");
+      if (shouldFix()) {
+        errors.print("Trying to fix a problem with .META...");
+        setShouldRerun();
+        List<HServerAddress> deployedOn=Lists.newArrayList();
+        for (        HbckInfo mRegion : metaRegions) {
+          deployedOn.add(mRegion.metaEntry.regionServer);
+        }
+        HBaseFsckRepair.fixDupeAssignment(conf,root.metaEntry,deployedOn);
+      }
+    }
+    return false;
+  }
+  return true;
+}
