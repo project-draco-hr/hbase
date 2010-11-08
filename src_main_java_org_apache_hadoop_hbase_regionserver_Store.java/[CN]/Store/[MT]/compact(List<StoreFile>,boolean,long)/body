@@ -9,52 +9,19 @@
   List<StoreFileScanner> scanners=StoreFileScanner.getScannersForStoreFiles(filesToCompact,false,false);
   StoreFile.Writer writer=null;
   try {
-    if (majorCompaction) {
-      InternalScanner scanner=null;
-      try {
-        Scan scan=new Scan();
-        scan.setMaxVersions(family.getMaxVersions());
-        scanner=new StoreScanner(this,scan,scanners);
-        int bytesWritten=0;
-        ArrayList<KeyValue> kvs=new ArrayList<KeyValue>();
-        while (scanner.next(kvs)) {
-          if (writer == null && !kvs.isEmpty()) {
-            writer=createWriterInTmp(maxKeyCount,this.compactionCompression);
-          }
-          if (writer != null) {
-            for (            KeyValue kv : kvs) {
-              writer.append(kv);
-              if (Store.closeCheckInterval > 0) {
-                bytesWritten+=kv.getLength();
-                if (bytesWritten > Store.closeCheckInterval) {
-                  bytesWritten=0;
-                  if (!this.region.areWritesEnabled()) {
-                    writer.close();
-                    fs.delete(writer.getPath(),false);
-                    throw new InterruptedIOException("Aborting compaction of store " + this + " in region "+ this.region+ " because user requested stop.");
-                  }
-                }
-              }
-            }
-          }
-          kvs.clear();
+    InternalScanner scanner=null;
+    try {
+      Scan scan=new Scan();
+      scan.setMaxVersions(family.getMaxVersions());
+      scanner=new StoreScanner(this,scan,scanners,!majorCompaction);
+      int bytesWritten=0;
+      ArrayList<KeyValue> kvs=new ArrayList<KeyValue>();
+      while (scanner.next(kvs)) {
+        if (writer == null && !kvs.isEmpty()) {
+          writer=createWriterInTmp(maxKeyCount,this.compactionCompression);
         }
-      }
-  finally {
-        if (scanner != null) {
-          scanner.close();
-        }
-      }
-    }
- else {
-      MinorCompactingStoreScanner scanner=null;
-      try {
-        scanner=new MinorCompactingStoreScanner(this,scanners);
-        if (scanner.peek() != null) {
-          writer=createWriterInTmp(maxKeyCount);
-          int bytesWritten=0;
-          while (scanner.peek() != null) {
-            KeyValue kv=scanner.next();
+        if (writer != null) {
+          for (          KeyValue kv : kvs) {
             writer.append(kv);
             if (Store.closeCheckInterval > 0) {
               bytesWritten+=kv.getLength();
@@ -69,9 +36,12 @@
             }
           }
         }
+        kvs.clear();
       }
+    }
   finally {
-        if (scanner != null)         scanner.close();
+      if (scanner != null) {
+        scanner.close();
       }
     }
   }
