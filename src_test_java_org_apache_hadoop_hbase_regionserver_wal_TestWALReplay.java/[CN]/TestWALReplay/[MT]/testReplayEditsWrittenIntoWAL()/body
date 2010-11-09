@@ -1,10 +1,10 @@
 {
   final String tableNameStr="testReplayEditsWrittenIntoWAL";
-  HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
-  Path basedir=new Path(hbaseRootDir,tableNameStr);
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
+  final Path basedir=new Path(hbaseRootDir,tableNameStr);
   deleteDir(basedir);
   fs.mkdirs(new Path(basedir,hri.getEncodedName()));
-  HLog wal=createWAL(this.conf);
+  final HLog wal=createWAL(this.conf);
   final byte[] tableName=Bytes.toBytes(tableNameStr);
   final byte[] rowName=tableName;
   final byte[] regionName=hri.getEncodedNameAsBytes();
@@ -24,30 +24,37 @@
   wal.append(hri,tableName,edit,now);
   wal.sync();
   HBaseTestingUtility.setMaxRecoveryErrorCount(wal.getOutputStream(),1);
-  Configuration newConf=HBaseTestingUtility.setDifferentUser(this.conf,".replay.wal.secondtime");
-  runWALSplit(newConf);
-  FileSystem newFS=FileSystem.get(newConf);
-  newConf.setInt("hbase.hregion.memstore.flush.size",1024 * 100);
-  HLog newWal=createWAL(newConf);
-  final AtomicInteger flushcount=new AtomicInteger(0);
-  try {
-    final HRegion region=new HRegion(basedir,newWal,newFS,newConf,hri,null){
-      protected boolean internalFlushcache(      HLog wal,      long myseqid) throws IOException {
-        boolean b=super.internalFlushcache(wal,myseqid);
-        flushcount.incrementAndGet();
-        return b;
-      }
-    }
+  final Configuration newConf=HBaseConfiguration.create(this.conf);
+  User user=HBaseTestingUtility.getDifferentUser(newConf,".replay.wal.secondtime");
+  user.runAs(new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      runWALSplit(newConf);
+      FileSystem newFS=FileSystem.get(newConf);
+      newConf.setInt("hbase.hregion.memstore.flush.size",1024 * 100);
+      HLog newWal=createWAL(newConf);
+      final AtomicInteger flushcount=new AtomicInteger(0);
+      try {
+        final HRegion region=new HRegion(basedir,newWal,newFS,newConf,hri,null){
+          protected boolean internalFlushcache(          HLog wal,          long myseqid) throws IOException {
+            boolean b=super.internalFlushcache(wal,myseqid);
+            flushcount.incrementAndGet();
+            return b;
+          }
+        }
 ;
-    long seqid=region.initialize();
-    assertTrue(flushcount.get() > 0);
-    assertTrue(seqid > wal.getSequenceNumber());
-    Get get=new Get(rowName);
-    Result result=region.get(get,-1);
-    assertEquals(countPerFamily * (hri.getTableDesc().getFamilies().size() - 1),result.size());
-    region.close();
-  }
+        long seqid=region.initialize();
+        assertTrue(flushcount.get() > 0);
+        assertTrue(seqid > wal.getSequenceNumber());
+        Get get=new Get(rowName);
+        Result result=region.get(get,-1);
+        assertEquals(countPerFamily * (hri.getTableDesc().getFamilies().size() - 1),result.size());
+        region.close();
+      }
   finally {
-    newWal.closeAndDelete();
+        newWal.closeAndDelete();
+      }
+      return null;
+    }
   }
+);
 }

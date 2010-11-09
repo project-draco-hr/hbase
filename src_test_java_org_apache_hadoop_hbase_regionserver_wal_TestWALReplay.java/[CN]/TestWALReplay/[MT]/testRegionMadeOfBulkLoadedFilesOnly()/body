@@ -1,7 +1,7 @@
 {
   final String tableNameStr="testReplayEditsWrittenViaHRegion";
-  HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
-  Path basedir=new Path(this.hbaseRootDir,tableNameStr);
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
+  final Path basedir=new Path(this.hbaseRootDir,tableNameStr);
   deleteDir(basedir);
   HLog wal=createWAL(this.conf);
   HRegion region=HRegion.openHRegion(hri,wal,this.conf);
@@ -14,12 +14,19 @@
   region.bulkLoadHFile(f.toString(),family);
   region.put((new Put(row)).add(family,family,family));
   wal.sync();
-  Configuration newConf=HBaseTestingUtility.setDifferentUser(this.conf,tableNameStr);
-  runWALSplit(newConf);
-  HLog wal2=createWAL(newConf);
-  HRegion region2=new HRegion(basedir,wal2,FileSystem.get(newConf),newConf,hri,null);
-  long seqid2=region2.initialize();
-  assertTrue(seqid2 > -1);
-  region2.close();
-  wal2.closeAndDelete();
+  final Configuration newConf=HBaseConfiguration.create(this.conf);
+  User user=HBaseTestingUtility.getDifferentUser(newConf,tableNameStr);
+  user.runAs(new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      runWALSplit(newConf);
+      HLog wal2=createWAL(newConf);
+      HRegion region2=new HRegion(basedir,wal2,FileSystem.get(newConf),newConf,hri,null);
+      long seqid2=region2.initialize();
+      assertTrue(seqid2 > -1);
+      region2.close();
+      wal2.closeAndDelete();
+      return null;
+    }
+  }
+);
 }
