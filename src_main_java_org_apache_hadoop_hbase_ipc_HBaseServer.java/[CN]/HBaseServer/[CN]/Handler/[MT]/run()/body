@@ -1,8 +1,6 @@
 {
   LOG.info(getName() + ": starting");
   SERVER.set(HBaseServer.this);
-  final int buffersize=16 * 1024;
-  ByteArrayOutputStream buf=new ByteArrayOutputStream(buffersize);
   while (running) {
     try {
       Call call=myCallQueue.take();
@@ -21,12 +19,22 @@
         error=StringUtils.stringifyException(e);
       }
       CurCall.set(null);
-      if (buf.size() > buffersize) {
-        buf=new ByteArrayOutputStream(buffersize);
-      }
+      int size=BUFFER_INITIAL_SIZE;
+      if (value instanceof WritableWithSize) {
+        WritableWithSize ohint=(WritableWithSize)value;
+        long hint=ohint.getWritableSize() + Bytes.SIZEOF_BYTE + Bytes.SIZEOF_INT;
+        if (hint > 0) {
+          if ((hint) > Integer.MAX_VALUE) {
+            IOException ioe=new IOException("Result buffer size too large: " + hint);
+            errorClass=ioe.getClass().getName();
+            error=StringUtils.stringifyException(ioe);
+          }
  else {
-        buf.reset();
+            size=(int)hint;
+          }
+        }
       }
+      ByteBufferOutputStream buf=new ByteBufferOutputStream(size);
       DataOutputStream out=new DataOutputStream(buf);
       out.writeInt(call.id);
       out.writeBoolean(error != null);
@@ -37,7 +45,10 @@
         WritableUtils.writeString(out,errorClass);
         WritableUtils.writeString(out,error);
       }
-      call.setResponse(ByteBuffer.wrap(buf.toByteArray()));
+      if (buf.size() > warnResponseSize) {
+        LOG.warn(getName() + ", responseTooLarge for: " + call+ ": Size: "+ StringUtils.humanReadableInt(buf.size()));
+      }
+      call.setResponse(buf.getByteBuffer());
       responder.doRespond(call);
     }
  catch (    InterruptedException e) {
