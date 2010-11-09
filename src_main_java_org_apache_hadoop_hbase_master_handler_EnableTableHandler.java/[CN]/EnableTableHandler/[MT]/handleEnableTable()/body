@@ -1,14 +1,32 @@
 {
-  if (!this.assignmentManager.isTableDisabled(this.tableNameStr)) {
-    LOG.info("Table " + tableNameStr + " is not disabled; skipping enable");
+  if (this.assignmentManager.getZKTable().isEnabledTable(this.tableNameStr)) {
+    LOG.info("Table " + tableNameStr + " is already enabled; skipping enable");
     return;
   }
-  List<HRegionInfo> regions=MetaReader.getTableRegions(this.ct,tableName);
-  assignmentManager.undisableTable(this.tableNameStr);
-  for (  HRegionInfo region : regions) {
-    assignmentManager.assign(region,true);
+  this.assignmentManager.getZKTable().setEnablingTable(this.tableNameStr);
+  boolean done=false;
+  while (true) {
+    List<HRegionInfo> regionsInMeta=MetaReader.getTableRegions(this.ct,tableName);
+    int countOfRegionsInTable=regionsInMeta.size();
+    List<HRegionInfo> regions=regionsToAssign(regionsInMeta);
+    if (regions.size() == 0) {
+      done=true;
+      break;
+    }
+    LOG.info("Table has " + countOfRegionsInTable + " regions of which "+ regions.size()+ " are online.");
+    BulkEnabler bd=new BulkEnabler(this.server,regions,countOfRegionsInTable);
+    try {
+      if (bd.bulkAssign()) {
+        done=true;
+        break;
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Enable was interrupted");
+      Thread.currentThread().interrupt();
+      break;
+    }
   }
-  for (  HRegionInfo region : regions) {
-    this.assignmentManager.waitOnRegionToClearRegionsInTransition(region);
-  }
+  if (done)   this.assignmentManager.getZKTable().setEnabledTable(this.tableNameStr);
+  LOG.info("Enabled table is done=" + done);
 }

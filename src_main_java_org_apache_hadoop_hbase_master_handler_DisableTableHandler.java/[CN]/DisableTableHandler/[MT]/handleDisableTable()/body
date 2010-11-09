@@ -1,14 +1,30 @@
 {
-  if (this.assignmentManager.isTableDisabled(this.tableNameStr)) {
-    LOG.info("Table " + tableNameStr + " is already disabled; skipping disable");
+  if (this.assignmentManager.getZKTable().isDisabledTable(this.tableNameStr)) {
+    LOG.info("Table " + tableNameStr + " already disabled; skipping disable");
     return;
   }
-  assignmentManager.disableTable(this.tableNameStr);
-  List<HRegionInfo> regions=assignmentManager.getRegionsOfTable(tableName);
-  for (  HRegionInfo region : regions) {
-    assignmentManager.unassign(region);
+  this.assignmentManager.getZKTable().setDisablingTable(this.tableNameStr);
+  boolean done=false;
+  while (true) {
+    final List<HRegionInfo> regions=this.assignmentManager.getRegionsOfTable(tableName);
+    if (regions.size() == 0) {
+      done=true;
+      break;
+    }
+    LOG.info("Offlining " + regions.size() + " regions.");
+    BulkDisabler bd=new BulkDisabler(this.server,regions);
+    try {
+      if (bd.bulkAssign()) {
+        done=true;
+        break;
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Disable was interrupted");
+      Thread.currentThread().interrupt();
+      break;
+    }
   }
-  for (  HRegionInfo region : regions) {
-    this.assignmentManager.waitOnRegionToClearRegionsInTransition(region);
-  }
+  if (done)   this.assignmentManager.getZKTable().setDisabledTable(this.tableNameStr);
+  LOG.info("Disabled table is done=" + done);
 }
