@@ -6,14 +6,24 @@
   StringWriter writer=new StringWriter();
   marshaller.marshal(model,writer);
   byte[] body=Bytes.toBytes(writer.toString());
+  conf.set("hbase.rest.readonly","true");
   Response response=client.put("/" + TABLE + "/scanner",Constants.MIMETYPE_XML,body);
-  assertEquals(response.getCode(),201);
+  assertEquals(response.getCode(),403);
   String scannerURI=response.getLocation();
+  assertNull(scannerURI);
+  conf.set("hbase.rest.readonly","false");
+  response=client.put("/" + TABLE + "/scanner",Constants.MIMETYPE_XML,body);
+  assertEquals(response.getCode(),201);
+  scannerURI=response.getLocation();
   assertNotNull(scannerURI);
   response=client.get(scannerURI,Constants.MIMETYPE_XML);
   assertEquals(response.getCode(),200);
   CellSetModel cellSet=(CellSetModel)unmarshaller.unmarshal(new ByteArrayInputStream(response.getBody()));
   assertEquals(countCellSet(cellSet),BATCH_SIZE);
+  conf.set("hbase.rest.readonly","true");
+  response=client.delete(scannerURI);
+  assertEquals(response.getCode(),403);
+  conf.set("hbase.rest.readonly","false");
   response=client.delete(scannerURI);
   assertEquals(response.getCode(),200);
 }
