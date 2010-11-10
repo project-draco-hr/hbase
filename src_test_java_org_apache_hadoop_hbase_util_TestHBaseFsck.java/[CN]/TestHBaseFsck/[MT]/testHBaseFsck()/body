@@ -1,0 +1,28 @@
+{
+  HBaseFsck fsck=new HBaseFsck(conf);
+  fsck.displayFullReport();
+  fsck.setTimeLag(0);
+  int result=fsck.doWork();
+  assertEquals(0,result);
+  TEST_UTIL.createTable(TABLE,FAM);
+  result=fsck.doWork();
+  assertEquals(0,result);
+  HTable meta=new HTable(conf,HTableDescriptor.META_TABLEDESC.getName());
+  ResultScanner scanner=meta.getScanner(new Scan());
+  resforloop:   for (  Result res : scanner) {
+    long startCode=Bytes.toLong(res.getValue(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER));
+    for (    JVMClusterUtil.RegionServerThread rs : TEST_UTIL.getHBaseCluster().getRegionServerThreads()) {
+      HServerInfo hsi=rs.getRegionServer().getServerInfo();
+      if (startCode != hsi.getStartCode()) {
+        Put put=new Put(res.getRow());
+        put.add(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(hsi.getHostnamePort()));
+        put.add(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(hsi.getStartCode()));
+        meta.put(put);
+        break resforloop;
+      }
+    }
+  }
+  fsck.setFixErrors();
+  result=fsck.doWork();
+  assertEquals(-1,result);
+}
