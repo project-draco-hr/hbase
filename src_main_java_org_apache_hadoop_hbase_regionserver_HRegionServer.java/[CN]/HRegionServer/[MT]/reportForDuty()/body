@@ -13,10 +13,20 @@
       ZKUtil.setAddressAndWatch(zooKeeper,ZKUtil.joinZNode(zooKeeper.rsZNode,ZKUtil.getNodeName(serverInfo)),this.serverInfo.getServerAddress());
       this.serverInfo.setLoad(buildServerLoad());
       LOG.info("Telling master at " + masterAddress + " that we are up");
-      result=this.hbaseMaster.regionServerStartup(this.serverInfo);
+      result=this.hbaseMaster.regionServerStartup(this.serverInfo,EnvironmentEdgeManager.currentTimeMillis());
       break;
     }
- catch (    IOException e) {
+ catch (    RemoteException e) {
+      IOException ioe=e.unwrapRemoteException();
+      if (ioe instanceof ClockOutOfSyncException) {
+        LOG.fatal("Master rejected startup because clock is out of sync",ioe);
+        throw ioe;
+      }
+ else {
+        LOG.warn("remote error telling master we are up",e);
+      }
+    }
+catch (    IOException e) {
       LOG.warn("error telling master we are up",e);
     }
 catch (    KeeperException e) {
