@@ -1,0 +1,97 @@
+{
+  if (results.length != list.size()) {
+    throw new IllegalArgumentException("argument results must be the same size as argument list");
+  }
+  if (list.size() == 0) {
+    return;
+  }
+  HServerAddress[] lastServers=new HServerAddress[results.length];
+  List<Row> workingList=new ArrayList<Row>(list);
+  boolean retry=true;
+  Throwable singleRowCause=null;
+  for (int tries=0; tries < numRetries && retry; ++tries) {
+    if (tries >= 1) {
+      long sleepTime=getPauseTime(tries);
+      LOG.debug("Retry " + tries + ", sleep for "+ sleepTime+ "ms!");
+      Thread.sleep(sleepTime);
+    }
+    Map<HServerAddress,MultiAction> actionsByServer=new HashMap<HServerAddress,MultiAction>();
+    for (int i=0; i < workingList.size(); i++) {
+      Row row=workingList.get(i);
+      if (row != null) {
+        HRegionLocation loc=locateRegion(tableName,row.getRow(),true);
+        HServerAddress address=loc.getServerAddress();
+        byte[] regionName=loc.getRegionInfo().getRegionName();
+        MultiAction actions=actionsByServer.get(address);
+        if (actions == null) {
+          actions=new MultiAction();
+          actionsByServer.put(address,actions);
+        }
+        Action action=new Action(regionName,row,i);
+        lastServers[i]=address;
+        actions.add(regionName,action);
+      }
+    }
+    Map<HServerAddress,Future<MultiResponse>> futures=new HashMap<HServerAddress,Future<MultiResponse>>(actionsByServer.size());
+    for (    Entry<HServerAddress,MultiAction> e : actionsByServer.entrySet()) {
+      futures.put(e.getKey(),pool.submit(createCallable(e.getKey(),e.getValue(),tableName)));
+    }
+    for (    Entry<HServerAddress,Future<MultiResponse>> responsePerServer : futures.entrySet()) {
+      HServerAddress address=responsePerServer.getKey();
+      try {
+        Future<MultiResponse> future=responsePerServer.getValue();
+        MultiResponse resp=future.get();
+        if (resp == null) {
+          LOG.debug("Failed all for server: " + address + ", removing from cache");
+          continue;
+        }
+        for (        Entry<byte[],List<Pair<Integer,Object>>> e : resp.getResults().entrySet()) {
+          byte[] regionName=e.getKey();
+          List<Pair<Integer,Object>> regionResults=e.getValue();
+          for (          Pair<Integer,Object> regionResult : regionResults) {
+            if (regionResult == null) {
+              LOG.debug("Failures for region: " + Bytes.toStringBinary(regionName) + ", removing from cache");
+            }
+ else {
+              results[regionResult.getFirst()]=regionResult.getSecond();
+            }
+          }
+        }
+      }
+ catch (      ExecutionException e) {
+        LOG.debug("Failed all from " + address,e);
+      }
+    }
+    retry=false;
+    workingList.clear();
+    for (int i=0; i < results.length; i++) {
+      if (results[i] == null || (results[i] instanceof Throwable && !(results[i] instanceof DoNotRetryIOException))) {
+        retry=true;
+        Row row=list.get(i);
+        workingList.add(row);
+        deleteCachedLocation(tableName,row.getRow());
+      }
+ else {
+        workingList.add(null);
+      }
+    }
+  }
+  if (retry) {
+    if (singleRowCause != null) {
+      throw new IOException(singleRowCause);
+    }
+  }
+  List<Throwable> exceptions=new ArrayList<Throwable>();
+  List<Row> actions=new ArrayList<Row>();
+  List<HServerAddress> addresses=new ArrayList<HServerAddress>();
+  for (int i=0; i < results.length; i++) {
+    if (results[i] == null || results[i] instanceof Throwable) {
+      exceptions.add((Throwable)results[i]);
+      actions.add(list.get(i));
+      addresses.add(lastServers[i]);
+    }
+  }
+  if (!exceptions.isEmpty()) {
+    throw new RetriesExhaustedWithDetailsException(exceptions,actions,addresses);
+  }
+}
