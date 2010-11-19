@@ -1,0 +1,78 @@
+{
+  MultiResponse response=new MultiResponse();
+  for (  Map.Entry<byte[],List<Action<R>>> e : multi.actions.entrySet()) {
+    byte[] regionName=e.getKey();
+    List<Action<R>> actionsForRegion=e.getValue();
+    Collections.sort(actionsForRegion);
+    Row action;
+    List<Action> puts=new ArrayList<Action>();
+    for (    Action a : actionsForRegion) {
+      action=a.getAction();
+      int originalIndex=a.getOriginalIndex();
+      try {
+        if (action instanceof Delete) {
+          delete(regionName,(Delete)action);
+          response.add(regionName,originalIndex,new Result());
+        }
+ else         if (action instanceof Get) {
+          response.add(regionName,originalIndex,get(regionName,(Get)action));
+        }
+ else         if (action instanceof Put) {
+          puts.add(a);
+        }
+ else         if (action instanceof Exec) {
+          ExecResult result=execCoprocessor(regionName,(Exec)action);
+          response.add(regionName,new Pair<Integer,Object>(a.getOriginalIndex(),result.getValue()));
+        }
+ else {
+          LOG.debug("Error: invalid Action, row must be a Get, Delete, " + "Put or Exec.");
+          throw new DoNotRetryIOException("Invalid Action, row must be a " + "Get, Delete or Put.");
+        }
+      }
+ catch (      IOException ex) {
+        response.add(regionName,originalIndex,ex);
+      }
+    }
+    if (!puts.isEmpty()) {
+      try {
+        HRegion region=getRegion(regionName);
+        if (!region.getRegionInfo().isMetaTable()) {
+          this.cacheFlusher.reclaimMemStoreMemory();
+        }
+        List<Pair<Put,Integer>> putsWithLocks=Lists.newArrayListWithCapacity(puts.size());
+        for (        Action a : puts) {
+          Put p=(Put)a.getAction();
+          Integer lock;
+          try {
+            lock=getLockFromId(p.getLockId());
+          }
+ catch (          UnknownRowLockException ex) {
+            response.add(regionName,a.getOriginalIndex(),ex);
+            continue;
+          }
+          putsWithLocks.add(new Pair<Put,Integer>(p,lock));
+        }
+        this.requestCount.addAndGet(puts.size());
+        OperationStatusCode[] codes=region.put(putsWithLocks.toArray(new Pair[]{}));
+        for (int i=0; i < codes.length; i++) {
+          OperationStatusCode code=codes[i];
+          Action theAction=puts.get(i);
+          Object result=null;
+          if (code == OperationStatusCode.SUCCESS) {
+            result=new Result();
+          }
+ else           if (code == OperationStatusCode.BAD_FAMILY) {
+            result=new NoSuchColumnFamilyException();
+          }
+          response.add(regionName,theAction.getOriginalIndex(),result);
+        }
+      }
+ catch (      IOException ioe) {
+        for (        Action a : puts) {
+          response.add(regionName,a.getOriginalIndex(),ioe);
+        }
+      }
+    }
+  }
+  return response;
+}
