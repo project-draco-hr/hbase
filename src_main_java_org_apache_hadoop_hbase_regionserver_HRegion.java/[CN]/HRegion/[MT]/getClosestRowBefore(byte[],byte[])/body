@@ -1,17 +1,24 @@
 {
+  Result result=null;
   KeyValue key=null;
   checkRow(row);
   startRegionOperation();
+  if (coprocessorHost != null) {
+    coprocessorHost.preGetClosestRowBefore(row,family);
+  }
   try {
     Store store=getStore(family);
     KeyValue kv=new KeyValue(row,HConstants.LATEST_TIMESTAMP);
     key=store.getRowKeyAtOrBefore(kv);
-    if (key == null) {
-      return null;
+    if (key != null) {
+      Get get=new Get(key.getRow());
+      get.addFamily(family);
+      result=get(get,null);
     }
-    Get get=new Get(key.getRow());
-    get.addFamily(family);
-    return get(get,null);
+    if (coprocessorHost != null) {
+      result=coprocessorHost.postGetClosestRowBefore(row,family,result);
+    }
+    return result;
   }
   finally {
     closeRegionOperation();

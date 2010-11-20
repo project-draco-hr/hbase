@@ -6,7 +6,16 @@
   requestCount.incrementAndGet();
   try {
     HRegion region=getRegion(regionName);
-    return region.increment(increment,getLockFromId(increment.getLockId()),increment.getWriteToWAL());
+    Increment incVal=increment;
+    Result resVal;
+    if (region.getCoprocessorHost() != null) {
+      incVal=region.getCoprocessorHost().preIncrement(incVal);
+    }
+    resVal=region.increment(incVal,getLockFromId(increment.getLockId()),increment.getWriteToWAL());
+    if (region.getCoprocessorHost() != null) {
+      resVal=region.getCoprocessorHost().postIncrement(incVal,resVal);
+    }
+    return resVal;
   }
  catch (  IOException e) {
     checkFileSystem();

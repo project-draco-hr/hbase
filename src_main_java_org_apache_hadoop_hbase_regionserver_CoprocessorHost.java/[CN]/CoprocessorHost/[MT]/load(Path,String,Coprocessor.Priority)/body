@@ -1,0 +1,34 @@
+{
+  Class<?> implClass=null;
+  try {
+    implClass=getClass().getClassLoader().loadClass(className);
+  }
+ catch (  ClassNotFoundException e) {
+    LOG.info("Class " + className + " needs to be loaded from a file - "+ path.toString()+ ".");
+  }
+  if (implClass == null) {
+    if (!path.toString().endsWith(".jar")) {
+      throw new IOException(path.toString() + ": not a jar file?");
+    }
+    FileSystem fs=path.getFileSystem(HBaseConfiguration.create());
+    Path dst=new Path("/tmp/." + region.getRegionNameAsString().replace(',','_') + "."+ className+ "."+ System.currentTimeMillis()+ ".jar");
+    fs.copyToLocalFile(path,dst);
+    fs.deleteOnExit(dst);
+    String cp=System.getProperty("java.class.path");
+    List<URL> paths=new ArrayList<URL>();
+    paths.add(new File(dst.toString()).getCanonicalFile().toURL());
+    StringTokenizer st=new StringTokenizer(cp,File.pathSeparator);
+    while (st.hasMoreTokens()) {
+      paths.add((new File(st.nextToken())).getCanonicalFile().toURL());
+    }
+    ClassLoader cl=new URLClassLoader(paths.toArray(new URL[]{}),ClassLoader.getSystemClassLoader());
+    Thread.currentThread().setContextClassLoader(cl);
+    try {
+      implClass=cl.loadClass(className);
+    }
+ catch (    ClassNotFoundException e) {
+      throw new IOException(e);
+    }
+  }
+  load(implClass,priority);
+}

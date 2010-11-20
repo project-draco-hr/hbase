@@ -4,6 +4,9 @@
   boolean flush=false;
   updatesLock.readLock().lock();
   try {
+    if (coprocessorHost != null) {
+      familyMap=coprocessorHost.preDelete(familyMap);
+    }
     for (    Map.Entry<byte[],List<KeyValue>> e : familyMap.entrySet()) {
       byte[] family=e.getKey();
       List<KeyValue> kvs=e.getValue();
@@ -23,7 +26,7 @@
           Get get=new Get(kv.getRow());
           get.setMaxVersions(count);
           get.addColumn(family,qual);
-          List<KeyValue> result=get(get);
+          List<KeyValue> result=get(get,false);
           if (result.size() < count) {
             kv.updateLatestStamp(byteNow);
             continue;
@@ -46,6 +49,9 @@
     }
     long addedSize=applyFamilyMapToMemstore(familyMap);
     flush=isFlushSize(memstoreSize.addAndGet(addedSize));
+    if (coprocessorHost != null) {
+      coprocessorHost.postDelete(familyMap);
+    }
   }
   finally {
     this.updatesLock.readLock().unlock();
