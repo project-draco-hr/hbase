@@ -1,3 +1,24 @@
 {
-  assign(state,setOfflineInZK,forceNewPlan,new AtomicInteger(0));
+  for (int i=0; i < this.maximumAssignmentAttempts; i++) {
+    if (setOfflineInZK && !setOfflineInZooKeeper(state))     return;
+    if (this.master.isStopped()) {
+      LOG.debug("Server stopped; skipping assign of " + state);
+      return;
+    }
+    RegionPlan plan=getRegionPlan(state,forceNewPlan);
+    if (plan == null)     return;
+    try {
+      LOG.debug("Assigning region " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination().getServerName());
+      state.update(RegionState.State.PENDING_OPEN);
+      serverManager.sendRegionOpen(plan.getDestination(),state.getRegion());
+    }
+ catch (    Throwable t) {
+      LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign elsewhere instead; "+ "retry="+ i,t);
+      state.update(RegionState.State.OFFLINE);
+      if (getRegionPlan(state,plan.getDestination(),true) == null) {
+        LOG.warn("Unable to find a viable location to assign region " + state.getRegion().getRegionNameAsString());
+        return;
+      }
+    }
+  }
 }
