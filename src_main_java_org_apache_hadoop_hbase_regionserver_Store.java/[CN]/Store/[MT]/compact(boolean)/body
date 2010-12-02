@@ -1,70 +1,31 @@
 {
   boolean forceSplit=this.region.shouldSplit(false);
-  boolean majorcompaction=forceMajor;
 synchronized (compactLock) {
     this.lastCompactSize=0;
-    List<StoreFile> filesToCompact=this.storefiles;
-    if (filesToCompact.isEmpty()) {
-      LOG.debug(this.storeNameStr + ": no store files to compact");
-      return null;
+    for (    StoreFile sf : this.storefiles) {
+      if (sf.getPath() == null || sf.getReader() == null) {
+        boolean np=sf.getPath() == null;
+        LOG.debug("StoreFile " + sf + " has null "+ (np ? "Path" : "Reader"));
+        return null;
+      }
     }
-    if (!majorcompaction) {
-      majorcompaction=isMajorCompaction(filesToCompact);
-    }
-    boolean references=hasReferences(filesToCompact);
-    if (!majorcompaction && !references && (forceSplit || (filesToCompact.size() < compactionThreshold))) {
+    boolean references=hasReferences(this.storefiles);
+    if (forceSplit && !forceMajor && !references) {
       return checkSplit(forceSplit);
     }
-    int countOfFiles=filesToCompact.size();
-    long[] fileSizes=new long[countOfFiles];
-    long[] sumSize=new long[countOfFiles];
-    for (int i=countOfFiles - 1; i >= 0; --i) {
-      StoreFile file=filesToCompact.get(i);
-      Path path=file.getPath();
-      if (path == null) {
-        LOG.error("Path is null for " + file);
-        return null;
-      }
-      StoreFile.Reader r=file.getReader();
-      if (r == null) {
-        LOG.error("StoreFile " + file + " has a null Reader");
-        return null;
-      }
-      fileSizes[i]=file.getReader().length();
-      int tooFar=i + this.maxFilesToCompact - 1;
-      sumSize[i]=fileSizes[i] + ((i + 1 < countOfFiles) ? sumSize[i + 1] : 0) - ((tooFar < countOfFiles) ? fileSizes[tooFar] : 0);
+    Collection<StoreFile> filesToCompact=compactSelection(this.storefiles,forceMajor);
+    if (filesToCompact.isEmpty()) {
+      return checkSplit(forceSplit);
     }
     long totalSize=0;
-    if (!majorcompaction && !references) {
-      int start=0;
-      double r=this.compactRatio;
-      while (countOfFiles - start >= this.compactionThreshold && fileSizes[start] > Math.max(minCompactSize,(long)(sumSize[start + 1] * r))) {
-        ++start;
-      }
-      int end=Math.min(countOfFiles,start + this.maxFilesToCompact);
-      totalSize=fileSizes[start] + ((start + 1 < countOfFiles) ? sumSize[start + 1] : 0);
-      if (end - start < this.compactionThreshold) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Skipped compaction of " + this.storeNameStr + " because only "+ (end - start)+ " file(s) of size "+ StringUtils.humanReadableInt(totalSize)+ " meet compaction criteria.");
-        }
-        return checkSplit(forceSplit);
-      }
-      if (0 == start && end == countOfFiles) {
-        majorcompaction=true;
-      }
- else {
-        filesToCompact=new ArrayList<StoreFile>(filesToCompact.subList(start,end));
-      }
-    }
- else {
-      for (      long i : fileSizes) {
-        totalSize+=i;
-      }
+    for (    StoreFile sf : filesToCompact) {
+      totalSize+=sf.getReader().length();
     }
     this.lastCompactSize=totalSize;
+    boolean majorcompaction=(filesToCompact.size() == this.storefiles.size());
     long maxId=StoreFile.getMaxSequenceIdInList(filesToCompact);
-    LOG.info("Started compaction of " + filesToCompact.size() + " file(s) in cf="+ this.storeNameStr+ (references ? ", hasReferences=true," : " ")+ " into "+ region.getTmpDir()+ ", seqid="+ maxId+ ", totalSize="+ StringUtils.humanReadableInt(totalSize));
-    StoreFile.Writer writer=compact(filesToCompact,majorcompaction,maxId);
+    LOG.info("Started compaction of " + filesToCompact.size() + " file(s) in cf="+ this.storeNameStr+ (hasReferences(filesToCompact) ? ", hasReferences=true," : " ")+ " into "+ region.getTmpDir()+ ", seqid="+ maxId+ ", totalSize="+ StringUtils.humanReadableInt(totalSize));
+    StoreFile.Writer writer=compactStore(filesToCompact,majorcompaction,maxId);
     StoreFile sf=completeCompaction(filesToCompact,writer);
     if (LOG.isInfoEnabled()) {
       LOG.info("Completed" + (majorcompaction ? " major " : " ") + "compaction of "+ filesToCompact.size()+ " file(s), new file="+ (sf == null ? "none" : sf.toString())+ ", size="+ (sf == null ? "none" : StringUtils.humanReadableInt(sf.getReader().length()))+ "; total size for store is "+ StringUtils.humanReadableInt(storeSize));
