@@ -174,23 +174,24 @@
   regionsThatShouldBeOffline.add(region);
   master.assignmentManager.regionsInTransition.put(region.getEncodedName(),new RegionState(region,RegionState.State.PENDING_OPEN,0));
   ZKAssign.createNodeOffline(zkw,region,master.getServerName());
-  region=enabledRegions.remove(0);
-  regionsThatShouldBeOnline.add(region);
-  master.assignmentManager.regionsInTransition.put(region.getEncodedName(),new RegionState(region,RegionState.State.PENDING_CLOSE,0));
-  region=disabledRegions.remove(0);
-  regionsThatShouldBeOffline.add(region);
-  master.assignmentManager.regionsInTransition.put(region.getEncodedName(),new RegionState(region,RegionState.State.PENDING_CLOSE,0));
   log("Waiting for no more RIT");
   ZKAssign.blockUntilNoRIT(zkw);
   log("No more RIT in ZK");
-  master.assignmentManager.waitUntilNoRegionsInTransition(120000);
+  long now=System.currentTimeMillis();
+  final long maxTime=120000;
+  boolean done=master.assignmentManager.waitUntilNoRegionsInTransition(maxTime);
+  if (!done) {
+    LOG.info("rit=" + master.assignmentManager.getRegionsInTransition());
+  }
+  long elapsed=System.currentTimeMillis() - now;
+  assertTrue("Elapsed=" + elapsed + ", maxTime="+ maxTime+ ", done="+ done,elapsed < maxTime);
   log("No more RIT in RIT map, doing final test verification");
   Set<HRegionInfo> onlineRegions=new TreeSet<HRegionInfo>();
   for (  JVMClusterUtil.RegionServerThread rst : cluster.getRegionServerThreads()) {
     onlineRegions.addAll(rst.getRegionServer().getOnlineRegions());
   }
   for (  HRegionInfo hri : regionsThatShouldBeOnline) {
-    assertTrue(onlineRegions.contains(hri));
+    assertTrue("region=" + hri.getRegionNameAsString(),onlineRegions.contains(hri));
   }
   for (  HRegionInfo hri : regionsThatShouldBeOffline) {
     assertFalse(onlineRegions.contains(hri));
