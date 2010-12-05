@@ -1,15 +1,11 @@
 {
   List<StoreFile> filesToCompact=new ArrayList<StoreFile>(candidates);
-  if (this.maxCompactSize > 0) {
-    final long msize=this.maxCompactSize;
-    filesToCompact.removeAll(Collections2.filter(filesToCompact,new Predicate<StoreFile>(){
-      public boolean apply(      StoreFile sf){
-        return sf.getReader().length() > msize && !sf.isReference();
-      }
-    }
-));
+  if (!forcemajor) {
+    int pos=0;
+    while (pos < filesToCompact.size() && filesToCompact.get(pos).getReader().length() > maxCompactSize && !filesToCompact.get(pos).isReference())     ++pos;
+    filesToCompact.subList(0,pos).clear();
   }
-  boolean majorcompaction=forcemajor || (isMajorCompaction(filesToCompact) && filesToCompact.size() > this.maxFilesToCompact);
+  boolean majorcompaction=(forcemajor || isMajorCompaction(filesToCompact)) && filesToCompact.size() < this.maxFilesToCompact;
   if (filesToCompact.isEmpty()) {
     LOG.debug(this.storeNameStr + ": no store files to compact");
     return filesToCompact;
@@ -17,7 +13,6 @@
   if (!majorcompaction && !hasReferences(filesToCompact)) {
     int start=0;
     double r=this.compactRatio;
-    Collections.sort(filesToCompact,StoreFile.Comparators.FILE_SIZE);
     int countOfFiles=filesToCompact.size();
     long[] fileSizes=new long[countOfFiles];
     long[] sumSize=new long[countOfFiles];
