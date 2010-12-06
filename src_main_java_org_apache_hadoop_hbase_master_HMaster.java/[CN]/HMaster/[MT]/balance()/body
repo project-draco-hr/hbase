@@ -1,2 +1,28 @@
 {
+  if (!this.balanceSwitch)   return false;
+synchronized (this.balancer) {
+    if (this.assignmentManager.isRegionsInTransition()) {
+      LOG.debug("Not running balancer because " + this.assignmentManager.getRegionsInTransition().size() + " region(s) in transition: "+ org.apache.commons.lang.StringUtils.abbreviate(this.assignmentManager.getRegionsInTransition().toString(),256));
+      return false;
+    }
+    if (this.serverManager.areDeadServersInProgress()) {
+      LOG.debug("Not running balancer because processing dead regionserver(s): " + this.serverManager.getDeadServers());
+      return false;
+    }
+    Map<HServerInfo,List<HRegionInfo>> assignments=this.assignmentManager.getAssignments();
+    for (    Map.Entry<String,HServerInfo> e : this.serverManager.getOnlineServers().entrySet()) {
+      HServerInfo hsi=e.getValue();
+      if (!assignments.containsKey(hsi)) {
+        assignments.put(hsi,new ArrayList<HRegionInfo>());
+      }
+    }
+    List<RegionPlan> plans=this.balancer.balanceCluster(assignments);
+    if (plans != null && !plans.isEmpty()) {
+      for (      RegionPlan plan : plans) {
+        LOG.info("balance " + plan);
+        this.assignmentManager.balance(plan);
+      }
+    }
+  }
+  return true;
 }
