@@ -77,18 +77,40 @@
  else {
       instanceClass=CODE_TO_CLASS.get(b);
     }
-    Writable writable=WritableFactories.newInstance(instanceClass,conf);
-    try {
-      writable.readFields(in);
+    if (Writable.class.isAssignableFrom(instanceClass)) {
+      Writable writable=WritableFactories.newInstance(instanceClass,conf);
+      try {
+        writable.readFields(in);
+      }
+ catch (      Exception e) {
+        LOG.error("Error in readFields",e);
+        throw new IOException("Error in readFields",e);
+      }
+      instance=writable;
+      if (instanceClass == NullInstance.class) {
+        declaredClass=((NullInstance)instance).declaredClass;
+        instance=null;
+      }
     }
- catch (    Exception e) {
-      LOG.error("Error in readFields",e);
-      throw new IOException("Error in readFields",e);
-    }
-    instance=writable;
-    if (instanceClass == NullInstance.class) {
-      declaredClass=((NullInstance)instance).declaredClass;
-      instance=null;
+ else {
+      int length=in.readInt();
+      byte[] objectBytes=new byte[length];
+      in.readFully(objectBytes);
+      ByteArrayInputStream bis=null;
+      ObjectInputStream ois=null;
+      try {
+        bis=new ByteArrayInputStream(objectBytes);
+        ois=new ObjectInputStream(bis);
+        instance=ois.readObject();
+      }
+ catch (      ClassNotFoundException e) {
+        LOG.error("Error in readFields",e);
+        throw new IOException("Error in readFields",e);
+      }
+ finally {
+        if (bis != null)         bis.close();
+        if (ois != null)         ois.close();
+      }
     }
   }
   if (objectWritable != null) {
