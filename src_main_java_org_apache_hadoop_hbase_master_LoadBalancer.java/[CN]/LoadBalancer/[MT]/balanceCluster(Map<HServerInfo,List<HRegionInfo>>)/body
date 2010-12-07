@@ -1,2 +1,127 @@
 {
+  long startTime=System.currentTimeMillis();
+  TreeMap<HServerInfo,List<HRegionInfo>> serversByLoad=new TreeMap<HServerInfo,List<HRegionInfo>>(new HServerInfo.LoadComparator());
+  int numServers=clusterState.size();
+  if (numServers == 0) {
+    LOG.debug("numServers=0 so skipping load balancing");
+    return null;
+  }
+  int numRegions=0;
+  for (  Map.Entry<HServerInfo,List<HRegionInfo>> server : clusterState.entrySet()) {
+    server.getKey().getLoad().setNumberOfRegions(server.getValue().size());
+    numRegions+=server.getKey().getLoad().getNumberOfRegions();
+    serversByLoad.put(server.getKey(),server.getValue());
+  }
+  float average=(float)numRegions / numServers;
+  int min=numRegions / numServers;
+  int max=numRegions % numServers == 0 ? min : min + 1;
+  if (serversByLoad.lastKey().getLoad().getNumberOfRegions() <= max && serversByLoad.firstKey().getLoad().getNumberOfRegions() >= min) {
+    LOG.info("Skipping load balancing.  servers=" + numServers + " "+ "regions="+ numRegions+ " average="+ average+ " "+ "mostloaded="+ serversByLoad.lastKey().getLoad().getNumberOfRegions()+ " leastloaded="+ serversByLoad.lastKey().getLoad().getNumberOfRegions());
+    return null;
+  }
+  List<RegionPlan> regionsToMove=new ArrayList<RegionPlan>();
+  int regionidx=0;
+  int serversOverloaded=0;
+  Map<HServerInfo,BalanceInfo> serverBalanceInfo=new TreeMap<HServerInfo,BalanceInfo>();
+  for (  Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.descendingMap().entrySet()) {
+    HServerInfo serverInfo=server.getKey();
+    int regionCount=serverInfo.getLoad().getNumberOfRegions();
+    if (regionCount <= max) {
+      serverBalanceInfo.put(serverInfo,new BalanceInfo(0,0));
+      break;
+    }
+    serversOverloaded++;
+    List<HRegionInfo> regions=server.getValue();
+    int numToOffload=Math.min(regionCount - max,regions.size());
+    int numTaken=0;
+    for (    HRegionInfo hri : regions) {
+      if (hri.isMetaRegion())       continue;
+      regionsToMove.add(new RegionPlan(hri,serverInfo,null));
+      numTaken++;
+      if (numTaken >= numToOffload)       break;
+    }
+    serverBalanceInfo.put(serverInfo,new BalanceInfo(numToOffload,(-1) * numTaken));
+  }
+  int serversUnderloaded=0;
+  int neededRegions=0;
+  for (  Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.entrySet()) {
+    int regionCount=server.getKey().getLoad().getNumberOfRegions();
+    if (regionCount >= min) {
+      break;
+    }
+    serversUnderloaded++;
+    int numToTake=min - regionCount;
+    int numTaken=0;
+    while (numTaken < numToTake && regionidx < regionsToMove.size()) {
+      regionsToMove.get(regionidx).setDestination(server.getKey());
+      numTaken++;
+      regionidx++;
+    }
+    serverBalanceInfo.put(server.getKey(),new BalanceInfo(0,numTaken));
+    if (numTaken < numToTake) {
+      neededRegions+=(numToTake - numTaken);
+    }
+  }
+  if (neededRegions == 0 && regionidx == regionsToMove.size()) {
+    long endTime=System.currentTimeMillis();
+    LOG.info("Calculated a load balance in " + (endTime - startTime) + "ms. "+ "Moving "+ regionsToMove.size()+ " regions off of "+ serversOverloaded+ " overloaded servers onto "+ serversUnderloaded+ " less loaded servers");
+    return regionsToMove;
+  }
+  if (neededRegions != 0) {
+    for (    Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.descendingMap().entrySet()) {
+      BalanceInfo balanceInfo=serverBalanceInfo.get(server.getKey());
+      int idx=balanceInfo == null ? 0 : balanceInfo.getNextRegionForUnload();
+      if (idx >= server.getValue().size())       break;
+      HRegionInfo region=server.getValue().get(idx);
+      if (region.isMetaRegion())       continue;
+      regionsToMove.add(new RegionPlan(region,server.getKey(),null));
+      if (--neededRegions == 0) {
+        break;
+      }
+    }
+  }
+  for (  Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.entrySet()) {
+    int regionCount=server.getKey().getLoad().getNumberOfRegions();
+    BalanceInfo balanceInfo=serverBalanceInfo.get(server.getKey());
+    if (balanceInfo != null) {
+      regionCount+=balanceInfo.getNumRegionsAdded();
+    }
+    if (regionCount >= min) {
+      break;
+    }
+    int numToTake=min - regionCount;
+    int numTaken=0;
+    while (numTaken < numToTake && regionidx < regionsToMove.size()) {
+      regionsToMove.get(regionidx).setDestination(server.getKey());
+      numTaken++;
+      regionidx++;
+    }
+  }
+  if (regionidx != regionsToMove.size()) {
+    for (    Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.entrySet()) {
+      int regionCount=server.getKey().getLoad().getNumberOfRegions();
+      if (regionCount >= max) {
+        break;
+      }
+      regionsToMove.get(regionidx).setDestination(server.getKey());
+      regionidx++;
+      if (regionidx == regionsToMove.size()) {
+        break;
+      }
+    }
+  }
+  long endTime=System.currentTimeMillis();
+  if (regionidx != regionsToMove.size() || neededRegions != 0) {
+    LOG.warn("regionidx=" + regionidx + ", regionsToMove="+ regionsToMove.size()+ ", numServers="+ numServers+ ", serversOverloaded="+ serversOverloaded+ ", serversUnderloaded="+ serversUnderloaded);
+    StringBuilder sb=new StringBuilder();
+    for (    Map.Entry<HServerInfo,List<HRegionInfo>> e : clusterState.entrySet()) {
+      if (sb.length() > 0)       sb.append(", ");
+      sb.append(e.getKey().getServerName());
+      sb.append(" ");
+      sb.append(e.getValue().size());
+    }
+    LOG.warn("Input " + sb.toString());
+  }
+  LOG.info("Calculated a load balance in " + (endTime - startTime) + "ms. "+ "Moving "+ regionsToMove.size()+ " regions off of "+ serversOverloaded+ " overloaded servers onto "+ serversUnderloaded+ " less loaded servers");
+  return regionsToMove;
 }
