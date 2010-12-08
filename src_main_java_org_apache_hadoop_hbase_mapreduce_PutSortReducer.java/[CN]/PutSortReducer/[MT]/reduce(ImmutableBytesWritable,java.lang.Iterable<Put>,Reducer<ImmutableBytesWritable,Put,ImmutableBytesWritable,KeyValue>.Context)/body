@@ -1,16 +1,26 @@
 {
-  TreeSet<KeyValue> map=new TreeSet<KeyValue>(KeyValue.COMPARATOR);
-  for (  Put p : puts) {
-    for (    List<KeyValue> kvs : p.getFamilyMap().values()) {
-      for (      KeyValue kv : kvs) {
-        map.add(kv.clone());
+  long threshold=context.getConfiguration().getLong("putsortreducer.row.threshold",2L * (1 << 30));
+  Iterator<Put> iter=puts.iterator();
+  while (iter.hasNext()) {
+    TreeSet<KeyValue> map=new TreeSet<KeyValue>(KeyValue.COMPARATOR);
+    long curSize=0;
+    while (iter.hasNext() && curSize < threshold) {
+      Put p=iter.next();
+      for (      List<KeyValue> kvs : p.getFamilyMap().values()) {
+        for (        KeyValue kv : kvs) {
+          map.add(kv);
+          curSize+=kv.getValueLength();
+        }
       }
     }
-  }
-  context.setStatus("Read " + map.getClass());
-  int index=0;
-  for (  KeyValue kv : map) {
-    context.write(row,kv);
-    if (index > 0 && index % 100 == 0)     context.setStatus("Wrote " + index);
+    context.setStatus("Read " + map.size() + " entries of "+ map.getClass()+ "("+ StringUtils.humanReadableInt(curSize)+ ")");
+    int index=0;
+    for (    KeyValue kv : map) {
+      context.write(row,kv);
+      if (index > 0 && index % 100 == 0)       context.setStatus("Wrote " + index);
+    }
+    if (iter.hasNext()) {
+      context.write(null,null);
+    }
   }
 }
