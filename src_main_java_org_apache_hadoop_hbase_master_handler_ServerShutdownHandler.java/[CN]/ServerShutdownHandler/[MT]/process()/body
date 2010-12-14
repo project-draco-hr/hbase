@@ -2,7 +2,7 @@
   final String serverName=this.hsi.getServerName();
   LOG.info("Splitting logs for " + serverName);
   this.services.getMasterFileSystem().splitLog(serverName);
-  List<HRegionInfo> regionsInTransition=this.services.getAssignmentManager().processServerShutdown(this.hsi);
+  List<RegionState> regionsInTransition=this.services.getAssignmentManager().processServerShutdown(this.hsi);
   if (isCarryingRoot()) {
     try {
       this.services.getAssignmentManager().assignRoot();
@@ -28,8 +28,12 @@ catch (    IOException ioe) {
       LOG.info("Received exception accessing META during server shutdown of " + serverName + ", retrying META read");
     }
   }
-  for (  HRegionInfo rit : regionsInTransition)   hris.remove(rit);
-  LOG.info("Reassigning the " + hris.size() + " region(s) that "+ serverName+ " was carrying (skipping "+ regionsInTransition.size()+ " regions(s) that are in transition)");
+  for (  RegionState rit : regionsInTransition) {
+    if (!rit.isClosing() && !rit.isPendingClose()) {
+      hris.remove(rit.getRegion());
+    }
+  }
+  LOG.info("Reassigning " + hris.size() + " region(s) that "+ serverName+ " was carrying (skipping "+ regionsInTransition.size()+ " regions(s) that are already in transition)");
   for (  Map.Entry<HRegionInfo,Result> e : hris.entrySet()) {
     if (processDeadRegion(e.getKey(),e.getValue(),this.services.getAssignmentManager(),this.server.getCatalogTracker())) {
       this.services.getAssignmentManager().assign(e.getKey(),true);
