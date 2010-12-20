@@ -1,0 +1,45 @@
+{
+  List<Path> processedLogs=new ArrayList<Path>();
+  List<Path> corruptedLogs=new ArrayList<Path>();
+  List<Path> splits=null;
+  boolean skipErrors=conf.getBoolean("hbase.hlog.split.skip.errors",false);
+  splitSize=0;
+  outputSink.startWriterThreads(entryBuffers);
+  try {
+    int i=0;
+    for (    FileStatus log : logfiles) {
+      Path logPath=log.getPath();
+      long logLength=log.getLen();
+      splitSize+=logLength;
+      LOG.debug("Splitting hlog " + (i++ + 1) + " of "+ logfiles.length+ ": "+ logPath+ ", length="+ logLength);
+      try {
+        recoverFileLease(fs,logPath,conf);
+        parseHLog(log,entryBuffers,fs,conf);
+        processedLogs.add(logPath);
+      }
+ catch (      IOException e) {
+        if (e.getCause() instanceof ParseException) {
+          LOG.warn("ParseException from hlog " + logPath + ".  continuing");
+          processedLogs.add(logPath);
+        }
+ else {
+          if (skipErrors) {
+            LOG.info("Got while parsing hlog " + logPath + ". Marking as corrupted",e);
+            corruptedLogs.add(logPath);
+          }
+ else {
+            throw e;
+          }
+        }
+      }
+    }
+    if (fs.listStatus(srcDir).length > processedLogs.size() + corruptedLogs.size()) {
+      throw new OrphanHLogAfterSplitException("Discovered orphan hlog after split. Maybe the " + "HRegionServer was not dead when we started");
+    }
+    archiveLogs(srcDir,corruptedLogs,processedLogs,oldLogDir,fs,conf);
+  }
+  finally {
+    splits=outputSink.finishWritingAndClose();
+  }
+  return splits;
+}

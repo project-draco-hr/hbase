@@ -2,27 +2,17 @@
   if (stop.get()) {
     return;
   }
-  boolean splitStarted=false;
-  Path p=new Path(hbaseDir,new String(TABLE_NAME));
-  while (!splitStarted) {
-    try {
-      FileStatus[] statuses=fs.listStatus(p);
-      if (statuses != null && statuses.length > 0) {
-        break;
-      }
-    }
- catch (    FileNotFoundException e) {
-    }
-catch (    IOException e1) {
-      assertTrue("Failed to list status ",false);
-    }
-    flushToConsole("Juliet: split not started, sleeping a bit...");
-    Threads.sleep(100);
-  }
+  Path tableDir=new Path(hbaseDir,new String(TABLE_NAME));
+  Path regionDir=new Path(tableDir,regions.get(0));
+  Path recoveredEdits=new Path(regionDir,HLogSplitter.RECOVERED_EDITS);
   String region="juliet";
   Path julietLog=new Path(hlogDir,HLOG_FILE_PREFIX + ".juliet");
   try {
-    fs.mkdirs(new Path(new Path(hbaseDir,region),region));
+    while (!fs.exists(recoveredEdits) && !stop.get()) {
+      flushToConsole("Juliet: split not started, sleeping a bit...");
+      Threads.sleep(10);
+    }
+    fs.mkdirs(new Path(tableDir,region));
     HLog.Writer writer=HLog.createWriter(fs,julietLog,conf);
     appendEntry(writer,"juliet".getBytes(),("juliet").getBytes(),("r").getBytes(),FAMILY,QUALIFIER,VALUE,0);
     writer.close();

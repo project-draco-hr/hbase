@@ -1,0 +1,60 @@
+{
+  Configuration localConf=new Configuration(conf);
+  localConf.setInt("hbase.regionserver.hlog.splitlog.buffersize",bufferSize);
+  FSDataOutputStream out=fs.create(new Path(hlogDir,HLOG_FILE_PREFIX + ".fake"));
+  out.close();
+  final List<String> regions=ImmutableList.of("r0","r1","r2","r3","r4");
+  makeRegionDirs(fs,regions);
+  HLogSplitter logSplitter=new HLogSplitter(localConf,hbaseDir,hlogDir,oldLogDir,fs){
+    protected HLog.Writer createWriter(    FileSystem fs,    Path logfile,    Configuration conf) throws IOException {
+      HLog.Writer mockWriter=Mockito.mock(HLog.Writer.class);
+      Mockito.doAnswer(new Answer<Void>(){
+        int expectedIndex=0;
+        @Override public Void answer(        InvocationOnMock invocation){
+          if (writerSlowness > 0) {
+            try {
+              Thread.sleep(writerSlowness);
+            }
+ catch (            InterruptedException ie) {
+              Thread.currentThread().interrupt();
+            }
+          }
+          HLog.Entry entry=(Entry)invocation.getArguments()[0];
+          WALEdit edit=entry.getEdit();
+          List<KeyValue> keyValues=edit.getKeyValues();
+          assertEquals(1,keyValues.size());
+          KeyValue kv=keyValues.get(0);
+          assertEquals(expectedIndex,Bytes.toInt(kv.getRow()));
+          expectedIndex++;
+          return null;
+        }
+      }
+).when(mockWriter).append(Mockito.<HLog.Entry>any());
+      return mockWriter;
+    }
+    protected Reader getReader(    FileSystem fs,    Path curLogFile,    Configuration conf) throws IOException {
+      Reader mockReader=Mockito.mock(Reader.class);
+      Mockito.doAnswer(new Answer<HLog.Entry>(){
+        int index=0;
+        @Override public HLog.Entry answer(        InvocationOnMock invocation) throws Throwable {
+          if (index >= numFakeEdits)           return null;
+          int regionIdx=index % regions.size();
+          byte region[]=new byte[]{(byte)'r',(byte)(0x30 + regionIdx)};
+          HLog.Entry ret=createTestEntry(TABLE_NAME,region,Bytes.toBytes((int)(index / regions.size())),FAMILY,QUALIFIER,VALUE,index);
+          index++;
+          return ret;
+        }
+      }
+).when(mockReader).next();
+      return mockReader;
+    }
+  }
+;
+  logSplitter.splitLog();
+  Map<byte[],Long> outputCounts=logSplitter.getOutputCounts();
+  for (  Map.Entry<byte[],Long> entry : outputCounts.entrySet()) {
+    LOG.info("Got " + entry.getValue() + " output edits for region "+ Bytes.toString(entry.getKey()));
+    assertEquals((long)entry.getValue(),numFakeEdits / regions.size());
+  }
+  assertEquals(regions.size(),outputCounts.size());
+}

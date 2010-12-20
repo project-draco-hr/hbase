@@ -1,0 +1,21 @@
+{
+  HLogKey key=entry.getKey();
+  RegionEntryBuffer buffer;
+synchronized (this) {
+    buffer=buffers.get(key.getEncodedRegionName());
+    if (buffer == null) {
+      buffer=new RegionEntryBuffer(key.getTablename(),key.getEncodedRegionName());
+      buffers.put(key.getEncodedRegionName(),buffer);
+    }
+    long incrHeap=buffer.appendEntry(entry);
+    totalBuffered+=incrHeap;
+  }
+synchronized (dataAvailable) {
+    while (totalBuffered > maxHeapUsage && thrown == null) {
+      LOG.debug("Used " + totalBuffered + " bytes of buffered edits, waiting for IO threads...");
+      dataAvailable.wait(3000);
+    }
+    dataAvailable.notifyAll();
+  }
+  checkForErrors();
+}

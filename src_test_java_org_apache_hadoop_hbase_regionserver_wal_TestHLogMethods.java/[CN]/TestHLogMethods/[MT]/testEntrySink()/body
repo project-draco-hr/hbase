@@ -1,0 +1,27 @@
+{
+  Configuration conf=new Configuration();
+  HLogSplitter splitter=HLogSplitter.createLogSplitter(conf,mock(Path.class),mock(Path.class),mock(Path.class),mock(FileSystem.class));
+  EntryBuffers sink=splitter.new EntryBuffers(1 * 1024 * 1024);
+  for (int i=0; i < 1000; i++) {
+    HLog.Entry entry=createTestLogEntry(i);
+    sink.appendEntry(entry);
+  }
+  assertTrue(sink.totalBuffered > 0);
+  long amountInChunk=sink.totalBuffered;
+  RegionEntryBuffer chunk=sink.getChunkToWrite();
+  assertEquals(chunk.heapSize(),amountInChunk);
+  assertTrue(sink.isRegionCurrentlyWriting(TEST_REGION));
+  for (int i=0; i < 500; i++) {
+    HLog.Entry entry=createTestLogEntry(i);
+    sink.appendEntry(entry);
+  }
+  assertNull(sink.getChunkToWrite());
+  sink.doneWriting(chunk);
+  RegionEntryBuffer chunk2=sink.getChunkToWrite();
+  assertNotNull(chunk2);
+  assertNotSame(chunk,chunk2);
+  long amountInChunk2=sink.totalBuffered;
+  assertTrue(amountInChunk2 < amountInChunk);
+  sink.doneWriting(chunk2);
+  assertEquals(0,sink.totalBuffered);
+}
