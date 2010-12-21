@@ -9,6 +9,18 @@ synchronized (this.balancer) {
       LOG.debug("Not running balancer because processing dead regionserver(s): " + this.serverManager.getDeadServers());
       return false;
     }
+    if (this.cpHost != null) {
+      try {
+        if (this.cpHost.preBalance()) {
+          LOG.debug("Coprocessor bypassing balancer request");
+          return false;
+        }
+      }
+ catch (      IOException ioe) {
+        LOG.error("Error invoking master coprocessor preBalance()",ioe);
+        return false;
+      }
+    }
     Map<HServerInfo,List<HRegionInfo>> assignments=this.assignmentManager.getAssignments();
     for (    Map.Entry<String,HServerInfo> e : this.serverManager.getOnlineServers().entrySet()) {
       HServerInfo hsi=e.getValue();
@@ -21,6 +33,14 @@ synchronized (this.balancer) {
       for (      RegionPlan plan : plans) {
         LOG.info("balance " + plan);
         this.assignmentManager.balance(plan);
+      }
+    }
+    if (this.cpHost != null) {
+      try {
+        this.cpHost.postBalance();
+      }
+ catch (      IOException ioe) {
+        LOG.error("Error invoking master coprocessor postBalance()",ioe);
       }
     }
   }

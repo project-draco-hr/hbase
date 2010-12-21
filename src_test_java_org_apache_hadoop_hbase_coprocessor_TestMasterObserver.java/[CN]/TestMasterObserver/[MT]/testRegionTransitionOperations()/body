@@ -1,0 +1,43 @@
+{
+  MiniHBaseCluster cluster=UTIL.getHBaseCluster();
+  HMaster master=cluster.getMaster();
+  MasterCoprocessorHost host=master.getCoprocessorHost();
+  CPMasterObserver cp=(CPMasterObserver)host.findCoprocessor(CPMasterObserver.class.getName());
+  HTable table=UTIL.createTable(TEST_TABLE,TEST_FAMILY);
+  UTIL.createMultiRegions(table,TEST_FAMILY);
+  Map<HRegionInfo,HServerAddress> regions=table.getRegionsInfo();
+  assertFalse(regions.isEmpty());
+  Map.Entry<HRegionInfo,HServerAddress> firstRegion=regions.entrySet().iterator().next();
+  Collection<HServerInfo> servers=master.getClusterStatus().getServerInfo();
+  String destName=null;
+  for (  HServerInfo info : servers) {
+    if (!info.getServerAddress().equals(firstRegion.getValue())) {
+      destName=info.getServerName();
+      break;
+    }
+  }
+  master.move(firstRegion.getKey().getEncodedNameAsBytes(),Bytes.toBytes(destName));
+  assertTrue("Coprocessor should have been called on region move",cp.wasMoveCalled());
+  master.balanceSwitch(true);
+  assertTrue("Coprocessor should have been called on balance switch",cp.wasBalanceSwitchCalled());
+  master.balanceSwitch(false);
+  HRegionServer rs=cluster.getRegionServer(0);
+  byte[] destRS=Bytes.toBytes(cluster.getRegionServer(1).getServerName());
+  List<HRegionInfo> openRegions=rs.getOnlineRegions();
+  int moveCnt=openRegions.size() / 2;
+  for (int i=0; i < moveCnt; i++) {
+    HRegionInfo info=openRegions.get(i);
+    if (!(info.isMetaRegion() || info.isRootRegion())) {
+      master.move(openRegions.get(i).getEncodedNameAsBytes(),destRS);
+    }
+  }
+  AssignmentManager mgr=master.getAssignmentManager();
+  Collection<AssignmentManager.RegionState> transRegions=mgr.getRegionsInTransition().values();
+  for (  AssignmentManager.RegionState state : transRegions) {
+    mgr.waitOnRegionToClearRegionsInTransition(state.getRegion());
+  }
+  master.balanceSwitch(true);
+  boolean balanceRun=master.balance();
+  assertTrue("Balance request should have run",balanceRun);
+  assertTrue("Coprocessor should be called on region rebalancing",cp.wasBalanceCalled());
+}
