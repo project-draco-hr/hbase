@@ -2,16 +2,17 @@
   List<InputSplit> splits=inf.getSplits(job);
   ArrayList<K> samples=new ArrayList<K>();
   int splitsToSample=Math.min(maxSplitsSampled,splits.size());
-  int splitStep=splits.size() / splitsToSample;
   long records=0;
   long kept=0;
   for (int i=0; i < splitsToSample; ++i) {
-    RecordReader<K,V> reader=inf.createRecordReader(splits.get(i * splitStep),new TaskAttemptContext(job.getConfiguration(),new TaskAttemptID()));
+    TaskAttemptContext samplingContext=new TaskAttemptContext(job.getConfiguration(),new TaskAttemptID());
+    RecordReader<K,V> reader=inf.createRecordReader(splits.get(i),samplingContext);
+    reader.initialize(splits.get(i),samplingContext);
     while (reader.nextKeyValue()) {
       ++records;
       if ((double)kept / records < freq) {
+        samples.add(ReflectionUtils.copy(job.getConfiguration(),reader.getCurrentKey(),null));
         ++kept;
-        samples.add(reader.getCurrentKey());
       }
     }
     reader.close();
