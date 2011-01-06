@@ -2,6 +2,7 @@
   Configuration conf=HBaseConfiguration.create();
   conf.set("fs.defaultFS",conf.get("hbase.rootdir"));
   HBaseFsck fsck=new HBaseFsck(conf);
+  long sleepBeforeRerun=DEFAULT_SLEEP_BEFORE_RERUN;
   for (int i=0; i < args.length; i++) {
     String cmd=args[i];
     if (cmd.equals("-details")) {
@@ -22,8 +23,22 @@
       }
       i++;
     }
+ else     if (cmd.equals("-sleepBeforeRerun")) {
+      if (i == args.length - 1) {
+        System.err.println("HBaseFsck: -sleepBeforeRerun needs a value.");
+        printUsageAndExit();
+      }
+      try {
+        sleepBeforeRerun=Long.parseLong(args[i + 1]);
+      }
+ catch (      NumberFormatException e) {
+        System.err.println("-sleepBeforeRerun needs a numeric value.");
+        printUsageAndExit();
+      }
+      i++;
+    }
  else     if (cmd.equals("-fix")) {
-      fsck.setFixErrors();
+      fsck.setFixErrors(true);
     }
  else     if (cmd.equals("-summary")) {
       fsck.setSummary();
@@ -37,6 +52,14 @@
   }
   int code=fsck.doWork();
   if (fsck.shouldRerun()) {
+    try {
+      LOG.info("Sleeping " + sleepBeforeRerun + "ms before re-checking after fix...");
+      Thread.sleep(sleepBeforeRerun);
+    }
+ catch (    InterruptedException ie) {
+      Runtime.getRuntime().exit(code);
+    }
+    fsck.setFixErrors(false);
     code=fsck.doWork();
   }
   Runtime.getRuntime().exit(code);
