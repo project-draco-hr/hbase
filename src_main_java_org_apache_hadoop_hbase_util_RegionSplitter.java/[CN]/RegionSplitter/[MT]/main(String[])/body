@@ -1,0 +1,45 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  Options opt=new Options();
+  opt.addOption(OptionBuilder.withArgName("property=value").hasArg().withDescription("Override HBase Configuration Settings").create("D"));
+  opt.addOption(OptionBuilder.withArgName("region count").hasArg().withDescription("Create a new table with a pre-split number of regions").create("c"));
+  opt.addOption(OptionBuilder.withArgName("family:family:...").hasArg().withDescription("Column Families to create with new table.  Required with -c").create("f"));
+  opt.addOption("h",false,"Print this usage help");
+  opt.addOption("r",false,"Perform a rolling split of an existing region");
+  opt.addOption(OptionBuilder.withArgName("count").hasArg().withDescription("Max outstanding splits that have unfinished major compactions").create("o"));
+  opt.addOption(null,"risky",false,"Skip verification steps to complete quickly." + "STRONGLY DISCOURAGED for production systems.  ");
+  CommandLine cmd=new GnuParser().parse(opt,args);
+  if (cmd.hasOption("D")) {
+    for (    String confOpt : cmd.getOptionValues("D")) {
+      String[] kv=confOpt.split("=",2);
+      if (kv.length == 2) {
+        conf.set(kv[0],kv[1]);
+        LOG.debug("-D configuration override: " + kv[0] + "="+ kv[1]);
+      }
+ else {
+        throw new ParseException("-D option format invalid: " + confOpt);
+      }
+    }
+  }
+  if (cmd.hasOption("risky")) {
+    conf.setBoolean("split.verify",false);
+  }
+  boolean createTable=cmd.hasOption("c") && cmd.hasOption("f");
+  boolean rollingSplit=cmd.hasOption("r");
+  boolean oneOperOnly=createTable ^ rollingSplit;
+  if (1 != cmd.getArgList().size() || !oneOperOnly || cmd.hasOption("h")) {
+    new HelpFormatter().printHelp("RegionSplitter <TABLE>",opt);
+    return;
+  }
+  String tableName=cmd.getArgs()[0];
+  if (createTable) {
+    conf.set("split.count",cmd.getOptionValue("c"));
+    createPresplitTable(tableName,cmd.getOptionValue("f").split(":"),conf);
+  }
+  if (rollingSplit) {
+    if (cmd.hasOption("o")) {
+      conf.set("split.outstanding",cmd.getOptionValue("o"));
+    }
+    rollingSplit(tableName,conf);
+  }
+}
