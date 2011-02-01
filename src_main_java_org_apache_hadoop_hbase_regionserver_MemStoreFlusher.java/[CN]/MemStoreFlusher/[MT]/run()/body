@@ -2,11 +2,18 @@
   while (!this.server.isStopped()) {
     FlushQueueEntry fqe=null;
     try {
+      wakeupPending.set(false);
       fqe=flushQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
-      if (fqe == null) {
+      if (fqe == null || fqe instanceof WakeupFlushThread) {
+        if (isAboveLowWaterMark()) {
+          LOG.info("Flush thread woke up with memory above low water.");
+          flushOneForGlobalPressure();
+          wakeupFlushThread();
+        }
         continue;
       }
-      if (!flushRegion(fqe)) {
+      FlushRegionEntry fre=(FlushRegionEntry)fqe;
+      if (!flushRegion(fre)) {
         break;
       }
     }
@@ -17,7 +24,7 @@ catch (    ConcurrentModificationException ex) {
       continue;
     }
 catch (    Exception ex) {
-      LOG.error("Cache flush failed" + (fqe != null ? (" for region " + Bytes.toString(fqe.region.getRegionName())) : ""),ex);
+      LOG.error("Cache flusher failed for entry " + fqe);
       if (!server.checkFileSystem()) {
         break;
       }

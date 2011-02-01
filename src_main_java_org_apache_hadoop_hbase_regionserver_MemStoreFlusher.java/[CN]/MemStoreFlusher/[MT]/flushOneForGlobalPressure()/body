@@ -1,0 +1,17 @@
+{
+  SortedMap<Long,HRegion> regionsBySize=server.getCopyOfOnlineRegionsSortedBySize();
+  HRegion bestFlushableRegion=getBiggestMemstoreRegion(regionsBySize,true);
+  HRegion bestAnyRegion=getBiggestMemstoreRegion(regionsBySize,false);
+  Preconditions.checkState(bestAnyRegion != null,"Above memory mark but there are no regions!");
+  HRegion regionToFlush;
+  if (bestAnyRegion.memstoreSize.get() > 2 * bestFlushableRegion.memstoreSize.get()) {
+    LOG.info("Under global heap pressure: " + "Region " + bestAnyRegion.getRegionNameAsString() + " has too many "+ "store files, but is "+ StringUtils.humanReadableInt(bestAnyRegion.memstoreSize.get())+ " vs best flushable region's "+ StringUtils.humanReadableInt(bestFlushableRegion.memstoreSize.get())+ ". Choosing the bigger.");
+    regionToFlush=bestAnyRegion;
+  }
+ else {
+    regionToFlush=bestFlushableRegion;
+  }
+  Preconditions.checkState(regionToFlush.memstoreSize.get() > 0);
+  LOG.info("Flush of region " + regionToFlush + " due to global heap pressure");
+  return flushRegion(regionToFlush,true);
+}
