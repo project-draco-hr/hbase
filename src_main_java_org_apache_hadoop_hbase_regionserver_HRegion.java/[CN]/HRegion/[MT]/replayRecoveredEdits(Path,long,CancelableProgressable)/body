@@ -6,13 +6,31 @@
     long firstSeqIdInLog=-1;
     long skippedEdits=0;
     long editsCount=0;
+    long intervalEdits=0;
     HLog.Entry entry;
     Store store=null;
     try {
       int interval=this.conf.getInt("hbase.hstore.report.interval.edits",2000);
+      int period=this.conf.getInt("hbase.hstore.report.period",this.conf.getInt("hbase.master.assignment.timeoutmonitor.timeout",30000) / 2);
+      long lastReport=EnvironmentEdgeManager.currentTimeMillis();
       while ((entry=reader.next()) != null) {
         HLogKey key=entry.getKey();
         WALEdit val=entry.getEdit();
+        if (reporter != null) {
+          intervalEdits+=val.size();
+          if (intervalEdits >= interval) {
+            intervalEdits=0;
+            long cur=EnvironmentEdgeManager.currentTimeMillis();
+            if (lastReport + period <= cur) {
+              if (!reporter.progress()) {
+                String msg="Progressable reporter failed, stopping replay";
+                LOG.warn(msg);
+                throw new IOException(msg);
+              }
+              lastReport=cur;
+            }
+          }
+        }
         if (coprocessorHost != null) {
           if (coprocessorHost.preWALRestore(this.getRegionInfo(),key,val)) {
             continue;
@@ -46,9 +64,6 @@
         if (flush)         internalFlushcache(null,currentEditSeqId);
         if (coprocessorHost != null) {
           coprocessorHost.postWALRestore(this.getRegionInfo(),key,val);
-        }
-        if (reporter != null && (editsCount % interval) == 0) {
-          reporter.progress();
         }
       }
     }
