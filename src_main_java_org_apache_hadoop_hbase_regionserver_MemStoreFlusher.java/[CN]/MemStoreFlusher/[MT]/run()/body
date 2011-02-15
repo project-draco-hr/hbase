@@ -7,7 +7,16 @@
       if (fqe == null || fqe instanceof WakeupFlushThread) {
         if (isAboveLowWaterMark()) {
           LOG.info("Flush thread woke up with memory above low water.");
-          flushOneForGlobalPressure();
+          if (!flushOneForGlobalPressure()) {
+            lock.lock();
+            try {
+              Thread.sleep(1000);
+              flushOccurred.signalAll();
+            }
+  finally {
+              lock.unlock();
+            }
+          }
           wakeupFlushThread();
         }
         continue;
@@ -32,5 +41,12 @@ catch (    Exception ex) {
   }
   this.regionsInQueue.clear();
   this.flushQueue.clear();
+  lock.lock();
+  try {
+    flushOccurred.signalAll();
+  }
+  finally {
+    lock.unlock();
+  }
   LOG.info(getName() + " exiting");
 }
