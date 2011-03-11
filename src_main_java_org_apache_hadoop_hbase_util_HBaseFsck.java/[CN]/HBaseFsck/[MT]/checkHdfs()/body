@@ -15,26 +15,17 @@
   if (!foundVersionFile) {
     errors.reportError("Version file does not exist in root dir " + rootDir);
   }
+  WorkItemHdfsDir[] dirs=new WorkItemHdfsDir[tableDirs.size()];
+  int num=0;
   for (  FileStatus tableDir : tableDirs) {
-    String tableName=tableDir.getPath().getName();
-    if (tableName.startsWith(".") && !tableName.equals(Bytes.toString(HConstants.META_TABLE_NAME)))     continue;
-    FileStatus[] regionDirs=fs.listStatus(tableDir.getPath());
-    for (    FileStatus regionDir : regionDirs) {
-      String encodedName=regionDir.getPath().getName();
-      if (!encodedName.toLowerCase().matches("[0-9a-f]+"))       continue;
-      HbckInfo hbi=getOrCreateInfo(encodedName);
-      hbi.foundRegionDir=regionDir;
-      hbi.onlyEdits=true;
-      FileStatus[] subDirs=fs.listStatus(regionDir.getPath());
-      if (subDirs != null) {
-        Path ePath=HLog.getRegionDirRecoveredEditsDir(regionDir.getPath());
-        for (        FileStatus subDir : subDirs) {
-          String sdName=subDir.getPath().getName();
-          if (!sdName.startsWith(".") && !sdName.equals(ePath.getName())) {
-            hbi.onlyEdits=false;
-            break;
-          }
-        }
+    dirs[num]=new WorkItemHdfsDir(this,fs,errors,tableDir);
+    executor.execute(dirs[num]);
+    num++;
+  }
+  for (int i=0; i < num; i++) {
+synchronized (dirs[i]) {
+      while (!dirs[i].isDone()) {
+        dirs[i].wait();
       }
     }
   }

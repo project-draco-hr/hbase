@@ -1,0 +1,35 @@
+{
+  try {
+    String tableName=tableDir.getPath().getName();
+    if (tableName.startsWith(".") && !tableName.equals(Bytes.toString(HConstants.META_TABLE_NAME)))     return;
+    FileStatus[] regionDirs=fs.listStatus(tableDir.getPath());
+    for (    FileStatus regionDir : regionDirs) {
+      String encodedName=regionDir.getPath().getName();
+      if (!encodedName.toLowerCase().matches("[0-9a-f]+"))       continue;
+      HbckInfo hbi=hbck.getOrCreateInfo(encodedName);
+synchronized (hbi) {
+        if (hbi.foundRegionDir != null) {
+          errors.print("Directory " + encodedName + " duplicate??"+ hbi.foundRegionDir);
+        }
+        hbi.foundRegionDir=regionDir;
+        hbi.onlyEdits=true;
+        FileStatus[] subDirs=fs.listStatus(regionDir.getPath());
+        Path ePath=HLog.getRegionDirRecoveredEditsDir(regionDir.getPath());
+        for (        FileStatus subDir : subDirs) {
+          String sdName=subDir.getPath().getName();
+          if (!sdName.startsWith(".") && !sdName.equals(ePath.getName())) {
+            hbi.onlyEdits=false;
+            break;
+          }
+        }
+      }
+    }
+  }
+ catch (  IOException e) {
+    errors.reportError("Table Directory: " + tableDir.getPath().getName() + " Unable to fetch region information. "+ e);
+  }
+ finally {
+    done=true;
+    notifyAll();
+  }
+}
