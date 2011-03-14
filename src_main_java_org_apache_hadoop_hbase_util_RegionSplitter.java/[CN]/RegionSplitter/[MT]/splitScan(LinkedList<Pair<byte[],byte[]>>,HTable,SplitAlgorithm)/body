@@ -1,0 +1,56 @@
+{
+  LinkedList<Pair<byte[],byte[]>> finished=Lists.newLinkedList();
+  LinkedList<Pair<byte[],byte[]>> logicalSplitting=Lists.newLinkedList();
+  LinkedList<Pair<byte[],byte[]>> physicalSplitting=Lists.newLinkedList();
+  Path hbDir=new Path(table.getConfiguration().get(HConstants.HBASE_DIR));
+  Path tableDir=HTableDescriptor.getTableDir(hbDir,table.getTableName());
+  Path splitFile=new Path(tableDir,"_balancedSplit");
+  FileSystem fs=FileSystem.get(table.getConfiguration());
+  table.clearRegionCache();
+  for (  Pair<byte[],byte[]> region : regionList) {
+    byte[] start=region.getFirst();
+    byte[] split=region.getSecond();
+    HRegionInfo dri=table.getRegionLocation(split).getRegionInfo();
+    if (dri.isOffline() || !Bytes.equals(dri.getStartKey(),split)) {
+      logicalSplitting.add(region);
+      continue;
+    }
+    try {
+      LinkedList<HRegionInfo> check=Lists.newLinkedList();
+      check.add(table.getRegionLocation(start).getRegionInfo());
+      check.add(table.getRegionLocation(split).getRegionInfo());
+      for (      HRegionInfo hri : check.toArray(new HRegionInfo[]{})) {
+        boolean refFound=false;
+        byte[] sk=hri.getStartKey();
+        if (sk.length == 0)         sk=splitAlgo.firstRow();
+        String startKey=splitAlgo.rowToStr(sk);
+        for (        HColumnDescriptor c : hri.getTableDesc().getFamilies()) {
+          Path cfDir=Store.getStoreHomedir(tableDir,hri.getEncodedName(),c.getName());
+          if (fs.exists(cfDir)) {
+            for (            FileStatus file : fs.listStatus(cfDir)) {
+              refFound|=StoreFile.isReference(file.getPath());
+              if (refFound)               break;
+            }
+          }
+          if (refFound)           break;
+        }
+        if (!refFound) {
+          check.remove(hri);
+        }
+      }
+      if (check.isEmpty()) {
+        finished.add(region);
+      }
+ else {
+        physicalSplitting.add(region);
+      }
+    }
+ catch (    NoServerForRegionException nsfre) {
+      LOG.debug("No Server Exception thrown for: " + splitAlgo.rowToStr(start));
+      physicalSplitting.add(region);
+      table.clearRegionCache();
+    }
+  }
+  LOG.debug("Split Scan: " + finished.size() + " finished / "+ logicalSplitting.size()+ " split wait / "+ physicalSplitting.size()+ " reference wait");
+  return finished;
+}
