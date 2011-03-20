@@ -1,5 +1,7 @@
 {
   if (!this.balanceSwitch)   return false;
+  int maximumBalanceTime=getBalancerCutoffTime();
+  long cutoffTime=System.currentTimeMillis() + maximumBalanceTime;
 synchronized (this.balancer) {
     if (this.assignmentManager.isRegionsInTransition()) {
       LOG.debug("Not running balancer because " + this.assignmentManager.getRegionsInTransition().size() + " region(s) in transition: "+ org.apache.commons.lang.StringUtils.abbreviate(this.assignmentManager.getRegionsInTransition().toString(),256));
@@ -29,10 +31,19 @@ synchronized (this.balancer) {
       }
     }
     List<RegionPlan> plans=this.balancer.balanceCluster(assignments);
+    int rpCount=0;
+    long totalRegPlanExecTime=0;
     if (plans != null && !plans.isEmpty()) {
       for (      RegionPlan plan : plans) {
         LOG.info("balance " + plan);
+        long balStartTime=System.currentTimeMillis();
         this.assignmentManager.balance(plan);
+        totalRegPlanExecTime+=System.currentTimeMillis() - balStartTime;
+        rpCount++;
+        if (rpCount < plans.size() && (System.currentTimeMillis() + (totalRegPlanExecTime / rpCount)) > cutoffTime) {
+          LOG.debug("No more balancing till next balance run; maximumBalanceTime=" + maximumBalanceTime);
+          break;
+        }
       }
     }
     if (this.cpHost != null) {
