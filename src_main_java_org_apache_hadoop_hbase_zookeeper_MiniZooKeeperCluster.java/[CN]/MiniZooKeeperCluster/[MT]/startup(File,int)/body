@@ -1,0 +1,38 @@
+{
+  if (numZooKeeperServers <= 0)   return -1;
+  setupTestEnv();
+  shutdown();
+  for (int i=0; i < numZooKeeperServers; i++) {
+    File dir=new File(baseDir,"zookeeper_" + i).getAbsoluteFile();
+    recreateDir(dir);
+    int tickTimeToUse;
+    if (this.tickTime > 0) {
+      tickTimeToUse=this.tickTime;
+    }
+ else {
+      tickTimeToUse=TICK_TIME;
+    }
+    ZooKeeperServer server=new ZooKeeperServer(dir,dir,tickTimeToUse);
+    zooKeeperServers.add(server);
+  }
+  while (true) {
+    try {
+      standaloneServerFactory=new NIOServerCnxn.Factory(new InetSocketAddress(clientPort));
+    }
+ catch (    BindException e) {
+      LOG.info("Failed binding ZK Server to client port: " + clientPort);
+      clientPort++;
+      continue;
+    }
+    break;
+  }
+  currentZooKeeper=0;
+  standaloneServerFactory.startup(zooKeeperServers.get(currentZooKeeper));
+  if (!waitForServerUp(clientPort,CONNECTION_TIMEOUT)) {
+    throw new IOException("Waiting for startup of standalone server");
+  }
+  started=true;
+  zooKeeperCandidateNum=numZooKeeperServers - 1;
+  LOG.info("Started MiniZK Server on client port: " + clientPort);
+  return clientPort;
+}

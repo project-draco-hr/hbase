@@ -1,0 +1,34 @@
+{
+  if (!started) {
+    return -1;
+  }
+  standaloneServerFactory.shutdown();
+  if (!waitForServerDown(clientPort,CONNECTION_TIMEOUT)) {
+    throw new IOException("Waiting for shutdown of standalone server");
+  }
+  LOG.info("Kill the current MiniZK Server on client port: " + clientPort);
+  if (zooKeeperCandidateNum == 0) {
+    return -1;
+  }
+  clientPort=defaultClientPort;
+  while (true) {
+    try {
+      standaloneServerFactory=new NIOServerCnxn.Factory(new InetSocketAddress(clientPort));
+    }
+ catch (    BindException e) {
+      LOG.info("Failed binding ZK Server to client port: " + clientPort);
+      clientPort++;
+      continue;
+    }
+    break;
+  }
+  currentZooKeeper=(++currentZooKeeper) % zooKeeperServers.size();
+  standaloneServerFactory.startup(zooKeeperServers.get(currentZooKeeper));
+  if (!waitForServerUp(clientPort,CONNECTION_TIMEOUT)) {
+    throw new IOException("Waiting for startup of standalone server");
+  }
+  started=true;
+  zooKeeperCandidateNum--;
+  LOG.info("Started another candidate MiniZK Server on client port: " + clientPort);
+  return clientPort;
+}
