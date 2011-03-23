@@ -1,0 +1,41 @@
+{
+  try {
+    Thread.sleep(sleepBeforeFailover);
+  }
+ catch (  InterruptedException e) {
+    LOG.warn("Interrupted while waiting before transferring a queue.");
+    Thread.currentThread().interrupt();
+  }
+  if (stopper.isStopped()) {
+    LOG.info("Not transferring queue since we are shutting down");
+    return;
+  }
+  if (!zkHelper.lockOtherRS(rsZnode)) {
+    return;
+  }
+  LOG.info("Moving " + rsZnode + "'s hlogs to my queue");
+  SortedMap<String,SortedSet<String>> newQueues=zkHelper.copyQueuesFromRS(rsZnode);
+  zkHelper.deleteRsQueues(rsZnode);
+  if (newQueues == null || newQueues.size() == 0) {
+    return;
+  }
+  for (  Map.Entry<String,SortedSet<String>> entry : newQueues.entrySet()) {
+    String peerId=entry.getKey();
+    try {
+      ReplicationSourceInterface src=getReplicationSource(conf,fs,ReplicationSourceManager.this,stopper,replicating,peerId);
+      if (!zkHelper.getPeerClusters().containsKey(src.getPeerClusterId())) {
+        src.terminate("Recovered queue doesn't belong to any current peer");
+        break;
+      }
+      oldsources.add(src);
+      for (      String hlog : entry.getValue()) {
+        src.enqueueLog(new Path(oldLogDir,hlog));
+      }
+      src.setSourceEnabled(true);
+      src.startup();
+    }
+ catch (    IOException e) {
+      LOG.error("Failed creating a source",e);
+    }
+  }
+}
