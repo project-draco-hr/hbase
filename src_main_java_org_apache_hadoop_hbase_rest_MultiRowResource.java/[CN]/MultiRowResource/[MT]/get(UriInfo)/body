@@ -1,0 +1,30 @@
+{
+  MultivaluedMap<String,String> params=uriInfo.getQueryParameters();
+  servlet.getMetrics().incrementRequests(1);
+  try {
+    CellSetModel model=new CellSetModel();
+    for (    String rk : params.get(ROW_KEYS_PARAM_NAME)) {
+      RowSpec rowSpec=new RowSpec(rk);
+      if (this.versions != null) {
+        rowSpec.setMaxVersions(this.versions);
+      }
+      ResultGenerator generator=ResultGenerator.fromRowSpec(this.tableResource.getName(),rowSpec,null);
+      if (!generator.hasNext()) {
+        throw new WebApplicationException(Response.Status.NOT_FOUND);
+      }
+      KeyValue value=null;
+      RowModel rowModel=new RowModel(rk);
+      while ((value=generator.next()) != null) {
+        byte[] family=value.getFamily();
+        byte[] qualifier=value.getQualifier();
+        byte[] data=tableResource.transform(family,qualifier,value.getValue(),Transform.Direction.OUT);
+        rowModel.addCell(new CellModel(family,qualifier,value.getTimestamp(),data));
+      }
+      model.addRow(rowModel);
+    }
+    return Response.ok(model).build();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+}
