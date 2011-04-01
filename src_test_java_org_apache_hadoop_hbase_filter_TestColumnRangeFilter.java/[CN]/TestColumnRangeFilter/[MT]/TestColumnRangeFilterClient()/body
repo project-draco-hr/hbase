@@ -1,0 +1,59 @@
+{
+  String family="Family";
+  String table="TestColumnRangeFilterClient";
+  HTable ht=TEST_UTIL.createTable(Bytes.toBytes(table),Bytes.toBytes(family),Integer.MAX_VALUE);
+  List<String> rows=generateRandomWords(10,8);
+  long maxTimestamp=2;
+  List<String> columns=generateRandomWords(20000,8);
+  List<KeyValue> kvList=new ArrayList<KeyValue>();
+  Map<StringRange,List<KeyValue>> rangeMap=new HashMap<StringRange,List<KeyValue>>();
+  rangeMap.put(new StringRange(null,true,"b",false),new ArrayList<KeyValue>());
+  rangeMap.put(new StringRange("p",true,"q",false),new ArrayList<KeyValue>());
+  rangeMap.put(new StringRange("r",false,"s",true),new ArrayList<KeyValue>());
+  rangeMap.put(new StringRange("z",false,null,false),new ArrayList<KeyValue>());
+  String valueString="ValueString";
+  for (  String row : rows) {
+    Put p=new Put(Bytes.toBytes(row));
+    for (    String column : columns) {
+      for (long timestamp=1; timestamp <= maxTimestamp; timestamp++) {
+        KeyValue kv=KeyValueTestUtil.create(row,family,column,timestamp,valueString);
+        p.add(kv);
+        kvList.add(kv);
+        for (        StringRange s : rangeMap.keySet()) {
+          if (s.inRange(column)) {
+            rangeMap.get(s).add(kv);
+          }
+        }
+      }
+    }
+    ht.put(p);
+  }
+  TEST_UTIL.flush();
+  try {
+    Thread.sleep(3000);
+  }
+ catch (  InterruptedException i) {
+  }
+  ColumnRangeFilter filter;
+  Scan scan=new Scan();
+  scan.setMaxVersions();
+  for (  StringRange s : rangeMap.keySet()) {
+    filter=new ColumnRangeFilter(s.getStart() == null ? null : Bytes.toBytes(s.getStart()),s.isStartInclusive(),s.getEnd() == null ? null : Bytes.toBytes(s.getEnd()),s.isEndInclusive());
+    scan.setFilter(filter);
+    ResultScanner scanner=ht.getScanner(scan);
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    LOG.info("scan column range: " + s.toString());
+    long timeBeforeScan=System.currentTimeMillis();
+    Result result;
+    while ((result=scanner.next()) != null) {
+      for (      KeyValue kv : result.list()) {
+        results.add(kv);
+      }
+    }
+    long scanTime=System.currentTimeMillis() - timeBeforeScan;
+    LOG.info("scan time = " + scanTime + "ms");
+    LOG.info("found " + results.size() + " results");
+    LOG.info("Expecting " + rangeMap.get(s).size() + " results");
+    assertEquals(rangeMap.get(s).size(),results.size());
+  }
+}
