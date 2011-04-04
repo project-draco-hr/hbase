@@ -1,0 +1,32 @@
+{
+  LOG.info("Starting cluster");
+  Configuration conf=HBaseConfiguration.create();
+  conf.setInt("hbase.master.assignment.timeoutmonitor.period",2000);
+  conf.setInt("hbase.master.assignment.timeoutmonitor.timeout",5000);
+  TEST_UTIL=new HBaseTestingUtility(conf);
+  TEST_UTIL.startMiniCluster(1,regionServerNum);
+  cluster=TEST_UTIL.getHBaseCluster();
+  LOG.info("Waiting for active/ready master");
+  cluster.waitForActiveAndReadyMaster();
+  byte[] table=Bytes.toBytes("TestGlobalMemStoreSize");
+  byte[] family=Bytes.toBytes("family");
+  LOG.info("Creating table with " + regionNum + " regions");
+  HTable ht=TEST_UTIL.createTable(table,family);
+  int numRegions=TEST_UTIL.createMultiRegions(conf,ht,family,regionNum);
+  assertEquals(regionNum,numRegions);
+  waitForAllRegionsAssigned();
+  for (  HRegionServer server : getOnlineRegionServers()) {
+    long globalMemStoreSize=0;
+    for (    HRegionInfo regionInfo : server.getOnlineRegions()) {
+      globalMemStoreSize+=server.getFromOnlineRegions(regionInfo.getEncodedName()).getMemstoreSize().get();
+    }
+    assertEquals(server.getRegionServerAccounting().getGlobalMemstoreSize(),globalMemStoreSize);
+  }
+  for (  HRegionServer server : getOnlineRegionServers()) {
+    for (    HRegionInfo regionInfo : server.getOnlineRegions()) {
+      HRegion region=server.getFromOnlineRegions(regionInfo.getEncodedName());
+      region.flushcache();
+    }
+    assertEquals(server.getRegionServerAccounting().getGlobalMemstoreSize(),0);
+  }
+}
