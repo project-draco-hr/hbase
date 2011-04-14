@@ -11,6 +11,7 @@
   HServerAddress[] lastServers=new HServerAddress[results.length];
   List<Row> workingList=new ArrayList<Row>(list);
   boolean retry=true;
+  int actionCount=0;
   Throwable singleRowCause=null;
   for (int tries=0; tries < numRetries && retry; ++tries) {
     if (tries >= 1) {
@@ -70,14 +71,19 @@
     }
     retry=false;
     workingList.clear();
+    actionCount=0;
     for (int i=0; i < results.length; i++) {
       if (results[i] == null || (results[i] instanceof Throwable && !(results[i] instanceof DoNotRetryIOException))) {
         retry=true;
+        actionCount++;
         Row row=list.get(i);
         workingList.add(row);
         deleteCachedLocation(tableName,row.getRow());
       }
  else {
+        if (results[i] != null && results[i] instanceof Throwable) {
+          actionCount++;
+        }
         workingList.add(null);
       }
     }
@@ -87,9 +93,9 @@
       throw new IOException(singleRowCause);
     }
   }
-  List<Throwable> exceptions=new ArrayList<Throwable>();
-  List<Row> actions=new ArrayList<Row>();
-  List<HServerAddress> addresses=new ArrayList<HServerAddress>();
+  List<Throwable> exceptions=new ArrayList<Throwable>(actionCount);
+  List<Row> actions=new ArrayList<Row>(actionCount);
+  List<HServerAddress> addresses=new ArrayList<HServerAddress>(actionCount);
   for (int i=0; i < results.length; i++) {
     if (results[i] == null || results[i] instanceof Throwable) {
       exceptions.add((Throwable)results[i]);
