@@ -1,4 +1,5 @@
 {
+  boolean emptyRegionServerPresent=false;
   long startTime=System.currentTimeMillis();
   TreeMap<HServerInfo,List<HRegionInfo>> serversByLoad=new TreeMap<HServerInfo,List<HRegionInfo>>(new HServerInfo.LoadComparator());
   int numServers=clusterState.size();
@@ -8,7 +9,9 @@
   }
   int numRegions=0;
   for (  Map.Entry<HServerInfo,List<HRegionInfo>> server : clusterState.entrySet()) {
-    server.getKey().getLoad().setNumberOfRegions(server.getValue().size());
+    int sz=server.getValue().size();
+    if (sz == 0)     emptyRegionServerPresent=true;
+    server.getKey().getLoad().setNumberOfRegions(sz);
     numRegions+=server.getKey().getLoad().getNumberOfRegions();
     serversByLoad.put(server.getKey(),server.getValue());
   }
@@ -21,9 +24,10 @@
   }
   int min=numRegions / numServers;
   int max=numRegions % numServers == 0 ? min : min + 1;
-  List<RegionPlan> regionsToMove=new ArrayList<RegionPlan>();
-  int regionidx=0;
+  MinMaxPriorityQueue<RegionPlan> regionsToMove=MinMaxPriorityQueue.orderedBy(rpComparator).create();
+  List<RegionPlan> regionsToReturn=new ArrayList<RegionPlan>();
   int serversOverloaded=0;
+  boolean fetchFromTail=false;
   Map<HServerInfo,BalanceInfo> serverBalanceInfo=new TreeMap<HServerInfo,BalanceInfo>();
   for (  Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.descendingMap().entrySet()) {
     HServerInfo serverInfo=server.getKey();
@@ -33,42 +37,77 @@
       break;
     }
     serversOverloaded++;
-    List<HRegionInfo> regions=randomize(server.getValue());
+    List<HRegionInfo> regions=server.getValue();
     int numToOffload=Math.min(regionCount - max,regions.size());
+    Collections.sort(regions,riComparator);
     int numTaken=0;
-    for (int i=regions.size() - 1; i >= 0; i--) {
+    for (int i=0; i <= numToOffload; ) {
       HRegionInfo hri=regions.get(i);
+      if (fetchFromTail) {
+        hri=regions.get(regions.size() - 1 - i);
+      }
+      i++;
       if (hri.isMetaRegion())       continue;
       regionsToMove.add(new RegionPlan(hri,serverInfo,null));
       numTaken++;
       if (numTaken >= numToOffload)       break;
+      if (emptyRegionServerPresent) {
+        fetchFromTail=!fetchFromTail;
+      }
     }
     serverBalanceInfo.put(serverInfo,new BalanceInfo(numToOffload,(-1) * numTaken));
   }
-  int serversUnderloaded=0;
+  int totalNumMoved=regionsToMove.size();
   int neededRegions=0;
+  fetchFromTail=false;
+  RegionPlan rp=null;
+  Map<HServerInfo,Integer> underloadedServers=new HashMap<HServerInfo,Integer>();
   for (  Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.entrySet()) {
     int regionCount=server.getKey().getLoad().getNumberOfRegions();
     if (regionCount >= min) {
       break;
     }
-    serversUnderloaded++;
-    int numToTake=min - regionCount;
-    int numTaken=0;
-    while (numTaken < numToTake && regionidx < regionsToMove.size()) {
-      regionsToMove.get(regionidx).setDestination(server.getKey());
-      numTaken++;
-      regionidx++;
-    }
-    serverBalanceInfo.put(server.getKey(),new BalanceInfo(0,numTaken));
-    if (numTaken < numToTake) {
-      neededRegions+=(numToTake - numTaken);
-    }
+    underloadedServers.put(server.getKey(),min - regionCount);
   }
-  if (neededRegions == 0 && regionidx == regionsToMove.size()) {
+  int serversUnderloaded=underloadedServers.size();
+  int incr=1;
+  List<HServerInfo> serverInfos=Arrays.asList(underloadedServers.keySet().toArray(new HServerInfo[serversUnderloaded]));
+  Collections.shuffle(serverInfos,RANDOM);
+  while (regionsToMove.size() > 0) {
+    int cnt=0;
+    int i=incr > 0 ? 0 : underloadedServers.size() - 1;
+    for (; i >= 0 && i < underloadedServers.size(); i+=incr) {
+      if (0 == regionsToMove.size())       break;
+      HServerInfo si=serverInfos.get(i);
+      int numToTake=underloadedServers.get(si);
+      if (numToTake == 0)       continue;
+      if (!fetchFromTail)       rp=regionsToMove.remove();
+ else       rp=regionsToMove.removeLast();
+      rp.setDestination(si);
+      regionsToReturn.add(rp);
+      if (emptyRegionServerPresent) {
+        fetchFromTail=!fetchFromTail;
+      }
+      underloadedServers.put(si,numToTake - 1);
+      cnt++;
+      BalanceInfo bi=serverBalanceInfo.get(si);
+      if (bi == null) {
+        bi=new BalanceInfo(0,0);
+        serverBalanceInfo.put(si,bi);
+      }
+      bi.setNumRegionsAdded(bi.getNumRegionsAdded() + 1);
+    }
+    if (cnt == 0)     break;
+    LOG.info("First pass inner loop assigned " + cnt + " regions");
+    incr=-incr;
+  }
+  for (  Integer i : underloadedServers.values()) {
+    neededRegions+=i;
+  }
+  if (neededRegions == 0 && 0 == regionsToMove.size()) {
     long endTime=System.currentTimeMillis();
-    LOG.info("Calculated a load balance in " + (endTime - startTime) + "ms. "+ "Moving "+ regionsToMove.size()+ " regions off of "+ serversOverloaded+ " overloaded servers onto "+ serversUnderloaded+ " less loaded servers");
-    return regionsToMove;
+    LOG.info("Calculated a load balance in " + (endTime - startTime) + "ms. "+ "Moving "+ totalNumMoved+ " regions off of "+ serversOverloaded+ " overloaded servers onto "+ serversUnderloaded+ " less loaded servers");
+    return regionsToReturn;
   }
   if (neededRegions != 0) {
     for (    Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.descendingMap().entrySet()) {
@@ -78,6 +117,7 @@
       HRegionInfo region=server.getValue().get(idx);
       if (region.isMetaRegion())       continue;
       regionsToMove.add(new RegionPlan(region,server.getKey(),null));
+      totalNumMoved++;
       if (--neededRegions == 0) {
         break;
       }
@@ -95,28 +135,38 @@
     }
     int numToTake=min - regionCount;
     int numTaken=0;
-    while (numTaken < numToTake && regionidx < regionsToMove.size()) {
-      regionsToMove.get(regionidx).setDestination(server.getKey());
+    while (numTaken < numToTake && 0 < regionsToMove.size()) {
+      if (!fetchFromTail)       rp=regionsToMove.remove();
+ else       rp=regionsToMove.removeLast();
+      rp.setDestination(server.getKey());
+      regionsToReturn.add(rp);
       numTaken++;
-      regionidx++;
+      if (emptyRegionServerPresent) {
+        fetchFromTail=!fetchFromTail;
+      }
     }
   }
-  if (regionidx != regionsToMove.size()) {
+  if (0 < regionsToMove.size()) {
     for (    Map.Entry<HServerInfo,List<HRegionInfo>> server : serversByLoad.entrySet()) {
       int regionCount=server.getKey().getLoad().getNumberOfRegions();
       if (regionCount >= max) {
         break;
       }
-      regionsToMove.get(regionidx).setDestination(server.getKey());
-      regionidx++;
-      if (regionidx == regionsToMove.size()) {
+      if (!fetchFromTail)       rp=regionsToMove.remove();
+ else       rp=regionsToMove.removeLast();
+      rp.setDestination(server.getKey());
+      regionsToReturn.add(rp);
+      if (emptyRegionServerPresent) {
+        fetchFromTail=!fetchFromTail;
+      }
+      if (0 == regionsToMove.size()) {
         break;
       }
     }
   }
   long endTime=System.currentTimeMillis();
-  if (regionidx != regionsToMove.size() || neededRegions != 0) {
-    LOG.warn("regionidx=" + regionidx + ", regionsToMove="+ regionsToMove.size()+ ", numServers="+ numServers+ ", serversOverloaded="+ serversOverloaded+ ", serversUnderloaded="+ serversUnderloaded);
+  if (0 != regionsToMove.size() || neededRegions != 0) {
+    LOG.warn("regionsToMove=" + totalNumMoved + ", numServers="+ numServers+ ", serversOverloaded="+ serversOverloaded+ ", serversUnderloaded="+ serversUnderloaded);
     StringBuilder sb=new StringBuilder();
     for (    Map.Entry<HServerInfo,List<HRegionInfo>> e : clusterState.entrySet()) {
       if (sb.length() > 0)       sb.append(", ");
@@ -126,6 +176,6 @@
     }
     LOG.warn("Input " + sb.toString());
   }
-  LOG.info("Calculated a load balance in " + (endTime - startTime) + "ms. "+ "Moving "+ regionsToMove.size()+ " regions off of "+ serversOverloaded+ " overloaded servers onto "+ serversUnderloaded+ " less loaded servers");
-  return regionsToMove;
+  LOG.info("Done. Calculated a load balance in " + (endTime - startTime) + "ms. "+ "Moving "+ totalNumMoved+ " regions off of "+ serversOverloaded+ " overloaded servers onto "+ serversUnderloaded+ " less loaded servers");
+  return regionsToReturn;
 }
