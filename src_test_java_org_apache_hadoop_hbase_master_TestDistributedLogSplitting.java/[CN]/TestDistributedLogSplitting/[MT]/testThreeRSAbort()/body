@@ -1,0 +1,29 @@
+{
+  LOG.info("testThreeRSAbort");
+  final int NUM_REGIONS_TO_CREATE=40;
+  final int NUM_ROWS_PER_REGION=100;
+  startCluster(NUM_RS);
+  ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"distributed log splitting test",null);
+  HTable ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE);
+  populateDataInTable(NUM_ROWS_PER_REGION,"family");
+  List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
+  assertEquals(NUM_RS,rsts.size());
+  rsts.get(0).getRegionServer().abort("testing");
+  rsts.get(1).getRegionServer().abort("testing");
+  rsts.get(2).getRegionServer().abort("testing");
+  long start=EnvironmentEdgeManager.currentTimeMillis();
+  while (cluster.getLiveRegionServerThreads().size() > (NUM_RS - 3)) {
+    if (EnvironmentEdgeManager.currentTimeMillis() - start > 60000) {
+      assertTrue(false);
+    }
+    Thread.sleep(200);
+  }
+  start=EnvironmentEdgeManager.currentTimeMillis();
+  while (getAllOnlineRegions(cluster).size() < (NUM_REGIONS_TO_CREATE + 2)) {
+    if (EnvironmentEdgeManager.currentTimeMillis() - start > 60000) {
+      assertTrue(false);
+    }
+    Thread.sleep(200);
+  }
+  assertEquals(NUM_REGIONS_TO_CREATE * NUM_ROWS_PER_REGION,TEST_UTIL.countRows(ht));
+}

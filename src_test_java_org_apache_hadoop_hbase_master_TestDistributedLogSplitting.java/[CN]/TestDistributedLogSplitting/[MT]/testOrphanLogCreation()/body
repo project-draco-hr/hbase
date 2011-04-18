@@ -1,0 +1,37 @@
+{
+  LOG.info("testOrphanLogCreation");
+  startCluster(NUM_RS);
+  final SplitLogManager slm=master.getMasterFileSystem().splitLogManager;
+  final FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
+  HRegionServer hrs=rsts.get(0).getRegionServer();
+  Path rootdir=FSUtils.getRootDir(conf);
+  final Path logDir=new Path(rootdir,HLog.getHLogDirectoryName(hrs.getServerName()));
+  installTable(new ZooKeeperWatcher(conf,"table-creation",null),"table","family",40);
+  makeHLog(hrs.getWAL(),hrs.getOnlineRegions(),"table",1000,100);
+  new Thread(){
+    public void run(){
+      while (true) {
+        int i=0;
+        try {
+          while (ZKSplitLog.Counters.tot_mgr_log_split_batch_start.get() == 0) {
+            Thread.yield();
+          }
+          fs.createNewFile(new Path(logDir,"foo" + i++));
+        }
+ catch (        Exception e) {
+          LOG.debug("file creation failed",e);
+          return;
+        }
+      }
+    }
+  }
+.start();
+  slm.splitLogDistributed(logDir);
+  FileStatus[] files=fs.listStatus(logDir);
+  if (files != null) {
+    for (    FileStatus file : files) {
+      LOG.debug("file still there " + file.getPath());
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  this.fs=logDir.getFileSystem(conf);
+  if (!fs.exists(logDir)) {
+    LOG.warn(logDir + " doesn't exist. Nothing to do!");
+    return 0;
+  }
+  FileStatus[] logfiles=fs.listStatus(logDir);
+  if (logfiles == null || logfiles.length == 0) {
+    LOG.info(logDir + " is empty dir, no logs to split");
+    return 0;
+  }
+  tot_mgr_log_split_batch_start.incrementAndGet();
+  LOG.info("started splitting logs in " + logDir);
+  long t=EnvironmentEdgeManager.currentTimeMillis();
+  long totalSize=0;
+  TaskBatch batch=new TaskBatch();
+  for (  FileStatus lf : logfiles) {
+    totalSize+=lf.getLen();
+    if (installTask(lf.getPath().toString(),batch) == false) {
+      throw new IOException("duplicate log split scheduled for " + lf.getPath());
+    }
+  }
+  waitTasks(batch);
+  if (batch.done != batch.installed) {
+    stopTrackingTasks(batch);
+    tot_mgr_log_split_batch_err.incrementAndGet();
+    LOG.warn("error while splitting logs in " + logDir + " installed = "+ batch.installed+ " but only "+ batch.done+ " done");
+    throw new IOException("error or interrupt while splitting logs in " + logDir + " Task = "+ batch);
+  }
+  if (anyNewLogFiles(logDir,logfiles)) {
+    tot_mgr_new_unexpected_hlogs.incrementAndGet();
+    LOG.warn("new hlogs were produced while logs in " + logDir + " were being split");
+    throw new OrphanHLogAfterSplitException();
+  }
+  tot_mgr_log_split_batch_success.incrementAndGet();
+  if (!fs.delete(logDir,true)) {
+    throw new IOException("Unable to delete src dir: " + logDir);
+  }
+  LOG.info("finished splitting (more than or equal to) " + totalSize + " bytes in "+ batch.installed+ " log files in "+ logDir+ " in "+ (EnvironmentEdgeManager.currentTimeMillis() - t)+ "ms");
+  return totalSize;
+}

@@ -1,0 +1,36 @@
+{
+  List<Path> processedLogs=new ArrayList<Path>();
+  List<Path> corruptedLogs=new ArrayList<Path>();
+  FileSystem fs;
+  fs=rootdir.getFileSystem(conf);
+  Path logPath=new Path(logfile);
+  if (ZKSplitLog.isCorrupted(rootdir,tmpname,fs)) {
+    corruptedLogs.add(logPath);
+  }
+ else {
+    processedLogs.add(logPath);
+  }
+  Path stagingDir=ZKSplitLog.getSplitLogDir(rootdir,tmpname);
+  List<FileStatus> files=listAll(fs,stagingDir);
+  for (  FileStatus f : files) {
+    Path src=f.getPath();
+    Path dst=ZKSplitLog.stripSplitLogTempDir(rootdir,src);
+    if (ZKSplitLog.isCorruptFlagFile(dst)) {
+      continue;
+    }
+    if (fs.exists(dst)) {
+      fs.delete(dst,false);
+    }
+ else {
+      Path dstdir=dst.getParent();
+      if (!fs.exists(dstdir)) {
+        if (!fs.mkdirs(dstdir))         LOG.warn("mkdir failed on " + dstdir);
+      }
+    }
+    fs.rename(src,dst);
+    LOG.debug(" moved " + src + " => "+ dst);
+  }
+  archiveLogs(null,corruptedLogs,processedLogs,oldLogDir,fs,conf);
+  fs.delete(stagingDir,true);
+  return;
+}

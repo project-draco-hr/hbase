@@ -1,0 +1,23 @@
+{
+  LOG.info("TestUnassignedOrphan - an unassigned task is resubmitted at" + " startup");
+  String tasknode=ZKSplitLog.getNodeName(zkw,"orphan");
+  zkw.getZooKeeper().create(tasknode,TaskState.TASK_UNASSIGNED.get("dummy-worker"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+  int version=ZKUtil.checkExists(zkw,tasknode);
+  slm=new SplitLogManager(zkw,conf,stopper,"dummy-master",null);
+  slm.finishInitialization();
+  waitForCounter(tot_mgr_orphan_task_acquired,0,1,100);
+  Task task=slm.findOrCreateOrphanTask(tasknode);
+  assertTrue(task.isOrphan());
+  assertTrue(task.isUnassigned());
+  waitForCounter(tot_mgr_rescan,0,1,500);
+  Task task2=slm.findOrCreateOrphanTask(tasknode);
+  assertTrue(task == task2);
+  LOG.debug("task = " + task);
+  assertEquals(1L,tot_mgr_resubmit.get());
+  assertEquals(1,task.incarnation);
+  assertEquals(0,task.unforcedResubmits);
+  assertTrue(task.isOrphan());
+  assertTrue(task.isUnassigned());
+  assertTrue(ZKUtil.checkExists(zkw,tasknode) > version);
+  assertEquals(1,numRescanPresent());
+}

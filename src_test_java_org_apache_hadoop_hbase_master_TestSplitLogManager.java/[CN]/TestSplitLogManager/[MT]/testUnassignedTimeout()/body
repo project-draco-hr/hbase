@@ -1,0 +1,24 @@
+{
+  LOG.info("TestUnassignedTimeout - iff all tasks are unassigned then" + " resubmit");
+  String tasknode1=ZKSplitLog.getNodeName(zkw,"orphan");
+  zkw.getZooKeeper().create(tasknode1,TaskState.TASK_OWNED.get("dummy-worker"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+  int to=1000;
+  conf.setInt("hbase.splitlog.manager.timeout",to);
+  conf.setInt("hbase.splitlog.manager.unassigned.timeout",2 * to);
+  conf.setInt("hbase.splitlog.manager.timeoutmonitor.period",100);
+  slm=new SplitLogManager(zkw,conf,stopper,"dummy-master",null);
+  slm.finishInitialization();
+  waitForCounter(tot_mgr_orphan_task_acquired,0,1,100);
+  TaskBatch batch=new TaskBatch();
+  submitTaskAndWait(batch,"foo");
+  for (int i=0; i < (3 * to) / 100; i++) {
+    Thread.sleep(100);
+    ZKUtil.setData(zkw,tasknode1,TaskState.TASK_OWNED.get("dummy-worker"));
+  }
+  assertEquals(0,numRescanPresent());
+  LOG.info("waiting for manager to resubmit the orphan task");
+  waitForCounter(tot_mgr_resubmit,0,1,to + 500);
+  assertEquals(1,numRescanPresent());
+  waitForCounter(tot_mgr_resubmit_unassigned,0,1,2 * to + 500);
+  assertEquals(2,numRescanPresent());
+}

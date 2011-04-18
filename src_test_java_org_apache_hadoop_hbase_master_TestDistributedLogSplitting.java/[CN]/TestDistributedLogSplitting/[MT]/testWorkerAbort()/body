@@ -1,0 +1,40 @@
+{
+  LOG.info("testWorkerAbort");
+  startCluster(1);
+  final int NUM_LOG_LINES=10000;
+  final SplitLogManager slm=master.getMasterFileSystem().splitLogManager;
+  FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  final List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
+  HRegionServer hrs=rsts.get(0).getRegionServer();
+  Path rootdir=FSUtils.getRootDir(conf);
+  final Path logDir=new Path(rootdir,HLog.getHLogDirectoryName(hrs.getServerName()));
+  installTable(new ZooKeeperWatcher(conf,"table-creation",null),"table","family",40);
+  byte[] table=Bytes.toBytes("table");
+  makeHLog(hrs.getWAL(),hrs.getOnlineRegions(),"table",NUM_LOG_LINES,100);
+  new Thread(){
+    public void run(){
+      waitForCounter(tot_wkr_task_acquired,0,1,1000);
+      for (      RegionServerThread rst : rsts) {
+        rst.getRegionServer().abort("testing");
+      }
+    }
+  }
+.start();
+  FileStatus[] logfiles=fs.listStatus(logDir);
+  TaskBatch batch=new TaskBatch();
+  slm.installTask(logfiles[0].getPath().toString(),batch);
+  long curt=System.currentTimeMillis();
+  long endt=curt + 30000;
+  while (curt < endt) {
+    if ((tot_wkr_task_resigned.get() + tot_wkr_task_err.get() + tot_wkr_final_transistion_failed.get()) == 0) {
+      Thread.yield();
+      curt=System.currentTimeMillis();
+    }
+ else {
+      assertEquals(1,(tot_wkr_task_resigned.get() + tot_wkr_task_err.get() + tot_wkr_final_transistion_failed.get()));
+      return;
+    }
+  }
+  assertEquals(1,batch.done);
+  return;
+}

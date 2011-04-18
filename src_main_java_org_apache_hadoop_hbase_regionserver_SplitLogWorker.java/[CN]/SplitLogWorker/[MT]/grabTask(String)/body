@@ -1,0 +1,87 @@
+{
+  Stat stat=new Stat();
+  long t=-1;
+  byte[] data;
+synchronized (grabTaskLock) {
+    currentTask=path;
+    workerInGrabTask=true;
+    if (Thread.interrupted()) {
+      return;
+    }
+  }
+  try {
+    try {
+      if ((data=ZKUtil.getDataNoWatch(this.watcher,path,stat)) == null) {
+        tot_wkr_failed_to_grab_task_no_data.incrementAndGet();
+        return;
+      }
+    }
+ catch (    KeeperException e) {
+      LOG.warn("Failed to get data for znode " + path,e);
+      tot_wkr_failed_to_grab_task_exception.incrementAndGet();
+      return;
+    }
+    if (TaskState.TASK_UNASSIGNED.equals(data) == false) {
+      tot_wkr_failed_to_grab_task_owned.incrementAndGet();
+      return;
+    }
+    currentVersion=stat.getVersion();
+    if (ownTask() == false) {
+      tot_wkr_failed_to_grab_task_lost_race.incrementAndGet();
+      return;
+    }
+    if (ZKSplitLog.isRescanNode(watcher,currentTask)) {
+      endTask(TaskState.TASK_DONE,tot_wkr_task_acquired_rescan);
+      return;
+    }
+    LOG.info("worker " + serverName + " acquired task "+ path);
+    tot_wkr_task_acquired.incrementAndGet();
+    getDataSetWatchAsync();
+    t=System.currentTimeMillis();
+    TaskExecutor.Status status;
+    status=executor.exec(ZKSplitLog.getFileName(currentTask),new CancelableProgressable(){
+      @Override public boolean progress(){
+        if (ownTask() == false) {
+          LOG.warn("Failed to heartbeat the task" + currentTask);
+          return false;
+        }
+        return true;
+      }
+    }
+);
+switch (status) {
+case DONE:
+      endTask(TaskState.TASK_DONE,tot_wkr_task_done);
+    break;
+case PREEMPTED:
+  tot_wkr_preempt_task.incrementAndGet();
+LOG.warn("task execution prempted " + path);
+break;
+case ERR:
+if (!exitWorker) {
+endTask(TaskState.TASK_ERR,tot_wkr_task_err);
+break;
+}
+case RESIGNED:
+if (exitWorker) {
+LOG.info("task execution interrupted because worker is exiting " + path);
+endTask(TaskState.TASK_RESIGNED,tot_wkr_task_resigned);
+}
+ else {
+tot_wkr_preempt_task.incrementAndGet();
+LOG.info("task execution interrupted via zk by manager " + path);
+}
+break;
+}
+}
+  finally {
+if (t > 0) {
+LOG.info("worker " + serverName + " done with task "+ path+ " in "+ (System.currentTimeMillis() - t)+ "ms");
+}
+synchronized (grabTaskLock) {
+workerInGrabTask=false;
+Thread.interrupted();
+}
+}
+return;
+}

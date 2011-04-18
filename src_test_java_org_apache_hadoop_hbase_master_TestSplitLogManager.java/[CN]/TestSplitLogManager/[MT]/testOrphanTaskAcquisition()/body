@@ -1,0 +1,23 @@
+{
+  LOG.info("TestOrphanTaskAcquisition");
+  String tasknode=ZKSplitLog.getNodeName(zkw,"orphan");
+  zkw.getZooKeeper().create(tasknode,TaskState.TASK_OWNED.get("dummy-worker"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+  int to=1000;
+  conf.setInt("hbase.splitlog.manager.timeout",to);
+  conf.setInt("hbase.splitlog.manager.timeoutmonitor.period",100);
+  to=to + 2 * 100;
+  slm=new SplitLogManager(zkw,conf,stopper,"dummy-master",null);
+  slm.finishInitialization();
+  waitForCounter(tot_mgr_orphan_task_acquired,0,1,100);
+  Task task=slm.findOrCreateOrphanTask(tasknode);
+  assertTrue(task.isOrphan());
+  waitForCounter(tot_mgr_heartbeat,0,1,100);
+  assertFalse(task.isUnassigned());
+  long curt=System.currentTimeMillis();
+  assertTrue((task.last_update <= curt) && (task.last_update > (curt - 1000)));
+  LOG.info("waiting for manager to resubmit the orphan task");
+  waitForCounter(tot_mgr_resubmit,0,1,to + 100);
+  assertTrue(task.isUnassigned());
+  waitForCounter(tot_mgr_rescan,0,1,to + 100);
+  assertEquals(1,numRescanPresent());
+}

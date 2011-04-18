@@ -1,0 +1,41 @@
+{
+  if (data == null) {
+    tot_mgr_null_data.incrementAndGet();
+    LOG.fatal("logic error - got null data " + path);
+    setDone(path,true);
+    return;
+  }
+  if (TaskState.TASK_UNASSIGNED.equals(data)) {
+    LOG.debug("task not yet acquired " + path + " ver = "+ version);
+    handleUnassignedTask(path);
+  }
+ else   if (TaskState.TASK_OWNED.equals(data)) {
+    registerHeartbeat(path,version,TaskState.TASK_OWNED.getWriterName(data));
+  }
+ else   if (TaskState.TASK_RESIGNED.equals(data)) {
+    LOG.info("task " + path + " entered state "+ new String(data));
+    resubmit(path,true);
+  }
+ else   if (TaskState.TASK_DONE.equals(data)) {
+    LOG.info("task " + path + " entered state "+ new String(data));
+    if (taskFinisher != null && !ZKSplitLog.isRescanNode(watcher,path)) {
+      if (taskFinisher.finish(TaskState.TASK_DONE.getWriterName(data),ZKSplitLog.getFileName(path)) == Status.DONE) {
+        setDone(path,false);
+      }
+ else {
+        resubmit(path,false);
+      }
+    }
+ else {
+      setDone(path,false);
+    }
+  }
+ else   if (TaskState.TASK_ERR.equals(data)) {
+    LOG.info("task " + path + " entered state "+ new String(data));
+    resubmit(path,false);
+  }
+ else {
+    LOG.fatal("logic error - unexpected zk state for path = " + path + " data = "+ new String(data));
+    setDone(path,true);
+  }
+}

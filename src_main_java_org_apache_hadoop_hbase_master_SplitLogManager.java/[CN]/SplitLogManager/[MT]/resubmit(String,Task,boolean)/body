@@ -1,0 +1,46 @@
+{
+  if (task.deleted) {
+    return false;
+  }
+  int version;
+  if (!force) {
+    if ((EnvironmentEdgeManager.currentTimeMillis() - task.last_update) < timeout) {
+      return false;
+    }
+    if (task.unforcedResubmits >= resubmit_threshold) {
+      if (task.unforcedResubmits == resubmit_threshold) {
+        tot_mgr_resubmit_threshold_reached.incrementAndGet();
+        LOG.info("Skipping resubmissions of task " + path + " because threshold "+ resubmit_threshold+ " reached");
+      }
+      return false;
+    }
+    version=task.last_version;
+  }
+ else {
+    version=-1;
+  }
+  LOG.info("resubmitting task " + path);
+  task.incarnation++;
+  try {
+    if (ZKUtil.setData(this.watcher,path,TaskState.TASK_UNASSIGNED.get(serverName),version) == false) {
+      LOG.debug("failed to resubmit task " + path + " version changed");
+      return false;
+    }
+  }
+ catch (  NoNodeException e) {
+    LOG.debug("failed to resubmit " + path + " task done");
+    return false;
+  }
+catch (  KeeperException e) {
+    tot_mgr_resubmit_failed.incrementAndGet();
+    LOG.warn("failed to resubmit " + path,e);
+    return false;
+  }
+  if (!force) {
+    task.unforcedResubmits++;
+  }
+  task.setUnassigned();
+  createRescanNode(Long.MAX_VALUE);
+  tot_mgr_resubmit.incrementAndGet();
+  return true;
+}

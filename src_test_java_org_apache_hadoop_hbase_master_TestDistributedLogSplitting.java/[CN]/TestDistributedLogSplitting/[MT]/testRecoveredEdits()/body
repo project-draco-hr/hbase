@@ -1,0 +1,37 @@
+{
+  LOG.info("testRecoveredEdits");
+  startCluster(NUM_RS);
+  final int NUM_LOG_LINES=1000;
+  final SplitLogManager slm=master.getMasterFileSystem().splitLogManager;
+  master.balanceSwitch(false);
+  FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
+  HRegionServer hrs=rsts.get(0).getRegionServer();
+  Path rootdir=FSUtils.getRootDir(conf);
+  final Path logDir=new Path(rootdir,HLog.getHLogDirectoryName(hrs.getServerName()));
+  installTable(new ZooKeeperWatcher(conf,"table-creation",null),"table","family",40);
+  byte[] table=Bytes.toBytes("table");
+  List<HRegionInfo> regions=hrs.getOnlineRegions();
+  LOG.info("#regions = " + regions.size());
+  Iterator<HRegionInfo> it=regions.iterator();
+  while (it.hasNext()) {
+    HRegionInfo region=it.next();
+    if (region.isMetaRegion() || region.isRootRegion()) {
+      it.remove();
+    }
+  }
+  makeHLog(hrs.getWAL(),regions,"table",NUM_LOG_LINES,100);
+  slm.splitLogDistributed(logDir);
+  int count=0;
+  for (  HRegionInfo hri : regions) {
+    Path tdir=HTableDescriptor.getTableDir(rootdir,table);
+    Path editsdir=HLog.getRegionDirRecoveredEditsDir(HRegion.getRegionDir(tdir,hri.getEncodedName()));
+    LOG.debug("checking edits dir " + editsdir);
+    FileStatus[] files=fs.listStatus(editsdir);
+    assertEquals(1,files.length);
+    int c=countHLog(files[0].getPath(),fs,conf);
+    count+=c;
+    LOG.info(c + " edits in " + files[0].getPath());
+  }
+  assertEquals(NUM_LOG_LINES,count);
+}

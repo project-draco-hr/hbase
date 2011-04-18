@@ -1,0 +1,93 @@
+{
+  final Map<byte[],Object> logWriters=Collections.synchronizedMap(new TreeMap<byte[],Object>(Bytes.BYTES_COMPARATOR));
+  boolean isCorrupted=false;
+  Object BAD_WRITER=new Object();
+  boolean progress_failed=false;
+  boolean skipErrors=conf.getBoolean("hbase.hlog.split.skip.errors",false);
+  int interval=conf.getInt("hbase.splitlog.report.interval.loglines",1024);
+  int period=conf.getInt("hbase.splitlog.report.period",conf.getInt("hbase.splitlog.manager.timeout",ZKSplitLog.DEFAULT_TIMEOUT) / 2);
+  Path logPath=logfile.getPath();
+  long logLength=logfile.getLen();
+  LOG.info("Splitting hlog: " + logPath + ", length="+ logLength);
+  Reader in=null;
+  try {
+    in=getReader(fs,logfile,conf,skipErrors);
+  }
+ catch (  CorruptedLogFileException e) {
+    LOG.warn("Could not get reader, corrupted log file " + logPath,e);
+    ZKSplitLog.markCorrupted(rootDir,tmpname,fs);
+    isCorrupted=true;
+  }
+  if (in == null) {
+    LOG.warn("Nothing to split in log file " + logPath);
+    return true;
+  }
+  long t=EnvironmentEdgeManager.currentTimeMillis();
+  long last_report_at=t;
+  if (reporter != null && reporter.progress() == false) {
+    return false;
+  }
+  int editsCount=0;
+  Entry entry;
+  try {
+    while ((entry=getNextLogLine(in,logPath,skipErrors)) != null) {
+      byte[] region=entry.getKey().getEncodedRegionName();
+      Object o=logWriters.get(region);
+      if (o == BAD_WRITER) {
+        continue;
+      }
+      WriterAndPath wap=(WriterAndPath)o;
+      if (wap == null) {
+        wap=createWAP(region,entry,rootDir,tmpname,fs,conf);
+        if (wap == null) {
+          logWriters.put(region,BAD_WRITER);
+        }
+ else {
+          logWriters.put(region,wap);
+        }
+      }
+      wap.w.append(entry);
+      editsCount++;
+      if (editsCount % interval == 0) {
+        long t1=EnvironmentEdgeManager.currentTimeMillis();
+        if ((t1 - last_report_at) > period) {
+          last_report_at=t;
+          if (reporter != null && reporter.progress() == false) {
+            progress_failed=true;
+            return false;
+          }
+        }
+      }
+    }
+  }
+ catch (  CorruptedLogFileException e) {
+    LOG.warn("Could not parse, corrupted log file " + logPath,e);
+    ZKSplitLog.markCorrupted(rootDir,tmpname,fs);
+    isCorrupted=true;
+  }
+catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    throw e;
+  }
+ finally {
+    int n=0;
+    for (    Object o : logWriters.values()) {
+      long t1=EnvironmentEdgeManager.currentTimeMillis();
+      if ((t1 - last_report_at) > period) {
+        last_report_at=t;
+        if ((progress_failed == false) && (reporter != null) && (reporter.progress() == false)) {
+          progress_failed=true;
+        }
+      }
+      if (o == BAD_WRITER) {
+        continue;
+      }
+      n++;
+      WriterAndPath wap=(WriterAndPath)o;
+      wap.w.close();
+      LOG.debug("Closed " + wap.p);
+    }
+    LOG.info("processed " + editsCount + " edits across "+ n+ " regions"+ " threw away edits for "+ (logWriters.size() - n)+ " regions"+ " log file = "+ logPath+ " is corrupted = "+ isCorrupted);
+  }
+  return true;
+}

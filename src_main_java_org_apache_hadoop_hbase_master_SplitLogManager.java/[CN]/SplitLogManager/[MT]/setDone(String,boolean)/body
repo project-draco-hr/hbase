@@ -1,0 +1,37 @@
+{
+  if (!ZKSplitLog.isRescanNode(watcher,path)) {
+    if (!err) {
+      tot_mgr_log_split_success.incrementAndGet();
+      LOG.info("Done splitting " + path);
+    }
+ else {
+      tot_mgr_log_split_err.incrementAndGet();
+      LOG.warn("Error splitting " + path);
+    }
+  }
+  Task task=tasks.get(path);
+  if (task == null) {
+    if (!ZKSplitLog.isRescanNode(watcher,path)) {
+      tot_mgr_unacquired_orphan_done.incrementAndGet();
+      LOG.debug("unacquired orphan task is done " + path);
+    }
+  }
+ else {
+    if (!task.isOrphan()) {
+synchronized (task.batch) {
+        if (!err) {
+          task.batch.done++;
+        }
+ else {
+          task.batch.error++;
+        }
+        if ((task.batch.done + task.batch.error) == task.batch.installed) {
+          task.batch.notify();
+        }
+      }
+    }
+    task.deleted=true;
+  }
+  deleteNode(path,Long.MAX_VALUE);
+  return;
+}

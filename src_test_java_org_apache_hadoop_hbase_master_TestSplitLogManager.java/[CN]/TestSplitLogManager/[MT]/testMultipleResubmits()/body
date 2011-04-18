@@ -1,0 +1,29 @@
+{
+  LOG.info("TestMultipleResbmits - no indefinite resubmissions");
+  int to=1000;
+  conf.setInt("hbase.splitlog.manager.timeout",to);
+  conf.setInt("hbase.splitlog.manager.timeoutmonitor.period",100);
+  to=to + 2 * 100;
+  conf.setInt("hbase.splitlog.max.resubmit",2);
+  slm=new SplitLogManager(zkw,conf,stopper,"dummy-master",null);
+  slm.finishInitialization();
+  TaskBatch batch=new TaskBatch();
+  String tasknode=submitTaskAndWait(batch,"foo");
+  int version=ZKUtil.checkExists(zkw,tasknode);
+  ZKUtil.setData(zkw,tasknode,TaskState.TASK_OWNED.get("worker1"));
+  waitForCounter(tot_mgr_heartbeat,0,1,1000);
+  waitForCounter(tot_mgr_resubmit,0,1,to + 100);
+  int version1=ZKUtil.checkExists(zkw,tasknode);
+  assertTrue(version1 > version);
+  ZKUtil.setData(zkw,tasknode,TaskState.TASK_OWNED.get("worker2"));
+  waitForCounter(tot_mgr_heartbeat,1,2,1000);
+  waitForCounter(tot_mgr_resubmit,1,2,to + 100);
+  int version2=ZKUtil.checkExists(zkw,tasknode);
+  assertTrue(version2 > version1);
+  ZKUtil.setData(zkw,tasknode,TaskState.TASK_OWNED.get("worker3"));
+  waitForCounter(tot_mgr_heartbeat,1,2,1000);
+  waitForCounter(tot_mgr_resubmit_threshold_reached,0,1,to + 100);
+  assertEquals(2,numRescanPresent());
+  Thread.sleep(to + 100);
+  assertEquals(2L,tot_mgr_resubmit.get());
+}
