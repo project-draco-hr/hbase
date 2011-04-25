@@ -1,0 +1,28 @@
+{
+  validateParameters(scan);
+class StdCallback implements Batch.Callback<Pair<List<S>,Long>> {
+    long rowCountVal=0l;
+    S sumVal=null, sumSqVal=null;
+    public Pair<List<S>,Long> getStdParams(){
+      List<S> l=new ArrayList<S>();
+      l.add(sumVal);
+      l.add(sumSqVal);
+      Pair<List<S>,Long> p=new Pair<List<S>,Long>(l,rowCountVal);
+      return p;
+    }
+    @Override public void update(    byte[] region,    byte[] row,    Pair<List<S>,Long> result){
+      sumVal=ci.add(sumVal,result.getFirst().get(0));
+      sumSqVal=ci.add(sumSqVal,result.getFirst().get(1));
+      rowCountVal+=result.getSecond();
+    }
+  }
+  StdCallback stdCallback=new StdCallback();
+  HTable table=new HTable(conf,tableName);
+  table.coprocessorExec(AggregateProtocol.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateProtocol,Pair<List<S>,Long>>(){
+    @Override public Pair<List<S>,Long> call(    AggregateProtocol instance) throws IOException {
+      return instance.getStd(ci,scan);
+    }
+  }
+,stdCallback);
+  return stdCallback.getStdParams();
+}
