@@ -1,33 +1,38 @@
 {
-  final String name=regionInfo.getRegionNameAsString();
-  LOG.debug("Processing open of " + name);
-  if (this.server.isStopped() || this.rsServices.isStopping()) {
-    LOG.info("Server stopping or stopped, skipping open of " + name);
-    return;
+  try {
+    final String name=regionInfo.getRegionNameAsString();
+    LOG.debug("Processing open of " + name);
+    if (this.server.isStopped() || this.rsServices.isStopping()) {
+      LOG.info("Server stopping or stopped, skipping open of " + name);
+      return;
+    }
+    final String encodedName=regionInfo.getEncodedName();
+    HRegion region=this.rsServices.getFromOnlineRegions(encodedName);
+    if (region != null) {
+      LOG.warn("Attempted open of " + name + " but already online on this server");
+      return;
+    }
+    if (!transitionZookeeperOfflineToOpening(encodedName)) {
+      LOG.warn("Region was hijacked? It no longer exists, encodedName=" + encodedName);
+      return;
+    }
+    region=openRegion();
+    if (region == null)     return;
+    boolean failed=true;
+    if (tickleOpening("post_region_open")) {
+      if (updateMeta(region))       failed=false;
+    }
+    if (failed || this.server.isStopped() || this.rsServices.isStopping()) {
+      cleanupFailedOpen(region);
+      return;
+    }
+    if (!transitionToOpened(region)) {
+      cleanupFailedOpen(region);
+      return;
+    }
+    LOG.debug("Opened " + name);
   }
-  final String encodedName=regionInfo.getEncodedName();
-  HRegion region=this.rsServices.getFromOnlineRegions(encodedName);
-  if (region != null) {
-    LOG.warn("Attempted open of " + name + " but already online on this server");
-    return;
+  finally {
+    this.rsServices.getRegionsInTransitionInRS().remove(this.regionInfo.getEncodedNameAsBytes());
   }
-  if (!transitionZookeeperOfflineToOpening(encodedName)) {
-    LOG.warn("Region was hijacked? It no longer exists, encodedName=" + encodedName);
-    return;
-  }
-  region=openRegion();
-  if (region == null)   return;
-  boolean failed=true;
-  if (tickleOpening("post_region_open")) {
-    if (updateMeta(region))     failed=false;
-  }
-  if (failed || this.server.isStopped() || this.rsServices.isStopping()) {
-    cleanupFailedOpen(region);
-    return;
-  }
-  if (!transitionToOpened(region)) {
-    cleanupFailedOpen(region);
-    return;
-  }
-  LOG.debug("Opened " + name);
 }

@@ -1,27 +1,32 @@
 {
-  String name=regionInfo.getRegionNameAsString();
-  LOG.debug("Processing close of " + name);
-  String encodedRegionName=regionInfo.getEncodedName();
-  HRegion region=this.rsServices.getFromOnlineRegions(encodedRegionName);
-  if (region == null) {
-    LOG.warn("Received CLOSE for region " + name + " but currently not serving");
-    return;
-  }
-  int expectedVersion=FAILED;
-  if (this.zk) {
-    expectedVersion=setClosingState();
-    if (expectedVersion == FAILED)     return;
-  }
   try {
-    if (region.close(abort) == null) {
-      LOG.warn("Can't close region: was already closed during close(): " + regionInfo.getRegionNameAsString());
+    String name=regionInfo.getRegionNameAsString();
+    LOG.debug("Processing close of " + name);
+    String encodedRegionName=regionInfo.getEncodedName();
+    HRegion region=this.rsServices.getFromOnlineRegions(encodedRegionName);
+    if (region == null) {
+      LOG.warn("Received CLOSE for region " + name + " but currently not serving");
       return;
     }
+    int expectedVersion=FAILED;
+    if (this.zk) {
+      expectedVersion=setClosingState();
+      if (expectedVersion == FAILED)       return;
+    }
+    try {
+      if (region.close(abort) == null) {
+        LOG.warn("Can't close region: was already closed during close(): " + regionInfo.getRegionNameAsString());
+        return;
+      }
+    }
+ catch (    IOException e) {
+      LOG.error("Unrecoverable exception while closing region " + regionInfo.getRegionNameAsString() + ", still finishing close",e);
+    }
+    this.rsServices.removeFromOnlineRegions(regionInfo.getEncodedName());
+    if (this.zk)     setClosedState(expectedVersion,region);
+    LOG.debug("Closed region " + region.getRegionNameAsString());
   }
- catch (  IOException e) {
-    LOG.error("Unrecoverable exception while closing region " + regionInfo.getRegionNameAsString() + ", still finishing close",e);
+  finally {
+    this.rsServices.getRegionsInTransitionInRS().remove(this.regionInfo.getEncodedNameAsBytes());
   }
-  this.rsServices.removeFromOnlineRegions(regionInfo.getEncodedName());
-  if (this.zk)   setClosedState(expectedVersion,region);
-  LOG.debug("Closed region " + region.getRegionNameAsString());
 }
