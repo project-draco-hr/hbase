@@ -3,33 +3,27 @@
   this.conf=conf;
   this.connection=HConnectionManager.getConnection(conf);
   this.isOnline=false;
-  String[] codecs=conf.getStrings("hbase.regionserver.codecs",(String[])null);
-  if (codecs != null) {
-    for (    String codec : codecs) {
-      if (!CompressionTest.testCompression(codec)) {
-        throw new IOException("Compression codec " + codec + " not supported, aborting RS construction");
-      }
-    }
-  }
+  checkCodecs(this.conf);
   this.numRetries=conf.getInt("hbase.client.retries.number",10);
   this.threadWakeFrequency=conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000);
   this.msgInterval=conf.getInt("hbase.regionserver.msginterval",3 * 1000);
-  sleeper=new Sleeper(this.msgInterval,this);
+  this.sleeper=new Sleeper(this.msgInterval,this);
   this.maxScannerResultSize=conf.getLong(HConstants.HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE_KEY,HConstants.DEFAULT_HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE);
   this.numRegionsToReport=conf.getInt("hbase.regionserver.numregionstoreport",10);
   this.rpcTimeout=conf.getInt(HConstants.HBASE_RPC_TIMEOUT_KEY,HConstants.DEFAULT_HBASE_RPC_TIMEOUT);
   this.abortRequested=false;
   this.stopped=false;
-  String machineName=DNS.getDefaultHost(conf.get("hbase.regionserver.dns.interface","default"),conf.get("hbase.regionserver.dns.nameserver","default"));
-  String addressStr=machineName + ":" + conf.get(HConstants.REGIONSERVER_PORT,Integer.toString(HConstants.DEFAULT_REGIONSERVER_PORT));
-  HServerAddress address=new HServerAddress(addressStr);
-  this.server=HBaseRPC.getServer(this,new Class<?>[]{HRegionInterface.class,HBaseRPCErrorHandler.class,OnlineRegions.class},address.getBindAddress(),address.getPort(),conf.getInt("hbase.regionserver.handler.count",10),conf.getInt("hbase.regionserver.metahandler.count",10),false,conf,QOS_THRESHOLD);
-  this.server.setErrorHandler(this);
-  this.server.setQosFunction(new QosFunction());
-  this.serverInfo=new HServerInfo(new HServerAddress(new InetSocketAddress(address.getBindAddress(),this.server.getListenerAddress().getPort())),System.currentTimeMillis(),this.conf.getInt("hbase.regionserver.info.port",60030),machineName);
-  if (this.serverInfo.getServerAddress() == null) {
-    throw new NullPointerException("Server address cannot be null; " + "hbase-958 debugging");
+  String hostname=DNS.getDefaultHost(conf.get("hbase.regionserver.dns.interface","default"),conf.get("hbase.regionserver.dns.nameserver","default"));
+  int port=conf.getInt(HConstants.REGIONSERVER_PORT,HConstants.DEFAULT_REGIONSERVER_PORT);
+  InetSocketAddress initialIsa=new InetSocketAddress(hostname,port);
+  if (initialIsa.getAddress() == null) {
+    throw new IllegalArgumentException("Failed resolve of " + initialIsa);
   }
-  User.login(conf,"hbase.regionserver.keytab.file","hbase.regionserver.kerberos.principal",serverInfo.getHostname());
+  this.rpcServer=HBaseRPC.getServer(this,new Class<?>[]{HRegionInterface.class,HBaseRPCErrorHandler.class,OnlineRegions.class},initialIsa.getHostName(),initialIsa.getPort(),conf.getInt("hbase.regionserver.handler.count",10),conf.getInt("hbase.regionserver.metahandler.count",10),conf.getBoolean("hbase.rpc.verbose",false),conf,QOS_THRESHOLD);
+  this.isa=this.rpcServer.getListenerAddress();
+  this.rpcServer.setErrorHandler(this);
+  this.rpcServer.setQosFunction(new QosFunction());
+  this.startcode=System.currentTimeMillis();
+  User.login(this.conf,"hbase.regionserver.keytab.file","hbase.regionserver.kerberos.principal",this.isa.getHostName());
   regionServerAccounting=new RegionServerAccounting();
 }

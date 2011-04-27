@@ -1,18 +1,20 @@
 {
   try {
-    initialize();
+    preRegistrationInitialization();
   }
  catch (  Exception e) {
     abort("Fatal exception during initialization",e);
   }
-  this.regionServerThread=Thread.currentThread();
   try {
     while (!this.stopped) {
       if (tryReportForDuty())       break;
+      LOG.warn("No response on reportForDuty. Sleeping and then retrying.");
+      this.sleeper.sleep();
     }
     long lastMsg=0;
-    List<HMsg> outboundMessages=new ArrayList<HMsg>();
-    for (int tries=0; !this.stopped && isHealthy(); ) {
+    boolean onlyMetaRegionsRemaining=false;
+    long oldRequestCount=-1;
+    while (!this.stopped && isHealthy()) {
       if (!isClusterUp()) {
         if (isOnlineRegionsEmpty()) {
           stop("Exiting; cluster shutdown set and not carrying any regions");
@@ -22,39 +24,26 @@
           closeUserRegions(this.abortRequested);
         }
  else         if (this.stopping && LOG.isDebugEnabled()) {
+          if (!onlyMetaRegionsRemaining) {
+            onlyMetaRegionsRemaining=isOnlyMetaRegionsRemaining();
+          }
+          if (onlyMetaRegionsRemaining) {
+            if (oldRequestCount == this.requestCount.get()) {
+              stop("Stopped; only catalog regions remaining online");
+              break;
+            }
+            oldRequestCount=this.requestCount.get();
+          }
           LOG.debug("Waiting on " + getOnlineRegionsAsPrintableString());
         }
       }
       long now=System.currentTimeMillis();
-      if ((now - lastMsg) >= msgInterval || !outboundMessages.isEmpty()) {
-        try {
-          doMetrics();
-          tryRegionServerReport(outboundMessages);
-          lastMsg=System.currentTimeMillis();
-          tries=0;
-          if (this.stopped)           continue;
-        }
- catch (        Exception e) {
-          if (e instanceof IOException) {
-            e=RemoteExceptionHandler.checkIOException((IOException)e);
-          }
-          if (e instanceof YouAreDeadException) {
-            throw e;
-          }
-          tries++;
-          if (tries > 0 && (tries % this.numRetries) == 0) {
-            checkFileSystem();
-          }
-          if (this.stopped) {
-            continue;
-          }
-          LOG.warn("Attempt=" + tries,e);
-          lastMsg=System.currentTimeMillis();
-        }
+      if ((now - lastMsg) >= msgInterval) {
+        doMetrics();
+        tryRegionServerReport();
+        lastMsg=System.currentTimeMillis();
       }
-      now=System.currentTimeMillis();
-      HMsg msg=this.outboundMsgs.poll((msgInterval - (now - lastMsg)),TimeUnit.MILLISECONDS);
-      if (msg != null)       outboundMessages.add(msg);
+      if (!this.stopped)       this.sleeper.sleep();
     }
   }
  catch (  Throwable t) {
@@ -63,7 +52,7 @@
     }
   }
   this.leases.closeAfterLeasesExpire();
-  this.server.stop();
+  this.rpcServer.stop();
   if (this.splitLogWorker != null) {
     splitLogWorker.stop();
   }
@@ -91,13 +80,13 @@
       closeAllRegions(abortRequested);
       closeWAL(false);
     }
-    LOG.info("aborting server at: " + this.serverInfo.getServerName());
+    LOG.info("aborting server " + this.serverNameFromMasterPOV);
   }
  else {
     closeAllRegions(abortRequested);
     closeWAL(true);
     closeAllScanners();
-    LOG.info("stopping server at: " + this.serverInfo.getServerName());
+    LOG.info("stopping server " + this.serverNameFromMasterPOV);
   }
   if (this.catalogTracker != null)   this.catalogTracker.stop();
   if (this.fsOk)   waitOnAllRegionsToClose();
@@ -106,6 +95,12 @@
     this.hbaseMaster=null;
   }
   this.leases.close();
+  try {
+    deleteMyEphemeralNode();
+  }
+ catch (  KeeperException e) {
+    LOG.warn("Failed deleting my ephemeral node",e);
+  }
   HConnectionManager.deleteConnection(conf,true);
   this.zooKeeper.close();
   if (!killed) {

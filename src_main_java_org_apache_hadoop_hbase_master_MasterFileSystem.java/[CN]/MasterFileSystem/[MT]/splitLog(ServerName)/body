@@ -1,0 +1,45 @@
+{
+  long splitTime=0, splitLogSize=0;
+  Path logDir=new Path(this.rootdir,HLog.getHLogDirectoryName(serverName.toString()));
+  if (distributedLogSplitting) {
+    splitTime=EnvironmentEdgeManager.currentTimeMillis();
+    try {
+      try {
+        splitLogSize=splitLogManager.splitLogDistributed(logDir);
+      }
+ catch (      OrphanHLogAfterSplitException e) {
+        LOG.warn("Retrying distributed splitting for " + serverName + "because of:",e);
+        splitLogManager.splitLogDistributed(logDir);
+      }
+    }
+ catch (    IOException e) {
+      LOG.error("Failed distributed splitting " + serverName,e);
+    }
+    splitTime=EnvironmentEdgeManager.currentTimeMillis() - splitTime;
+  }
+ else {
+    this.splitLogLock.lock();
+    try {
+      HLogSplitter splitter=HLogSplitter.createLogSplitter(conf,rootdir,logDir,oldLogDir,this.fs);
+      try {
+        splitter.splitLog();
+      }
+ catch (      OrphanHLogAfterSplitException e) {
+        LOG.warn("Retrying splitting because of:",e);
+        splitter=HLogSplitter.createLogSplitter(conf,rootdir,logDir,oldLogDir,this.fs);
+        splitter.splitLog();
+      }
+      splitTime=splitter.getTime();
+      splitLogSize=splitter.getSize();
+    }
+ catch (    IOException e) {
+      LOG.error("Failed splitting " + logDir.toString(),e);
+    }
+ finally {
+      this.splitLogLock.unlock();
+    }
+  }
+  if (this.metrics != null) {
+    this.metrics.addSplit(splitTime,splitLogSize);
+  }
+}

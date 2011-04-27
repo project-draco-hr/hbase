@@ -8,7 +8,7 @@
   if (LOG.isDebugEnabled()) {
     LOG.debug("expecting " + results.length + " results");
   }
-  HServerAddress[] lastServers=new HServerAddress[results.length];
+  HRegionLocation[] lastServers=new HRegionLocation[results.length];
   List<Row> workingList=new ArrayList<Row>(list);
   boolean retry=true;
   int actionCount=0;
@@ -19,34 +19,33 @@
       LOG.debug("Retry " + tries + ", sleep for "+ sleepTime+ "ms!");
       Thread.sleep(sleepTime);
     }
-    Map<HServerAddress,MultiAction<R>> actionsByServer=new HashMap<HServerAddress,MultiAction<R>>();
+    Map<HRegionLocation,MultiAction<R>> actionsByServer=new HashMap<HRegionLocation,MultiAction<R>>();
     for (int i=0; i < workingList.size(); i++) {
       Row row=workingList.get(i);
       if (row != null) {
         HRegionLocation loc=locateRegion(tableName,row.getRow(),true);
-        HServerAddress address=loc.getServerAddress();
         byte[] regionName=loc.getRegionInfo().getRegionName();
-        MultiAction<R> actions=actionsByServer.get(address);
+        MultiAction<R> actions=actionsByServer.get(loc);
         if (actions == null) {
           actions=new MultiAction<R>();
-          actionsByServer.put(address,actions);
+          actionsByServer.put(loc,actions);
         }
         Action<R> action=new Action<R>(regionName,row,i);
-        lastServers[i]=address;
+        lastServers[i]=loc;
         actions.add(regionName,action);
       }
     }
-    Map<HServerAddress,Future<MultiResponse>> futures=new HashMap<HServerAddress,Future<MultiResponse>>(actionsByServer.size());
-    for (    Entry<HServerAddress,MultiAction<R>> e : actionsByServer.entrySet()) {
+    Map<HRegionLocation,Future<MultiResponse>> futures=new HashMap<HRegionLocation,Future<MultiResponse>>(actionsByServer.size());
+    for (    Entry<HRegionLocation,MultiAction<R>> e : actionsByServer.entrySet()) {
       futures.put(e.getKey(),pool.submit(createCallable(e.getKey(),e.getValue(),tableName)));
     }
-    for (    Entry<HServerAddress,Future<MultiResponse>> responsePerServer : futures.entrySet()) {
-      HServerAddress address=responsePerServer.getKey();
+    for (    Entry<HRegionLocation,Future<MultiResponse>> responsePerServer : futures.entrySet()) {
+      HRegionLocation loc=responsePerServer.getKey();
       try {
         Future<MultiResponse> future=responsePerServer.getValue();
         MultiResponse resp=future.get();
         if (resp == null) {
-          LOG.debug("Failed all for server: " + address + ", removing from cache");
+          LOG.debug("Failed all for server: " + loc.getHostnamePort() + ", removing from cache");
           continue;
         }
         for (        Entry<byte[],List<Pair<Integer,Object>>> e : resp.getResults().entrySet()) {
@@ -66,7 +65,7 @@
         }
       }
  catch (      ExecutionException e) {
-        LOG.debug("Failed all from " + address,e);
+        LOG.debug("Failed all from " + loc,e);
       }
     }
     retry=false;
@@ -95,12 +94,12 @@
   }
   List<Throwable> exceptions=new ArrayList<Throwable>(actionCount);
   List<Row> actions=new ArrayList<Row>(actionCount);
-  List<HServerAddress> addresses=new ArrayList<HServerAddress>(actionCount);
+  List<String> addresses=new ArrayList<String>(actionCount);
   for (int i=0; i < results.length; i++) {
     if (results[i] == null || results[i] instanceof Throwable) {
       exceptions.add((Throwable)results[i]);
       actions.add(list.get(i));
-      addresses.add(lastServers[i]);
+      addresses.add(lastServers[i].getHostnamePort());
     }
   }
   if (!exceptions.isEmpty()) {

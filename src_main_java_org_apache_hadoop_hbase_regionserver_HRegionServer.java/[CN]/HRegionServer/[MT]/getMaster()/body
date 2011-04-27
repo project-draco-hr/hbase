@@ -1,11 +1,18 @@
 {
-  HServerAddress masterAddress=null;
+  ServerName masterServerName=null;
+  while ((masterServerName=this.masterAddressManager.getMasterAddress()) == null) {
+    if (stopped) {
+      return null;
+    }
+    LOG.debug("No master found, will retry");
+    sleeper.sleep();
+  }
+  InetSocketAddress isa=new InetSocketAddress(masterServerName.getHostname(),masterServerName.getPort());
   HMasterRegionInterface master=null;
   while (!stopped && master == null) {
-    masterAddress=getMasterAddress();
-    LOG.info("Attempting connect to Master server at " + masterAddress);
+    LOG.info("Attempting connect to Master server at " + this.masterAddressManager.getMasterAddress());
     try {
-      master=(HMasterRegionInterface)HBaseRPC.waitForProxy(HMasterRegionInterface.class,HMasterRegionInterface.VERSION,masterAddress.getInetSocketAddress(),this.conf,-1,this.rpcTimeout,this.rpcTimeout);
+      master=(HMasterRegionInterface)HBaseRPC.waitForProxy(HMasterRegionInterface.class,HMasterRegionInterface.VERSION,isa,this.conf,-1,this.rpcTimeout,this.rpcTimeout);
     }
  catch (    IOException e) {
       e=e instanceof RemoteException ? ((RemoteException)e).unwrapRemoteException() : e;
@@ -18,7 +25,7 @@
       sleeper.sleep();
     }
   }
-  LOG.info("Connected to master at " + masterAddress);
+  LOG.info("Connected to master at " + isa);
   this.hbaseMaster=master;
-  return masterAddress;
+  return masterServerName;
 }

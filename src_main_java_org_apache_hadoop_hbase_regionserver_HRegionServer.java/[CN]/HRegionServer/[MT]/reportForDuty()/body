@@ -1,19 +1,18 @@
 {
-  HServerAddress masterAddress=null;
-  while (!stopped && (masterAddress=getMaster()) == null) {
+  ServerName masterServerName=null;
+  while (!stopped && (masterServerName=getMaster()) == null) {
+    LOG.warn("Unable to get master for initialization -- sleeping");
     sleeper.sleep();
-    LOG.warn("Unable to get master for initialization");
   }
   MapWritable result=null;
   long lastMsg=0;
   while (!stopped) {
     try {
       this.requestCount.set(0);
-      lastMsg=System.currentTimeMillis();
-      ZKUtil.setAddressAndWatch(zooKeeper,ZKUtil.joinZNode(zooKeeper.rsZNode,ZKUtil.getNodeName(serverInfo)),this.serverInfo.getServerAddress());
-      this.serverInfo.setLoad(buildServerLoad());
-      LOG.info("Telling master at " + masterAddress + " that we are up");
-      result=this.hbaseMaster.regionServerStartup(this.serverInfo,EnvironmentEdgeManager.currentTimeMillis());
+      LOG.info("Telling master at " + masterServerName + " that we are up "+ "with port="+ this.isa.getPort()+ ", startcode="+ this.startcode);
+      lastMsg=EnvironmentEdgeManager.currentTimeMillis();
+      int port=this.isa.getPort();
+      result=this.hbaseMaster.regionServerStartup(port,this.startcode,lastMsg);
       break;
     }
  catch (    RemoteException e) {
@@ -28,9 +27,6 @@
     }
 catch (    IOException e) {
       LOG.warn("error telling master we are up",e);
-    }
-catch (    KeeperException e) {
-      LOG.warn("error putting up ephemeral node in zookeeper",e);
     }
     sleeper.sleep(lastMsg);
   }

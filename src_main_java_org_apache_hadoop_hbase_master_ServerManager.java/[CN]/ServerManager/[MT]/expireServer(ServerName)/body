@@ -1,0 +1,40 @@
+{
+  if (!this.onlineServers.containsKey(serverName)) {
+    LOG.warn("Received expiration of " + serverName + " but server is not currently online");
+    return;
+  }
+  if (this.deadservers.contains(serverName)) {
+    LOG.warn("Received expiration of " + serverName + " but server shutdown is already in progress");
+    return;
+  }
+  this.deadservers.add(serverName);
+  this.onlineServers.remove(serverName);
+  this.serverConnections.remove(serverName);
+  if (this.clusterShutdown) {
+    LOG.info("Cluster shutdown set; " + serverName + " expired; onlineServers="+ this.onlineServers.size());
+    if (this.onlineServers.isEmpty()) {
+      master.stop("Cluster shutdown set; onlineServer=0");
+    }
+    return;
+  }
+  CatalogTracker ct=this.master.getCatalogTracker();
+  boolean carryingRoot;
+  try {
+    ServerName address=ct.getRootLocation();
+    carryingRoot=address.equals(serverName);
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    LOG.info("Interrupted");
+    return;
+  }
+  ServerName address=ct.getMetaLocation();
+  boolean carryingMeta=address.equals(serverName);
+  if (carryingRoot || carryingMeta) {
+    this.services.getExecutorService().submit(new MetaServerShutdownHandler(this.master,this.services,this.deadservers,serverName,carryingRoot,carryingMeta));
+  }
+ else {
+    this.services.getExecutorService().submit(new ServerShutdownHandler(this.master,this.services,this.deadservers,serverName));
+  }
+  LOG.debug("Added=" + serverName + " to dead servers, submitted shutdown handler to be executed, root="+ carryingRoot+ ", meta="+ carryingMeta);
+}

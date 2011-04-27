@@ -3,23 +3,21 @@
   this.fileSystemManager=new MasterFileSystem(this,metrics);
   ClusterId.setClusterId(this.zooKeeper,fileSystemManager.getClusterId());
   this.connection=HConnectionManager.getConnection(conf);
-  this.executorService=new ExecutorService(getServerName());
-  this.serverManager=new ServerManager(this,this,metrics);
+  this.executorService=new ExecutorService(getServerName().toString());
+  this.serverManager=new ServerManager(this,this);
   initializeZKBasedSystemTrackers();
   this.cpHost=new MasterCoprocessorHost(this,this.conf);
   startServiceThreads();
-  int regionCount=this.serverManager.waitForRegionServers();
-  this.fileSystemManager.splitLogAfterStartup(this.serverManager.getOnlineServers());
+  this.serverManager.waitForRegionServers();
+  for (  ServerName sn : this.regionServerTracker.getOnlineServers()) {
+    if (!this.serverManager.isServerOnline(sn)) {
+      LOG.info("Registering server found up in zk: " + sn);
+      this.serverManager.recordNewServer(sn,HServerLoad.EMPTY_HSERVERLOAD);
+    }
+  }
+  this.fileSystemManager.splitLogAfterStartup(this.serverManager.getOnlineServers().keySet());
   assignRootAndMeta();
-  if (regionCount == 0) {
-    LOG.info("Master startup proceeding: cluster startup");
-    this.assignmentManager.cleanoutUnassigned();
-    this.assignmentManager.assignAllUserRegions();
-  }
- else {
-    LOG.info("Master startup proceeding: master failover");
-    this.assignmentManager.processFailover();
-  }
+  this.assignmentManager.joinCluster();
   this.balancerChore=getAndStartBalancerChore(this);
   this.catalogJanitorChore=Threads.setDaemonThreadRunning(new CatalogJanitor(this,this));
   LOG.info("Master has completed initialization");

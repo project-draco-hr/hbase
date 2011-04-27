@@ -10,26 +10,18 @@
     public boolean processRow(    Result result) throws IOException {
       try {
         long ts=Collections.max(result.list(),comp).getTimestamp();
-        byte[] value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-        if (value == null || value.length == 0) {
+        Pair<HRegionInfo,ServerName> pair=MetaReader.metaRowToRegionPair(result);
+        if (pair == null || pair.getFirst() == null) {
           emptyRegionInfoQualifiers.add(result);
           return true;
         }
-        HRegionInfo info=Writables.getHRegionInfo(value);
-        HServerAddress server=null;
-        byte[] startCode=null;
-        value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
-        if (value != null && value.length > 0) {
-          String address=Bytes.toString(value);
-          server=new HServerAddress(address);
+        ServerName sn=null;
+        if (pair.getSecond() != null) {
+          sn=pair.getSecond();
         }
-        value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
-        if (value != null) {
-          startCode=value;
-        }
-        MetaEntry m=new MetaEntry(info,server,startCode,ts);
+        MetaEntry m=new MetaEntry(pair.getFirst(),sn,ts);
         HbckInfo hbInfo=new HbckInfo(m);
-        HbckInfo previous=regionInfo.put(info.getEncodedName(),hbInfo);
+        HbckInfo previous=regionInfo.put(pair.getFirst().getEncodedName(),hbInfo);
         if (previous != null) {
           throw new IOException("Two entries in META are same " + previous);
         }

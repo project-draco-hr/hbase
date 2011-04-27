@@ -2,10 +2,10 @@
   try {
     for (    Map.Entry<Writable,Writable> e : c.entrySet()) {
       String key=e.getKey().toString();
-      if (key.equals("hbase.regionserver.address")) {
-        HServerAddress hsa=(HServerAddress)e.getValue();
-        LOG.info("Master passed us address to use. Was=" + this.serverInfo.getServerAddress() + ", Now="+ hsa.toString());
-        this.serverInfo.setServerAddress(hsa);
+      if (key.equals(HConstants.KEY_FOR_HOSTNAME_SEEN_BY_MASTER)) {
+        String hostnameFromMasterPOV=e.getValue().toString();
+        this.serverNameFromMasterPOV=new ServerName(hostnameFromMasterPOV,this.isa.getPort(),this.startcode);
+        LOG.info("Master passed us hostname to use. Was=" + this.isa.getHostName() + ", Now="+ this.serverNameFromMasterPOV.getHostname());
         continue;
       }
       String value=e.getValue().toString();
@@ -15,15 +15,16 @@
       this.conf.set(key,value);
     }
     if (this.conf.get("mapred.task.id") == null) {
-      this.conf.set("mapred.task.id","hb_rs_" + this.serverInfo.getServerName() + "_"+ System.currentTimeMillis());
+      this.conf.set("mapred.task.id","hb_rs_" + this.serverNameFromMasterPOV.toString());
     }
+    createMyEphemeralNode();
     this.conf.set("fs.defaultFS",this.conf.get("hbase.rootdir"));
     this.fs=FileSystem.get(this.conf);
     this.rootDir=new Path(this.conf.get(HConstants.HBASE_DIR));
     this.hlog=setupWALAndReplication();
     this.metrics=new RegionServerMetrics();
     startServiceThreads();
-    LOG.info("Serving as " + this.serverInfo.getServerName() + ", RPC listening on "+ this.server.getListenerAddress()+ ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
+    LOG.info("Serving as " + this.serverNameFromMasterPOV + ", RPC listening on "+ this.isa+ ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
     isOnline=true;
   }
  catch (  Throwable e) {

@@ -4,19 +4,20 @@
       return master;
     }
   }
-  HServerAddress masterLocation=null;
+  ServerName sn=null;
 synchronized (this.masterLock) {
     for (int tries=0; !this.closed && !this.masterChecked && this.master == null && tries < numRetries; tries++) {
       try {
-        masterLocation=masterAddressTracker.getMasterAddress();
-        if (masterLocation == null) {
+        sn=masterAddressTracker.getMasterAddress();
+        if (sn == null) {
           LOG.info("ZooKeeper available but no active master location found");
           throw new MasterNotRunningException();
         }
         if (clusterId.hasId()) {
           conf.set(HConstants.CLUSTER_ID,clusterId.getId());
         }
-        HMasterInterface tryMaster=(HMasterInterface)HBaseRPC.getProxy(HMasterInterface.class,HMasterInterface.VERSION,masterLocation.getInetSocketAddress(),this.conf,this.rpcTimeout);
+        InetSocketAddress isa=new InetSocketAddress(sn.getHostname(),sn.getPort());
+        HMasterInterface tryMaster=(HMasterInterface)HBaseRPC.getProxy(HMasterInterface.class,HMasterInterface.VERSION,isa,this.conf,this.rpcTimeout);
         if (tryMaster.isMasterRunning()) {
           this.master=tryMaster;
           this.masterLock.notifyAll();
@@ -41,10 +42,10 @@ synchronized (this.masterLock) {
     this.masterChecked=true;
   }
   if (this.master == null) {
-    if (masterLocation == null) {
+    if (sn == null) {
       throw new MasterNotRunningException();
     }
-    throw new MasterNotRunningException(masterLocation.toString());
+    throw new MasterNotRunningException(sn.toString());
   }
   return this.master;
 }

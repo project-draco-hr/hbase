@@ -1,11 +1,29 @@
 {
   List<String> nodes=ZKUtil.listChildrenAndWatchForNewChildren(watcher,watcher.assignmentZNode);
-  if (nodes.isEmpty()) {
-    LOG.info("No regions in transition in ZK to process on failover");
-    return;
+  boolean userRegionsOutOnCluster=false;
+  for (  Map.Entry<HRegionInfo,ServerName> e : this.regions.entrySet()) {
+    if (!e.getKey().isMetaRegion() && e.getValue() != null) {
+      LOG.debug("Found " + e + " out on cluster");
+      userRegionsOutOnCluster=true;
+      break;
+    }
+    if (nodes.contains(e.getKey().getEncodedName())) {
+      LOG.debug("Found " + e + " in RITs");
+      userRegionsOutOnCluster=true;
+      break;
+    }
   }
-  LOG.info("Failed-over master needs to process " + nodes.size() + " regions in transition");
-  for (  String encodedRegionName : nodes) {
-    processRegionInTransition(encodedRegionName,null);
+  if (userRegionsOutOnCluster) {
+    LOG.info("Found regions out on cluster or in RIT; failover");
+    processDeadServers(deadServers);
+    if (!nodes.isEmpty()) {
+      for (      String encodedRegionName : nodes) {
+        processRegionInTransition(encodedRegionName,null);
+      }
+    }
+  }
+ else {
+    cleanoutUnassigned();
+    assignAllUserRegions();
   }
 }
