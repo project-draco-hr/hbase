@@ -1,34 +1,26 @@
 {
-  ServerName masterServerName=null;
-  while (!stopped && (masterServerName=getMaster()) == null) {
-    LOG.warn("Unable to get master for initialization -- sleeping");
-    sleeper.sleep();
-  }
   MapWritable result=null;
-  long lastMsg=0;
-  while (!stopped) {
-    try {
-      this.requestCount.set(0);
-      LOG.info("Telling master at " + masterServerName + " that we are up "+ "with port="+ this.isa.getPort()+ ", startcode="+ this.startcode);
-      lastMsg=EnvironmentEdgeManager.currentTimeMillis();
-      int port=this.isa.getPort();
-      result=this.hbaseMaster.regionServerStartup(port,this.startcode,lastMsg);
-      break;
+  ServerName masterServerName=getMaster();
+  if (masterServerName == null)   return result;
+  try {
+    this.requestCount.set(0);
+    LOG.info("Telling master at " + masterServerName + " that we are up "+ "with port="+ this.isa.getPort()+ ", startcode="+ this.startcode);
+    long now=EnvironmentEdgeManager.currentTimeMillis();
+    int port=this.isa.getPort();
+    result=this.hbaseMaster.regionServerStartup(port,this.startcode,now);
+  }
+ catch (  RemoteException e) {
+    IOException ioe=e.unwrapRemoteException();
+    if (ioe instanceof ClockOutOfSyncException) {
+      LOG.fatal("Master rejected startup because clock is out of sync",ioe);
+      throw ioe;
     }
- catch (    RemoteException e) {
-      IOException ioe=e.unwrapRemoteException();
-      if (ioe instanceof ClockOutOfSyncException) {
-        LOG.fatal("Master rejected startup because clock is out of sync",ioe);
-        throw ioe;
-      }
  else {
-        LOG.warn("remote error telling master we are up",e);
-      }
+      LOG.warn("remote error telling master we are up",e);
     }
-catch (    IOException e) {
-      LOG.warn("error telling master we are up",e);
-    }
-    sleeper.sleep(lastMsg);
+  }
+catch (  IOException e) {
+    LOG.warn("error telling master we are up",e);
   }
   return result;
 }

@@ -6,10 +6,16 @@
     abort("Fatal exception during initialization",e);
   }
   try {
-    while (!this.stopped) {
-      if (tryReportForDuty())       break;
-      LOG.warn("No response on reportForDuty. Sleeping and then retrying.");
-      this.sleeper.sleep();
+    while (keepLooping()) {
+      MapWritable w=reportForDuty();
+      if (w == null) {
+        LOG.warn("reportForDuty failed; sleeping and then retrying.");
+        this.sleeper.sleep();
+      }
+ else {
+        handleReportForDutyResponse(w);
+        break;
+      }
     }
     long lastMsg=0;
     boolean onlyMetaRegionsRemaining=false;
@@ -21,9 +27,11 @@
         }
  else         if (!this.stopping) {
           this.stopping=true;
+          LOG.info("Closing user regions");
           closeUserRegions(this.abortRequested);
         }
  else         if (this.stopping && LOG.isDebugEnabled()) {
+          LOG.info("Only meta regions remain open");
           if (!onlyMetaRegionsRemaining) {
             onlyMetaRegionsRemaining=isOnlyMetaRegionsRemaining();
           }
