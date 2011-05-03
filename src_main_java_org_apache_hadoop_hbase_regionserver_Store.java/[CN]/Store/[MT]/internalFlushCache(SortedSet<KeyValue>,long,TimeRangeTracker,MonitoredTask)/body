@@ -1,0 +1,44 @@
+{
+  StoreFile.Writer writer=null;
+  long flushed=0;
+  if (set.size() == 0) {
+    return null;
+  }
+  long oldestTimestamp=System.currentTimeMillis() - ttl;
+synchronized (flushLock) {
+    status.setStatus("Flushing " + this + ": creating writer");
+    writer=createWriterInTmp(set.size());
+    writer.setTimeRangeTracker(snapshotTimeRangeTracker);
+    int entries=0;
+    try {
+      for (      KeyValue kv : set) {
+        if (!isExpired(kv,oldestTimestamp)) {
+          writer.append(kv);
+          entries++;
+          flushed+=this.memstore.heapSizeChange(kv,true);
+        }
+      }
+    }
+  finally {
+      status.setStatus("Flushing " + this + ": appending metadata");
+      writer.appendMetadata(logCacheFlushId,false);
+      status.setStatus("Flushing " + this + ": closing flushed file");
+      writer.close();
+    }
+  }
+  Path dstPath=StoreFile.getUniqueFile(fs,homedir);
+  String msg="Renaming flushed file at " + writer.getPath() + " to "+ dstPath;
+  LOG.info(msg);
+  status.setStatus("Flushing " + this + ": "+ msg);
+  if (!fs.rename(writer.getPath(),dstPath)) {
+    LOG.warn("Unable to rename " + writer.getPath() + " to "+ dstPath);
+  }
+  status.setStatus("Flushing " + this + ": reopening flushed file");
+  StoreFile sf=new StoreFile(this.fs,dstPath,blockcache,this.conf,this.family.getBloomFilterType(),this.inMemory);
+  StoreFile.Reader r=sf.createReader();
+  this.storeSize+=r.length();
+  if (LOG.isInfoEnabled()) {
+    LOG.info("Added " + sf + ", entries="+ r.getEntries()+ ", sequenceid="+ logCacheFlushId+ ", memsize="+ StringUtils.humanReadableInt(flushed)+ ", filesize="+ StringUtils.humanReadableInt(r.length()));
+  }
+  return sf;
+}

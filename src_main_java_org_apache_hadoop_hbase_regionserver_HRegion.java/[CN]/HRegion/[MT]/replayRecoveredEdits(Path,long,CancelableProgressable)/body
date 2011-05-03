@@ -1,5 +1,8 @@
 {
-  LOG.info("Replaying edits from " + edits + "; minSequenceid="+ minSeqId);
+  String msg="Replaying edits from " + edits + "; minSequenceid="+ minSeqId;
+  LOG.info(msg);
+  MonitoredTask status=TaskMonitor.get().createStatus(msg);
+  status.setStatus("Opening logs");
   HLog.Reader reader=HLog.getReader(this.fs,edits,conf);
   try {
     long currentEditSeqId=minSeqId;
@@ -22,9 +25,11 @@
             intervalEdits=0;
             long cur=EnvironmentEdgeManager.currentTimeMillis();
             if (lastReport + period <= cur) {
+              status.setStatus("Replaying edits..." + " skipped=" + skippedEdits + " edits="+ editsCount);
               if (!reporter.progress()) {
-                String msg="Progressable reporter failed, stopping replay";
+                msg="Progressable reporter failed, stopping replay";
                 LOG.warn(msg);
+                status.abort(msg);
                 throw new IOException(msg);
               }
               lastReport=cur;
@@ -32,6 +37,7 @@
           }
         }
         if (coprocessorHost != null) {
+          status.setStatus("Running pre-WAL-restore hook in coprocessors");
           if (coprocessorHost.preWALRestore(this.getRegionInfo(),key,val)) {
             continue;
           }
@@ -61,7 +67,7 @@
           flush=restoreEdit(store,kv);
           editsCount++;
         }
-        if (flush)         internalFlushcache(null,currentEditSeqId);
+        if (flush)         internalFlushcache(null,currentEditSeqId,status);
         if (coprocessorHost != null) {
           coprocessorHost.postWALRestore(this.getRegionInfo(),key,val);
         }
@@ -69,23 +75,31 @@
     }
  catch (    EOFException eof) {
       Path p=HLog.moveAsideBadEditsFile(fs,edits);
-      LOG.warn("Encountered EOF. Most likely due to Master failure during " + "log spliting, so we have this data in another edit.  " + "Continuing, but renaming " + edits + " as "+ p,eof);
+      msg="Encountered EOF. Most likely due to Master failure during " + "log spliting, so we have this data in another edit.  " + "Continuing, but renaming " + edits + " as "+ p;
+      LOG.warn(msg,eof);
+      status.abort(msg);
     }
 catch (    IOException ioe) {
       if (ioe.getCause() instanceof ParseException) {
         Path p=HLog.moveAsideBadEditsFile(fs,edits);
-        LOG.warn("File corruption encountered!  " + "Continuing, but renaming " + edits + " as "+ p,ioe);
+        msg="File corruption encountered!  " + "Continuing, but renaming " + edits + " as "+ p;
+        LOG.warn(msg,ioe);
+        status.setStatus(msg);
       }
  else {
+        status.abort(StringUtils.stringifyException(ioe));
         throw ioe;
       }
     }
+    msg="Applied " + editsCount + ", skipped "+ skippedEdits+ ", firstSequenceidInLog="+ firstSeqIdInLog+ ", maxSequenceidInLog="+ currentEditSeqId;
+    status.markComplete(msg);
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Applied " + editsCount + ", skipped "+ skippedEdits+ ", firstSequenceidInLog="+ firstSeqIdInLog+ ", maxSequenceidInLog="+ currentEditSeqId);
+      LOG.debug(msg);
     }
     return currentEditSeqId;
   }
   finally {
     reader.close();
+    status.cleanup();
   }
 }

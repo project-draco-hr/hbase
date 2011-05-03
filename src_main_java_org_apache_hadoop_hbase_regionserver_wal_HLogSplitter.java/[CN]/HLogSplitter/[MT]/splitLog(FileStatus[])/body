@@ -3,6 +3,7 @@
   List<Path> corruptedLogs=new ArrayList<Path>();
   List<Path> splits=null;
   boolean skipErrors=conf.getBoolean("hbase.hlog.split.skip.errors",true);
+  long totalBytesToSplit=countTotalBytes(logfiles);
   splitSize=0;
   outputSink.startWriterThreads(entryBuffers);
   try {
@@ -11,7 +12,7 @@
       Path logPath=log.getPath();
       long logLength=log.getLen();
       splitSize+=logLength;
-      LOG.debug("Splitting hlog " + (i++ + 1) + " of "+ logfiles.length+ ": "+ logPath+ ", length="+ logLength);
+      logAndReport("Splitting hlog " + (i++ + 1) + " of "+ logfiles.length+ ": "+ logPath+ ", length="+ logLength);
       Reader in;
       try {
         in=getReader(fs,log,conf,skipErrors);
@@ -32,12 +33,15 @@
         continue;
       }
     }
+    status.setStatus("Log splits complete. Checking for orphaned logs.");
     if (fs.listStatus(srcDir).length > processedLogs.size() + corruptedLogs.size()) {
       throw new OrphanHLogAfterSplitException("Discovered orphan hlog after split. Maybe the " + "HRegionServer was not dead when we started");
     }
+    status.setStatus("Archiving logs after completed split");
     archiveLogs(srcDir,corruptedLogs,processedLogs,oldLogDir,fs,conf);
   }
   finally {
+    status.setStatus("Finishing writing output logs and closing down.");
     splits=outputSink.finishWritingAndClose();
   }
   return splits;

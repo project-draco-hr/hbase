@@ -1,13 +1,18 @@
 {
+  MonitoredTask status=TaskMonitor.get().createStatus("Initializing region " + this);
   if (coprocessorHost != null) {
+    status.setStatus("Running coprocessor pre-open hook");
     coprocessorHost.preOpen();
   }
   this.closing.set(false);
   this.closed.set(false);
+  status.setStatus("Writing region info on filesystem");
   checkRegioninfoOnFilesystem();
+  status.setStatus("Cleaning up temporary data from old regions");
   cleanupTmpDir();
   long maxSeqId=-1;
   for (  HColumnDescriptor c : this.regionInfo.getTableDesc().getFamilies()) {
+    status.setStatus("Instantiating store for column family " + c);
     Store store=instantiateHStore(this.tableDir,c);
     this.stores.put(c.getName(),store);
     long storeSeqId=store.getMaxSequenceId();
@@ -15,7 +20,8 @@
       maxSeqId=storeSeqId;
     }
   }
-  maxSeqId=replayRecoveredEditsIfAny(this.regiondir,maxSeqId,reporter);
+  maxSeqId=replayRecoveredEditsIfAny(this.regiondir,maxSeqId,reporter,status);
+  status.setStatus("Cleaning up detritus from prior splits");
   SplitTransaction.cleanupAnySplitDetritus(this);
   FSUtils.deleteDirectory(this.fs,new Path(regiondir,MERGEDIR));
   this.writestate.setReadOnly(this.regionInfo.getTableDesc().isReadOnly());
@@ -24,7 +30,9 @@
   long nextSeqid=maxSeqId + 1;
   LOG.info("Onlined " + this.toString() + "; next sequenceid="+ nextSeqid);
   if (coprocessorHost != null) {
+    status.setStatus("Running coprocessor post-open hooks");
     coprocessorHost.postOpen();
   }
+  status.markComplete("Region opened successfully");
   return nextSeqid;
 }

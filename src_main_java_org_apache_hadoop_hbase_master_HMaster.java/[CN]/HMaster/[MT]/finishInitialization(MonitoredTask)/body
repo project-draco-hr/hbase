@@ -1,0 +1,33 @@
+{
+  isActiveMaster=true;
+  status.setStatus("Initializing Master file system");
+  this.fileSystemManager=new MasterFileSystem(this,metrics);
+  status.setStatus("Publishing Cluster ID in ZooKeeper");
+  ClusterId.setClusterId(this.zooKeeper,fileSystemManager.getClusterId());
+  this.executorService=new ExecutorService(getServerName().toString());
+  this.serverManager=new ServerManager(this,this);
+  status.setStatus("Initializing ZK system trackers");
+  initializeZKBasedSystemTrackers();
+  status.setStatus("Initializing master coprocessors");
+  this.cpHost=new MasterCoprocessorHost(this,this.conf);
+  status.setStatus("Initializing master service threads");
+  startServiceThreads();
+  this.serverManager.waitForRegionServers(status);
+  for (  ServerName sn : this.regionServerTracker.getOnlineServers()) {
+    if (!this.serverManager.isServerOnline(sn)) {
+      LOG.info("Registering server found up in zk: " + sn);
+      this.serverManager.recordNewServer(sn,HServerLoad.EMPTY_HSERVERLOAD);
+    }
+  }
+  status.setStatus("Splitting logs after master startup");
+  this.fileSystemManager.splitLogAfterStartup(this.serverManager.getOnlineServers().keySet());
+  assignRootAndMeta(status);
+  status.setStatus("Starting assignment manager");
+  this.assignmentManager.joinCluster();
+  status.setStatus("Starting balancer and catalog janitor");
+  this.balancerChore=getAndStartBalancerChore(this);
+  this.catalogJanitorChore=Threads.setDaemonThreadRunning(new CatalogJanitor(this,this));
+  status.markComplete("Initialization successful");
+  LOG.info("Master has completed initialization");
+  initialized=true;
+}

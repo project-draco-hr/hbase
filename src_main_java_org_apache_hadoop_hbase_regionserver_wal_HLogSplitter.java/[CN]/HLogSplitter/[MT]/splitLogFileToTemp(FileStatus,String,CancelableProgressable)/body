@@ -1,6 +1,8 @@
 {
   final Map<byte[],Object> logWriters=Collections.synchronizedMap(new TreeMap<byte[],Object>(Bytes.BYTES_COMPARATOR));
   boolean isCorrupted=false;
+  Preconditions.checkState(status == null);
+  status=TaskMonitor.get().createStatus("Splitting log file " + logfile.getPath() + "into a temporary staging area.");
   Object BAD_WRITER=new Object();
   boolean progress_failed=false;
   boolean skipErrors=conf.getBoolean("hbase.hlog.split.skip.errors",true);
@@ -9,6 +11,7 @@
   Path logPath=logfile.getPath();
   long logLength=logfile.getLen();
   LOG.info("Splitting hlog: " + logPath + ", length="+ logLength);
+  status.setStatus("Opening log file");
   Reader in=null;
   try {
     in=getReader(fs,logfile,conf,skipErrors);
@@ -19,12 +22,14 @@
     isCorrupted=true;
   }
   if (in == null) {
+    status.markComplete("Was nothing to split in log file");
     LOG.warn("Nothing to split in log file " + logPath);
     return true;
   }
   long t=EnvironmentEdgeManager.currentTimeMillis();
   long last_report_at=t;
   if (reporter != null && reporter.progress() == false) {
+    status.markComplete("Failed: reporter.progress asked us to terminate");
     return false;
   }
   int editsCount=0;
@@ -49,10 +54,12 @@
       wap.w.append(entry);
       editsCount++;
       if (editsCount % interval == 0) {
+        status.setStatus("Split " + editsCount + " edits");
         long t1=EnvironmentEdgeManager.currentTimeMillis();
         if ((t1 - last_report_at) > period) {
           last_report_at=t;
           if (reporter != null && reporter.progress() == false) {
+            status.markComplete("Failed: reporter.progress asked us to terminate");
             progress_failed=true;
             return false;
           }
@@ -87,7 +94,9 @@ catch (  IOException e) {
       wap.w.close();
       LOG.debug("Closed " + wap.p);
     }
-    LOG.info("processed " + editsCount + " edits across "+ n+ " regions"+ " threw away edits for "+ (logWriters.size() - n)+ " regions"+ " log file = "+ logPath+ " is corrupted = "+ isCorrupted);
+    String msg=("processed " + editsCount + " edits across "+ n+ " regions"+ " threw away edits for "+ (logWriters.size() - n)+ " regions"+ " log file = "+ logPath+ " is corrupted = "+ isCorrupted);
+    LOG.info(msg);
+    status.markComplete(msg);
   }
   return true;
 }
