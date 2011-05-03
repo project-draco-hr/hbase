@@ -1,7 +1,7 @@
 {
   if (replicatedScanner == null) {
     Configuration conf=context.getConfiguration();
-    Scan scan=new Scan();
+    final Scan scan=new Scan();
     scan.setCaching(conf.getInt(TableInputFormat.SCAN_CACHEDROWS,1));
     long startTime=conf.getLong(NAME + ".startTime",0);
     long endTime=conf.getLong(NAME + ".endTime",0);
@@ -15,17 +15,22 @@
     if (startTime != 0) {
       scan.setTimeRange(startTime,endTime == 0 ? HConstants.LATEST_TIMESTAMP : endTime);
     }
-    try {
-      HConnection conn=HConnectionManager.getConnection(conf);
-      ReplicationZookeeper zk=new ReplicationZookeeper(conn,conf,conn.getZooKeeperWatcher());
-      ReplicationPeer peer=zk.getPeer(conf.get(NAME + ".peerId"));
-      HTable replicatedTable=new HTable(peer.getConfiguration(),conf.get(NAME + ".tableName"));
-      scan.setStartRow(value.getRow());
-      replicatedScanner=replicatedTable.getScanner(scan);
+    HConnectionManager.execute(new HConnectable<Void>(conf){
+      @Override public Void connect(      HConnection conn) throws IOException {
+        try {
+          ReplicationZookeeper zk=new ReplicationZookeeper(conn,conf,conn.getZooKeeperWatcher());
+          ReplicationPeer peer=zk.getPeer(conf.get(NAME + ".peerId"));
+          HTable replicatedTable=new HTable(peer.getConfiguration(),conf.get(NAME + ".tableName"));
+          scan.setStartRow(value.getRow());
+          replicatedScanner=replicatedTable.getScanner(scan);
+        }
+ catch (        KeeperException e) {
+          throw new IOException("Got a ZK exception",e);
+        }
+        return null;
+      }
     }
- catch (    KeeperException e) {
-      throw new IOException("Got a ZK exception",e);
-    }
+);
   }
   Result res=replicatedScanner.next();
   try {
