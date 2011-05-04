@@ -1,0 +1,29 @@
+{
+  assertNoErrors(doFsck(false));
+  HTable tbl=TEST_UTIL.createTable(Bytes.toBytes("table2"),FAM);
+  HRegionInfo hriOrig=tbl.getRegionsInfo().keySet().iterator().next();
+  HServerAddress rsAddressOrig=tbl.getRegionsInfo().get(hriOrig);
+  byte[][] startKeys=new byte[][]{HConstants.EMPTY_BYTE_ARRAY,Bytes.toBytes("A"),Bytes.toBytes("B"),Bytes.toBytes("C")};
+  TEST_UTIL.createMultiRegions(conf,tbl,FAM,startKeys);
+  Path rootDir=new Path(conf.get(HConstants.HBASE_DIR));
+  FileSystem fs=rootDir.getFileSystem(conf);
+  Path p=new Path(rootDir + "/table2",hriOrig.getEncodedName());
+  fs.delete(p,true);
+  Thread.sleep(1 * 1000);
+  ArrayList servers=new ArrayList();
+  servers.add(rsAddressOrig);
+  HBaseFsckRepair.fixDupeAssignment(conf,hriOrig,servers);
+  assertNoErrors(doFsck(false));
+  HRegionInfo hriDupe=createRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("A"),Bytes.toBytes("A2"));
+  TEST_UTIL.getHBaseCluster().getMaster().assignRegion(hriDupe);
+  TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(hriDupe);
+  assertErrors(doFsck(false),new ERROR_CODE[]{ERROR_CODE.DUPE_STARTKEYS});
+  HRegionInfo hriOverlap=createRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("A2"),Bytes.toBytes("B2"));
+  TEST_UTIL.getHBaseCluster().getMaster().assignRegion(hriOverlap);
+  TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(hriOverlap);
+  assertErrors(doFsck(false),new ERROR_CODE[]{ERROR_CODE.DUPE_STARTKEYS,ERROR_CODE.OVERLAP_IN_REGION_CHAIN,ERROR_CODE.OVERLAP_IN_REGION_CHAIN});
+  HRegionInfo hriHole=createRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("D"),Bytes.toBytes("E"));
+  TEST_UTIL.getHBaseCluster().getMaster().assignRegion(hriHole);
+  TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(hriHole);
+  assertErrors(doFsck(false),new ERROR_CODE[]{ERROR_CODE.DUPE_STARTKEYS,ERROR_CODE.OVERLAP_IN_REGION_CHAIN,ERROR_CODE.OVERLAP_IN_REGION_CHAIN,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+}

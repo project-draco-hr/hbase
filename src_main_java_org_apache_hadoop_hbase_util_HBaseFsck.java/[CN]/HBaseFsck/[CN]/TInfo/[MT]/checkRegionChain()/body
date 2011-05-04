@@ -1,0 +1,33 @@
+{
+  Collections.sort(regions);
+  HbckInfo last=null;
+  for (  HbckInfo r : regions) {
+    if (last == null) {
+      if (!Bytes.equals(r.metaEntry.getStartKey(),HConstants.EMPTY_BYTE_ARRAY)) {
+        errors.reportError(ERROR_CODE.FIRST_REGION_STARTKEY_NOT_EMPTY,"First region should start with an empty key.",this,r);
+      }
+    }
+ else {
+      if (!Bytes.equals(r.metaEntry.getEndKey(),HConstants.EMPTY_BYTE_ARRAY)) {
+        int cmpRegionKeys=Bytes.compareTo(r.metaEntry.getStartKey(),r.metaEntry.getEndKey());
+        if (cmpRegionKeys > 0) {
+          errors.reportError(ERROR_CODE.REGION_CYCLE,String.format("The endkey for this region comes before the " + "startkey, startkey=%s, endkey=%s",Bytes.toString(r.metaEntry.getStartKey()),Bytes.toString(r.metaEntry.getEndKey())),this,r,last);
+        }
+      }
+      if (Bytes.equals(r.metaEntry.getStartKey(),last.metaEntry.getStartKey())) {
+        errors.reportError(ERROR_CODE.DUPE_STARTKEYS,"Two regions have the same startkey: " + Bytes.toString(r.metaEntry.getStartKey()),this,r,last);
+      }
+ else {
+        int cmp=Bytes.compareTo(r.metaEntry.getStartKey(),last.metaEntry.getEndKey());
+        if (cmp > 0) {
+          errors.reportError(ERROR_CODE.HOLE_IN_REGION_CHAIN,"There is a hole in the region chain.",this,r,last);
+        }
+ else         if (cmp < 0) {
+          errors.reportError(ERROR_CODE.OVERLAP_IN_REGION_CHAIN,"There is an overlap in the region chain.",this,r,last);
+        }
+      }
+    }
+    last=r;
+  }
+  return errors.getErrorList().size() == 0;
+}
