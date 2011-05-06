@@ -4,14 +4,34 @@
     throw new TableNotFoundException("Table " + Bytes.toStringBinary(table.getTableName()) + "is not currently available.");
   }
   Deque<LoadQueueItem> queue=null;
+  int nrThreads=cfg.getInt("hbase.loadincremental.threads.max",Runtime.getRuntime().availableProcessors());
+  ThreadFactoryBuilder builder=new ThreadFactoryBuilder();
+  builder.setNameFormat("LoadIncrementalHFiles-%1$d");
+  ExecutorService pool=new ThreadPoolExecutor(nrThreads,nrThreads,60,TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>(),builder.build());
+  ((ThreadPoolExecutor)pool).allowCoreThreadTimeOut(true);
   try {
     queue=discoverLoadQueue(hfofDir);
     while (!queue.isEmpty()) {
-      LoadQueueItem item=queue.remove();
-      tryLoad(item,conn,table.getTableName(),queue);
+      Pair<byte[][],byte[][]> startEndKeys=table.getStartEndKeys();
+      while (!queue.isEmpty()) {
+        LoadQueueItem item=queue.remove();
+        tryLoad(item,conn,table,queue,startEndKeys,pool);
+      }
+    }
+    for (    Future<Void> future : futures) {
+      try {
+        future.get();
+      }
+ catch (      ExecutionException ee) {
+        LOG.error(ee);
+      }
+catch (      InterruptedException ie) {
+        LOG.error(ie);
+      }
     }
   }
   finally {
+    pool.shutdown();
     if (queue != null && !queue.isEmpty()) {
       StringBuilder err=new StringBuilder();
       err.append("-------------------------------------------------\n");
