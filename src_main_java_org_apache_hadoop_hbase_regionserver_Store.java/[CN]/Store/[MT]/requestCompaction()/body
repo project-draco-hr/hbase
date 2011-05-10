@@ -1,0 +1,41 @@
+{
+  if (!this.region.areWritesEnabled()) {
+    return null;
+  }
+  CompactionRequest ret=null;
+  this.lock.readLock().lock();
+  try {
+synchronized (filesCompacting) {
+      List<StoreFile> candidates=Lists.newArrayList(storefiles);
+      if (!filesCompacting.isEmpty()) {
+        StoreFile last=filesCompacting.get(filesCompacting.size() - 1);
+        int idx=candidates.indexOf(last);
+        Preconditions.checkArgument(idx != -1);
+        candidates=candidates.subList(idx + 1,candidates.size());
+      }
+      List<StoreFile> filesToCompact=compactSelection(candidates);
+      if (filesToCompact.isEmpty()) {
+        return null;
+      }
+      if (!Collections.disjoint(filesCompacting,filesToCompact)) {
+        Preconditions.checkArgument(false,"%s overlaps with %s",filesToCompact,filesCompacting);
+      }
+      filesCompacting.addAll(filesToCompact);
+      Collections.sort(filesCompacting,StoreFile.Comparators.FLUSH_TIME);
+      boolean isMajor=(filesToCompact.size() == this.storefiles.size());
+      if (isMajor) {
+        this.forceMajor=false;
+        this.majorCompactionTime=getNextMajorCompactTime();
+      }
+      int pri=getCompactPriority();
+      ret=new CompactionRequest(region,this,filesToCompact,isMajor,pri);
+    }
+  }
+ catch (  IOException ex) {
+    LOG.error("Compaction Request failed for region " + region + ", store "+ this,RemoteExceptionHandler.checkIOException(ex));
+  }
+ finally {
+    this.lock.readLock().unlock();
+  }
+  return ret;
+}

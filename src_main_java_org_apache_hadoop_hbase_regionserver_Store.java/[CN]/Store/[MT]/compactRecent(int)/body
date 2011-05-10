@@ -1,14 +1,38 @@
 {
-synchronized (compactLock) {
-    List<StoreFile> filesToCompact=this.storefiles;
-    int count=filesToCompact.size();
-    if (N > count) {
-      throw new RuntimeException("Not enough files");
+  List<StoreFile> filesToCompact;
+  long maxId;
+  boolean isMajor;
+  this.lock.readLock().lock();
+  try {
+synchronized (filesCompacting) {
+      filesToCompact=Lists.newArrayList(storefiles);
+      if (!filesCompacting.isEmpty()) {
+        StoreFile last=filesCompacting.get(filesCompacting.size() - 1);
+        int idx=filesToCompact.indexOf(last);
+        Preconditions.checkArgument(idx != -1);
+        filesToCompact=filesToCompact.subList(idx + 1,filesToCompact.size());
+      }
+      int count=filesToCompact.size();
+      if (N > count) {
+        throw new RuntimeException("Not enough files");
+      }
+      filesToCompact=filesToCompact.subList(count - N,count);
+      maxId=StoreFile.getMaxSequenceIdInList(filesToCompact);
+      isMajor=(filesToCompact.size() == storefiles.size());
+      filesCompacting.addAll(filesToCompact);
+      Collections.sort(filesCompacting,StoreFile.Comparators.FLUSH_TIME);
     }
-    filesToCompact=new ArrayList<StoreFile>(filesToCompact.subList(count - N,count));
-    long maxId=StoreFile.getMaxSequenceIdInList(filesToCompact);
-    boolean majorcompaction=(N == count);
-    StoreFile.Writer writer=compactStore(filesToCompact,majorcompaction,maxId);
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+  try {
+    StoreFile.Writer writer=compactStore(filesToCompact,isMajor,maxId);
     StoreFile sf=completeCompaction(filesToCompact,writer);
+  }
+  finally {
+synchronized (filesCompacting) {
+      filesCompacting.removeAll(filesToCompact);
+    }
   }
 }

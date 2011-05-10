@@ -2,19 +2,29 @@
   while (!this.server.isStopped()) {
     CompactionRequest compactionRequest=null;
     HRegion r=null;
+    boolean completed=false;
     try {
       compactionRequest=compactionQueue.poll(this.frequency,TimeUnit.MILLISECONDS);
       if (compactionRequest != null) {
+        r=compactionRequest.getHRegion();
         lock.lock();
         try {
           if (!this.server.isStopped()) {
-            r=compactionRequest.getHRegion();
-            byte[] midKey=r.compactStore(compactionRequest.getStore());
-            if (r.getLastCompactInfo() != null) {
-              this.server.getMetrics().addCompaction(r.getLastCompactInfo());
+            if (shouldSplitRegion() && r.getCompactPriority() >= PRIORITY_USER) {
+              byte[] midkey=compactionRequest.getStore().checkSplit();
+              if (midkey != null) {
+                split(r,midkey);
+                continue;
+              }
             }
-            if (shouldSplitRegion() && midKey != null && !this.server.isStopped()) {
-              split(r,midKey);
+          }
+          if (!this.server.isStopped()) {
+            long startTime=EnvironmentEdgeManager.currentTimeMillis();
+            completed=r.compact(compactionRequest);
+            long now=EnvironmentEdgeManager.currentTimeMillis();
+            LOG.info(((completed) ? "completed" : "aborted") + " compaction: " + compactionRequest+ ", duration="+ StringUtils.formatTimeDiff(now,startTime));
+            if (completed) {
+              this.server.getMetrics().addCompaction(now - startTime,compactionRequest.getSize());
             }
           }
         }
@@ -27,16 +37,26 @@
       continue;
     }
 catch (    IOException ex) {
-      LOG.error("Compaction/Split failed for region " + r.getRegionNameAsString(),RemoteExceptionHandler.checkIOException(ex));
+      LOG.error("Compaction/Split failed " + compactionRequest,RemoteExceptionHandler.checkIOException(ex));
       if (!server.checkFileSystem()) {
         break;
       }
     }
 catch (    Exception ex) {
-      LOG.error("Compaction failed" + (r != null ? (" for region " + r.getRegionNameAsString()) : ""),ex);
+      LOG.error("Compaction failed " + compactionRequest,ex);
       if (!server.checkFileSystem()) {
         break;
       }
+    }
+ finally {
+      if (compactionRequest != null) {
+        Store s=compactionRequest.getStore();
+        s.finishRequest(compactionRequest);
+        if (s.getCompactPriority() < PRIORITY_USER && completed) {
+          requestCompaction(r,s,"Recursive enqueue");
+        }
+      }
+      compactionRequest=null;
     }
   }
   compactionQueue.clear();

@@ -1,0 +1,23 @@
+{
+  if (cr == null || cr.getFiles().isEmpty()) {
+    return;
+  }
+  Preconditions.checkArgument(cr.getStore().toString().equals(this.toString()));
+  List<StoreFile> filesToCompact=cr.getFiles();
+synchronized (filesCompacting) {
+    Preconditions.checkArgument(filesCompacting.containsAll(filesToCompact));
+  }
+  long maxId=StoreFile.getMaxSequenceIdInList(filesToCompact);
+  LOG.info("Starting compaction of " + filesToCompact.size() + " file(s) in "+ this.storeNameStr+ " of "+ this.region.getRegionInfo().getRegionNameAsString()+ " into "+ region.getTmpDir()+ ", seqid="+ maxId+ ", totalSize="+ StringUtils.humanReadableInt(cr.getSize()));
+  StoreFile sf=null;
+  try {
+    StoreFile.Writer writer=compactStore(filesToCompact,cr.isMajor(),maxId);
+    sf=completeCompaction(filesToCompact,writer);
+  }
+  finally {
+synchronized (filesCompacting) {
+      filesCompacting.removeAll(filesToCompact);
+    }
+  }
+  LOG.info("Completed" + (cr.isMajor() ? " major " : " ") + "compaction of "+ filesToCompact.size()+ " file(s) in "+ this.storeNameStr+ " of "+ this.region.getRegionInfo().getRegionNameAsString()+ "; new storefile name="+ (sf == null ? "none" : sf.toString())+ ", size="+ (sf == null ? "none" : StringUtils.humanReadableInt(sf.getReader().length()))+ "; total size for store is "+ StringUtils.humanReadableInt(storeSize));
+}
