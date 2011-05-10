@@ -3,5 +3,19 @@
   this.server=server;
   this.conf=server.getConfiguration();
   this.regionSplitLimit=conf.getInt("hbase.regionserver.regionSplitLimit",Integer.MAX_VALUE);
-  this.frequency=conf.getLong("hbase.regionserver.thread.splitcompactcheckfrequency",20 * 1000);
+  int largeThreads=Math.max(1,conf.getInt("hbase.regionserver.thread.compaction.large",1));
+  int smallThreads=conf.getInt("hbase.regionserver.thread.compaction.small",0);
+  throttleSize=conf.getLong("hbase.regionserver.thread.compaction.throttle",0);
+  int splitThreads=conf.getInt("hbase.regionserver.thread.split",1);
+  Preconditions.checkArgument(smallThreads == 0 || throttleSize > 0);
+  this.largeCompactions=new ThreadPoolExecutor(largeThreads,largeThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>());
+  this.largeCompactions.setRejectedExecutionHandler(new CompactionRequest.Rejection());
+  if (smallThreads <= 0) {
+    this.smallCompactions=null;
+  }
+ else {
+    this.smallCompactions=new ThreadPoolExecutor(smallThreads,smallThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>());
+    this.smallCompactions.setRejectedExecutionHandler(new CompactionRequest.Rejection());
+  }
+  this.splits=(ThreadPoolExecutor)Executors.newFixedThreadPool(splitThreads);
 }

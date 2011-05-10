@@ -4,16 +4,21 @@
   }
   CompactionRequest cr=s.requestCompaction();
   if (cr != null) {
+    cr.setServer(server);
     if (priority != NO_PRIORITY) {
       cr.setPriority(priority);
     }
-    boolean addedToQueue=compactionQueue.add(cr);
-    if (!addedToQueue) {
-      LOG.error("Could not add request to compaction queue: " + cr);
-      s.finishRequest(cr);
+    ThreadPoolExecutor pool=largeCompactions;
+    if (smallCompactions != null && throttleSize > cr.getSize()) {
+      pool=smallCompactions;
     }
- else     if (LOG.isDebugEnabled()) {
-      LOG.debug("Compaction requested: " + cr + (why != null && !why.isEmpty() ? "; Because: " + why : "")+ "; Priority: "+ priority+ "; Compaction queue size: "+ compactionQueue.size());
+    pool.execute(cr);
+    if (LOG.isDebugEnabled()) {
+      String type="";
+      if (smallCompactions != null) {
+        type=(pool == smallCompactions) ? "Small " : "Large ";
+      }
+      LOG.debug(type + "Compaction requested: " + cr+ (why != null && !why.isEmpty() ? "; Because: " + why : "")+ "; "+ this);
     }
   }
 }
