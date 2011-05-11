@@ -4,8 +4,15 @@
   this.conf=server.getConfiguration();
   this.regionSplitLimit=conf.getInt("hbase.regionserver.regionSplitLimit",Integer.MAX_VALUE);
   int largeThreads=Math.max(1,conf.getInt("hbase.regionserver.thread.compaction.large",1));
-  int smallThreads=conf.getInt("hbase.regionserver.thread.compaction.small",0);
-  throttleSize=conf.getLong("hbase.regionserver.thread.compaction.throttle",0);
+  int smallThreads=conf.getInt("hbase.regionserver.thread.compaction.small",1);
+  if (conf.get("hbase.regionserver.thread.compaction.throttle") != null) {
+    throttleSize=conf.getLong("hbase.regionserver.thread.compaction.throttle",0);
+  }
+ else {
+    long flushSize=conf.getLong("hbase.hregion.memstore.flush.size",HTableDescriptor.DEFAULT_MEMSTORE_FLUSH_SIZE);
+    long splitSize=conf.getLong("hbase.hregion.max.filesize",HConstants.DEFAULT_MAX_FILE_SIZE);
+    throttleSize=Math.min(flushSize * 2,splitSize / 2);
+  }
   int splitThreads=conf.getInt("hbase.regionserver.thread.split",1);
   Preconditions.checkArgument(smallThreads == 0 || throttleSize > 0);
   this.largeCompactions=new ThreadPoolExecutor(largeThreads,largeThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>());
