@@ -2,31 +2,33 @@
   checkRow(row);
   startRegionOperation();
   try {
-synchronized (lockedRows) {
-      while (lockedRows.contains(row)) {
+    HashedBytes rowKey=new HashedBytes(row);
+    CountDownLatch rowLatch=new CountDownLatch(1);
+    while (true) {
+      CountDownLatch existingLatch=lockedRows.putIfAbsent(rowKey,rowLatch);
+      if (existingLatch == null) {
+        break;
+      }
+ else {
         if (!waitForLock) {
           return null;
         }
         try {
-          lockedRows.wait();
+          existingLatch.await();
         }
  catch (        InterruptedException ie) {
         }
       }
-      byte[] prev=null;
-      Integer lockId=null;
-      do {
-        lockId=new Integer(lockIdGenerator++);
-        prev=lockIds.put(lockId,row);
-        if (prev != null) {
-          lockIds.put(lockId,prev);
-          lockIdGenerator=rand.nextInt();
-        }
+    }
+    while (true) {
+      Integer lockId=lockIdGenerator.incrementAndGet();
+      HashedBytes existingRowKey=lockIds.putIfAbsent(lockId,rowKey);
+      if (existingRowKey == null) {
+        return lockId;
       }
- while (prev != null);
-      lockedRows.add(row);
-      lockedRows.notifyAll();
-      return lockId;
+ else {
+        lockIdGenerator.set(rand.nextInt());
+      }
     }
   }
   finally {
