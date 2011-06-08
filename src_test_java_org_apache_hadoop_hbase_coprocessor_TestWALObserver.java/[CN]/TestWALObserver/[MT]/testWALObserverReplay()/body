@@ -1,0 +1,35 @@
+{
+  byte[] tableName=Bytes.toBytes("testWALCoprocessorReplay");
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(Bytes.toString(tableName));
+  final Path basedir=new Path(this.hbaseRootDir,Bytes.toString(tableName));
+  deleteDir(basedir);
+  fs.mkdirs(new Path(basedir,hri.getEncodedName()));
+  HLog wal=createWAL(this.conf);
+  WALEdit edit=new WALEdit();
+  long now=EnvironmentEdgeManager.currentTimeMillis();
+  final int countPerFamily=1000;
+  for (  HColumnDescriptor hcd : hri.getTableDesc().getFamilies()) {
+    addWALEdits(tableName,hri,TEST_ROW,hcd.getName(),countPerFamily,EnvironmentEdgeManager.getDelegate(),wal);
+  }
+  wal.append(hri,tableName,edit,now);
+  wal.sync();
+  final Configuration newConf=HBaseConfiguration.create(this.conf);
+  User user=HBaseTestingUtility.getDifferentUser(newConf,".replay.wal.secondtime");
+  user.runAs(new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      runWALSplit(newConf);
+      FileSystem newFS=FileSystem.get(newConf);
+      HLog wal2=createWAL(newConf);
+      HRegion region2=new HRegion(basedir,wal2,FileSystem.get(newConf),newConf,hri,TEST_UTIL.getHBaseCluster().getRegionServer(0));
+      long seqid2=region2.initialize();
+      SampleRegionWALObserver cp2=(SampleRegionWALObserver)region2.getCoprocessorHost().findCoprocessor(SampleRegionWALObserver.class.getName());
+      assertNotNull(cp2);
+      assertTrue(cp2.isPreWALRestoreCalled());
+      assertTrue(cp2.isPostWALRestoreCalled());
+      region2.close();
+      wal2.closeAndDelete();
+      return null;
+    }
+  }
+);
+}
