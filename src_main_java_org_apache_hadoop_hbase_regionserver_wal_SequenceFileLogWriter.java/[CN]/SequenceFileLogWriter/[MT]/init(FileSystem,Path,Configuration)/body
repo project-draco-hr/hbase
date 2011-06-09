@@ -3,33 +3,14 @@
     keyClass=HLog.getKeyClass(conf);
   }
   this.writer=SequenceFile.createWriter(fs,conf,path,keyClass,WALEdit.class,fs.getConf().getInt("io.file.buffer.size",4096),(short)conf.getInt("hbase.regionserver.hlog.replication",fs.getDefaultReplication()),conf.getLong("hbase.regionserver.hlog.blocksize",fs.getDefaultBlockSize()),SequenceFile.CompressionType.NONE,new DefaultCodec(),null,new Metadata());
-  final Field fields[]=this.writer.getClass().getDeclaredFields();
-  final String fieldName="out";
-  for (int i=0; i < fields.length; ++i) {
-    if (fieldName.equals(fields[i].getName())) {
-      try {
-        fields[i].setAccessible(true);
-        FSDataOutputStream out=(FSDataOutputStream)fields[i].get(this.writer);
-        this.dfsClient_out=out.getWrappedStream();
-        break;
-      }
- catch (      IllegalAccessException ex) {
-        throw new IOException("Accessing " + fieldName,ex);
-      }
-    }
+  this.writer_out=getSequenceFilePrivateFSDataOutputStreamAccessible();
+  this.syncFs=getSyncFs();
+  this.hflush=getHFlush();
+  String msg="syncFs=" + (this.syncFs != null) + ", hflush="+ (this.hflush != null);
+  if (this.syncFs != null || this.hflush != null) {
+    LOG.debug(msg);
   }
-  Method m=null;
-  boolean append=conf.getBoolean("dfs.support.append",false);
-  if (append) {
-    try {
-      m=this.writer.getClass().getMethod("syncFs",new Class<?>[]{});
-    }
- catch (    SecurityException e) {
-      throw new IOException("Failed test for syncfs",e);
-    }
-catch (    NoSuchMethodException e) {
-    }
+ else {
+    LOG.warn("No sync support! " + msg);
   }
-  this.syncFs=m;
-  LOG.info((this.syncFs != null) ? "Using syncFs -- HDFS-200" : ("syncFs -- HDFS-200 -- not available, dfs.support.append=" + append));
 }
