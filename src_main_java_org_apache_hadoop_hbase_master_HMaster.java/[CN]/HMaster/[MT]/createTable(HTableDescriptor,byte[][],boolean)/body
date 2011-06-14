@@ -2,24 +2,15 @@
   if (!isMasterRunning()) {
     throw new MasterNotRunningException();
   }
+  String tableName=hTableDescriptor.getNameAsString();
+  if (MetaReader.tableExists(catalogTracker,tableName)) {
+    throw new TableExistsException(tableName);
+  }
   if (cpHost != null) {
-    cpHost.preCreateTable(desc,splitKeys);
+    cpHost.preCreateTable(hTableDescriptor,splitKeys);
   }
-  HRegionInfo[] newRegions=null;
-  if (splitKeys == null || splitKeys.length == 0) {
-    newRegions=new HRegionInfo[]{new HRegionInfo(desc,null,null)};
-  }
- else {
-    int numRegions=splitKeys.length + 1;
-    newRegions=new HRegionInfo[numRegions];
-    byte[] startKey=null;
-    byte[] endKey=null;
-    for (int i=0; i < numRegions; i++) {
-      endKey=(i == splitKeys.length) ? null : splitKeys[i];
-      newRegions[i]=new HRegionInfo(desc,startKey,endKey);
-      startKey=endKey;
-    }
-  }
+  HRegionInfo[] newRegions=getHRegionInfos(hTableDescriptor,splitKeys);
+  storeTableDescriptor(hTableDescriptor);
   int timeout=conf.getInt("hbase.client.catalog.timeout",10000);
   try {
     if (catalogTracker.waitForMeta(timeout) == null) {
@@ -30,5 +21,5 @@
     LOG.warn("Interrupted waiting for meta availability",e);
     throw new IOException(e);
   }
-  createTable(newRegions,sync);
+  createTable(hTableDescriptor,newRegions,sync);
 }
