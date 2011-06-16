@@ -4,27 +4,35 @@
 synchronized (regionsInTransition) {
 switch (data.getEventType()) {
 case RS_ZK_REGION_CLOSING:
-      regionsInTransition.put(encodedRegionName,new RegionState(regionInfo,RegionState.State.CLOSING,data.getStamp(),data.getOrigin()));
+      if (isOnDeadServer(regionInfo,deadServers)) {
+        forceOffline(regionInfo,data);
+      }
+ else {
+        regionsInTransition.put(encodedRegionName,new RegionState(regionInfo,RegionState.State.CLOSING,data.getStamp(),data.getOrigin()));
+      }
     break;
 case RS_ZK_REGION_CLOSED:
-  regionsInTransition.put(encodedRegionName,new RegionState(regionInfo,RegionState.State.CLOSED,data.getStamp(),data.getOrigin()));
-new ClosedRegionHandler(master,this,regionInfo).process();
+  addToRITandCallClose(regionInfo,RegionState.State.CLOSED,data);
 break;
 case M_ZK_REGION_OFFLINE:
-regionsInTransition.put(encodedRegionName,new RegionState(regionInfo,RegionState.State.OFFLINE,data.getStamp(),data.getOrigin()));
-new ClosedRegionHandler(master,this,regionInfo).process();
+addToRITandCallClose(regionInfo,RegionState.State.OFFLINE,data);
 break;
 case RS_ZK_REGION_OPENING:
 regionsInTransition.put(encodedRegionName,new RegionState(regionInfo,RegionState.State.OPENING,data.getStamp(),data.getOrigin()));
 break;
 case RS_ZK_REGION_OPENED:
-regionsInTransition.put(encodedRegionName,new RegionState(regionInfo,RegionState.State.OPENING,data.getStamp(),data.getOrigin()));
+regionsInTransition.put(encodedRegionName,new RegionState(regionInfo,RegionState.State.OPEN,data.getStamp(),data.getOrigin()));
 ServerName sn=data.getOrigin() == null ? null : data.getOrigin();
 if (sn == null) {
 LOG.warn("Region in transition " + regionInfo.getEncodedName() + " references a null server; letting RIT timeout so will be "+ "assigned elsewhere");
 break;
 }
+if (isOnDeadServer(regionInfo,deadServers)) {
+forceOffline(regionInfo,data);
+}
+ else {
 new OpenedRegionHandler(master,this,regionInfo,sn).process();
+}
 break;
 }
 }
