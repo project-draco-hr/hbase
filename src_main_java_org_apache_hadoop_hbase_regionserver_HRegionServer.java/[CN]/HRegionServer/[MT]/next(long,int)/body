@@ -1,23 +1,22 @@
 {
+  String scannerName=String.valueOf(scannerId);
+  InternalScanner s=this.scanners.get(scannerName);
+  if (s == null)   throw new UnknownScannerException("Name: " + scannerName);
   try {
-    String scannerName=String.valueOf(scannerId);
-    InternalScanner s=this.scanners.get(scannerName);
-    if (s == null) {
-      throw new UnknownScannerException("Name: " + scannerName);
-    }
+    checkOpen();
+  }
+ catch (  IOException e) {
     try {
-      checkOpen();
+      this.leases.cancelLease(scannerName);
     }
- catch (    IOException e) {
-      try {
-        this.leases.cancelLease(scannerName);
-      }
- catch (      LeaseException le) {
-        LOG.info("Server shutting down and client tried to access missing scanner " + scannerName);
-      }
-      throw e;
+ catch (    LeaseException le) {
+      LOG.info("Server shutting down and client tried to access missing scanner " + scannerName);
     }
-    this.leases.renewLease(scannerName);
+    throw e;
+  }
+  Leases.Lease lease=null;
+  try {
+    lease=this.leases.removeLease(scannerName);
     List<Result> results=new ArrayList<Result>(nbRows);
     long currentScanResultSize=0;
     List<KeyValue> values=new ArrayList<KeyValue>();
@@ -63,9 +62,13 @@
   }
  catch (  Throwable t) {
     if (t instanceof NotServingRegionException) {
-      String scannerName=String.valueOf(scannerId);
       this.scanners.remove(scannerName);
     }
     throw convertThrowableToIOE(cleanup(t));
+  }
+ finally {
+    if (this.scanners.containsKey(scannerName)) {
+      if (lease != null)       this.leases.addLease(lease);
+    }
   }
 }
