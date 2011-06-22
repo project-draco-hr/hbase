@@ -4,17 +4,31 @@
     throw new TableExistsException(tableName);
   }
   FSUtils.createTableDescriptor(hTableDescriptor,conf);
-  for (  HRegionInfo newRegion : newRegions) {
-    try {
-      assignmentManager.getZKTable().setEnabledTable(tableName);
+  try {
+    assignmentManager.getZKTable().setEnabledTable(tableName);
+  }
+ catch (  KeeperException e) {
+    throw new IOException("Unable to ensure that the table will be" + " enabled because of a ZooKeeper issue",e);
+  }
+  List<HRegionInfo> regionInfos=new ArrayList<HRegionInfo>();
+  final int batchSize=this.conf.getInt("hbase.master.createtable.batchsize",100);
+  HLog hlog=null;
+  for (int regionIdx=0; regionIdx < newRegions.length; regionIdx++) {
+    HRegionInfo newRegion=newRegions[regionIdx];
+    HRegion region=HRegion.createHRegion(newRegion,fileSystemManager.getRootDir(),conf,hTableDescriptor,hlog);
+    if (hlog == null) {
+      hlog=region.getLog();
     }
- catch (    KeeperException e) {
-      throw new IOException("Unable to ensure that the table will be" + " enabled because of a ZooKeeper issue",e);
+    regionInfos.add(region.getRegionInfo());
+    if (regionIdx % batchSize == 0) {
+      MetaEditor.addRegionsToMeta(catalogTracker,regionInfos);
+      regionInfos.clear();
     }
-    HRegion region=HRegion.createHRegion(newRegion,fileSystemManager.getRootDir(),conf,hTableDescriptor);
-    MetaEditor.addRegionToMeta(catalogTracker,region.getRegionInfo());
     region.close();
-    region.getLog().closeAndDelete();
+  }
+  hlog.closeAndDelete();
+  if (regionInfos.size() > 0) {
+    MetaEditor.addRegionsToMeta(catalogTracker,regionInfos);
   }
   List<ServerName> servers=serverManager.getOnlineServersList();
   try {
