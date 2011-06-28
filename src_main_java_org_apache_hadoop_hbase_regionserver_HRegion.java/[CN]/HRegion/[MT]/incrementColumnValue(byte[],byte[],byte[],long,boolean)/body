@@ -1,6 +1,7 @@
 {
   checkRow(row);
   boolean flush=false;
+  boolean wrongLength=false;
   long result=amount;
   startRegionOperation();
   this.writeRequestsCount.increment();
@@ -14,20 +15,27 @@
       List<KeyValue> results=getLastIncrement(get);
       if (!results.isEmpty()) {
         KeyValue kv=results.get(0);
-        byte[] buffer=kv.getBuffer();
-        int valueOffset=kv.getValueOffset();
-        result+=Bytes.toLong(buffer,valueOffset,Bytes.SIZEOF_LONG);
+        if (kv.getValueLength() == 8) {
+          byte[] buffer=kv.getBuffer();
+          int valueOffset=kv.getValueOffset();
+          result+=Bytes.toLong(buffer,valueOffset,Bytes.SIZEOF_LONG);
+        }
+ else {
+          wrongLength=true;
+        }
       }
-      KeyValue newKv=new KeyValue(row,family,qualifier,EnvironmentEdgeManager.currentTimeMillis(),Bytes.toBytes(result));
-      if (writeToWAL) {
-        long now=EnvironmentEdgeManager.currentTimeMillis();
-        WALEdit walEdit=new WALEdit();
-        walEdit.add(newKv);
-        this.log.append(regionInfo,this.htableDescriptor.getName(),walEdit,now,this.htableDescriptor);
+      if (!wrongLength) {
+        KeyValue newKv=new KeyValue(row,family,qualifier,EnvironmentEdgeManager.currentTimeMillis(),Bytes.toBytes(result));
+        if (writeToWAL) {
+          long now=EnvironmentEdgeManager.currentTimeMillis();
+          WALEdit walEdit=new WALEdit();
+          walEdit.add(newKv);
+          this.log.append(regionInfo,this.htableDescriptor.getName(),walEdit,now,this.htableDescriptor);
+        }
+        long size=store.updateColumnValue(row,family,qualifier,result);
+        size=this.addAndGetGlobalMemstoreSize(size);
+        flush=isFlushSize(size);
       }
-      long size=store.updateColumnValue(row,family,qualifier,result);
-      size=this.addAndGetGlobalMemstoreSize(size);
-      flush=isFlushSize(size);
     }
   finally {
       this.updatesLock.readLock().unlock();
@@ -39,6 +47,9 @@
   }
   if (flush) {
     requestFlush();
+  }
+  if (wrongLength) {
+    throw new IOException("Attempted to increment field that isn't 64 bits wide");
   }
   return result;
 }
