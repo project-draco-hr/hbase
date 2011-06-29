@@ -1,4 +1,7 @@
 {
+  if (regions.size() == 0) {
+    return;
+  }
   LOG.debug("Bulk assigning " + regions.size() + " region(s) to "+ destination.toString());
   List<RegionState> states=new ArrayList<RegionState>(regions.size());
 synchronized (this.regionsInTransition) {
@@ -30,16 +33,24 @@ synchronized (this.regionsInTransition) {
         this.serverManager.sendRegionOpen(destination,regions);
         break;
       }
- catch (      org.apache.hadoop.hbase.ipc.ServerNotRunningException e) {
-        long now=System.currentTimeMillis();
-        if (now > maxWaitTime)         throw e;
-        LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",e);
-        Thread.sleep(1000);
+ catch (      RemoteException e) {
+        IOException decodedException=e.unwrapRemoteException();
+        if (decodedException instanceof RegionServerStoppedException) {
+          LOG.warn("The region server was shut down, ",decodedException);
+          return;
+        }
+ else         if (decodedException instanceof ServerNotRunningYetException) {
+          long now=System.currentTimeMillis();
+          if (now > maxWaitTime)           throw e;
+          LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",e);
+          Thread.sleep(1000);
+        }
+        throw decodedException;
       }
     }
   }
  catch (  IOException e) {
-    throw new RuntimeException(e);
+    LOG.info("Unable to communicate with the region server in order" + " to assign regions",e);
   }
 catch (  InterruptedException e) {
     throw new RuntimeException(e);
