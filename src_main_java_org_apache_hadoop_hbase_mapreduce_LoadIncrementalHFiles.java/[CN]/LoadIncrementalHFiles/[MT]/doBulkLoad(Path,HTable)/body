@@ -11,11 +11,32 @@
   ((ThreadPoolExecutor)pool).allowCoreThreadTimeOut(true);
   try {
     queue=discoverLoadQueue(hfofDir);
-    while (!queue.isEmpty()) {
+    while (!queue.isEmpty() || futuresForSplittingHFile.size() > 0) {
       Pair<byte[][],byte[][]> startEndKeys=table.getStartEndKeys();
       while (!queue.isEmpty()) {
         LoadQueueItem item=queue.remove();
         tryLoad(item,conn,table,queue,startEndKeys,pool);
+      }
+      Iterator<Future> iter=futuresForSplittingHFile.iterator();
+      while (iter.hasNext()) {
+        boolean timeoutSeen=false;
+        Future future=iter.next();
+        try {
+          future.get(20,TimeUnit.MILLISECONDS);
+          break;
+        }
+ catch (        ExecutionException ee) {
+          LOG.error(ee);
+        }
+catch (        InterruptedException ie) {
+          LOG.error(ie);
+        }
+catch (        TimeoutException te) {
+          timeoutSeen=true;
+        }
+ finally {
+          if (!timeoutSeen)           iter.remove();
+        }
       }
     }
     for (    Future<Void> future : futures) {
