@@ -7,39 +7,45 @@
     LOG.warn("Creating " + desc.getNameAsString() + " took too long",ste);
   }
   int numRegs=splitKeys == null ? 1 : splitKeys.length + 1;
-  for (int tries=0; tries < numRetries; tries++) {
-    try {
-      final AtomicInteger actualRegCount=new AtomicInteger(0);
-      MetaScannerVisitor visitor=new MetaScannerVisitor(){
-        public boolean processRow(        Result rowResult) throws IOException {
-          HRegionInfo info=Writables.getHRegionInfo(rowResult.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER));
-          if (!(Bytes.equals(info.getTableName(),desc.getName()))) {
-            return false;
-          }
-          String hostAndPort=null;
-          byte[] value=rowResult.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
-          if (value != null && value.length > 0) {
-            hostAndPort=Bytes.toString(value);
-          }
-          if (!(info.isOffline() || info.isSplit()) && hostAndPort != null) {
-            actualRegCount.incrementAndGet();
-          }
-          return true;
+  int prevRegCount=0;
+  for (int tries=0; tries < numRetries; ++tries) {
+    final AtomicInteger actualRegCount=new AtomicInteger(0);
+    MetaScannerVisitor visitor=new MetaScannerVisitor(){
+      @Override public boolean processRow(      Result rowResult) throws IOException {
+        HRegionInfo info=Writables.getHRegionInfo(rowResult.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER));
+        if (!(Bytes.equals(info.getTableDesc().getName(),desc.getName()))) {
+          return false;
         }
+        String hostAndPort=null;
+        byte[] value=rowResult.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+        if (value != null && value.length > 0) {
+          hostAndPort=Bytes.toString(value);
+        }
+        if (!(info.isOffline() || info.isSplit()) && hostAndPort != null) {
+          actualRegCount.incrementAndGet();
+        }
+        return true;
       }
+    }
 ;
-      MetaScanner.metaScan(conf,visitor,desc.getName());
-      if (actualRegCount.get() == numRegs)       break;
-    }
- catch (    RegionException e) {
+    MetaScanner.metaScan(conf,visitor,desc.getName());
+    if (actualRegCount.get() != numRegs) {
       if (tries == numRetries - 1) {
-        throw e;
+        throw new RegionOfflineException("Only " + actualRegCount.get() + " of "+ numRegs+ " regions are online; retries exhausted.");
+      }
+      try {
+        Thread.sleep(getPauseTime(tries));
+      }
+ catch (      InterruptedException e) {
+        throw new InterruptedIOException("Interrupted when opening" + " regions; " + actualRegCount.get() + " of "+ numRegs+ " regions processed so far");
+      }
+      if (actualRegCount.get() > prevRegCount) {
+        prevRegCount=actualRegCount.get();
+        tries=-1;
       }
     }
-    try {
-      Thread.sleep(getPauseTime(tries));
-    }
- catch (    InterruptedException e) {
+ else {
+      return;
     }
   }
 }
