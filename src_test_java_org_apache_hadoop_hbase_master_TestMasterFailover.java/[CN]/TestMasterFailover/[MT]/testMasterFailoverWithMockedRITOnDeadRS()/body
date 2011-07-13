@@ -29,12 +29,14 @@
   htdEnabled.addFamily(new HColumnDescriptor(FAMILY));
   FileSystem filesystem=FileSystem.get(conf);
   Path rootdir=filesystem.makeQualified(new Path(conf.get(HConstants.HBASE_DIR)));
+  FSUtils.createTableDescriptor(filesystem,rootdir,htdEnabled);
   HRegionInfo hriEnabled=new HRegionInfo(htdEnabled.getName(),null,null);
   HRegion.createHRegion(hriEnabled,rootdir,conf,htdEnabled);
   List<HRegionInfo> enabledRegions=TEST_UTIL.createMultiRegionsInMeta(TEST_UTIL.getConfiguration(),htdEnabled,SPLIT_KEYS);
   byte[] disabledTable=Bytes.toBytes("disabledTable");
   HTableDescriptor htdDisabled=new HTableDescriptor(disabledTable);
   htdDisabled.addFamily(new HColumnDescriptor(FAMILY));
+  FSUtils.createTableDescriptor(filesystem,rootdir,htdDisabled);
   HRegionInfo hriDisabled=new HRegionInfo(htdDisabled.getName(),null,null);
   HRegion.createHRegion(hriDisabled,rootdir,conf,htdDisabled);
   List<HRegionInfo> disabledRegions=TEST_UTIL.createMultiRegionsInMeta(TEST_UTIL.getConfiguration(),htdDisabled,SPLIT_KEYS);
@@ -168,7 +170,7 @@
   log("Starting up a new master");
   master=cluster.startMaster().getMaster();
   log("Waiting for master to be ready");
-  cluster.waitForActiveAndReadyMaster();
+  assertTrue(cluster.waitForActiveAndReadyMaster());
   log("Master is ready");
   region=enabledRegions.remove(0);
   regionsThatShouldBeOnline.add(region);
@@ -192,7 +194,12 @@
   log("No more RIT in RIT map, doing final test verification");
   Set<HRegionInfo> onlineRegions=new TreeSet<HRegionInfo>();
   for (  JVMClusterUtil.RegionServerThread rst : cluster.getRegionServerThreads()) {
-    onlineRegions.addAll(rst.getRegionServer().getOnlineRegions());
+    try {
+      onlineRegions.addAll(rst.getRegionServer().getOnlineRegions());
+    }
+ catch (    org.apache.hadoop.hbase.regionserver.RegionServerStoppedException e) {
+      LOG.info("Got RegionServerStoppedException",e);
+    }
   }
   for (  HRegionInfo hri : regionsThatShouldBeOnline) {
     assertTrue("region=" + hri.getRegionNameAsString(),onlineRegions.contains(hri));
