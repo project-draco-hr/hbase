@@ -1,0 +1,27 @@
+{
+  final int rowcount=TEST_UTIL.loadRegion(this.parent,CF);
+  assertTrue(rowcount > 0);
+  int parentRowCount=countRows(this.parent);
+  assertEquals(rowcount,parentRowCount);
+  SplitTransaction st=prepareGOOD_SPLIT_ROW();
+  SplitTransaction spiedUponSt=spy(st);
+  Mockito.doThrow(new MockedFailedDaughterOpen()).when(spiedUponSt).openDaughterRegion((Server)Mockito.anyObject(),(RegionServerServices)Mockito.anyObject(),(HRegion)Mockito.anyObject());
+  boolean expectedException=false;
+  Server mockServer=Mockito.mock(Server.class);
+  when(mockServer.getConfiguration()).thenReturn(TEST_UTIL.getConfiguration());
+  try {
+    spiedUponSt.execute(mockServer,null);
+  }
+ catch (  IOException e) {
+    if (e.getCause() != null && e.getCause() instanceof MockedFailedDaughterOpen) {
+      expectedException=true;
+    }
+  }
+  assertTrue(expectedException);
+  assertFalse(spiedUponSt.rollback(null,null));
+  Path tableDir=this.parent.getRegionDir().getParent();
+  Path daughterADir=new Path(tableDir,spiedUponSt.getFirstDaughter().getEncodedName());
+  Path daughterBDir=new Path(tableDir,spiedUponSt.getSecondDaughter().getEncodedName());
+  assertTrue(TEST_UTIL.getTestFileSystem().exists(daughterADir));
+  assertTrue(TEST_UTIL.getTestFileSystem().exists(daughterBDir));
+}
