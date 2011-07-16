@@ -2,7 +2,6 @@
   final int NUM_MASTERS=2;
   final int NUM_RS=1;
   final int NUM_REGIONS_TO_CREATE=4;
-  int expectedNumRS=1;
   log("Starting cluster");
   Configuration conf=HBaseConfiguration.create();
   conf.setInt("hbase.master.assignment.timeoutmonitor.period",2000);
@@ -36,19 +35,12 @@
   }
   activeMaster.getMaster().stop("stopping the active master so that the backup can become active");
   cluster.hbaseCluster.waitOnMaster(activeMaster);
+  cluster.waitForActiveAndReadyMaster();
   log("Enabling table\n");
   TEST_UTIL.getHBaseAdmin().enableTable(table);
   log("Waiting for no more RIT\n");
   blockUntilNoRIT(zkw,master);
   log("Verifying there are " + numRegions + " assigned on cluster\n");
-  try {
-    Scan s=new Scan();
-    ht.getScanner(s);
-  }
- catch (  NotServingRegionException e) {
-    fail("NotServingRegionException should not be thrown after enabling the table.  Hence failing" + "the test case");
-  }
   regions=getAllOnlineRegions(cluster);
-  assertRegionsAssigned(cluster,regions);
-  assertEquals("All the regions are not onlined.",expectedNumRS,cluster.getRegionServerThreads().size());
+  assertEquals("The assigned regions were not onlined after master switch except for the catalog tables.",6,regions.size());
 }
