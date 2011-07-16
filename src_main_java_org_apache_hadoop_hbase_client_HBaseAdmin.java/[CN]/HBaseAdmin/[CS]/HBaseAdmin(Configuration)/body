@@ -4,5 +4,25 @@
   this.pause=this.conf.getLong("hbase.client.pause",1000);
   this.numRetries=this.conf.getInt("hbase.client.retries.number",10);
   this.retryLongerMultiplier=this.conf.getInt("hbase.client.retries.longer.multiplier",10);
-  this.connection.getMaster();
+  int tries=0;
+  for (; tries < numRetries; ++tries) {
+    try {
+      this.connection.getMaster();
+      break;
+    }
+ catch (    UndeclaredThrowableException ute) {
+      HConnectionManager.deleteStaleConnection(this.connection);
+      this.connection=HConnectionManager.getConnection(this.conf);
+    }
+    try {
+      Thread.sleep(getPauseTime(tries));
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new MasterNotRunningException("Interrupted");
+    }
+  }
+  if (tries >= numRetries) {
+    throw new MasterNotRunningException("Retried " + numRetries + " times");
+  }
 }
