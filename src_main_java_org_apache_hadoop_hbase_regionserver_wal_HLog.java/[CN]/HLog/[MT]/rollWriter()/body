@@ -3,49 +3,64 @@
     return null;
   }
   byte[][] regionsToFlush=null;
-  this.cacheFlushLock.lock();
   try {
-    if (closed) {
-      return regionsToFlush;
-    }
-    long currentFilenum=this.filenum;
-    this.filenum=System.currentTimeMillis();
-    Path newPath=computeFilename();
-    HLog.Writer nextWriter=this.createWriterInstance(fs,newPath,conf);
-    int nextInitialReplication=fs.getFileStatus(newPath).getReplication();
-    FSDataOutputStream nextHdfsOut=null;
-    if (nextWriter instanceof SequenceFileLogWriter) {
-      nextHdfsOut=((SequenceFileLogWriter)nextWriter).getWriterFSDataOutputStream();
-    }
-    if (!this.listeners.isEmpty()) {
-      for (      WALObserver i : this.listeners) {
-        i.logRolled(newPath);
-      }
-    }
-synchronized (updateLock) {
-      Path oldFile=cleanupCurrentWriter(currentFilenum);
-      this.writer=nextWriter;
-      this.initialReplication=nextInitialReplication;
-      this.hdfs_out=nextHdfsOut;
-      LOG.info((oldFile != null ? "Roll " + FSUtils.getPath(oldFile) + ", entries="+ this.numEntries.get()+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen()+ ". " : "") + "New hlog " + FSUtils.getPath(newPath));
-      this.numEntries.set(0);
-      this.logRollRequested=false;
-    }
-    if (this.outputfiles.size() > 0) {
-      if (this.lastSeqWritten.isEmpty()) {
-        LOG.debug("Last sequenceid written is empty. Deleting all old hlogs");
-        for (        Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
-          archiveLogFile(e.getValue(),e.getKey());
+    if (this.cacheFlushLock.tryLock(this.cacheFlushLockWaitTime,TimeUnit.MILLISECONDS)) {
+      try {
+        if (closed) {
+          return regionsToFlush;
         }
-        this.outputfiles.clear();
-      }
+        this.logRollRequested=true;
+        long currentFilenum=this.filenum;
+        this.filenum=System.currentTimeMillis();
+        Path newPath=computeFilename();
+        HLog.Writer nextWriter=this.createWriterInstance(fs,newPath,conf);
+        int nextExpectReplicas=fs.getFileStatus(newPath).getReplication();
+        int nextActualReplicas=-1;
+        try {
+          nextActualReplicas=getLogReplication();
+        }
+ catch (        Exception e) {
+          LOG.warn("Unable to invoke DFSOutputStream.getNumCurrentReplicas" + e + " still proceeding ahead...");
+        }
+        FSDataOutputStream nextHdfsOut=null;
+        if (nextWriter instanceof SequenceFileLogWriter) {
+          nextHdfsOut=((SequenceFileLogWriter)nextWriter).getWriterFSDataOutputStream();
+        }
+        if (!this.listeners.isEmpty()) {
+          for (          WALObserver i : this.listeners) {
+            i.logRolled(newPath);
+          }
+        }
+synchronized (updateLock) {
+          Path oldFile=cleanupCurrentWriter(currentFilenum);
+          this.writer=nextWriter;
+          this.initialReplication=nextActualReplicas == -1 ? nextExpectReplicas : nextActualReplicas;
+          this.hdfs_out=nextHdfsOut;
+          LOG.info((oldFile != null ? "Roll " + FSUtils.getPath(oldFile) + ", entries="+ this.numEntries.get()+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen()+ ". " : "") + "New hlog " + FSUtils.getPath(newPath));
+          this.numEntries.set(0);
+          this.logRollRequested=false;
+        }
+        if (this.outputfiles.size() > 0) {
+          if (this.lastSeqWritten.isEmpty()) {
+            LOG.debug("Last sequenceid written is empty. Deleting all old hlogs");
+            for (            Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
+              archiveLogFile(e.getValue(),e.getKey());
+            }
+            this.outputfiles.clear();
+          }
  else {
-        regionsToFlush=cleanOldLogs();
+            regionsToFlush=cleanOldLogs();
+          }
+        }
+      }
+  finally {
+        this.cacheFlushLock.unlock();
       }
     }
   }
-  finally {
-    this.cacheFlushLock.unlock();
+ catch (  InterruptedException e) {
+    LOG.warn("Interrupted rollWriter",e);
+    Thread.currentThread().interrupt();
   }
   return regionsToFlush;
 }
