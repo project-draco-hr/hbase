@@ -14,14 +14,9 @@
         this.filenum=System.currentTimeMillis();
         Path newPath=computeFilename();
         HLog.Writer nextWriter=this.createWriterInstance(fs,newPath,conf);
+        int nextInitialReplication=fs.getFileStatus(newPath).getReplication();
         int nextExpectReplicas=fs.getFileStatus(newPath).getReplication();
         int nextActualReplicas=-1;
-        try {
-          nextActualReplicas=getLogReplication();
-        }
- catch (        Exception e) {
-          LOG.warn("Unable to invoke DFSOutputStream.getNumCurrentReplicas" + e + " still proceeding ahead...");
-        }
         FSDataOutputStream nextHdfsOut=null;
         if (nextWriter instanceof SequenceFileLogWriter) {
           nextHdfsOut=((SequenceFileLogWriter)nextWriter).getWriterFSDataOutputStream();
@@ -34,8 +29,8 @@
 synchronized (updateLock) {
           Path oldFile=cleanupCurrentWriter(currentFilenum);
           this.writer=nextWriter;
-          this.initialReplication=nextActualReplicas == -1 ? nextExpectReplicas : nextActualReplicas;
           this.hdfs_out=nextHdfsOut;
+          this.initialReplication=nextInitialReplication;
           LOG.info((oldFile != null ? "Roll " + FSUtils.getPath(oldFile) + ", entries="+ this.numEntries.get()+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen()+ ". " : "") + "New hlog " + FSUtils.getPath(newPath));
           this.numEntries.set(0);
           this.logRollRequested=false;
@@ -56,6 +51,9 @@ synchronized (updateLock) {
   finally {
         this.cacheFlushLock.unlock();
       }
+    }
+ else {
+      LOG.debug("Didn't obtain cacheFlushLock in time");
     }
   }
  catch (  InterruptedException e) {
