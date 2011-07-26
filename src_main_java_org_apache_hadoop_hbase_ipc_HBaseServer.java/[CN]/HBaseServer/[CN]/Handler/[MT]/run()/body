@@ -19,37 +19,10 @@
         error=StringUtils.stringifyException(e);
       }
       CurCall.set(null);
-      int size=BUFFER_INITIAL_SIZE;
-      if (value instanceof WritableWithSize) {
-        WritableWithSize ohint=(WritableWithSize)value;
-        long hint=ohint.getWritableSize() + Bytes.SIZEOF_BYTE + Bytes.SIZEOF_INT;
-        if (hint > 0) {
-          if ((hint) > Integer.MAX_VALUE) {
-            IOException ioe=new IOException("Result buffer size too large: " + hint);
-            errorClass=ioe.getClass().getName();
-            error=StringUtils.stringifyException(ioe);
-          }
- else {
-            size=(int)hint;
-          }
-        }
+      if (!call.isDelayed()) {
+        call.setResponse(value,errorClass,error);
       }
-      ByteBufferOutputStream buf=new ByteBufferOutputStream(size);
-      DataOutputStream out=new DataOutputStream(buf);
-      out.writeInt(call.id);
-      out.writeBoolean(error != null);
-      if (error == null) {
-        value.write(out);
-      }
- else {
-        WritableUtils.writeString(out,errorClass);
-        WritableUtils.writeString(out,error);
-      }
-      if (buf.size() > warnResponseSize) {
-        LOG.warn(getName() + ", responseTooLarge for: " + call+ ": Size: "+ StringUtils.humanReadableInt(buf.size()));
-      }
-      call.setResponse(buf.getByteBuffer());
-      responder.doRespond(call);
+      call.sendResponseIfReady();
     }
  catch (    InterruptedException e) {
       if (running) {

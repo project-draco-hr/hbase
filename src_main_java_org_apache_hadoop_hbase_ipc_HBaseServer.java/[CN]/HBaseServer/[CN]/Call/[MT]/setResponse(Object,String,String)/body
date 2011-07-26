@@ -1,0 +1,50 @@
+{
+  Writable result=null;
+  if (value instanceof Writable) {
+    result=(Writable)value;
+  }
+ else {
+    if (value != null) {
+      result=new HbaseObjectWritable(value);
+    }
+  }
+  int size=BUFFER_INITIAL_SIZE;
+  if (result instanceof WritableWithSize) {
+    WritableWithSize ohint=(WritableWithSize)result;
+    long hint=ohint.getWritableSize() + Bytes.SIZEOF_BYTE + Bytes.SIZEOF_INT;
+    if (hint > Integer.MAX_VALUE) {
+      IOException ioe=new IOException("Result buffer size too large: " + hint);
+      errorClass=ioe.getClass().getName();
+      error=StringUtils.stringifyException(ioe);
+    }
+ else {
+      size=(int)hint;
+    }
+  }
+  ByteBufferOutputStream buf=new ByteBufferOutputStream(size);
+  DataOutputStream out=new DataOutputStream(buf);
+  try {
+    out.writeInt(this.id);
+    out.writeBoolean(error != null);
+  }
+ catch (  IOException e) {
+    errorClass=e.getClass().getName();
+    error=StringUtils.stringifyException(e);
+  }
+  try {
+    if (error == null) {
+      result.write(out);
+    }
+ else {
+      WritableUtils.writeString(out,errorClass);
+      WritableUtils.writeString(out,error);
+    }
+  }
+ catch (  IOException e) {
+    LOG.warn("Error sending response to call: ",e);
+  }
+  if (buf.size() > warnResponseSize) {
+    LOG.warn("responseTooLarge for: " + this + ": Size: "+ StringUtils.humanReadableInt(buf.size()));
+  }
+  this.response=buf.getByteBuffer();
+}
