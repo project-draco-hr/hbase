@@ -2,19 +2,18 @@
   List<Result> results=MetaReader.fullScanOfResults(this.catalogTracker);
   Map<ServerName,List<Pair<HRegionInfo,Result>>> offlineServers=new TreeMap<ServerName,List<Pair<HRegionInfo,Result>>>();
   Set<String> disablingTables=new HashSet<String>(1);
+  Set<String> enablingTables=new HashSet<String>(1);
   for (  Result result : results) {
     Pair<HRegionInfo,ServerName> region=MetaReader.metaRowToRegionPair(result);
     if (region == null)     continue;
     HRegionInfo regionInfo=region.getFirst();
-    String disablingTableName=regionInfo.getTableNameAsString();
     ServerName regionLocation=region.getSecond();
+    String tableName=regionInfo.getTableNameAsString();
     if (regionLocation == null) {
-      if (false == checkIfRegionBelongsToDisabled(regionInfo)) {
-        this.regions.put(regionInfo,null);
+      if (false == checkIfRegionBelongsToDisabled(regionInfo) && false == checkIfRegionsBelongsToEnabling(regionInfo)) {
+        regions.put(regionInfo,regionLocation);
       }
-      if (checkIfRegionBelongsToDisabling(regionInfo)) {
-        disablingTables.add(disablingTableName);
-      }
+      addTheTablesInPartialState(disablingTables,enablingTables,regionInfo,tableName);
     }
  else     if (!this.serverManager.isServerOnline(regionLocation)) {
       List<Pair<HRegionInfo,Result>> offlineRegions=offlineServers.get(regionLocation);
@@ -25,21 +24,14 @@
       offlineRegions.add(new Pair<HRegionInfo,Result>(regionInfo,result));
     }
  else {
-      if (false == checkIfRegionBelongsToDisabled(regionInfo)) {
+      if (false == checkIfRegionBelongsToDisabled(regionInfo) && false == checkIfRegionsBelongsToEnabling(regionInfo)) {
         regions.put(regionInfo,regionLocation);
         addToServers(regionLocation,regionInfo);
       }
-      if (checkIfRegionBelongsToDisabling(regionInfo)) {
-        disablingTables.add(disablingTableName);
-      }
+      addTheTablesInPartialState(disablingTables,enablingTables,regionInfo,tableName);
     }
   }
-  if (disablingTables.size() != 0) {
-    ZKUtil.listChildrenAndWatchForNewChildren(watcher,watcher.assignmentZNode);
-    for (    String tableName : disablingTables) {
-      LOG.info("The table " + tableName + " is in DISABLING state.  Hence recovering by moving the table"+ " to DISABLED state.");
-      new DisableTableHandler(this.master,tableName.getBytes(),catalogTracker,this).process();
-    }
-  }
+  boolean isWatcherCreated=recoverTableInDisablingState(disablingTables);
+  recoverTableInEnablingState(enablingTables,isWatcherCreated);
   return offlineServers;
 }
