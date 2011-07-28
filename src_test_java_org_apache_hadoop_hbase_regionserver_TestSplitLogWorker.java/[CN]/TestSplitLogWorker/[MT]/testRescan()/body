@@ -5,13 +5,15 @@
   slw.start();
   Thread.yield();
   Thread.sleep(100);
-  zkw.getRecoverableZooKeeper().create(ZKSplitLog.getEncodedNodeName(zkw,"task"),TaskState.TASK_UNASSIGNED.get("manager"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+  String task=ZKSplitLog.getEncodedNodeName(zkw,"task");
+  zkw.getRecoverableZooKeeper().create(task,TaskState.TASK_UNASSIGNED.get("manager"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
   waitForCounter(tot_wkr_task_acquired,0,1,1000);
-  ZKUtil.setData(zkw,ZKSplitLog.getEncodedNodeName(zkw,"task"),TaskState.TASK_UNASSIGNED.get("manager"));
+  ZKUtil.setData(zkw,task,TaskState.TASK_UNASSIGNED.get("manager"));
   waitForCounter(tot_wkr_preempt_task,0,1,1000);
-  zkw.getRecoverableZooKeeper().create(ZKSplitLog.getEncodedNodeName(zkw,"RESCAN"),TaskState.TASK_UNASSIGNED.get("manager"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT_SEQUENTIAL);
+  String rescan=ZKSplitLog.getEncodedNodeName(zkw,"RESCAN");
+  rescan=zkw.getRecoverableZooKeeper().create(rescan,TaskState.TASK_UNASSIGNED.get("manager"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT_SEQUENTIAL);
   waitForCounter(tot_wkr_task_acquired,1,2,1000);
-  ZKUtil.setData(zkw,ZKSplitLog.getEncodedNodeName(zkw,"task"),TaskState.TASK_UNASSIGNED.get("manager"));
+  ZKUtil.setData(zkw,task,TaskState.TASK_UNASSIGNED.get("manager"));
   waitForCounter(tot_wkr_preempt_task,1,2,1000);
   waitForCounter(tot_wkr_task_acquired_rescan,0,1,1000);
   List<String> nodes=ZKUtil.listChildrenNoWatch(zkw,zkw.splitLogZNode);
@@ -20,7 +22,11 @@
   for (  String node : nodes) {
     num++;
     if (node.startsWith("RESCAN")) {
-      assertTrue(TaskState.TASK_DONE.equals(ZKUtil.getData(zkw,ZKSplitLog.getEncodedNodeName(zkw,node)),"svr"));
+      String name=ZKSplitLog.getEncodedNodeName(zkw,node);
+      String fn=ZKSplitLog.getFileName(name);
+      byte[] data=ZKUtil.getData(zkw,ZKUtil.joinZNode(zkw.splitLogZNode,fn));
+      String datastr=Bytes.toString(data);
+      assertTrue("data=" + datastr,TaskState.TASK_DONE.equals(data,"svr"));
     }
   }
   assertEquals(2,num);
