@@ -1,0 +1,34 @@
+{
+  RetryCounter retryCounter=retryCounterFactory.create();
+  boolean first=true;
+  String newPath=path + this.identifier;
+  while (true) {
+    try {
+      if (!first) {
+        String previousResult=findPreviousSequentialNode(newPath);
+        if (previousResult != null) {
+          return previousResult;
+        }
+      }
+      first=false;
+      return zk.create(newPath,data,acl,createMode);
+    }
+ catch (    KeeperException e) {
+switch (e.code()) {
+case CONNECTIONLOSS:
+case OPERATIONTIMEOUT:
+        LOG.warn("Possibly transient ZooKeeper exception: " + e);
+      if (!retryCounter.shouldRetry()) {
+        LOG.error("ZooKeeper create failed after " + retryCounter.getMaxRetries() + " retries");
+        throw e;
+      }
+    break;
+default :
+  throw e;
+}
+}
+LOG.info("The " + retryCounter.getAttemptTimes() + " times to retry "+ "ZooKeeper after sleeping "+ retryIntervalMillis+ " ms");
+retryCounter.sleepUntilNextRetry();
+retryCounter.useRetry();
+}
+}
