@@ -1,0 +1,31 @@
+{
+  if (peekIntoNextBlock && destOffset + size + HEADER_SIZE > dest.length) {
+    throw new IOException("Attempted to read " + size + " bytes and "+ HEADER_SIZE+ " bytes of next header into a "+ dest.length+ "-byte array at offset "+ destOffset);
+  }
+  if (pread) {
+    int extraSize=peekIntoNextBlock ? HEADER_SIZE : 0;
+    int ret=istream.read(fileOffset,dest,destOffset,size + extraSize);
+    if (ret < size) {
+      throw new IOException("Positional read of " + size + " bytes "+ "failed at offset "+ fileOffset+ " (returned "+ ret+ ")");
+    }
+    if (ret == size || ret < size + extraSize) {
+      return -1;
+    }
+  }
+ else {
+synchronized (istream) {
+      istream.seek(fileOffset);
+      long realOffset=istream.getPos();
+      if (realOffset != fileOffset) {
+        throw new IOException("Tried to seek to " + fileOffset + " to "+ "read "+ size+ " bytes, but pos="+ realOffset+ " after seek");
+      }
+      if (!peekIntoNextBlock) {
+        IOUtils.readFully(istream,dest,destOffset,size);
+        return -1;
+      }
+      if (!readWithExtra(istream,dest,destOffset,size,HEADER_SIZE))       return -1;
+    }
+  }
+  assert peekIntoNextBlock;
+  return Bytes.toInt(dest,destOffset + size + BlockType.MAGIC_LENGTH) + HEADER_SIZE;
+}

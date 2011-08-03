@@ -1,0 +1,34 @@
+{
+  int rootLevelIndex=rootBlockContainingKey(key,keyOffset,keyLength);
+  if (rootLevelIndex < 0 || rootLevelIndex >= blockOffsets.length) {
+    return null;
+  }
+  long currentOffset=blockOffsets[rootLevelIndex];
+  int currentOnDiskSize=blockDataSizes[rootLevelIndex];
+  int lookupLevel=1;
+  HFileBlock block=blockReader.readBlockData(currentOffset,currentOnDiskSize,-1,true);
+  if (block == null) {
+    throw new IOException("Failed to read block at offset " + currentOffset + ", onDiskSize="+ currentOnDiskSize);
+  }
+  while (!block.getBlockType().equals(BlockType.DATA)) {
+    if (++lookupLevel > searchTreeLevel) {
+      throw new IOException("Search Tree Level overflow: lookupLevel: " + lookupLevel + " searchTreeLevel: "+ searchTreeLevel);
+    }
+    ByteBuffer buffer=block.getBufferWithoutHeader();
+    if (!locateNonRootIndexEntry(buffer,key,keyOffset,keyLength,comparator)) {
+      throw new IOException("The key " + Bytes.toStringBinary(key,keyOffset,keyLength) + " is before the"+ " first key of the non-root index block "+ block);
+    }
+    currentOffset=buffer.getLong();
+    currentOnDiskSize=buffer.getInt();
+    if (currentBlock != null && currentBlock.getOffset() == currentOffset) {
+      block=currentBlock;
+    }
+ else {
+      block=blockReader.readBlockData(currentOffset,currentOnDiskSize,-1,true);
+    }
+  }
+  if (lookupLevel != searchTreeLevel) {
+    throw new IOException("Reached a data block at level " + lookupLevel + " but the number of levels is "+ searchTreeLevel);
+  }
+  return block;
+}

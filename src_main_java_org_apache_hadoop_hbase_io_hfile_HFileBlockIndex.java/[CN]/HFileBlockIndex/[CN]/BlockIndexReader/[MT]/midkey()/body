@@ -1,0 +1,22 @@
+{
+  if (rootCount == 0)   throw new IOException("HFile empty");
+  byte[] midKey=this.midKey.get();
+  if (midKey != null)   return midKey;
+  if (midLeafBlockOffset >= 0) {
+    if (blockReader == null) {
+      throw new IOException("Have to read the middle leaf block but " + "no block reader available");
+    }
+    HFileBlock midLeafBlock=blockReader.readBlockData(midLeafBlockOffset,midLeafBlockOnDiskSize,-1,true);
+    ByteBuffer b=midLeafBlock.getBufferWithoutHeader();
+    int numDataBlocks=b.getInt();
+    int keyRelOffset=b.getInt(Bytes.SIZEOF_INT * (midKeyEntry + 1));
+    int keyLen=b.getInt(Bytes.SIZEOF_INT * (midKeyEntry + 2)) - keyRelOffset;
+    int keyOffset=b.arrayOffset() + Bytes.SIZEOF_INT * (numDataBlocks + 2) + keyRelOffset + SECONDARY_INDEX_ENTRY_OVERHEAD;
+    midKey=Arrays.copyOfRange(b.array(),keyOffset,keyOffset + keyLen);
+  }
+ else {
+    midKey=blockKeys[(rootCount - 1) / 2];
+  }
+  this.midKey.set(midKey);
+  return midKey;
+}

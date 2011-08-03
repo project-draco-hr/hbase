@@ -1,0 +1,23 @@
+{
+  ByteArrayOutputStream baos=new ByteArrayOutputStream(MID_KEY_METADATA_SIZE);
+  DataOutputStream baosDos=new DataOutputStream(baos);
+  long totalNumSubEntries=numSubEntriesAt.get(blockKeys.size() - 1);
+  if (totalNumSubEntries == 0) {
+    throw new IOException("No leaf-level entries, mid-key unavailable");
+  }
+  long midKeySubEntry=(totalNumSubEntries - 1) / 2;
+  int midKeyEntry=getEntryBySubEntry(midKeySubEntry);
+  baosDos.writeLong(blockOffsets.get(midKeyEntry));
+  baosDos.writeInt(onDiskDataSizes.get(midKeyEntry));
+  long numSubEntriesBefore=midKeyEntry > 0 ? numSubEntriesAt.get(midKeyEntry - 1) : 0;
+  long subEntryWithinEntry=midKeySubEntry - numSubEntriesBefore;
+  if (subEntryWithinEntry < 0 || subEntryWithinEntry > Integer.MAX_VALUE) {
+    throw new IOException("Could not identify mid-key index within the " + "leaf-level block containing mid-key: out of range (" + subEntryWithinEntry + ", numSubEntriesBefore="+ numSubEntriesBefore+ ", midKeySubEntry="+ midKeySubEntry+ ")");
+  }
+  baosDos.writeInt((int)subEntryWithinEntry);
+  if (baosDos.size() != MID_KEY_METADATA_SIZE) {
+    throw new IOException("Could not write mid-key metadata: size=" + baosDos.size() + ", correct size: "+ MID_KEY_METADATA_SIZE);
+  }
+  baos.close();
+  return baos.toByteArray();
+}
