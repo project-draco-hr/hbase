@@ -1,0 +1,72 @@
+{
+  Path hfilePath=new Path(HBaseTestingUtility.getTestDir(),"hfile_for_block_index");
+  BlockCache blockCache=StoreFile.getBlockCache(conf);
+  for (int testI=0; testI < INDEX_CHUNK_SIZES.length; ++testI) {
+    int indexBlockSize=INDEX_CHUNK_SIZES[testI];
+    int expectedNumLevels=EXPECTED_NUM_LEVELS[testI];
+    LOG.info("Index block size: " + indexBlockSize + ", compression: "+ compr);
+    blockCache.evictBlocksByPrefix(hfilePath.getName() + HFile.CACHE_KEY_SEPARATOR);
+    conf.setInt(HFileBlockIndex.MAX_CHUNK_SIZE_KEY,indexBlockSize);
+    Set<String> keyStrSet=new HashSet<String>();
+    byte[][] keys=new byte[NUM_KV][];
+    byte[][] values=new byte[NUM_KV][];
+{
+      HFile.Writer writer=HFile.getWriterFactory(conf).createWriter(fs,hfilePath,SMALL_BLOCK_SIZE,compr,KeyValue.KEY_COMPARATOR);
+      Random rand=new Random(19231737);
+      for (int i=0; i < NUM_KV; ++i) {
+        byte[] row=TestHFileWriterV2.randomOrderedKey(rand,i);
+        byte[] k=KeyValue.createFirstOnRow(row,0,row.length,row,0,0,row,0,0).getKey();
+        byte[] v=TestHFileWriterV2.randomValue(rand);
+        writer.append(k,v);
+        keys[i]=k;
+        values[i]=v;
+        keyStrSet.add(Bytes.toStringBinary(k));
+        if (i > 0) {
+          assertTrue(KeyValue.KEY_COMPARATOR.compare(keys[i - 1],keys[i]) < 0);
+        }
+      }
+      writer.close();
+    }
+    HFile.Reader reader=HFile.createReader(fs,hfilePath,blockCache,false,true);
+    assertEquals(expectedNumLevels,reader.getTrailer().getNumDataIndexLevels());
+    assertTrue(Bytes.equals(keys[0],reader.getFirstKey()));
+    assertTrue(Bytes.equals(keys[NUM_KV - 1],reader.getLastKey()));
+    LOG.info("Last key: " + Bytes.toStringBinary(keys[NUM_KV - 1]));
+    for (    boolean pread : new boolean[]{false,true}) {
+      HFileScanner scanner=reader.getScanner(true,pread);
+      for (int i=0; i < NUM_KV; ++i) {
+        checkSeekTo(keys,scanner,i);
+        checkKeyValue("i=" + i,keys[i],values[i],scanner.getKey(),scanner.getValue());
+      }
+      assertTrue(scanner.seekTo());
+      for (int i=NUM_KV - 1; i >= 0; --i) {
+        checkSeekTo(keys,scanner,i);
+        checkKeyValue("i=" + i,keys[i],values[i],scanner.getKey(),scanner.getValue());
+      }
+    }
+    HFileReaderV2 reader2=(HFileReaderV2)reader;
+    HFileBlock.FSReader fsReader=reader2.getUncachedBlockReader();
+    HFileBlock.BlockIterator iter=fsReader.blockRange(0,reader.getTrailer().getLoadOnOpenDataOffset());
+    HFileBlock block;
+    List<byte[]> blockKeys=new ArrayList<byte[]>();
+    while ((block=iter.nextBlock()) != null) {
+      if (block.getBlockType() != BlockType.LEAF_INDEX)       return;
+      ByteBuffer b=block.getBufferReadOnly();
+      int n=b.getInt();
+      int entriesOffset=Bytes.SIZEOF_INT * (n + 2);
+      for (int i=0; i < n; ++i) {
+        int keyRelOffset=b.getInt(Bytes.SIZEOF_INT * (i + 1));
+        int nextKeyRelOffset=b.getInt(Bytes.SIZEOF_INT * (i + 2));
+        int keyLen=nextKeyRelOffset - keyRelOffset;
+        int keyOffset=b.arrayOffset() + entriesOffset + keyRelOffset+ HFileBlockIndex.SECONDARY_INDEX_ENTRY_OVERHEAD;
+        byte[] blockKey=Arrays.copyOfRange(b.array(),keyOffset,keyOffset + keyLen);
+        String blockKeyStr=Bytes.toString(blockKey);
+        blockKeys.add(blockKey);
+        assertTrue("Invalid block key from leaf-level block: " + blockKeyStr,keyStrSet.contains(blockKeyStr));
+      }
+    }
+    assertEquals(Bytes.toStringBinary(blockKeys.get((blockKeys.size() - 1) / 2)),Bytes.toStringBinary(reader.midkey()));
+    assertEquals(UNCOMPRESSED_INDEX_SIZES[testI],reader.getTrailer().getUncompressedDataIndexSize());
+    reader.close();
+  }
+}

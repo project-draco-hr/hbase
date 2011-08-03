@@ -1,0 +1,32 @@
+{
+  boolean cacheOnWrite=expectedContents != null;
+  FSDataOutputStream os=fs.create(path);
+  HFileBlock.Writer hbw=new HFileBlock.Writer(compressAlgo);
+  Map<BlockType,Long> prevOffsetByType=new HashMap<BlockType,Long>();
+  long totalSize=0;
+  for (int i=0; i < NUM_TEST_BLOCKS; ++i) {
+    int blockTypeOrdinal=rand.nextInt(BlockType.values().length);
+    BlockType bt=BlockType.values()[blockTypeOrdinal];
+    DataOutputStream dos=hbw.startWriting(bt,cacheOnWrite);
+    for (int j=0; j < rand.nextInt(500); ++j) {
+      dos.writeShort(i + 1);
+      dos.writeInt(j + 1);
+    }
+    if (expectedOffsets != null)     expectedOffsets.add(os.getPos());
+    if (expectedPrevOffsets != null) {
+      Long prevOffset=prevOffsetByType.get(bt);
+      expectedPrevOffsets.add(prevOffset != null ? prevOffset : -1);
+      prevOffsetByType.put(bt,os.getPos());
+    }
+    expectedTypes.add(bt);
+    hbw.writeHeaderAndData(os);
+    totalSize+=hbw.getOnDiskSizeWithHeader();
+    if (cacheOnWrite)     expectedContents.add(hbw.getUncompressedBufferWithHeader());
+    if (detailedLogging) {
+      LOG.info("Writing block #" + i + " of type "+ bt+ ", uncompressed size "+ hbw.getUncompressedSizeWithoutHeader()+ " at offset "+ os.getPos());
+    }
+  }
+  os.close();
+  LOG.info("Created a temporary file at " + path + ", "+ fs.getFileStatus(path).getLen()+ " byte, compression="+ compressAlgo);
+  return totalSize;
+}

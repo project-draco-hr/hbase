@@ -1,0 +1,49 @@
+{
+  StoreFile sf=new StoreFile(fs,sfPath,true,conf,bt,false);
+  StoreFile.Reader r=sf.createReader();
+  final boolean pread=true;
+  StoreFileScanner scanner=r.getStoreFileScanner(true,pread);
+{
+    int numChecked=0;
+    for (    KeyValue kv : kvs) {
+      byte[] row=kv.getRow();
+      boolean present=isInBloom(scanner,row,kv.getQualifier());
+      assertTrue(testIdMsg + " Bloom filter false negative on row " + Bytes.toStringBinary(row)+ " after "+ numChecked+ " successful checks",present);
+      ++numChecked;
+    }
+  }
+  for (  boolean fakeLookupEnabled : new boolean[]{true,false}) {
+    ByteBloomFilter.setFakeLookupMode(fakeLookupEnabled);
+    try {
+      String fakeLookupModeStr=", fake lookup is " + (fakeLookupEnabled ? "enabled" : "disabled");
+      CompoundBloomFilter cbf=(CompoundBloomFilter)r.getBloomFilter();
+      cbf.enableTestingStats();
+      int numFalsePos=0;
+      Random rand=new Random(EVALUATION_SEED);
+      int nTrials=NUM_KV[t] * 10;
+      for (int i=0; i < nTrials; ++i) {
+        byte[] query=TestHFileWriterV2.randomRowOrQualifier(rand);
+        if (isInBloom(scanner,query,bt,rand)) {
+          numFalsePos+=1;
+        }
+      }
+      double falsePosRate=numFalsePos * 1.0 / nTrials;
+      LOG.debug(String.format(testIdMsg + " False positives: %d out of %d (%f)",numFalsePos,nTrials,falsePosRate) + fakeLookupModeStr);
+      assertTrue("False positive is too high: " + falsePosRate + " (greater "+ "than "+ TOO_HIGH_ERROR_RATE+ ")"+ fakeLookupModeStr,falsePosRate < TOO_HIGH_ERROR_RATE);
+      double maxZValue=fakeLookupEnabled ? 1.96 : 2.5;
+      validateFalsePosRate(falsePosRate,nTrials,maxZValue,cbf,fakeLookupModeStr);
+      int nChunks=cbf.getNumChunks();
+      if (nChunks > 1) {
+        numFalsePos-=cbf.getNumPositivesForTesting(nChunks - 1);
+        nTrials-=cbf.getNumQueriesForTesting(nChunks - 1);
+        falsePosRate=numFalsePos * 1.0 / nTrials;
+        LOG.info(testIdMsg + " False positive rate without last chunk is " + falsePosRate+ fakeLookupModeStr);
+      }
+      validateFalsePosRate(falsePosRate,nTrials,-2.58,cbf,fakeLookupModeStr);
+    }
+  finally {
+      ByteBloomFilter.setFakeLookupMode(false);
+    }
+  }
+  r.close();
+}

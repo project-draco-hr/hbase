@@ -1,0 +1,23 @@
+{
+  conf.setInt(BloomFilterFactory.IO_STOREFILE_BLOOM_BLOCK_SIZE,BLOOM_BLOCK_SIZES[t]);
+  conf.setBoolean(HFile.CACHE_BLOCKS_ON_WRITE_KEY,true);
+  StoreFile.Writer w=StoreFile.createWriter(fs,HBaseTestingUtility.getTestDir(),BLOCK_SIZES[t],null,null,conf,bt,0);
+  assertTrue(w.hasBloom());
+  assertTrue(w.getBloomWriter() instanceof CompoundBloomFilterWriter);
+  CompoundBloomFilterWriter cbbf=(CompoundBloomFilterWriter)w.getBloomWriter();
+  int keyCount=0;
+  KeyValue prev=null;
+  LOG.debug("Total keys/values to insert: " + kvs.size());
+  for (  KeyValue kv : kvs) {
+    w.append(kv);
+    boolean newKey=true;
+    if (prev != null) {
+      newKey=!(bt == BloomType.ROW ? KeyValue.COMPARATOR.matchingRows(kv,prev) : KeyValue.COMPARATOR.matchingRowColumn(kv,prev));
+    }
+    if (newKey)     ++keyCount;
+    assertEquals(keyCount,cbbf.getKeyCount());
+    prev=kv;
+  }
+  w.close();
+  return w.getPath();
+}
