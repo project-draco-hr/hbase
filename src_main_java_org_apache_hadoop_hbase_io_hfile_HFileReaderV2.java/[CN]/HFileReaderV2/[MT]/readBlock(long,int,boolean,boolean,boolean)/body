@@ -1,0 +1,31 @@
+{
+  if (dataBlockIndexReader == null) {
+    throw new IOException("Block index not loaded");
+  }
+  if (dataBlockOffset < 0 || dataBlockOffset >= trailer.getLoadOnOpenDataOffset()) {
+    throw new IOException("Requested block is out of range: " + dataBlockOffset + ", lastDataBlockOffset: "+ trailer.getLastDataBlockOffset());
+  }
+  String cacheKey=HFile.getBlockCacheKey(name,dataBlockOffset);
+  IdLock.Entry lockEntry=offsetLock.getLockEntry(dataBlockOffset);
+  try {
+    blockLoads.incrementAndGet();
+    if (blockCache != null) {
+      HFileBlock cachedBlock=(HFileBlock)blockCache.getBlock(cacheKey,true);
+      if (cachedBlock != null) {
+        cacheHits.incrementAndGet();
+        return cachedBlock;
+      }
+    }
+    long startTimeNs=System.nanoTime();
+    HFileBlock dataBlock=fsBlockReader.readBlockData(dataBlockOffset,onDiskBlockSize,-1,pread);
+    HFile.readTimeNano.addAndGet(System.nanoTime() - startTimeNs);
+    HFile.readOps.incrementAndGet();
+    if (cacheBlock && blockCache != null) {
+      blockCache.cacheBlock(cacheKey,dataBlock,inMemory);
+    }
+    return dataBlock;
+  }
+  finally {
+    offsetLock.releaseLockEntry(lockEntry);
+  }
+}

@@ -1,0 +1,37 @@
+{
+  if (dataBlockIndexReader == null) {
+    throw new IOException("Block index not loaded");
+  }
+  if (block < 0 || block >= dataBlockIndexReader.getRootBlockCount()) {
+    throw new IOException("Requested block is out of range: " + block + ", max: "+ dataBlockIndexReader.getRootBlockCount());
+  }
+  long offset=dataBlockIndexReader.getRootBlockOffset(block);
+  String cacheKey=HFile.getBlockCacheKey(name,offset);
+synchronized (dataBlockIndexReader.getRootBlockKey(block)) {
+    blockLoads.incrementAndGet();
+    if (blockCache != null) {
+      HFileBlock cachedBlock=(HFileBlock)blockCache.getBlock(cacheKey,true);
+      if (cachedBlock != null) {
+        cacheHits.incrementAndGet();
+        return cachedBlock.getBufferWithoutHeader();
+      }
+    }
+    long startTimeNs=System.nanoTime();
+    long nextOffset;
+    if (block == dataBlockIndexReader.getRootBlockCount() - 1) {
+      nextOffset=(metaBlockIndexReader.getRootBlockCount() == 0) ? this.trailer.getFileInfoOffset() : metaBlockIndexReader.getRootBlockOffset(0);
+    }
+ else {
+      nextOffset=dataBlockIndexReader.getRootBlockOffset(block + 1);
+    }
+    HFileBlock hfileBlock=fsBlockReader.readBlockData(offset,nextOffset - offset,dataBlockIndexReader.getRootBlockDataSize(block),pread);
+    hfileBlock.expectType(BlockType.DATA);
+    ByteBuffer buf=hfileBlock.getBufferWithoutHeader();
+    HFile.readTimeNano.addAndGet(System.nanoTime() - startTimeNs);
+    HFile.readOps.incrementAndGet();
+    if (cacheBlock && blockCache != null) {
+      blockCache.cacheBlock(cacheKey,hfileBlock,inMemory);
+    }
+    return buf;
+  }
+}

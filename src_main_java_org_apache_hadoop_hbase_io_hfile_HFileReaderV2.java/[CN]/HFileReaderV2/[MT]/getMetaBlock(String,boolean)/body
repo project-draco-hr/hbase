@@ -1,0 +1,32 @@
+{
+  if (trailer.getMetaIndexCount() == 0) {
+    return null;
+  }
+  if (metaBlockIndexReader == null) {
+    throw new IOException("Meta index not loaded");
+  }
+  byte[] mbname=Bytes.toBytes(metaBlockName);
+  int block=metaBlockIndexReader.rootBlockContainingKey(mbname,0,mbname.length);
+  if (block == -1)   return null;
+  long blockSize=metaBlockIndexReader.getRootBlockDataSize(block);
+  long startTimeNs=System.nanoTime();
+synchronized (metaBlockIndexReader.getRootBlockKey(block)) {
+    metaLoads.incrementAndGet();
+    long metaBlockOffset=metaBlockIndexReader.getRootBlockOffset(block);
+    String cacheKey=HFile.getBlockCacheKey(name,metaBlockOffset);
+    if (blockCache != null) {
+      HFileBlock cachedBlock=(HFileBlock)blockCache.getBlock(cacheKey,true);
+      if (cachedBlock != null) {
+        cacheHits.incrementAndGet();
+        return cachedBlock.getBufferWithoutHeader();
+      }
+    }
+    HFileBlock metaBlock=fsBlockReader.readBlockData(metaBlockOffset,blockSize,-1,true);
+    HFile.readTimeNano.addAndGet(System.nanoTime() - startTimeNs);
+    HFile.readOps.incrementAndGet();
+    if (cacheBlock && blockCache != null) {
+      blockCache.cacheBlock(cacheKey,metaBlock,inMemory);
+    }
+    return metaBlock.getBufferWithoutHeader();
+  }
+}
