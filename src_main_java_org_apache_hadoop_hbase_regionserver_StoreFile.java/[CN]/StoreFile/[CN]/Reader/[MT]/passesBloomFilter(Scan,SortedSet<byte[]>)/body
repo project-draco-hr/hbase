@@ -1,8 +1,9 @@
 {
-  BloomFilter bm=this.bloomFilter;
-  if (bm == null || !scan.isGetScan()) {
+  BloomFilter bloomFilter=this.bloomFilter;
+  if (bloomFilter == null) {
     return true;
   }
+  if (reader.getTrailer().getEntryCount() == 0)   return false;
   byte[] row=scan.getStartRow();
   byte[] key;
 switch (this.bloomFilterType) {
@@ -11,22 +12,41 @@ case ROW:
   break;
 case ROWCOL:
 if (columns != null && columns.size() == 1) {
-  byte[] col=columns.first();
-  key=Bytes.add(row,col);
+  byte[] column=columns.first();
+  key=bloomFilter.createBloomKey(row,0,row.length,column,0,column.length);
   break;
 }
+return true;
 default :
 return true;
 }
 try {
-ByteBuffer bloom=reader.getMetaBlock(BLOOM_FILTER_DATA_KEY,true);
-if (bloom != null) {
-if (this.bloomFilterType == BloomType.ROWCOL) {
-return bm.contains(key,bloom) || bm.contains(row,bloom);
+boolean shouldCheckBloom;
+ByteBuffer bloom;
+if (bloomFilter.supportsAutoLoading()) {
+bloom=null;
+shouldCheckBloom=true;
 }
  else {
-return bm.contains(key,bloom);
+bloom=reader.getMetaBlock(HFileWriterV1.BLOOM_FILTER_DATA_KEY,true);
+shouldCheckBloom=bloom != null;
 }
+if (shouldCheckBloom) {
+boolean exists;
+boolean keyIsAfterLast=lastBloomKey != null && bloomFilter.getComparator().compare(key,lastBloomKey) > 0;
+if (bloomFilterType == BloomType.ROWCOL) {
+byte[] rowBloomKey=bloomFilter.createBloomKey(row,0,row.length,null,0,0);
+if (keyIsAfterLast && bloomFilter.getComparator().compare(rowBloomKey,lastBloomKey) > 0) {
+exists=false;
+}
+ else {
+exists=this.bloomFilter.contains(key,0,key.length,bloom) || this.bloomFilter.contains(rowBloomKey,0,rowBloomKey.length,bloom);
+}
+}
+ else {
+exists=!keyIsAfterLast && this.bloomFilter.contains(key,0,key.length,bloom);
+}
+return exists;
 }
 }
  catch (IOException e) {

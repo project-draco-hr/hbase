@@ -1,5 +1,5 @@
 {
-  if (this.bloomFilter != null) {
+  if (this.bloomFilterWriter != null) {
     boolean newKey=true;
     if (this.lastKv != null) {
 switch (bloomType) {
@@ -14,22 +14,29 @@ newKey=false;
 }
 }
 if (newKey) {
+byte[] bloomKey;
+int bloomKeyOffset, bloomKeyLen;
 switch (bloomType) {
 case ROW:
-this.bloomFilter.add(kv.getBuffer(),kv.getRowOffset(),kv.getRowLength());
+bloomKey=kv.getBuffer();
+bloomKeyOffset=kv.getRowOffset();
+bloomKeyLen=kv.getRowLength();
 break;
 case ROWCOL:
-int ro=kv.getRowOffset();
-int rl=kv.getRowLength();
-int qo=kv.getQualifierOffset();
-int ql=kv.getQualifierLength();
-byte[] result=new byte[rl + ql];
-System.arraycopy(kv.getBuffer(),ro,result,0,rl);
-System.arraycopy(kv.getBuffer(),qo,result,rl,ql);
-this.bloomFilter.add(result);
+bloomKey=bloomFilterWriter.createBloomKey(kv.getBuffer(),kv.getRowOffset(),kv.getRowLength(),kv.getBuffer(),kv.getQualifierOffset(),kv.getQualifierLength());
+bloomKeyOffset=0;
+bloomKeyLen=bloomKey.length;
 break;
 default :
+throw new IOException("Invalid Bloom filter type: " + bloomType);
 }
+bloomFilterWriter.add(bloomKey,bloomKeyOffset,bloomKeyLen);
+if (lastBloomKey != null && bloomFilterWriter.getComparator().compare(bloomKey,bloomKeyOffset,bloomKeyLen,lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen) <= 0) {
+throw new IOException("Non-increasing Bloom keys: " + Bytes.toStringBinary(bloomKey,bloomKeyOffset,bloomKeyLen) + " after "+ Bytes.toStringBinary(lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen));
+}
+lastBloomKey=bloomKey;
+lastBloomKeyOffset=bloomKeyOffset;
+lastBloomKeyLen=bloomKeyLen;
 this.lastKv=kv;
 }
 }
