@@ -1,0 +1,24 @@
+{
+  HFileReaderV2 reader=(HFileReaderV2)HFile.createReader(fs,storeFilePath,null,false,false);
+  LOG.info("HFile information: " + reader);
+  HFileScanner scanner=reader.getScanner(false,false);
+  assertTrue(testName,scanner.seekTo());
+  long offset=0;
+  HFileBlock prevBlock=null;
+  EnumMap<BlockType,Integer> blockCountByType=new EnumMap<BlockType,Integer>(BlockType.class);
+  while (offset < reader.getTrailer().getLoadOnOpenDataOffset()) {
+    HFileBlock block=reader.readBlockData(offset,prevBlock == null ? -1 : prevBlock.getNextBlockOnDiskSizeWithHeader(),-1,false);
+    String blockCacheKey=HFile.getBlockCacheKey(reader.getName(),offset);
+    boolean isCached=blockCache.getBlock(blockCacheKey,true) != null;
+    boolean shouldBeCached=cowType.shouldBeCached(block.getBlockType());
+    assertEquals(testName + " " + block,shouldBeCached,isCached);
+    prevBlock=block;
+    offset+=block.getOnDiskSizeWithHeader();
+    BlockType bt=block.getBlockType();
+    Integer count=blockCountByType.get(bt);
+    blockCountByType.put(bt,(count == null ? 0 : count) + 1);
+  }
+  LOG.info("Block count by type: " + blockCountByType);
+  assertEquals("{DATA=1367, LEAF_INDEX=172, BLOOM_CHUNK=9, INTERMEDIATE_INDEX=24}",blockCountByType.toString());
+  reader.close();
+}
