@@ -1,0 +1,60 @@
+{
+  Stack<ByteBuffer> operatorStack=new Stack<ByteBuffer>();
+  Stack<Filter> filterStack=new Stack<Filter>();
+  Filter filter=null;
+  for (int i=0; i < filterStringAsByteArray.length; i++) {
+    if (filterStringAsByteArray[i] == ParseConstants.LPAREN) {
+      operatorStack.push(ParseConstants.LPAREN_BUFFER);
+    }
+ else     if (filterStringAsByteArray[i] == ParseConstants.WHITESPACE || filterStringAsByteArray[i] == ParseConstants.TAB) {
+      continue;
+    }
+ else     if (checkForOr(filterStringAsByteArray,i)) {
+      i+=ParseConstants.OR_ARRAY.length - 1;
+      reduce(operatorStack,filterStack,ParseConstants.OR_BUFFER);
+      operatorStack.push(ParseConstants.OR_BUFFER);
+    }
+ else     if (checkForAnd(filterStringAsByteArray,i)) {
+      i+=ParseConstants.AND_ARRAY.length - 1;
+      reduce(operatorStack,filterStack,ParseConstants.AND_BUFFER);
+      operatorStack.push(ParseConstants.AND_BUFFER);
+    }
+ else     if (checkForSkip(filterStringAsByteArray,i)) {
+      i+=ParseConstants.SKIP_ARRAY.length - 1;
+      reduce(operatorStack,filterStack,ParseConstants.SKIP_BUFFER);
+      operatorStack.push(ParseConstants.SKIP_BUFFER);
+    }
+ else     if (checkForWhile(filterStringAsByteArray,i)) {
+      i+=ParseConstants.WHILE_ARRAY.length - 1;
+      reduce(operatorStack,filterStack,ParseConstants.WHILE_BUFFER);
+      operatorStack.push(ParseConstants.WHILE_BUFFER);
+    }
+ else     if (filterStringAsByteArray[i] == ParseConstants.RPAREN) {
+      if (operatorStack.empty()) {
+        throw new IllegalArgumentException("Mismatched parenthesis");
+      }
+      ByteBuffer argumentOnTopOfStack=operatorStack.peek();
+      while (!(argumentOnTopOfStack.equals(ParseConstants.LPAREN_BUFFER))) {
+        filterStack.push(popArguments(operatorStack,filterStack));
+        if (operatorStack.empty()) {
+          throw new IllegalArgumentException("Mismatched parenthesis");
+        }
+        argumentOnTopOfStack=operatorStack.pop();
+      }
+    }
+ else {
+      byte[] filterSimpleExpression=extractFilterSimpleExpression(filterStringAsByteArray,i);
+      i+=(filterSimpleExpression.length - 1);
+      filter=parseSimpleFilterExpression(filterSimpleExpression);
+      filterStack.push(filter);
+    }
+  }
+  while (!operatorStack.empty()) {
+    filterStack.push(popArguments(operatorStack,filterStack));
+  }
+  filter=filterStack.pop();
+  if (!filterStack.empty()) {
+    throw new IllegalArgumentException("Incorrect Filter String");
+  }
+  return filter;
+}
