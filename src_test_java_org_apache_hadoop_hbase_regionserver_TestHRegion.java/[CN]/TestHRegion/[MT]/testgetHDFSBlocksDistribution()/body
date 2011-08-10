@@ -1,0 +1,33 @@
+{
+  HBaseTestingUtility htu=new HBaseTestingUtility();
+  final int DEFAULT_BLOCK_SIZE=1024;
+  htu.getConfiguration().setLong("dfs.block.size",DEFAULT_BLOCK_SIZE);
+  htu.getConfiguration().setInt("dfs.replication",2);
+  MiniHBaseCluster cluster;
+  String dataNodeHosts[]=new String[]{"host1","host2","host3"};
+  int regionServersCount=3;
+  try {
+    cluster=htu.startMiniCluster(1,regionServersCount,dataNodeHosts);
+    byte[][] families={fam1,fam2};
+    HTable ht=htu.createTable(Bytes.toBytes(this.getName()),families);
+    byte row[]=Bytes.toBytes("row1");
+    byte col[]=Bytes.toBytes("col1");
+    Put put=new Put(row);
+    put.add(fam1,col,1,Bytes.toBytes("test1"));
+    put.add(fam2,col,1,Bytes.toBytes("test2"));
+    ht.put(put);
+    HRegion firstRegion=htu.getHbaseCluster().getRegions(Bytes.toBytes(this.getName())).get(0);
+    firstRegion.flushcache();
+    HDFSBlocksDistribution blocksDistribution1=firstRegion.getHDFSBlocksDistribution();
+    long uniqueBlocksWeight1=blocksDistribution1.getUniqueBlocksTotalWeight();
+    String topHost=blocksDistribution1.getTopHosts().get(0);
+    long topHostWeight=blocksDistribution1.getWeight(topHost);
+    assertTrue(uniqueBlocksWeight1 == topHostWeight);
+    HDFSBlocksDistribution blocksDistribution2=HRegion.computeHDFSBlocksDistribution(htu.getConfiguration(),firstRegion.getTableDesc(),firstRegion.getRegionInfo().getEncodedName());
+    long uniqueBlocksWeight2=blocksDistribution2.getUniqueBlocksTotalWeight();
+    assertTrue(uniqueBlocksWeight1 == uniqueBlocksWeight2);
+  }
+  finally {
+    htu.shutdownMiniCluster();
+  }
+}
