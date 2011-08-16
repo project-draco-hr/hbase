@@ -1,22 +1,18 @@
 {
-  byte[] familyName=HConstants.CATALOG_FAMILY;
   byte[] tableName=Bytes.toBytes("testForceSplit");
   assertFalse(admin.tableExists(tableName));
-  final HTable table=TEST_UTIL.createTable(tableName,familyName);
+  final HTable table=TEST_UTIL.createTable(tableName,familyNames,numVersions,blockSize);
   try {
-    byte[] k=new byte[3];
     int rowCount=0;
-    for (byte b1='a'; b1 < 'z'; b1++) {
-      for (byte b2='a'; b2 < 'z'; b2++) {
-        for (byte b3='a'; b3 < 'z'; b3++) {
-          k[0]=b1;
-          k[1]=b2;
-          k[2]=b3;
-          Put put=new Put(k);
-          put.add(familyName,new byte[0],k);
-          table.put(put);
-          rowCount++;
-        }
+    for (int index=0; index < familyNames.length; index++) {
+      for (int i=0; i < rowCounts[index]; i++) {
+        byte[] k=Bytes.toBytes(i);
+        Put put=new Put(k);
+        put.add(familyNames[index],new byte[0],k);
+        table.put(put);
+      }
+      if (rowCount < rowCounts[index]) {
+        rowCount=rowCounts[index];
       }
     }
     Map<HRegionInfo,HServerAddress> m=table.getRegionsInfo();
@@ -71,19 +67,29 @@
     }
     scanner.close();
     assertEquals(rowCount,rows);
+    Map<HRegionInfo,HServerAddress> regions=null;
+    try {
+      regions=table.getRegionsInfo();
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+    }
+    assertEquals(2,regions.size());
+    HRegionInfo[] r=regions.keySet().toArray(new HRegionInfo[0]);
     if (splitPoint != null) {
-      Map<HRegionInfo,HServerAddress> regions=null;
-      try {
-        regions=table.getRegionsInfo();
-      }
- catch (      IOException e) {
-        e.printStackTrace();
-      }
-      assertEquals(2,regions.size());
-      HRegionInfo[] r=regions.keySet().toArray(new HRegionInfo[0]);
       assertEquals(Bytes.toString(splitPoint),Bytes.toString(r[0].getEndKey()));
       assertEquals(Bytes.toString(splitPoint),Bytes.toString(r[1].getStartKey()));
       LOG.debug("Properly split on " + Bytes.toString(splitPoint));
+    }
+ else {
+      if (familyNames.length > 1) {
+        int splitKey=Bytes.toInt(r[0].getEndKey());
+        int deltaForLargestFamily=Math.abs(rowCount / 2 - splitKey);
+        for (int index=0; index < familyNames.length; index++) {
+          int delta=Math.abs(rowCounts[index] / 2 - splitKey);
+          assertTrue(delta >= deltaForLargestFamily);
+        }
+      }
     }
   }
   finally {
