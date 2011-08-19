@@ -4,6 +4,7 @@
   }
   byte[][] regionsToFlush=null;
   this.cacheFlushLock.lock();
+  this.logRollRunning=true;
   try {
     if (closed) {
       return regionsToFlush;
@@ -12,7 +13,6 @@
     this.filenum=System.currentTimeMillis();
     Path newPath=computeFilename();
     HLog.Writer nextWriter=this.createWriterInstance(fs,newPath,conf);
-    int nextInitialReplication=fs.getFileStatus(newPath).getReplication();
     FSDataOutputStream nextHdfsOut=null;
     if (nextWriter instanceof SequenceFileLogWriter) {
       nextHdfsOut=((SequenceFileLogWriter)nextWriter).getWriterFSDataOutputStream();
@@ -25,11 +25,9 @@
 synchronized (updateLock) {
       Path oldFile=cleanupCurrentWriter(currentFilenum);
       this.writer=nextWriter;
-      this.initialReplication=nextInitialReplication;
       this.hdfs_out=nextHdfsOut;
       LOG.info((oldFile != null ? "Roll " + FSUtils.getPath(oldFile) + ", entries="+ this.numEntries.get()+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen()+ ". " : "") + "New hlog " + FSUtils.getPath(newPath));
       this.numEntries.set(0);
-      this.logRollRequested=false;
     }
     if (this.outputfiles.size() > 0) {
       if (this.lastSeqWritten.isEmpty()) {
@@ -45,6 +43,7 @@ synchronized (updateLock) {
     }
   }
   finally {
+    this.logRollRunning=false;
     this.cacheFlushLock.unlock();
   }
   return regionsToFlush;
