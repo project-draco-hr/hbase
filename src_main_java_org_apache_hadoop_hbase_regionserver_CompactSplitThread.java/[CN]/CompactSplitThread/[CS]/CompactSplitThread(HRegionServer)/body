@@ -15,14 +15,36 @@
   }
   int splitThreads=conf.getInt("hbase.regionserver.thread.split",1);
   Preconditions.checkArgument(smallThreads == 0 || throttleSize > 0);
-  this.largeCompactions=new ThreadPoolExecutor(largeThreads,largeThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>());
+  final String n=Thread.currentThread().getName();
+  this.largeCompactions=new ThreadPoolExecutor(largeThreads,largeThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>(),new ThreadFactory(){
+    @Override public Thread newThread(    Runnable r){
+      Thread t=new Thread(r);
+      t.setName(n + "-largeCompactions-" + System.currentTimeMillis());
+      return t;
+    }
+  }
+);
   this.largeCompactions.setRejectedExecutionHandler(new CompactionRequest.Rejection());
   if (smallThreads <= 0) {
     this.smallCompactions=null;
   }
  else {
-    this.smallCompactions=new ThreadPoolExecutor(smallThreads,smallThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>());
+    this.smallCompactions=new ThreadPoolExecutor(smallThreads,smallThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>(),new ThreadFactory(){
+      @Override public Thread newThread(      Runnable r){
+        Thread t=new Thread(r);
+        t.setName(n + "-smallCompactions-" + System.currentTimeMillis());
+        return t;
+      }
+    }
+);
     this.smallCompactions.setRejectedExecutionHandler(new CompactionRequest.Rejection());
   }
-  this.splits=(ThreadPoolExecutor)Executors.newFixedThreadPool(splitThreads);
+  this.splits=(ThreadPoolExecutor)Executors.newFixedThreadPool(splitThreads,new ThreadFactory(){
+    @Override public Thread newThread(    Runnable r){
+      Thread t=new Thread(r);
+      t.setName(n + "-splits-" + System.currentTimeMillis());
+      return t;
+    }
+  }
+);
 }
