@@ -16,39 +16,36 @@
     while ((entry=log.next()) != null) {
       HLogKey key=entry.getKey();
       WALEdit edit=entry.getEdit();
-      JSONObject txn=new JSONObject(key.toStringMap());
+      Map<String,Object> txn=key.toStringMap();
       if (sequence >= 0 && ((Long)txn.get("sequence")) != sequence)       continue;
       if (region != null && !((String)txn.get("region")).equals(region))       continue;
-      JSONArray actions=new JSONArray();
+      List<Map> actions=new ArrayList<Map>();
       for (      KeyValue kv : edit.getKeyValues()) {
-        JSONObject op=new JSONObject(kv.toStringMap());
+        Map<String,Object> op=new HashMap<String,Object>(kv.toStringMap());
         if (outputValues)         op.put("value",Bytes.toStringBinary(kv.getValue()));
-        if (row == null || ((String)op.get("row")).equals(row))         actions.put(op);
+        if (row == null || ((String)op.get("row")).equals(row))         actions.add(op);
       }
-      if (actions.length() == 0)       continue;
+      if (actions.size() == 0)       continue;
       txn.put("actions",actions);
       if (outputJSON) {
         if (firstTxn)         firstTxn=false;
  else         out.print(",");
-        out.print(txn);
+        out.print(mapper.writeValueAsString(txn));
       }
  else {
-        out.println("Sequence " + txn.getLong("sequence") + " "+ "from region "+ txn.getString("region")+ " "+ "in table "+ txn.getString("table"));
-        for (int i=0; i < actions.length(); i++) {
-          JSONObject op=actions.getJSONObject(i);
+        out.println("Sequence " + txn.get("sequence") + " "+ "from region "+ txn.get("region")+ " "+ "in table "+ txn.get("table"));
+        for (int i=0; i < actions.size(); i++) {
+          Map op=actions.get(i);
           out.println("  Action:");
-          out.println("    row: " + op.getString("row"));
-          out.println("    column: " + op.getString("family") + ":"+ op.getString("qualifier"));
-          out.println("    at time: " + (new Date(op.getLong("timestamp"))));
+          out.println("    row: " + op.get("row"));
+          out.println("    column: " + op.get("family") + ":"+ op.get("qualifier"));
+          out.println("    at time: " + (new Date((Long)op.get("timestamp"))));
           if (outputValues)           out.println("    value: " + op.get("value"));
         }
       }
     }
   }
- catch (  JSONException e) {
-    e.printStackTrace();
-  }
- finally {
+  finally {
     log.close();
   }
   if (outputJSON && !persistentOutput) {
