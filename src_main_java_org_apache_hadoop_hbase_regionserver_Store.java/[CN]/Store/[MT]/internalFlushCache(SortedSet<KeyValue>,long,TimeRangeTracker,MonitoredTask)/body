@@ -4,25 +4,36 @@
   if (set.size() == 0) {
     return null;
   }
-  long oldestTimestamp=System.currentTimeMillis() - ttl;
+  Scan scan=new Scan();
+  scan.setMaxVersions(maxVersions);
+  InternalScanner scanner=new StoreScanner(this,scan,Collections.singletonList(new CollectionBackedScanner(set,this.comparator)),true);
+  try {
 synchronized (flushLock) {
-    status.setStatus("Flushing " + this + ": creating writer");
-    writer=createWriterInTmp(set.size());
-    writer.setTimeRangeTracker(snapshotTimeRangeTracker);
-    try {
-      for (      KeyValue kv : set) {
-        if (minVersions > 0 || !isExpired(kv,oldestTimestamp)) {
-          writer.append(kv);
-          flushed+=this.memstore.heapSizeChange(kv,true);
+      status.setStatus("Flushing " + this + ": creating writer");
+      writer=createWriterInTmp(set.size());
+      writer.setTimeRangeTracker(snapshotTimeRangeTracker);
+      try {
+        List<KeyValue> kvs=new ArrayList<KeyValue>();
+        while (scanner.next(kvs)) {
+          if (!kvs.isEmpty()) {
+            for (            KeyValue kv : kvs) {
+              writer.append(kv);
+              flushed+=this.memstore.heapSizeChange(kv,true);
+            }
+            kvs.clear();
+          }
         }
       }
-    }
   finally {
-      status.setStatus("Flushing " + this + ": appending metadata");
-      writer.appendMetadata(logCacheFlushId,false);
-      status.setStatus("Flushing " + this + ": closing flushed file");
-      writer.close();
+        status.setStatus("Flushing " + this + ": appending metadata");
+        writer.appendMetadata(logCacheFlushId,false);
+        status.setStatus("Flushing " + this + ": closing flushed file");
+        writer.close();
+      }
     }
+  }
+  finally {
+    scanner.close();
   }
   Path dstPath=StoreFile.getUniqueFile(fs,homedir);
   String msg="Renaming flushed file at " + writer.getPath() + " to "+ dstPath;
