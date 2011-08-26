@@ -1,0 +1,27 @@
+{
+  this.blockSize=blockSize;
+  this.numBlocks=numBlocks;
+  backingStore=new Slab(blockSize,numBlocks);
+  this.stats=new CacheStats();
+  this.evictionWatcher=master;
+  this.size=new AtomicLong(CACHE_FIXED_OVERHEAD + backingStore.heapSize());
+  MapEvictionListener<String,CacheablePair> listener=new MapEvictionListener<String,CacheablePair>(){
+    @Override public void onEviction(    String key,    CacheablePair value){
+      try {
+        value.evictionLock.writeLock().lock();
+        backingStore.free(value.serializedData);
+        stats.evict();
+        if (evictionWatcher != null) {
+          evictionWatcher.onEviction(key,false);
+        }
+        size.addAndGet(-1 * value.heapSize());
+        stats.evicted();
+      }
+  finally {
+        value.evictionLock.writeLock().unlock();
+      }
+    }
+  }
+;
+  backingMap=new MapMaker().maximumSize(numBlocks - 1).evictionListener(listener).makeMap();
+}

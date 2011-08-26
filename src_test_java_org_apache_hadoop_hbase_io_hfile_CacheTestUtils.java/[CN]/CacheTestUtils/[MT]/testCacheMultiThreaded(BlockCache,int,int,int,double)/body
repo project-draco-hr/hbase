@@ -1,0 +1,39 @@
+{
+  Configuration conf=new Configuration();
+  MultithreadedTestUtil.TestContext ctx=new MultithreadedTestUtil.TestContext(conf);
+  final AtomicInteger totalQueries=new AtomicInteger();
+  final ConcurrentLinkedQueue<HFileBlockPair> blocksToTest=new ConcurrentLinkedQueue<HFileBlockPair>();
+  final AtomicInteger hits=new AtomicInteger();
+  final AtomicInteger miss=new AtomicInteger();
+  HFileBlockPair[] blocks=generateHFileBlocks(numQueries,blockSize);
+  blocksToTest.addAll(Arrays.asList(blocks));
+  for (int i=0; i < numThreads; i++) {
+    TestThread t=new MultithreadedTestUtil.RepeatingTestThread(ctx){
+      @Override public void doAnAction() throws Exception {
+        if (!blocksToTest.isEmpty()) {
+          HFileBlockPair ourBlock=blocksToTest.remove();
+          toBeTested.cacheBlock(ourBlock.blockName,ourBlock.block);
+          Cacheable retrievedBlock=toBeTested.getBlock(ourBlock.blockName,false);
+          if (retrievedBlock != null) {
+            assertEquals(ourBlock.block,retrievedBlock);
+            hits.incrementAndGet();
+          }
+ else {
+            miss.incrementAndGet();
+          }
+          totalQueries.incrementAndGet();
+        }
+      }
+    }
+;
+    ctx.addThread(t);
+  }
+  ctx.startThreads();
+  while (!blocksToTest.isEmpty() && ctx.shouldRun()) {
+    Thread.sleep(10);
+  }
+  ctx.stop();
+  if ((double)hits.get() / ((double)hits.get() + (double)miss.get()) < passingScore) {
+    fail("Too many nulls returned. Hits: " + hits.get() + " Misses: "+ miss.get());
+  }
+}
