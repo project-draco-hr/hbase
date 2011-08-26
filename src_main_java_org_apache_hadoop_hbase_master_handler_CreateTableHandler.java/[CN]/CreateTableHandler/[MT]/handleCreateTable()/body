@@ -1,0 +1,37 @@
+{
+  FSUtils.createTableDescriptor(this.hTableDescriptor,this.conf);
+  List<HRegionInfo> regionInfos=new ArrayList<HRegionInfo>();
+  final int batchSize=this.conf.getInt("hbase.master.createtable.batchsize",100);
+  HLog hlog=null;
+  for (int regionIdx=0; regionIdx < this.newRegions.length; regionIdx++) {
+    HRegionInfo newRegion=this.newRegions[regionIdx];
+    HRegion region=HRegion.createHRegion(newRegion,this.fileSystemManager.getRootDir(),this.conf,this.hTableDescriptor,hlog);
+    if (hlog == null) {
+      hlog=region.getLog();
+    }
+    regionInfos.add(region.getRegionInfo());
+    if (regionIdx % batchSize == 0) {
+      MetaEditor.addRegionsToMeta(this.catalogTracker,regionInfos);
+      regionInfos.clear();
+    }
+    region.close();
+  }
+  hlog.closeAndDelete();
+  if (regionInfos.size() > 0) {
+    MetaEditor.addRegionsToMeta(this.catalogTracker,regionInfos);
+  }
+  List<ServerName> servers=serverManager.getOnlineServersList();
+  try {
+    this.assignmentManager.assignUserRegions(Arrays.asList(newRegions),servers);
+  }
+ catch (  InterruptedException ie) {
+    LOG.error("Caught " + ie + " during round-robin assignment");
+    throw new IOException(ie);
+  }
+  try {
+    assignmentManager.getZKTable().setEnabledTable(this.hTableDescriptor.getNameAsString());
+  }
+ catch (  KeeperException e) {
+    throw new IOException("Unable to ensure that the table will be" + " enabled because of a ZooKeeper issue",e);
+  }
+}
