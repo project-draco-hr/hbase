@@ -26,7 +26,20 @@
     rpcMetrics.rpcProcessingTime.inc(processingTime);
     rpcMetrics.inc(call.getMethodName(),processingTime);
     if (verbose)     log("Return: " + value);
-    return new HbaseObjectWritable(method.getReturnType(),value);
+    HbaseObjectWritable retVal=new HbaseObjectWritable(method.getReturnType(),value);
+    long responseSize=retVal.getWritableSize();
+    boolean tooSlow=(processingTime > warnResponseTime && warnResponseTime > -1);
+    boolean tooLarge=(responseSize > warnResponseSize && warnResponseSize > -1);
+    if (tooSlow || tooLarge) {
+      logResponse(call,(tooLarge ? "TooLarge" : "TooSlow"),startTime,processingTime,qTime,responseSize);
+      if (tooSlow) {
+        rpcMetrics.inc(call.getMethodName() + ".slowResponse.",processingTime);
+      }
+    }
+    if (processingTime > 1000) {
+      rpcMetrics.inc(call.getMethodName() + ".aboveOneSec.",processingTime);
+    }
+    return retVal;
   }
  catch (  InvocationTargetException e) {
     Throwable target=e.getTargetException();
