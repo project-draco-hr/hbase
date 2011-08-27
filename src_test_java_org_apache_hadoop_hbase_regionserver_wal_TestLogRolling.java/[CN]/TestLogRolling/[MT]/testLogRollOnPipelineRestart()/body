@@ -1,4 +1,5 @@
 {
+  LOG.info("Starting testLogRollOnPipelineRestart");
   assertTrue("This test requires HLog file replication.",fs.getDefaultReplication() > 1);
   LOG.info("Replication=" + fs.getDefaultReplication());
   new HTable(TEST_UTIL.getConfiguration(),HConstants.META_TABLE_NAME);
@@ -29,27 +30,25 @@
 );
   assertTrue("Need HDFS-826 for this test",log.canGetCurReplicas());
   assertTrue("Need append support for this test",FSUtils.isAppendSupported(TEST_UTIL.getConfiguration()));
-  writeData(table,2);
+  writeData(table,1002);
   table.setAutoFlush(true);
   long curTime=System.currentTimeMillis();
   long oldFilenum=log.getFilenum();
   assertTrue("Log should have a timestamp older than now",curTime > oldFilenum && oldFilenum != -1);
   assertTrue("The log shouldn't have rolled yet",oldFilenum == log.getFilenum());
-  DatanodeInfo[] pipeline=getPipeline(log);
-  assertTrue(pipeline.length == fs.getDefaultReplication());
   dfsCluster.restartDataNodes();
   Thread.sleep(10000);
   dfsCluster.waitActive();
   LOG.info("Data Nodes restarted");
-  writeData(table,3);
+  writeData(table,1003);
   long newFilenum=log.getFilenum();
   assertTrue("Missing datanode should've triggered a log roll",newFilenum > oldFilenum && newFilenum > curTime);
-  writeData(table,4);
+  writeData(table,1004);
   dfsCluster.restartDataNodes();
   Thread.sleep(10000);
   dfsCluster.waitActive();
   LOG.info("Data Nodes restarted");
-  writeData(table,5);
+  writeData(table,1005);
   log.rollWriter(true);
   Set<String> loggedRows=new HashSet<String>();
   for (  Path p : paths) {
@@ -72,10 +71,10 @@
       if (reader != null)       reader.close();
     }
   }
-  assertTrue(loggedRows.contains("row0002"));
-  assertTrue(loggedRows.contains("row0003"));
-  assertTrue(loggedRows.contains("row0004"));
-  assertTrue(loggedRows.contains("row0005"));
+  assertTrue(loggedRows.contains("row1002"));
+  assertTrue(loggedRows.contains("row1003"));
+  assertTrue(loggedRows.contains("row1004"));
+  assertTrue(loggedRows.contains("row1005"));
   List<HRegion> regions=new ArrayList<HRegion>(server.getOnlineRegionsLocalContext());
   for (  HRegion r : regions) {
     r.flushcache();
@@ -86,7 +85,7 @@
       Result r=scanner.next();
       assertNotNull(r);
       assertFalse(r.isEmpty());
-      assertEquals("row000" + i,Bytes.toString(r.getRow()));
+      assertEquals("row100" + i,Bytes.toString(r.getRow()));
     }
   }
   finally {
