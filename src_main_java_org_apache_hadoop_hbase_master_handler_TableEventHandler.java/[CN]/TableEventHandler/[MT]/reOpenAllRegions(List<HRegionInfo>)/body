@@ -1,0 +1,34 @@
+{
+  boolean done=false;
+  LOG.info("Bucketing regions by region server...");
+  HTable table=new HTable(masterServices.getConfiguration(),tableName);
+  TreeMap<ServerName,List<HRegionInfo>> serverToRegions=Maps.newTreeMap();
+  NavigableMap<HRegionInfo,ServerName> hriHserverMapping=table.getRegionLocations();
+  for (  HRegionInfo hri : regions) {
+    ServerName rsLocation=hriHserverMapping.get(hri);
+    if (!serverToRegions.containsKey(rsLocation)) {
+      LinkedList<HRegionInfo> hriList=Lists.newLinkedList();
+      serverToRegions.put(rsLocation,hriList);
+    }
+    serverToRegions.get(rsLocation).add(hri);
+  }
+  LOG.info("Reopening " + regions.size() + " regions on "+ serverToRegions.size()+ " region servers.");
+  BulkReOpen bulkReopen=new BulkReOpen(this.server,serverToRegions,this.masterServices.getAssignmentManager());
+  while (true) {
+    try {
+      if (bulkReopen.bulkReOpen()) {
+        done=true;
+        break;
+      }
+ else {
+        LOG.warn("Timeout before reopening all regions");
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Reopen was interrupted");
+      Thread.currentThread().interrupt();
+      break;
+    }
+  }
+  return done;
+}
