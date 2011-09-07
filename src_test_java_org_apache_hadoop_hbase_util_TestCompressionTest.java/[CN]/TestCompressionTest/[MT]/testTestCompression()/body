@@ -17,7 +17,33 @@
   assertTrue(CompressionTest.testCompression("NONE"));
   assertTrue(CompressionTest.testCompression("GZ"));
   if (isCompressionAvailable("org.apache.hadoop.io.compress.SnappyCodec")) {
-    assertTrue(CompressionTest.testCompression("SNAPPY"));
+    if (NativeCodeLoader.isNativeCodeLoaded()) {
+      try {
+        System.loadLibrary("snappy");
+        try {
+          Configuration conf=new Configuration();
+          CompressionCodec codec=(CompressionCodec)ReflectionUtils.newInstance(conf.getClassByName("org.apache.hadoop.io.compress.SnappyCodec"),conf);
+          DataOutputBuffer compressedDataBuffer=new DataOutputBuffer();
+          CompressionOutputStream deflateFilter=codec.createOutputStream(compressedDataBuffer);
+          byte[] data=new byte[1024];
+          DataOutputStream deflateOut=new DataOutputStream(new BufferedOutputStream(deflateFilter));
+          deflateOut.write(data,0,data.length);
+          deflateOut.flush();
+          deflateFilter.finish();
+          assertTrue(CompressionTest.testCompression("SNAPPY"));
+        }
+ catch (        UnsatisfiedLinkError ex) {
+        }
+catch (        Exception ex) {
+        }
+      }
+ catch (      UnsatisfiedLinkError ex) {
+        assertFalse(CompressionTest.testCompression("SNAPPY"));
+      }
+    }
+ else {
+      assertFalse(CompressionTest.testCompression("SNAPPY"));
+    }
   }
  else {
     assertFalse(CompressionTest.testCompression("SNAPPY"));
