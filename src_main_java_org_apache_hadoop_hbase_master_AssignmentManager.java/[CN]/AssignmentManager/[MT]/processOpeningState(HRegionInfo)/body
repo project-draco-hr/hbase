@@ -1,0 +1,26 @@
+{
+  LOG.info("Region has been OPENING for too " + "long, reassigning region=" + regionInfo.getRegionNameAsString());
+  try {
+    String node=ZKAssign.getNodeName(watcher,regionInfo.getEncodedName());
+    Stat stat=new Stat();
+    RegionTransitionData dataInZNode=ZKAssign.getDataNoWatch(watcher,node,stat);
+    if (dataInZNode == null) {
+      LOG.warn("Data is null, node " + node + " no longer exists");
+      return;
+    }
+    if (dataInZNode.getEventType() == EventType.RS_ZK_REGION_OPENED) {
+      LOG.debug("Region has transitioned to OPENED, allowing " + "watched event handlers to process");
+      return;
+    }
+ else     if (dataInZNode.getEventType() != EventType.RS_ZK_REGION_OPENING) {
+      LOG.warn("While timing out a region in state OPENING, " + "found ZK node in unexpected state: " + dataInZNode.getEventType());
+      return;
+    }
+    invokeAssign(regionInfo);
+  }
+ catch (  KeeperException ke) {
+    LOG.error("Unexpected ZK exception timing out CLOSING region",ke);
+    return;
+  }
+  return;
+}
