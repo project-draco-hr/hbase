@@ -8,15 +8,19 @@
     WALEdit edit=entry.getEdit();
     this.metrics.logEditsReadRate.inc(1);
     seenEntries++;
-    removeNonReplicableEdits(edit);
     HLogKey logKey=entry.getKey();
-    if (!(Bytes.equals(logKey.getTablename(),HConstants.ROOT_TABLE_NAME) || Bytes.equals(logKey.getTablename(),HConstants.META_TABLE_NAME)) && edit.size() != 0 && replicating.get()) {
-      logKey.setClusterId(this.clusterId);
-      currentNbOperations+=countDistinctRowKeys(edit);
-      currentNbEntries++;
-    }
+    if (!logKey.getClusterId().equals(peerClusterId)) {
+      removeNonReplicableEdits(edit);
+      if (!(Bytes.equals(logKey.getTablename(),HConstants.ROOT_TABLE_NAME) || Bytes.equals(logKey.getTablename(),HConstants.META_TABLE_NAME)) && edit.size() != 0 && replicating.get()) {
+        if (HConstants.DEFAULT_CLUSTER_ID == logKey.getClusterId()) {
+          logKey.setClusterId(this.clusterId);
+        }
+        currentNbOperations+=countDistinctRowKeys(edit);
+        currentNbEntries++;
+      }
  else {
-      this.metrics.logEditsFilteredRate.inc(1);
+        this.metrics.logEditsFilteredRate.inc(1);
+      }
     }
     if ((this.reader.getPosition() - this.position) >= this.replicationQueueSizeCapacity || currentNbEntries >= this.replicationQueueNbCapacity) {
       break;
