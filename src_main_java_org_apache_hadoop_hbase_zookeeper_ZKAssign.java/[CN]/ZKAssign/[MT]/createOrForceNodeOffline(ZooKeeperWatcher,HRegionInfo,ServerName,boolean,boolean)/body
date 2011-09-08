@@ -1,0 +1,41 @@
+{
+  LOG.debug(zkw.prefix("Creating (or updating) unassigned node for " + region.getEncodedName() + " with OFFLINE state"));
+  RegionTransitionData data=new RegionTransitionData(EventType.M_ZK_REGION_OFFLINE,region.getRegionName(),serverName);
+  String node=getNodeName(zkw,region.getEncodedName());
+  Stat stat=new Stat();
+  zkw.sync(node);
+  int version=ZKUtil.checkExists(zkw,node);
+  if (version == -1) {
+    if (reassign && !allowCreation) {
+      return -1;
+    }
+    return ZKUtil.createAndWatch(zkw,node,data.getBytes());
+  }
+ else {
+    RegionTransitionData curDataInZNode=ZKAssign.getDataNoWatch(zkw,region.getEncodedName(),stat);
+    if (reassign && null != curDataInZNode) {
+      EventType eventType=curDataInZNode.getEventType();
+      if (eventType.equals(EventType.RS_ZK_REGION_CLOSING) || eventType.equals(EventType.RS_ZK_REGION_CLOSED) || eventType.equals(EventType.RS_ZK_REGION_OPENED)) {
+        return -1;
+      }
+    }
+    boolean setData=false;
+    try {
+      setData=ZKUtil.setData(zkw,node,data.getBytes(),version);
+    }
+ catch (    KeeperException kpe) {
+      LOG.info("Version mismatch while setting the node to OFFLINE state.");
+      return -1;
+    }
+    if (!setData) {
+      return -1;
+    }
+ else {
+      RegionTransitionData curData=ZKAssign.getData(zkw,region.getEncodedName());
+      if (curData.getEventType() != data.getEventType()) {
+        return -1;
+      }
+    }
+  }
+  return stat.getVersion() + 1;
+}

@@ -1,0 +1,44 @@
+{
+  HRegionInfo regionInfo=regionState.getRegion();
+  LOG.info("Regions in transition timed out:  " + regionState);
+switch (regionState.getState()) {
+case CLOSED:
+    LOG.info("Region " + regionInfo.getEncodedName() + " has been CLOSED for too long, waiting on queued "+ "ClosedRegionHandler to run or server shutdown");
+  regionState.updateTimestampToNow();
+break;
+case OFFLINE:
+LOG.info("Region has been OFFLINE for too long, " + "reassigning " + regionInfo.getRegionNameAsString() + " to a random server");
+invokeTimeOutManager(regionState.getRegion(),TimeOutOperationType.ASSIGN);
+break;
+case PENDING_OPEN:
+LOG.info("Region has been PENDING_OPEN for too " + "long, reassigning region=" + regionInfo.getRegionNameAsString());
+invokeTimeOutManager(regionState.getRegion(),TimeOutOperationType.ASSIGN);
+break;
+case OPENING:
+processOpeningState(regionInfo);
+break;
+case OPEN:
+LOG.error("Region has been OPEN for too long, " + "we don't know where region was opened so can't do anything");
+synchronized (regionState) {
+regionState.updateTimestampToNow();
+}
+break;
+case PENDING_CLOSE:
+LOG.info("Region has been PENDING_CLOSE for too " + "long, running forced unassign again on region=" + regionInfo.getRegionNameAsString());
+try {
+if (!ZKUtil.watchAndCheckExists(watcher,ZKAssign.getNodeName(watcher,regionInfo.getEncodedName()))) {
+invokeTimeOutManager(regionState.getRegion(),TimeOutOperationType.UNASSIGN);
+}
+}
+ catch (NoNodeException e) {
+LOG.debug("Node no longer existed so not forcing another " + "unassignment");
+}
+catch (KeeperException e) {
+LOG.warn("Unexpected ZK exception timing out a region close",e);
+}
+break;
+case CLOSING:
+LOG.info("Region has been CLOSING for too " + "long, this should eventually complete or the server will " + "expire, doing nothing");
+break;
+}
+}
