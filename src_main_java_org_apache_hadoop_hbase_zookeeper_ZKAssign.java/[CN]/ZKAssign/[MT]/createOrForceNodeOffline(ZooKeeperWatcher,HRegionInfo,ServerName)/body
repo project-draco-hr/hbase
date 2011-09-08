@@ -1,3 +1,22 @@
 {
-  return createOrForceNodeOffline(zkw,region,serverName,false,true);
+  LOG.debug(zkw.prefix("Creating (or updating) unassigned node for " + region.getEncodedName() + " with OFFLINE state"));
+  RegionTransitionData data=new RegionTransitionData(EventType.M_ZK_REGION_OFFLINE,region.getRegionName(),serverName);
+  String node=getNodeName(zkw,region.getEncodedName());
+  zkw.sync(node);
+  int version=ZKUtil.checkExists(zkw,node);
+  if (version == -1) {
+    ZKUtil.createAndWatch(zkw,node,data.getBytes());
+  }
+ else {
+    if (!ZKUtil.setData(zkw,node,data.getBytes(),version)) {
+      return false;
+    }
+ else {
+      RegionTransitionData curData=ZKAssign.getData(zkw,region.getEncodedName());
+      if (curData.getEventType() != data.getEventType()) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
