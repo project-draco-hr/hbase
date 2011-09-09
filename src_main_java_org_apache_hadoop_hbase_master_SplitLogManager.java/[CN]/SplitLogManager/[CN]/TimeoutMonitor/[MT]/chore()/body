@@ -3,16 +3,32 @@
   int unassigned=0;
   int tot=0;
   boolean found_assigned_task=false;
+  Set<String> localDeadWorkers;
+synchronized (deadWorkersLock) {
+    localDeadWorkers=deadWorkers;
+    deadWorkers=null;
+  }
   for (  Map.Entry<String,Task> e : tasks.entrySet()) {
     String path=e.getKey();
     Task task=e.getValue();
+    String cur_worker=task.cur_worker_name;
     tot++;
     if (task.isUnassigned()) {
       unassigned++;
       continue;
     }
     found_assigned_task=true;
-    if (resubmit(path,task,false)) {
+    if (localDeadWorkers != null && localDeadWorkers.contains(cur_worker)) {
+      tot_mgr_resubmit_dead_server_task.incrementAndGet();
+      if (resubmit(path,task,FORCE)) {
+        resubmitted++;
+      }
+ else {
+        handleDeadWorker(cur_worker);
+        LOG.warn("Failed to resubmit task " + path + " owned by dead "+ cur_worker+ ", will retry.");
+      }
+    }
+ else     if (resubmit(path,task,CHECK)) {
       resubmitted++;
     }
   }

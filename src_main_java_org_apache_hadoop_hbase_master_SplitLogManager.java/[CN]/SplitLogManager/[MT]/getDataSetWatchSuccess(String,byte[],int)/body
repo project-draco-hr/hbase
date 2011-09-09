@@ -2,7 +2,7 @@
   if (data == null) {
     tot_mgr_null_data.incrementAndGet();
     LOG.fatal("logic error - got null data " + path);
-    setDone(path,true);
+    setDone(path,FAILURE);
     return;
   }
   data=this.watcher.getRecoverableZooKeeper().removeMetaData(data);
@@ -11,32 +11,32 @@
     handleUnassignedTask(path);
   }
  else   if (TaskState.TASK_OWNED.equals(data)) {
-    registerHeartbeat(path,version,TaskState.TASK_OWNED.getWriterName(data));
+    heartbeat(path,version,TaskState.TASK_OWNED.getWriterName(data));
   }
  else   if (TaskState.TASK_RESIGNED.equals(data)) {
     LOG.info("task " + path + " entered state "+ new String(data));
-    resubmit(path,true);
+    resubmitOrFail(path,FORCE);
   }
  else   if (TaskState.TASK_DONE.equals(data)) {
     LOG.info("task " + path + " entered state "+ new String(data));
     if (taskFinisher != null && !ZKSplitLog.isRescanNode(watcher,path)) {
       if (taskFinisher.finish(TaskState.TASK_DONE.getWriterName(data),ZKSplitLog.getFileName(path)) == Status.DONE) {
-        setDone(path,false);
+        setDone(path,SUCCESS);
       }
  else {
-        resubmit(path,false);
+        resubmitOrFail(path,CHECK);
       }
     }
  else {
-      setDone(path,false);
+      setDone(path,SUCCESS);
     }
   }
  else   if (TaskState.TASK_ERR.equals(data)) {
     LOG.info("task " + path + " entered state "+ new String(data));
-    resubmit(path,false);
+    resubmitOrFail(path,CHECK);
   }
  else {
     LOG.fatal("logic error - unexpected zk state for path = " + path + " data = "+ new String(data));
-    setDone(path,true);
+    setDone(path,FAILURE);
   }
 }
