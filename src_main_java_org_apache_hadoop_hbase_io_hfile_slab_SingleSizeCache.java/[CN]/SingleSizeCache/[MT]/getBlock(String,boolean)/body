@@ -5,19 +5,18 @@
     return null;
   }
   stats.hit(caching);
-  if (contentBlock.evictionLock.readLock().tryLock()) {
-    try {
-      contentBlock.recentlyAccessed.set(System.nanoTime());
-      return contentBlock.deserializer.deserialize(contentBlock.serializedData);
-    }
- catch (    IOException e) {
-      e.printStackTrace();
-      LOG.warn("Deserializer throwing ioexception, possibly deserializing wrong object buffer");
-      return null;
-    }
- finally {
-      contentBlock.evictionLock.readLock().unlock();
+  try {
+    contentBlock.recentlyAccessed.set(System.nanoTime());
+synchronized (contentBlock) {
+      if (contentBlock.serializedData == null) {
+        LOG.warn("Concurrent eviction of " + key);
+        return null;
+      }
+      return contentBlock.deserializer.deserialize(contentBlock.serializedData.asReadOnlyBuffer());
     }
   }
-  return null;
+ catch (  Throwable t) {
+    LOG.error("Deserializer threw an exception. This may indicate a bug.",t);
+    return null;
+  }
 }

@@ -1,0 +1,34 @@
+{
+  Configuration conf=new Configuration();
+  MultithreadedTestUtil.TestContext ctx=new MultithreadedTestUtil.TestContext(conf);
+  final AtomicInteger totalQueries=new AtomicInteger();
+  for (int i=0; i < numThreads; i++) {
+    final int finalI=i;
+    final byte[] buf=new byte[5 * 1024];
+    TestThread t=new MultithreadedTestUtil.RepeatingTestThread(ctx){
+      @Override public void doAnAction() throws Exception {
+        for (int j=0; j < 10; j++) {
+          String key="key_" + finalI + "_"+ j;
+          Arrays.fill(buf,(byte)(finalI * j));
+          final ByteArrayCacheable bac=new ByteArrayCacheable(buf);
+          ByteArrayCacheable gotBack=(ByteArrayCacheable)toBeTested.getBlock(key,true);
+          if (gotBack != null) {
+            assertArrayEquals(gotBack.buf,bac.buf);
+          }
+ else {
+            toBeTested.cacheBlock(key,bac);
+          }
+        }
+        totalQueries.incrementAndGet();
+      }
+    }
+;
+    ctx.addThread(t);
+  }
+  ctx.startThreads();
+  while (totalQueries.get() < numQueries && ctx.shouldRun()) {
+    Thread.sleep(10);
+  }
+  ctx.stop();
+  assertTrue(toBeTested.getStats().getEvictedCount() > 0);
+}

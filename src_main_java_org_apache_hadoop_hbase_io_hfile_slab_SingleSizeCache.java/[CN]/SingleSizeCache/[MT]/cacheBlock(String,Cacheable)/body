@@ -1,16 +1,20 @@
 {
   ByteBuffer storedBlock;
-  do {
+  try {
     storedBlock=backingStore.alloc(toBeCached.getSerializedLength());
   }
- while (storedBlock == null);
+ catch (  InterruptedException e) {
+    LOG.warn("SlabAllocator was interrupted while waiting for block to become available");
+    LOG.warn(e);
+    return;
+  }
   CacheablePair newEntry=new CacheablePair(toBeCached.getDeserializer(),storedBlock);
+  toBeCached.serialize(storedBlock);
   CacheablePair alreadyCached=backingMap.putIfAbsent(blockName,newEntry);
   if (alreadyCached != null) {
     backingStore.free(storedBlock);
     throw new RuntimeException("already cached " + blockName);
   }
-  toBeCached.serialize(storedBlock);
   newEntry.recentlyAccessed.set(System.nanoTime());
   this.size.addAndGet(newEntry.heapSize());
 }
