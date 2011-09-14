@@ -1,16 +1,25 @@
 {
-  if (this.splitPoint != null) {
-    return this.splitPoint;
+  if (getRegionInfo().isMetaRegion()) {
+    if (shouldForceSplit()) {
+      LOG.warn("Cannot split meta regions in HBase 0.20 and above");
+    }
+    return null;
   }
-  byte[] splitPointFromLargestStore=null;
-  long largestStoreSize=0;
-  for (  Store s : stores.values()) {
-    byte[] splitPoint=s.checkSplit();
-    long storeSize=s.getSize();
-    if (splitPoint != null && largestStoreSize < storeSize) {
-      splitPointFromLargestStore=splitPoint;
-      largestStoreSize=storeSize;
+  if (this.explicitSplitPoint != null) {
+    return this.explicitSplitPoint;
+  }
+  if (!splitPolicy.shouldSplit()) {
+    return null;
+  }
+  byte[] ret=splitPolicy.getSplitPoint();
+  if (ret != null) {
+    try {
+      checkRow(ret,"calculated split");
+    }
+ catch (    IOException e) {
+      LOG.error("Ignoring invalid split",e);
+      return null;
     }
   }
-  return splitPointFromLargestStore;
+  return ret;
 }
