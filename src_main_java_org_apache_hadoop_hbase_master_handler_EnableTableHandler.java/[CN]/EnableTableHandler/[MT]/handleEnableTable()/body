@@ -1,27 +1,23 @@
 {
   this.assignmentManager.getZKTable().setEnablingTable(this.tableNameStr);
   boolean done=false;
-  while (true) {
-    List<HRegionInfo> regionsInMeta=MetaReader.getTableRegions(this.ct,tableName,true);
-    int countOfRegionsInTable=regionsInMeta.size();
-    List<HRegionInfo> regions=regionsToAssign(regionsInMeta);
-    if (regions.size() == 0) {
+  List<HRegionInfo> regionsInMeta=MetaReader.getTableRegions(this.ct,tableName,true);
+  int countOfRegionsInTable=regionsInMeta.size();
+  List<HRegionInfo> regions=regionsToAssign(regionsInMeta);
+  int regionsCount=regions.size();
+  if (regionsCount == 0) {
+    done=true;
+  }
+  LOG.info("Table has " + countOfRegionsInTable + " regions of which "+ regionsCount+ " are offline.");
+  BulkEnabler bd=new BulkEnabler(this.server,regions,countOfRegionsInTable);
+  try {
+    if (bd.bulkAssign()) {
       done=true;
-      break;
     }
-    LOG.info("Table has " + countOfRegionsInTable + " regions of which "+ regions.size()+ " are offline.");
-    BulkEnabler bd=new BulkEnabler(this.server,regions,countOfRegionsInTable);
-    try {
-      if (bd.bulkAssign()) {
-        done=true;
-        break;
-      }
-    }
- catch (    InterruptedException e) {
-      LOG.warn("Enable was interrupted");
-      Thread.currentThread().interrupt();
-      break;
-    }
+  }
+ catch (  InterruptedException e) {
+    LOG.warn("Enable was interrupted");
+    Thread.currentThread().interrupt();
   }
   if (done)   this.assignmentManager.getZKTable().setEnabledTable(this.tableNameStr);
   LOG.info("Enabled table is done=" + done);
