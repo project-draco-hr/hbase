@@ -48,11 +48,19 @@ synchronized (this.regions) {
       break;
     }
  catch (    Throwable t) {
-      LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign elsewhere instead; "+ "retry="+ i,t);
-      state.update(RegionState.State.OFFLINE);
-      if (getRegionPlan(state,plan.getDestination(),true) == null) {
-        LOG.warn("Unable to find a viable location to assign region " + state.getRegion().getRegionNameAsString());
-        return;
+      if (t instanceof RemoteException) {
+        t=((RemoteException)t).unwrapRemoteException();
+        if (t instanceof RegionAlreadyInTransitionException) {
+          String errorMsg="Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ " as the region was already "+ extractRegionState((RegionAlreadyInTransitionException)t)+ " in the RS "+ plan.getDestination();
+          LOG.error(errorMsg,t);
+          return;
+        }
+        LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign elsewhere instead; "+ "retry="+ i,t);
+        state.update(RegionState.State.OFFLINE);
+        if (getRegionPlan(state,plan.getDestination(),true) == null) {
+          LOG.warn("Unable to find a viable location to assign region " + state.getRegion().getRegionNameAsString());
+          return;
+        }
       }
     }
   }
