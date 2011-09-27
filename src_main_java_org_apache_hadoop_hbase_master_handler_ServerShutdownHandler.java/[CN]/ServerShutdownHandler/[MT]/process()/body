@@ -1,17 +1,26 @@
 {
   final ServerName serverName=this.serverName;
-  LOG.info("Splitting logs for " + serverName);
   try {
-    this.services.getMasterFileSystem().splitLog(serverName);
-    List<RegionState> regionsInTransition=this.services.getAssignmentManager().processServerShutdown(this.serverName);
+    if (this.shouldSplitHlog) {
+      LOG.info("Splitting logs for " + serverName);
+      this.services.getMasterFileSystem().splitLog(serverName);
+    }
     if (isCarryingRoot()) {
       LOG.info("Server " + serverName + " was carrying ROOT. Trying to assign.");
+      this.services.getAssignmentManager().regionOffline(HRegionInfo.ROOT_REGIONINFO);
       verifyAndAssignRootWithRetries();
     }
     if (isCarryingMeta()) {
       LOG.info("Server " + serverName + " was carrying META. Trying to assign.");
+      this.services.getAssignmentManager().regionOffline(HRegionInfo.FIRST_META_REGIONINFO);
       this.services.getAssignmentManager().assignMeta();
     }
+    if (isCarryingRoot() || isCarryingMeta()) {
+      this.services.getExecutorService().submit(new ServerShutdownHandler(this.server,this.services,this.deadServers,serverName,false));
+      this.deadServers.add(serverName);
+      return;
+    }
+    List<RegionState> regionsInTransition=this.services.getAssignmentManager().processServerShutdown(this.serverName);
     NavigableMap<HRegionInfo,Result> hris=null;
     while (!this.server.isStopped()) {
       try {
@@ -29,7 +38,7 @@ catch (      IOException ioe) {
     }
     for (    RegionState rit : regionsInTransition) {
       if (!rit.isClosing() && !rit.isPendingClose()) {
-        LOG.debug("Removed " + rit.getRegion().getRegionNameAsString() + " from list of regions to assign because in RIT");
+        LOG.debug("Removed " + rit.getRegion().getRegionNameAsString() + " from list of regions to assign because in RIT"+ " region state: "+ rit.getState());
         hris.remove(rit.getRegion());
       }
     }
