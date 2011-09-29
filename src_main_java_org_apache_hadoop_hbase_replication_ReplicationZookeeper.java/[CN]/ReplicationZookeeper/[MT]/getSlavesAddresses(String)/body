@@ -6,6 +6,22 @@
   if (peer == null) {
     return new ArrayList<ServerName>(0);
   }
-  peer.setRegionServers(fetchSlavesAddresses(peer.getZkw()));
+  List<ServerName> addresses;
+  try {
+    addresses=fetchSlavesAddresses(peer.getZkw());
+  }
+ catch (  KeeperException ke) {
+    if (ke instanceof ConnectionLossException || ke instanceof SessionExpiredException) {
+      LOG.warn("Lost the ZooKeeper connection for peer " + peer.getClusterKey(),ke);
+      try {
+        peer.reloadZkWatcher();
+      }
+ catch (      IOException io) {
+        LOG.warn("Creation of ZookeeperWatcher failed for peer " + peer.getClusterKey(),io);
+      }
+    }
+    addresses=Collections.emptyList();
+  }
+  peer.setRegionServers(addresses);
   return peer.getRegionServers();
 }
