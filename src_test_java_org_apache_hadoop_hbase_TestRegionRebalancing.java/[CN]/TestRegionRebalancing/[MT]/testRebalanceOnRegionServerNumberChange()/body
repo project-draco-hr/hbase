@@ -1,0 +1,39 @@
+{
+  HBaseAdmin admin=new HBaseAdmin(UTIL.getConfiguration());
+  admin.createTable(this.desc,HBaseTestingUtility.KEYS);
+  this.table=new HTable(UTIL.getConfiguration(),this.desc.getName());
+  CatalogTracker ct=new CatalogTracker(UTIL.getConfiguration());
+  ct.start();
+  Map<HRegionInfo,ServerName> regions=null;
+  try {
+    regions=MetaReader.fullScan(ct);
+  }
+  finally {
+    ct.stop();
+  }
+  for (  Map.Entry<HRegionInfo,ServerName> e : regions.entrySet()) {
+    LOG.info(e);
+  }
+  assertEquals("Test table should have right number of regions",HBaseTestingUtility.KEYS.length + 1,this.table.getStartKeys().length);
+  assertRegionsAreBalanced();
+  LOG.info("Started second server=" + UTIL.getHbaseCluster().startRegionServer().getRegionServer().getServerName());
+  UTIL.getHbaseCluster().getMaster().balance();
+  assertRegionsAreBalanced();
+  LOG.info("Started third server=" + UTIL.getHbaseCluster().startRegionServer().getRegionServer().getServerName());
+  UTIL.getHbaseCluster().getMaster().balance();
+  assertRegionsAreBalanced();
+  LOG.info("Stopped third server=" + UTIL.getHbaseCluster().stopRegionServer(2,false));
+  UTIL.getHbaseCluster().waitOnRegionServer(2);
+  UTIL.getHbaseCluster().getMaster().balance();
+  assertRegionsAreBalanced();
+  LOG.info("Readding third server=" + UTIL.getHbaseCluster().startRegionServer().getRegionServer().getServerName());
+  LOG.info("Added fourth server=" + UTIL.getHbaseCluster().startRegionServer().getRegionServer().getServerName());
+  UTIL.getHbaseCluster().getMaster().balance();
+  assertRegionsAreBalanced();
+  for (int i=0; i < 6; i++) {
+    LOG.info("Adding " + (i + 5) + "th region server");
+    UTIL.getHbaseCluster().startRegionServer();
+  }
+  UTIL.getHbaseCluster().getMaster().balance();
+  assertRegionsAreBalanced();
+}
