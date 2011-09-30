@@ -5,9 +5,17 @@
     this.stop.stop("Shutdown hook");
     Threads.shutdown(this.threadToJoin);
     if (this.fsShutdownHook != null) {
-      LOG.info("Starting fs shutdown hook thread.");
-      this.fsShutdownHook.start();
-      Threads.shutdown(this.fsShutdownHook,this.conf.getLong(FS_SHUTDOWN_HOOK_WAIT,30000));
+synchronized (fsShutdownHooks) {
+        int refs=fsShutdownHooks.get(fsShutdownHook);
+        if (refs == 1) {
+          LOG.info("Starting fs shutdown hook thread.");
+          this.fsShutdownHook.start();
+          Threads.shutdown(this.fsShutdownHook,this.conf.getLong(FS_SHUTDOWN_HOOK_WAIT,30000));
+        }
+        if (refs > 0) {
+          fsShutdownHooks.put(fsShutdownHook,refs - 1);
+        }
+      }
     }
   }
   LOG.info("Shutdown hook finished.");
