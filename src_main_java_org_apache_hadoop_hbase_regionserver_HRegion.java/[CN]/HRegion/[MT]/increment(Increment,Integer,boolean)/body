@@ -8,6 +8,7 @@
   List<KeyValue> kvs=new ArrayList<KeyValue>(increment.numColumns());
   long now=EnvironmentEdgeManager.currentTimeMillis();
   long size=0;
+  long txid=0;
   startRegionOperation();
   this.writeRequestsCount.increment();
   try {
@@ -43,7 +44,7 @@
         kvs.clear();
       }
       if (writeToWAL) {
-        this.log.append(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
       }
       size=this.addAndGetGlobalMemstoreSize(size);
       flush=isFlushSize(size);
@@ -51,6 +52,9 @@
   finally {
       this.updatesLock.readLock().unlock();
       releaseRowLock(lid);
+    }
+    if (writeToWAL) {
+      this.log.sync(txid);
     }
   }
   finally {

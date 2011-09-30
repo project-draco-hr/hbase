@@ -2,6 +2,7 @@
   checkRow(row,"increment");
   boolean flush=false;
   boolean wrongLength=false;
+  long txid=0;
   long result=amount;
   startRegionOperation();
   this.writeRequestsCount.increment();
@@ -30,7 +31,7 @@
           long now=EnvironmentEdgeManager.currentTimeMillis();
           WALEdit walEdit=new WALEdit();
           walEdit.add(newKv);
-          this.log.append(regionInfo,this.htableDescriptor.getName(),walEdit,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+          txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdit,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
         }
         long size=store.updateColumnValue(row,family,qualifier,result);
         size=this.addAndGetGlobalMemstoreSize(size);
@@ -40,6 +41,9 @@
   finally {
       this.updatesLock.readLock().unlock();
       releaseRowLock(lid);
+    }
+    if (writeToWAL) {
+      this.log.sync(txid);
     }
   }
   finally {

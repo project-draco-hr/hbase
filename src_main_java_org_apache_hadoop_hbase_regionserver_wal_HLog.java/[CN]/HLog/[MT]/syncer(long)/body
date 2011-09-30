@@ -1,0 +1,42 @@
+{
+synchronized (this.updateLock) {
+    if (this.closed)     return;
+  }
+  if (txid <= this.syncedTillHere) {
+    return;
+  }
+  try {
+    long doneUpto=this.unflushedEntries.get();
+    long now=System.currentTimeMillis();
+    boolean syncSuccessful=true;
+    try {
+      logSyncerThread.hlogFlush(this.writer);
+      this.writer.sync();
+      syncBatchSize.addAndGet(doneUpto - this.syncedTillHere);
+      this.syncedTillHere=doneUpto;
+    }
+ catch (    IOException io) {
+      syncSuccessful=false;
+    }
+    if (!syncSuccessful) {
+synchronized (this.updateLock) {
+        this.writer.sync();
+        syncBatchSize.addAndGet(doneUpto - this.syncedTillHere);
+        this.syncedTillHere=doneUpto;
+      }
+    }
+    syncTime.addAndGet(System.currentTimeMillis() - now);
+    syncOps.incrementAndGet();
+    if (!this.logRollRunning) {
+      checkLowReplication();
+      if (this.writer.getLength() > this.logrollsize) {
+        requestLogRoll();
+      }
+    }
+  }
+ catch (  IOException e) {
+    LOG.fatal("Could not sync. Requesting close of hlog",e);
+    requestLogRoll();
+    throw e;
+  }
+}
