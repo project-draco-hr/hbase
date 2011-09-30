@@ -1,19 +1,23 @@
 {
-  String table="TestMultiColumnScanner";
-  HColumnDescriptor hcd=new HColumnDescriptor(FAMILY_BYTES,MAX_VERSIONS,comprAlgo.getName(),HColumnDescriptor.DEFAULT_IN_MEMORY,HColumnDescriptor.DEFAULT_BLOCKCACHE,HColumnDescriptor.DEFAULT_TTL,bloomType.toString());
-  HTableDescriptor htd=new HTableDescriptor(table);
-  htd.addFamily(hcd);
-  HRegionInfo info=new HRegionInfo(Bytes.toBytes(table),null,null,false);
-  HRegion region=HRegion.createHRegion(info,HBaseTestingUtility.getTestDir(),TEST_UTIL.getConfiguration(),htd);
+  HRegion region=createRegion(TABLE_NAME,comprAlgo,bloomType);
   List<String> rows=sequentialStrings("row",NUM_ROWS);
   List<String> qualifiers=sequentialStrings("qual",NUM_COLUMNS);
   List<KeyValue> kvs=new ArrayList<KeyValue>();
   Set<String> keySet=new HashSet<String>();
   Map<String,Long> lastDelTimeMap=new HashMap<String,Long>();
   Random rand=new Random(29372937L);
+  Set<String> rowQualSkip=new HashSet<String>();
+  for (  String row : rows)   for (  String qual : qualifiers)   if (rand.nextDouble() < COLUMN_SKIP_IN_ROW_PROB) {
+    LOG.info("Skipping " + qual + " in row "+ row);
+    rowQualSkip.add(rowQualKey(row,qual));
+  }
+  for (  String qual : qualifiers)   if (rand.nextDouble() < COLUMN_SKIP_EVERYWHERE_PROB) {
+    LOG.info("Skipping " + qual + " in all rows");
+    for (    String row : rows)     rowQualSkip.add(rowQualKey(row,qual));
+  }
   for (int iFlush=0; iFlush < NUM_FLUSHES; ++iFlush) {
     for (    String qual : qualifiers) {
-      if (rand.nextDouble() < COLUMN_SKIP_PROBABILITY)       continue;
+      if (rand.nextDouble() < COLUMN_SKIP_IN_STORE_FILE_PROB)       continue;
       byte[] qualBytes=Bytes.toBytes(qual);
       for (      String row : rows) {
         Put p=new Put(Bytes.toBytes(row));
@@ -91,4 +95,5 @@
   }
   assertTrue("This test is supposed to delete at least some row/column " + "pairs",lastDelTimeMap.size() > 0);
   LOG.info("Number of row/col pairs deleted at least once: " + lastDelTimeMap.size());
+  region.close();
 }

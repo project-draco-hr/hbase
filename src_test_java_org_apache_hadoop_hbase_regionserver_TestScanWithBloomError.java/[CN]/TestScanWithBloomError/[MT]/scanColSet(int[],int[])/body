@@ -1,0 +1,49 @@
+{
+  LOG.info("Scanning column set: " + Arrays.toString(colSet));
+  Scan scan=new Scan(ROW_BYTES,ROW_BYTES);
+  addColumnSetToScan(scan,colSet);
+  RegionScannerImpl scanner=(RegionScannerImpl)region.getScanner(scan);
+  KeyValueHeap storeHeap=scanner.getStoreHeapForTesting();
+  assertEquals(0,storeHeap.getHeap().size());
+  StoreScanner storeScanner=(StoreScanner)storeHeap.getCurrentForTesting();
+  @SuppressWarnings({"unchecked","rawtypes"}) List<StoreFileScanner> scanners=(List<StoreFileScanner>)(List)storeScanner.getAllScannersForTesting();
+  Collections.sort(scanners,new Comparator<StoreFileScanner>(){
+    @Override public int compare(    StoreFileScanner s1,    StoreFileScanner s2){
+      Path p1=s1.getReaderForTesting().getHFileReader().getPath();
+      Path p2=s2.getReaderForTesting().getHFileReader().getPath();
+      long t1, t2;
+      try {
+        t1=fs.getFileStatus(p1).getModificationTime();
+        t2=fs.getFileStatus(p2).getModificationTime();
+      }
+ catch (      IOException ex) {
+        throw new RuntimeException(ex);
+      }
+      return t1 < t2 ? -1 : t1 == t2 ? 1 : 0;
+    }
+  }
+);
+  StoreFile.Reader lastStoreFileReader=null;
+  for (  StoreFileScanner sfScanner : scanners)   lastStoreFileReader=sfScanner.getReaderForTesting();
+  new HFilePrettyPrinter().run(new String[]{"-m","-p","-f",lastStoreFileReader.getHFileReader().getPath().toString()});
+  LOG.info("Disabling Bloom filter for: " + lastStoreFileReader.getHFileReader().getName());
+  lastStoreFileReader.disableBloomFilterForTesting();
+  List<KeyValue> allResults=new ArrayList<KeyValue>();
+{
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    while (scanner.next(results) || results.size() > 0) {
+      allResults.addAll(results);
+      results.clear();
+    }
+  }
+  List<Integer> actualIds=new ArrayList<Integer>();
+  for (  KeyValue kv : allResults) {
+    String qual=Bytes.toString(kv.getQualifier());
+    assertTrue(qual.startsWith(QUALIFIER_PREFIX));
+    actualIds.add(Integer.valueOf(qual.substring(QUALIFIER_PREFIX.length())));
+  }
+  List<Integer> expectedIds=new ArrayList<Integer>();
+  for (  int expectedId : expectedResultCols)   expectedIds.add(expectedId);
+  LOG.info("Column ids returned: " + actualIds + ", expected: "+ expectedIds);
+  assertEquals(expectedIds.toString(),actualIds.toString());
+}

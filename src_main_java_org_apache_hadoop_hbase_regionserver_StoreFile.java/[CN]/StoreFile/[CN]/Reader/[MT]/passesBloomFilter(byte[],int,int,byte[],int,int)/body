@@ -1,0 +1,63 @@
+{
+  if (bloomFilter == null)   return true;
+  byte[] key;
+switch (bloomFilterType) {
+case ROW:
+    if (col != null) {
+      throw new RuntimeException("Row-only Bloom filter called with " + "column specified");
+    }
+  if (rowOffset != 0 || rowLen != row.length) {
+    throw new AssertionError("For row-only Bloom filters the row " + "must occupy the whole array");
+  }
+key=row;
+break;
+case ROWCOL:
+key=bloomFilter.createBloomKey(row,rowOffset,rowLen,col,colOffset,colLen);
+break;
+default :
+return true;
+}
+BloomFilter bloomFilter=this.bloomFilter;
+if (bloomFilter == null) {
+return true;
+}
+if (reader.getTrailer().getEntryCount() == 0) return false;
+try {
+boolean shouldCheckBloom;
+ByteBuffer bloom;
+if (bloomFilter.supportsAutoLoading()) {
+bloom=null;
+shouldCheckBloom=true;
+}
+ else {
+bloom=reader.getMetaBlock(HFileWriterV1.BLOOM_FILTER_DATA_KEY,true);
+shouldCheckBloom=bloom != null;
+}
+if (shouldCheckBloom) {
+boolean exists;
+boolean keyIsAfterLast=lastBloomKey != null && bloomFilter.getComparator().compare(key,lastBloomKey) > 0;
+if (bloomFilterType == BloomType.ROWCOL) {
+byte[] rowBloomKey=bloomFilter.createBloomKey(row,0,row.length,null,0,0);
+if (keyIsAfterLast && bloomFilter.getComparator().compare(rowBloomKey,lastBloomKey) > 0) {
+exists=false;
+}
+ else {
+exists=this.bloomFilter.contains(key,0,key.length,bloom) || this.bloomFilter.contains(rowBloomKey,0,rowBloomKey.length,bloom);
+}
+}
+ else {
+exists=!keyIsAfterLast && this.bloomFilter.contains(key,0,key.length,bloom);
+}
+return exists;
+}
+}
+ catch (IOException e) {
+LOG.error("Error reading bloom filter data -- proceeding without",e);
+setBloomFilterFaulty();
+}
+catch (IllegalArgumentException e) {
+LOG.error("Bad bloom filter data -- proceeding without",e);
+setBloomFilterFaulty();
+}
+return true;
+}
