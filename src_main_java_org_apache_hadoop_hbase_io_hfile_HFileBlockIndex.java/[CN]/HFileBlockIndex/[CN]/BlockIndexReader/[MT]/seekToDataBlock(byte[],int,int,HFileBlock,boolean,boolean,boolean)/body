@@ -6,13 +6,23 @@
   long currentOffset=blockOffsets[rootLevelIndex];
   int currentOnDiskSize=blockDataSizes[rootLevelIndex];
   int lookupLevel=1;
-  HFileBlock block=blockReader.readBlockData(currentOffset,currentOnDiskSize,-1,true);
-  if (block == null) {
-    throw new IOException("Failed to read block at offset " + currentOffset + ", onDiskSize="+ currentOnDiskSize);
-  }
-  while (!block.getBlockType().equals(BlockType.DATA)) {
+  HFileBlock block;
+  while (true) {
+    if (currentBlock != null && currentBlock.getOffset() == currentOffset) {
+      block=currentBlock;
+    }
+ else {
+      boolean shouldCache=cacheBlocks || (lookupLevel < searchTreeLevel);
+      block=cachingBlockReader.readBlock(currentOffset,currentOnDiskSize,shouldCache,pread,isCompaction);
+    }
+    if (block == null) {
+      throw new IOException("Failed to read block at offset " + currentOffset + ", onDiskSize="+ currentOnDiskSize);
+    }
+    if (block.getBlockType().equals(BlockType.DATA)) {
+      break;
+    }
     if (++lookupLevel > searchTreeLevel) {
-      throw new IOException("Search Tree Level overflow: lookupLevel: " + lookupLevel + " searchTreeLevel: "+ searchTreeLevel);
+      throw new IOException("Search Tree Level overflow: lookupLevel=" + lookupLevel + ", searchTreeLevel="+ searchTreeLevel);
     }
     ByteBuffer buffer=block.getBufferWithoutHeader();
     if (!locateNonRootIndexEntry(buffer,key,keyOffset,keyLength,comparator)) {
@@ -20,12 +30,6 @@
     }
     currentOffset=buffer.getLong();
     currentOnDiskSize=buffer.getInt();
-    if (currentBlock != null && currentBlock.getOffset() == currentOffset) {
-      block=currentBlock;
-    }
- else {
-      block=blockReader.readBlockData(currentOffset,currentOnDiskSize,-1,true);
-    }
   }
   if (lookupLevel != searchTreeLevel) {
     throw new IOException("Reached a data block at level " + lookupLevel + " but the number of levels is "+ searchTreeLevel);
