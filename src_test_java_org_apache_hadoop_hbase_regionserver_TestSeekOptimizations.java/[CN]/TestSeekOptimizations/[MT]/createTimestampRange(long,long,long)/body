@@ -1,0 +1,52 @@
+{
+  assertTrue(minTS < maxTS);
+  assertTrue(deleteUpToTS == -1 || (minTS <= deleteUpToTS && deleteUpToTS <= maxTS));
+  for (int iRow=0; iRow < NUM_ROWS; ++iRow) {
+    final String row=rowStr(iRow);
+    final byte[] rowBytes=Bytes.toBytes(row);
+    for (int iCol=0; iCol < NUM_COLS; ++iCol) {
+      final String qual=getQualStr(iCol);
+      final byte[] qualBytes=Bytes.toBytes(qual);
+      put=new Put(rowBytes);
+      putTimestamps.clear();
+      put(qual,minTS);
+      put(qual,maxTS);
+      for (int i=0; i < PUTS_PER_ROW_COL; ++i) {
+        put(qual,randBetween(minTS,maxTS));
+      }
+      long[] putTimestampList=new long[putTimestamps.size()];
+{
+        int i=0;
+        for (        long ts : putTimestamps) {
+          putTimestampList[i++]=ts;
+        }
+      }
+      delTimestamps.clear();
+      assertTrue(putTimestampList.length >= DELETES_PER_ROW_COL);
+      int numToDel=DELETES_PER_ROW_COL;
+      int tsRemaining=putTimestampList.length;
+      del=new Delete(rowBytes);
+      for (      long ts : putTimestampList) {
+        if (rand.nextInt(tsRemaining) < numToDel) {
+          delAtTimestamp(qual,ts);
+          putTimestamps.remove(ts);
+          --numToDel;
+        }
+        if (--tsRemaining == 0) {
+          break;
+        }
+      }
+      if (deleteUpToTS != -1) {
+        delUpToTimestamp(qual,deleteUpToTS);
+      }
+      region.put(put);
+      if (!del.isEmpty()) {
+        region.delete(del,null,true);
+      }
+      for (      long ts : putTimestamps) {
+        expectedKVs.add(new KeyValue(rowBytes,FAMILY_BYTES,qualBytes,ts,KeyValue.Type.Put));
+      }
+    }
+  }
+  region.flushcache();
+}

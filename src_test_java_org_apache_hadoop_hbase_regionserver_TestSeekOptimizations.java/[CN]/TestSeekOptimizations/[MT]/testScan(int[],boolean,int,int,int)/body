@@ -1,0 +1,40 @@
+{
+  StoreScanner.enableLazySeekGlobally(lazySeekEnabled);
+  final Scan scan=new Scan();
+  final Set<String> qualSet=new HashSet<String>();
+  for (  int iColumn : columnArr) {
+    String qualStr=getQualStr(iColumn);
+    scan.addColumn(FAMILY_BYTES,Bytes.toBytes(qualStr));
+    qualSet.add(qualStr);
+  }
+  scan.setMaxVersions(maxVersions);
+  scan.setStartRow(rowBytes(startRow));
+{
+    final byte[] scannerStopRow=rowBytes(endRow + (startRow != endRow ? 1 : 0));
+    scan.setStopRow(scannerStopRow);
+  }
+  final long initialSeekCount=StoreFileScanner.getSeekCount();
+  final InternalScanner scanner=region.getScanner(scan);
+  final List<KeyValue> results=new ArrayList<KeyValue>();
+  final List<KeyValue> actualKVs=new ArrayList<KeyValue>();
+  boolean hasNext;
+  do {
+    hasNext=scanner.next(results);
+    actualKVs.addAll(results);
+    results.clear();
+  }
+ while (hasNext);
+  List<KeyValue> filteredKVs=filterExpectedResults(qualSet,rowBytes(startRow),rowBytes(endRow),maxVersions);
+  final String rowRestrictionStr=(startRow == -1 && endRow == -1) ? "all rows" : (startRow == endRow ? ("row=" + startRow) : ("startRow=" + startRow + ", "+ "endRow="+ endRow));
+  final String columnRestrictionStr=columnArr.length == 0 ? "all columns" : ("columns=" + Arrays.toString(columnArr));
+  final String testDesc="Bloom=" + bloomType + ", compr="+ comprAlgo+ ", "+ (scan.isGetScan() ? "Get" : "Scan")+ ": "+ columnRestrictionStr+ ", "+ rowRestrictionStr+ ", maxVersions="+ maxVersions+ ", lazySeek="+ lazySeekEnabled;
+  long seekCount=StoreFileScanner.getSeekCount() - initialSeekCount;
+  System.err.println("Seek count: " + seekCount + ", KVs returned: "+ actualKVs.size()+ ". "+ testDesc+ (lazySeekEnabled ? "\n" : ""));
+  if (lazySeekEnabled) {
+    totalSeekLazy+=seekCount;
+  }
+ else {
+    totalSeekDiligent+=seekCount;
+  }
+  assertKVListsEqual(testDesc,filteredKVs,actualKVs);
+}
