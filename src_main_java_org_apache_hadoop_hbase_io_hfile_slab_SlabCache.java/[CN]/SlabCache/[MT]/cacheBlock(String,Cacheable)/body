@@ -7,7 +7,18 @@
   this.successfullyCachedStats.addin(cachedItem.getSerializedLength());
   SingleSizeCache scache=scacheEntry.getValue();
   scache.cacheBlock(blockName,cachedItem);
-  while (backingStore.putIfAbsent(blockName,scache) != null) {
-    Thread.yield();
+  SingleSizeCache replace;
+  while ((replace=backingStore.putIfAbsent(blockName,scache)) != null) {
+synchronized (replace) {
+      try {
+        replace.wait();
+      }
+ catch (      InterruptedException e) {
+        LOG.warn("InterruptedException on the caching thread: " + e);
+      }
+    }
+  }
+synchronized (scache) {
+    scache.notifyAll();
   }
 }
