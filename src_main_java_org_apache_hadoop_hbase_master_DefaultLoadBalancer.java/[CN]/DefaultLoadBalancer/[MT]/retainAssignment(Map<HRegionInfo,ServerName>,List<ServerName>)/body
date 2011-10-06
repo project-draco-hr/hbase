@@ -1,17 +1,43 @@
 {
+  ArrayListMultimap<String,ServerName> serversByHostname=ArrayListMultimap.create();
+  for (  ServerName server : servers) {
+    serversByHostname.put(server.getHostname(),server);
+  }
   Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
   for (  ServerName server : servers) {
     assignments.put(server,new ArrayList<HRegionInfo>());
   }
-  for (  Map.Entry<HRegionInfo,ServerName> region : regions.entrySet()) {
-    ServerName sn=region.getValue();
-    if (sn != null && servers.contains(sn)) {
-      assignments.get(sn).add(region.getKey());
+  Set<String> oldHostsNoLongerPresent=Sets.newTreeSet();
+  int numRandomAssignments=0;
+  int numRetainedAssigments=0;
+  for (  Map.Entry<HRegionInfo,ServerName> entry : regions.entrySet()) {
+    HRegionInfo region=entry.getKey();
+    ServerName oldServerName=entry.getValue();
+    List<ServerName> localServers=new ArrayList<ServerName>();
+    if (oldServerName != null) {
+      localServers=serversByHostname.get(oldServerName.getHostname());
+    }
+    if (localServers.isEmpty()) {
+      ServerName randomServer=servers.get(RANDOM.nextInt(servers.size()));
+      assignments.get(randomServer).add(region);
+      numRandomAssignments++;
+      if (oldServerName != null)       oldHostsNoLongerPresent.add(oldServerName.getHostname());
+    }
+ else     if (localServers.size() == 1) {
+      assignments.get(localServers.get(0)).add(region);
+      numRetainedAssigments++;
     }
  else {
-      int size=assignments.size();
-      assignments.get(servers.get(RANDOM.nextInt(size))).add(region.getKey());
+      int size=localServers.size();
+      ServerName target=localServers.get(RANDOM.nextInt(size));
+      assignments.get(target).add(region);
+      numRetainedAssigments++;
     }
   }
+  String randomAssignMsg="";
+  if (numRandomAssignments > 0) {
+    randomAssignMsg=numRandomAssignments + " regions were assigned " + "to random hosts, since the old hosts for these regions are no "+ "longer present in the cluster. These hosts were:\n  "+ Joiner.on("\n  ").join(oldHostsNoLongerPresent);
+  }
+  LOG.info("Reassigned " + regions.size() + " regions. "+ numRetainedAssigments+ " retained the pre-restart assignment. "+ randomAssignMsg);
   return assignments;
 }
