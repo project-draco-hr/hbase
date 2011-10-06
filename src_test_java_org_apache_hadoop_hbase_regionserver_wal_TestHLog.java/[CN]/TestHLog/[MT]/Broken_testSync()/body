@@ -14,53 +14,60 @@
   Path subdir=new Path(dir,"hlogdir");
   HLog wal=new HLog(fs,subdir,oldLogDir,conf);
   final int total=20;
-  HRegionInfo info=new HRegionInfo(bytes,null,null,false);
-  HTableDescriptor htd=new HTableDescriptor();
-  htd.addFamily(new HColumnDescriptor(bytes));
-  for (int i=0; i < total; i++) {
-    WALEdit kvs=new WALEdit();
-    kvs.add(new KeyValue(Bytes.toBytes(i),bytes,bytes));
-    wal.append(info,bytes,kvs,System.currentTimeMillis(),htd);
+  HLog.Reader reader=null;
+  try {
+    HRegionInfo info=new HRegionInfo(bytes,null,null,false);
+    HTableDescriptor htd=new HTableDescriptor();
+    htd.addFamily(new HColumnDescriptor(bytes));
+    for (int i=0; i < total; i++) {
+      WALEdit kvs=new WALEdit();
+      kvs.add(new KeyValue(Bytes.toBytes(i),bytes,bytes));
+      wal.append(info,bytes,kvs,System.currentTimeMillis(),htd);
+    }
+    wal.sync();
+    Path walPath=wal.computeFilename();
+    reader=HLog.getReader(fs,walPath,conf);
+    int count=0;
+    HLog.Entry entry=new HLog.Entry();
+    while ((entry=reader.next(entry)) != null)     count++;
+    assertEquals(total,count);
+    reader.close();
+    for (int i=0; i < total; i++) {
+      WALEdit kvs=new WALEdit();
+      kvs.add(new KeyValue(Bytes.toBytes(i),bytes,bytes));
+      wal.append(info,bytes,kvs,System.currentTimeMillis(),htd);
+    }
+    reader=HLog.getReader(fs,walPath,conf);
+    count=0;
+    while ((entry=reader.next(entry)) != null)     count++;
+    assertTrue(count >= total);
+    reader.close();
+    wal.sync();
+    reader=HLog.getReader(fs,walPath,conf);
+    count=0;
+    while ((entry=reader.next(entry)) != null)     count++;
+    assertEquals(total * 2,count);
+    final byte[] value=new byte[1025 * 1024];
+    for (int i=0; i < total; i++) {
+      WALEdit kvs=new WALEdit();
+      kvs.add(new KeyValue(Bytes.toBytes(i),bytes,value));
+      wal.append(info,bytes,kvs,System.currentTimeMillis(),htd);
+    }
+    wal.sync();
+    reader=HLog.getReader(fs,walPath,conf);
+    count=0;
+    while ((entry=reader.next(entry)) != null)     count++;
+    assertEquals(total * 3,count);
+    reader.close();
+    wal.close();
+    reader=HLog.getReader(fs,walPath,conf);
+    count=0;
+    while ((entry=reader.next(entry)) != null)     count++;
+    assertEquals(total * 3,count);
+    reader.close();
   }
-  wal.sync();
-  Path walPath=wal.computeFilename();
-  HLog.Reader reader=HLog.getReader(fs,walPath,conf);
-  int count=0;
-  HLog.Entry entry=new HLog.Entry();
-  while ((entry=reader.next(entry)) != null)   count++;
-  assertEquals(total,count);
-  reader.close();
-  for (int i=0; i < total; i++) {
-    WALEdit kvs=new WALEdit();
-    kvs.add(new KeyValue(Bytes.toBytes(i),bytes,bytes));
-    wal.append(info,bytes,kvs,System.currentTimeMillis(),htd);
+  finally {
+    if (wal != null)     wal.closeAndDelete();
+    if (reader != null)     reader.close();
   }
-  reader=HLog.getReader(fs,walPath,conf);
-  count=0;
-  while ((entry=reader.next(entry)) != null)   count++;
-  assertTrue(count >= total);
-  reader.close();
-  wal.sync();
-  reader=HLog.getReader(fs,walPath,conf);
-  count=0;
-  while ((entry=reader.next(entry)) != null)   count++;
-  assertEquals(total * 2,count);
-  final byte[] value=new byte[1025 * 1024];
-  for (int i=0; i < total; i++) {
-    WALEdit kvs=new WALEdit();
-    kvs.add(new KeyValue(Bytes.toBytes(i),bytes,value));
-    wal.append(info,bytes,kvs,System.currentTimeMillis(),htd);
-  }
-  wal.sync();
-  reader=HLog.getReader(fs,walPath,conf);
-  count=0;
-  while ((entry=reader.next(entry)) != null)   count++;
-  assertEquals(total * 3,count);
-  reader.close();
-  wal.close();
-  reader=HLog.getReader(fs,walPath,conf);
-  count=0;
-  while ((entry=reader.next(entry)) != null)   count++;
-  assertEquals(total * 3,count);
-  reader.close();
 }
