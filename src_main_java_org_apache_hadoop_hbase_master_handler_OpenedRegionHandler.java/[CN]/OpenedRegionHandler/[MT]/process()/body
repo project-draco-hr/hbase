@@ -1,14 +1,13 @@
 {
-  debugLog(regionInfo,"Handling OPENED event for " + this.regionInfo.getRegionNameAsString() + " from "+ this.sn.toString()+ "; deleting unassigned node");
-  try {
-    ZKAssign.deleteOpenedNode(server.getZooKeeper(),regionInfo.getEncodedName());
-  }
- catch (  KeeperException e) {
-    server.abort("Error deleting OPENED node in ZK for transition ZK node (" + regionInfo.getRegionNameAsString() + ")",e);
-  }
-  if (this.assignmentManager.isRegionInTransition(regionInfo) != null) {
-    this.assignmentManager.regionOnline(regionInfo,this.sn);
-    debugLog(regionInfo,"region online: " + regionInfo.getRegionNameAsString() + " on "+ this.sn.toString());
+  RegionState regionState=this.assignmentManager.isRegionInTransition(regionInfo);
+  if (regionState != null && regionState.getState().equals(RegionState.State.OPEN)) {
+    if (deleteOpenedNode(expectedVersion)) {
+      this.assignmentManager.regionOnline(regionInfo,this.sn);
+      debugLog(regionInfo,"The master has opened the region " + regionInfo.getRegionNameAsString() + " that was online on "+ this.sn.toString());
+    }
+ else {
+      LOG.error("The znode of region " + regionInfo.getRegionNameAsString() + " could not be deleted.");
+    }
   }
  else {
     LOG.warn("Skipping the onlining of " + regionInfo.getRegionNameAsString() + " because regions is NOT in RIT -- presuming this is because it SPLIT");
@@ -16,8 +15,5 @@
   if (this.assignmentManager.getZKTable().isDisablingOrDisabledTable(regionInfo.getTableNameAsString())) {
     debugLog(regionInfo,"Opened region " + regionInfo.getRegionNameAsString() + " but "+ "this table is disabled, triggering close of region");
     assignmentManager.unassign(regionInfo);
-  }
- else {
-    debugLog(regionInfo,"Opened region " + regionInfo.getRegionNameAsString() + " on "+ this.sn.toString());
   }
 }

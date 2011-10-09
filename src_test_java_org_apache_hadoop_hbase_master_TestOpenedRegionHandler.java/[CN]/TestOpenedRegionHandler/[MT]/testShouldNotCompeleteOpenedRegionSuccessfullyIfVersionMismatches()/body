@@ -1,0 +1,20 @@
+{
+  String tableName="testIfVersionMismatches";
+  MiniHBaseCluster cluster=createRegions(tableName);
+  AssignmentManager am=cluster.getMaster().assignmentManager;
+  abortMaster(cluster);
+  HRegionServer regionServer=cluster.getRegionServer(0);
+  HRegion region=getRegionBeingServed(cluster,regionServer);
+  cluster.stopRegionServer(0);
+  zkw=HBaseTestingUtility.createAndForceNodeToOpenedState(TEST_UTIL,region,regionServer);
+  Stat stat=new Stat();
+  String nodeName=ZKAssign.getNodeName(zkw,region.getRegionNameAsString());
+  ZKUtil.getDataAndWatch(zkw,nodeName,stat);
+  OpenedRegionHandler handler=new OpenedRegionHandler(regionServer,am,region.getRegionInfo(),regionServer.getServerName(),stat.getVersion());
+  am.regionsInTransition.put(region.getRegionInfo().getEncodedName(),new RegionState(region.getRegionInfo(),RegionState.State.OPEN,System.currentTimeMillis(),regionServer.getServerName()));
+  ZKAssign.transitionNodeOpened(zkw,region.getRegionInfo(),regionServer.getServerName(),stat.getVersion() + 1);
+  handler.process();
+  List<String> znodes=ZKUtil.listChildrenAndWatchForNewChildren(zkw,zkw.assignmentZNode);
+  String regionName=znodes.get(0);
+  assertEquals("The region should not be opened successfully.",regionName,region.getRegionInfo().getEncodedName());
+}
