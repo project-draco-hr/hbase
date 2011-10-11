@@ -1,0 +1,39 @@
+{
+  this.journal.add(JournalEntry.PONR);
+  boolean stopped=server != null && server.isStopped();
+  boolean stopping=services != null && services.isStopping();
+  if (stopped || stopping) {
+    MetaEditor.addDaughter(server.getCatalogTracker(),b.getRegionInfo(),null);
+    MetaEditor.addDaughter(server.getCatalogTracker(),a.getRegionInfo(),null);
+    LOG.info("Not opening daughters " + b.getRegionInfo().getRegionNameAsString() + " and "+ a.getRegionInfo().getRegionNameAsString()+ " because stopping="+ stopping+ ", stopped="+ stopped);
+  }
+ else {
+    DaughterOpener aOpener=new DaughterOpener(server,a);
+    DaughterOpener bOpener=new DaughterOpener(server,b);
+    aOpener.start();
+    bOpener.start();
+    try {
+      aOpener.join();
+      bOpener.join();
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Interrupted " + e.getMessage());
+    }
+    if (aOpener.getException() != null) {
+      throw new IOException("Failed " + aOpener.getName(),aOpener.getException());
+    }
+    if (bOpener.getException() != null) {
+      throw new IOException("Failed " + bOpener.getName(),bOpener.getException());
+    }
+    if (services != null) {
+      try {
+        services.postOpenDeployTasks(b,server.getCatalogTracker(),true);
+        services.postOpenDeployTasks(a,server.getCatalogTracker(),true);
+      }
+ catch (      KeeperException ke) {
+        throw new IOException(ke);
+      }
+    }
+  }
+}
