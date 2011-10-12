@@ -14,8 +14,9 @@ synchronized (metaBlockIndexReader.getRootBlockKey(block)) {
     metaLoads.incrementAndGet();
     long metaBlockOffset=metaBlockIndexReader.getRootBlockOffset(block);
     String cacheKey=HFile.getBlockCacheKey(name,metaBlockOffset);
-    if (blockCache != null) {
-      HFileBlock cachedBlock=(HFileBlock)blockCache.getBlock(cacheKey,true);
+    cacheBlock&=cacheConf.shouldCacheDataOnRead();
+    if (cacheConf.isBlockCacheEnabled()) {
+      HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheBlock);
       if (cachedBlock != null) {
         cacheHits.incrementAndGet();
         return cachedBlock.getBufferWithoutHeader();
@@ -24,8 +25,8 @@ synchronized (metaBlockIndexReader.getRootBlockKey(block)) {
     HFileBlock metaBlock=fsBlockReader.readBlockData(metaBlockOffset,blockSize,-1,true);
     HFile.readTimeNano.addAndGet(System.nanoTime() - startTimeNs);
     HFile.readOps.incrementAndGet();
-    if (cacheBlock && blockCache != null) {
-      blockCache.cacheBlock(cacheKey,metaBlock,inMemory);
+    if (cacheBlock) {
+      cacheConf.getBlockCache().cacheBlock(cacheKey,metaBlock,cacheConf.isInMemory());
     }
     return metaBlock.getBufferWithoutHeader();
   }

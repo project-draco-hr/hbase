@@ -1,0 +1,24 @@
+{
+  if (globalBlockCache != null)   return globalBlockCache;
+  if (blockCacheDisabled)   return null;
+  float cachePercentage=conf.getFloat(HFILE_BLOCK_CACHE_SIZE_KEY,0.2f);
+  if (cachePercentage == 0L) {
+    blockCacheDisabled=true;
+    return null;
+  }
+  if (cachePercentage > 1.0) {
+    throw new IllegalArgumentException(HFILE_BLOCK_CACHE_SIZE_KEY + " must be between 0.0 and 1.0, not > 1.0");
+  }
+  MemoryUsage mu=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+  long cacheSize=(long)(mu.getMax() * cachePercentage);
+  int blockSize=conf.getInt("hbase.offheapcache.minblocksize",HFile.DEFAULT_BLOCKSIZE);
+  long offHeapCacheSize=(long)(conf.getFloat("hbase.offheapcache.percentage",(float)0.95) * DirectMemoryUtils.getDirectMemorySize());
+  LOG.info("Allocating LruBlockCache with maximum size " + StringUtils.humanReadableInt(cacheSize));
+  if (offHeapCacheSize <= 0) {
+    globalBlockCache=new LruBlockCache(cacheSize,StoreFile.DEFAULT_BLOCKSIZE_SMALL);
+  }
+ else {
+    globalBlockCache=new DoubleBlockCache(cacheSize,offHeapCacheSize,StoreFile.DEFAULT_BLOCKSIZE_SMALL,blockSize,conf);
+  }
+  return globalBlockCache;
+}
