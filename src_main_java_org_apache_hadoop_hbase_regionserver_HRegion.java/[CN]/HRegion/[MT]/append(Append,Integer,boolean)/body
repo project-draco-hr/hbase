@@ -1,0 +1,74 @@
+{
+  byte[] row=append.getRow();
+  checkRow(row,"append");
+  boolean flush=false;
+  WALEdit walEdits=null;
+  List<KeyValue> allKVs=new ArrayList<KeyValue>(append.size());
+  List<KeyValue> kvs=new ArrayList<KeyValue>(append.size());
+  long now=EnvironmentEdgeManager.currentTimeMillis();
+  long size=0;
+  long txid=0;
+  startRegionOperation();
+  this.writeRequestsCount.increment();
+  try {
+    Integer lid=getLock(lockid,row,true);
+    this.updatesLock.readLock().lock();
+    try {
+      for (      Map.Entry<byte[],List<KeyValue>> family : append.getFamilyMap().entrySet()) {
+        Store store=stores.get(family.getKey());
+        Get get=new Get(row);
+        for (        KeyValue kv : family.getValue()) {
+          get.addColumn(family.getKey(),kv.getQualifier());
+        }
+        List<KeyValue> results=get(get,false);
+        int idx=0;
+        for (        KeyValue kv : family.getValue()) {
+          KeyValue newKV;
+          if (idx < results.size() && results.get(idx).matchingQualifier(kv.getBuffer(),kv.getQualifierOffset(),kv.getQualifierLength())) {
+            KeyValue oldKv=results.get(idx);
+            newKV=new KeyValue(row.length,kv.getFamilyLength(),kv.getQualifierLength(),now,KeyValue.Type.Put,oldKv.getValueLength() + kv.getValueLength());
+            System.arraycopy(oldKv.getBuffer(),oldKv.getValueOffset(),newKV.getBuffer(),newKV.getValueOffset(),oldKv.getValueLength());
+            System.arraycopy(kv.getBuffer(),kv.getValueOffset(),newKV.getBuffer(),newKV.getValueOffset() + oldKv.getValueLength(),kv.getValueLength());
+            idx++;
+          }
+ else {
+            newKV=new KeyValue(row.length,kv.getFamilyLength(),kv.getQualifierLength(),now,KeyValue.Type.Put,kv.getValueLength());
+            System.arraycopy(kv.getBuffer(),kv.getValueOffset(),newKV.getBuffer(),newKV.getValueOffset(),kv.getValueLength());
+          }
+          System.arraycopy(kv.getBuffer(),kv.getRowOffset(),newKV.getBuffer(),newKV.getRowOffset(),kv.getRowLength());
+          System.arraycopy(kv.getBuffer(),kv.getFamilyOffset(),newKV.getBuffer(),newKV.getFamilyOffset(),kv.getFamilyLength());
+          System.arraycopy(kv.getBuffer(),kv.getQualifierOffset(),newKV.getBuffer(),newKV.getQualifierOffset(),kv.getQualifierLength());
+          kvs.add(newKV);
+          if (writeToWAL) {
+            if (walEdits == null) {
+              walEdits=new WALEdit();
+            }
+            walEdits.add(newKV);
+          }
+        }
+        size+=store.upsert(kvs);
+        allKVs.addAll(kvs);
+        kvs.clear();
+      }
+      if (writeToWAL) {
+        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+      }
+      size=this.addAndGetGlobalMemstoreSize(size);
+      flush=isFlushSize(size);
+    }
+  finally {
+      this.updatesLock.readLock().unlock();
+      releaseRowLock(lid);
+    }
+    if (writeToWAL) {
+      this.log.sync(txid);
+    }
+  }
+  finally {
+    closeRegionOperation();
+  }
+  if (flush) {
+    requestFlush();
+  }
+  return append.isReturnResults() ? new Result(allKVs) : null;
+}
