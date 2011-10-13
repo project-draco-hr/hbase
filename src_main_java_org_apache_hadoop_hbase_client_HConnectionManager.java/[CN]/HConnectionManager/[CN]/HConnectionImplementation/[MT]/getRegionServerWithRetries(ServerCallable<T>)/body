@@ -1,17 +1,18 @@
 {
-  List<Throwable> exceptions=new ArrayList<Throwable>();
+  List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
   for (int tries=0; tries < numRetries; tries++) {
     try {
-      callable.instantiateServer(tries != 0);
       callable.beforeCall();
+      callable.connect(tries != 0);
       return callable.call();
     }
  catch (    Throwable t) {
       callable.shouldRetry(t);
       t=translateException(t);
-      exceptions.add(t);
+      RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,System.currentTimeMillis(),callable.toString());
+      exceptions.add(qt);
       if (tries == numRetries - 1) {
-        throw new RetriesExhaustedException(callable.getServerName(),callable.getRegionName(),callable.getRow(),tries,exceptions);
+        throw new RetriesExhaustedException(tries,exceptions);
       }
     }
  finally {
@@ -22,7 +23,7 @@
     }
  catch (    InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IOException("Giving up trying to get region server: thread is interrupted.");
+      throw new IOException("Giving up after tries=" + tries,e);
     }
   }
   return null;

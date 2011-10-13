@@ -1,16 +1,23 @@
 {
-  HConnection connection=Mockito.mock(HConnection.class);
-  ConnectException connectException=new ConnectException("Connection refused");
-  final HRegionInterface implementation=Mockito.mock(HRegionInterface.class);
-  Mockito.when(implementation.get((byte[])Mockito.any(),(Get)Mockito.any())).thenThrow(connectException);
-  Mockito.when(connection.getHRegionConnection((HServerAddress)Matchers.anyObject(),Matchers.anyBoolean())).thenReturn(implementation);
-  Assert.assertNotNull(connection.getHRegionConnection(new HServerAddress(),false));
-  final CatalogTracker ct=constructAndStartCatalogTracker(connection);
+  HConnection connection=HConnectionTestingUtility.getMockedConnection(UTIL.getConfiguration());
   try {
-    RootLocationEditor.setRootLocation(this.watcher,new ServerName("example.com",1234,System.currentTimeMillis()));
-    Assert.assertFalse(ct.verifyMetaRegionLocation(100));
+    final HRegionInterface implementation=Mockito.mock(HRegionInterface.class);
+    Mockito.when(implementation.get((byte[])Mockito.any(),(Get)Mockito.any())).thenThrow(new ConnectException("Connection refused"));
+    ServerName sn=new ServerName("example.com",1234,System.currentTimeMillis());
+    final HRegionLocation anyLocation=new HRegionLocation(HRegionInfo.FIRST_META_REGIONINFO,sn.getHostname(),sn.getPort());
+    Mockito.when(connection.getRegionLocation((byte[])Mockito.any(),(byte[])Mockito.any(),Mockito.anyBoolean())).thenReturn(anyLocation);
+    Mockito.when(connection.getHRegionConnection(Mockito.anyString(),Mockito.anyInt(),Matchers.anyBoolean())).thenReturn(implementation);
+    final CatalogTracker ct=constructAndStartCatalogTracker(connection);
+    try {
+      RootLocationEditor.setRootLocation(this.watcher,sn);
+      long timeout=UTIL.getConfiguration().getLong("hbase.catalog.verification.timeout",1000);
+      Assert.assertFalse(ct.verifyMetaRegionLocation(timeout));
+    }
+  finally {
+      RootLocationEditor.deleteRootLocation(this.watcher);
+    }
   }
   finally {
-    RootLocationEditor.deleteRootLocation(this.watcher);
+    HConnectionManager.deleteConnection(UTIL.getConfiguration(),true);
   }
 }

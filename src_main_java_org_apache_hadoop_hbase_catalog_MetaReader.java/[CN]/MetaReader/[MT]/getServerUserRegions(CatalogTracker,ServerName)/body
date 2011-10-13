@@ -1,24 +1,20 @@
 {
-  HRegionInterface metaServer=catalogTracker.waitForMetaServerConnectionDefault();
-  NavigableMap<HRegionInfo,Result> hris=new TreeMap<HRegionInfo,Result>();
-  Scan scan=new Scan();
-  scan.addFamily(HConstants.CATALOG_FAMILY);
-  long scannerid=metaServer.openScanner(HRegionInfo.FIRST_META_REGIONINFO.getRegionName(),scan);
-  try {
-    Result result;
-    while ((result=metaServer.next(scannerid)) != null) {
-      if (result != null && result.size() > 0) {
-        Pair<HRegionInfo,ServerName> pair=metaRowToRegionPair(result);
-        if (pair == null)         continue;
-        if (pair.getSecond() == null || !serverName.equals(pair.getSecond())) {
-          continue;
-        }
-        hris.put(pair.getFirst(),result);
-      }
+  final NavigableMap<HRegionInfo,Result> hris=new TreeMap<HRegionInfo,Result>();
+  CollectingVisitor<Result> v=new CollectingVisitor<Result>(){
+    @Override void add(    Result r){
+      if (r == null || r.isEmpty())       return;
+      ServerName sn=getServerNameFromCatalogResult(r);
+      if (sn != null && sn.equals(serverName))       this.results.add(r);
     }
-    return hris;
   }
-  finally {
-    metaServer.close(scannerid);
+;
+  fullScan(catalogTracker,v);
+  List<Result> results=v.getResults();
+  if (results != null && !results.isEmpty()) {
+    for (    Result r : results) {
+      Pair<HRegionInfo,ServerName> p=parseCatalogResult(r);
+      if (p != null && p.getFirst() != null)       hris.put(p.getFirst(),r);
+    }
   }
+  return hris;
 }

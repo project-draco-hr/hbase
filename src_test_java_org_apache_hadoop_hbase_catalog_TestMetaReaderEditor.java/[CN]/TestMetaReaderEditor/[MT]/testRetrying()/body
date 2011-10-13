@@ -1,0 +1,43 @@
+{
+  final String name="testRetrying";
+  LOG.info("Started " + name);
+  final byte[] nameBytes=Bytes.toBytes(name);
+  HTable t=UTIL.createTable(nameBytes,HConstants.CATALOG_FAMILY);
+  int regionCount=UTIL.createMultiRegions(t,HConstants.CATALOG_FAMILY);
+  final List<HRegionInfo> regions=testGettingTableRegions(this.ct,nameBytes,regionCount);
+  MetaTask reader=new MetaTask(this.ct,"reader"){
+    @Override void metaTask() throws Throwable {
+      testGetRegion(this.ct,regions.get(0));
+      LOG.info("Read " + regions.get(0).getEncodedName());
+    }
+  }
+;
+  MetaTask writer=new MetaTask(this.ct,"writer"){
+    @Override void metaTask() throws Throwable {
+      MetaEditor.addRegionToMeta(this.ct,regions.get(0));
+      LOG.info("Wrote " + regions.get(0).getEncodedName());
+    }
+  }
+;
+  reader.start();
+  writer.start();
+  assertTrue(reader.isProgressing());
+  assertTrue(writer.isProgressing());
+  for (int i=0; i < 2; i++) {
+    LOG.info("Restart=" + i);
+    UTIL.ensureSomeRegionServersAvailable(2);
+    int index=-1;
+    do {
+      index=UTIL.getMiniHBaseCluster().getServerWithMeta();
+    }
+ while (index == -1);
+    UTIL.getMiniHBaseCluster().abortRegionServer(index);
+    UTIL.getMiniHBaseCluster().waitOnRegionServer(index);
+  }
+  assertTrue(reader.toString(),reader.isProgressing());
+  assertTrue(writer.toString(),writer.isProgressing());
+  reader.stop=true;
+  writer.stop=true;
+  reader.join();
+  writer.join();
+}

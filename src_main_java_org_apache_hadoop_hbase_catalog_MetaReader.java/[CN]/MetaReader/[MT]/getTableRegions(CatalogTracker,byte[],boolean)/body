@@ -1,31 +1,10 @@
 {
-  if (Bytes.equals(tableName,HConstants.ROOT_TABLE_NAME)) {
-    List<HRegionInfo> list=new ArrayList<HRegionInfo>();
-    list.add(HRegionInfo.ROOT_REGIONINFO);
-    return list;
-  }
- else   if (Bytes.equals(tableName,HConstants.META_TABLE_NAME)) {
-    List<HRegionInfo> list=new ArrayList<HRegionInfo>();
-    list.add(HRegionInfo.FIRST_META_REGIONINFO);
-    return list;
-  }
-  HRegionInterface metaServer=getCatalogRegionInterface(catalogTracker,tableName);
-  List<HRegionInfo> regions=new ArrayList<HRegionInfo>();
-  Scan scan=getScanForTableName(tableName);
-  scan.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-  long scannerid=metaServer.openScanner(getCatalogRegionNameForTable(tableName),scan);
+  List<Pair<HRegionInfo,ServerName>> result=null;
   try {
-    Result data;
-    while ((data=metaServer.next(scannerid)) != null) {
-      if (data != null && data.size() > 0) {
-        HRegionInfo info=Writables.getHRegionInfo(data.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER));
-        if (excludeOfflinedSplitParents && info.isSplitParent())         continue;
-        regions.add(info);
-      }
-    }
-    return regions;
+    result=getTableRegionsAndLocations(catalogTracker,tableName,excludeOfflinedSplitParents);
   }
-  finally {
-    metaServer.close(scannerid);
+ catch (  InterruptedException e) {
+    throw new RuntimeException(e);
   }
+  return getListOfHRegionInfos(result);
 }

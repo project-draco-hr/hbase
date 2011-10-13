@@ -1,27 +1,38 @@
 {
-  HConnection connection=Mockito.mock(HConnection.class);
-  HRegionInterface mockHRI=Mockito.mock(HRegionInterface.class);
-  Mockito.when(connection.getHRegionConnection((String)Mockito.any(),Matchers.anyInt())).thenReturn(mockHRI);
-  final CatalogTracker ct=constructAndStartCatalogTracker(connection);
-  ServerName hsa=ct.getMetaLocation();
-  Assert.assertNull(hsa);
-  Thread t=new WaitOnMetaThread(ct){
-    @Override void doWaiting() throws InterruptedException {
-      this.ct.waitForMeta();
+  HConnection connection=HConnectionTestingUtility.getMockedConnection(UTIL.getConfiguration());
+  try {
+    final HRegionInterface implementation=Mockito.mock(HRegionInterface.class);
+    ServerName sn=new ServerName("example.com",1234,System.currentTimeMillis());
+    final HRegionLocation anyLocation=new HRegionLocation(HRegionInfo.FIRST_META_REGIONINFO,sn.getHostname(),sn.getPort());
+    Mockito.when(connection.getRegionLocation((byte[])Mockito.any(),(byte[])Mockito.any(),Mockito.anyBoolean())).thenReturn(anyLocation);
+    Mockito.when(connection.getHRegionConnection(Mockito.anyString(),Mockito.anyInt(),Matchers.anyBoolean())).thenReturn(implementation);
+    Mockito.when(connection.getHRegionConnection(Mockito.anyString(),Mockito.anyInt())).thenReturn(implementation);
+    final CatalogTracker ct=constructAndStartCatalogTracker(connection);
+    ServerName hsa=ct.getMetaLocation();
+    Assert.assertNull(hsa);
+    Thread t=new WaitOnMetaThread(ct){
+      @Override void doWaiting() throws InterruptedException {
+        this.ct.waitForMeta();
+      }
     }
-  }
 ;
-  startWaitAliveThenWaitItLives(t,1000);
-  List<KeyValue> kvs=new ArrayList<KeyValue>();
-  kvs.add(new KeyValue(HConstants.EMPTY_BYTE_ARRAY,HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(SN.getHostAndPort())));
-  kvs.add(new KeyValue(HConstants.EMPTY_BYTE_ARRAY,HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(SN.getStartcode())));
-  final Result result=new Result(kvs);
-  Mockito.when(mockHRI.get((byte[])Mockito.any(),(Get)Mockito.any())).thenReturn(result);
-  Mockito.when(mockHRI.getRegionInfo((byte[])Mockito.any())).thenReturn(HRegionInfo.FIRST_META_REGIONINFO);
-  String node=ct.getMetaNodeTracker().getNode();
-  ZKUtil.createAndFailSilent(this.watcher,node);
-  MetaEditor.updateMetaLocation(ct,HRegionInfo.FIRST_META_REGIONINFO,SN);
-  ZKUtil.deleteNode(this.watcher,node);
-  t.join();
-  Assert.assertTrue(ct.getMetaLocation().equals(SN));
+    startWaitAliveThenWaitItLives(t,1000);
+    List<KeyValue> kvs=new ArrayList<KeyValue>();
+    kvs.add(new KeyValue(HConstants.EMPTY_BYTE_ARRAY,HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER,Writables.getBytes(HRegionInfo.FIRST_META_REGIONINFO)));
+    kvs.add(new KeyValue(HConstants.EMPTY_BYTE_ARRAY,HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(SN.getHostAndPort())));
+    kvs.add(new KeyValue(HConstants.EMPTY_BYTE_ARRAY,HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(SN.getStartcode())));
+    final Result result=new Result(kvs);
+    Mockito.when(connection.getRegionServerWithRetries((ServerCallable<Result>)Mockito.any())).thenReturn(result);
+    Mockito.when(implementation.getRegionInfo((byte[])Mockito.any())).thenReturn(HRegionInfo.FIRST_META_REGIONINFO);
+    String node=ct.getMetaNodeTracker().getNode();
+    ZKUtil.createAndFailSilent(this.watcher,node);
+    MetaEditor.updateMetaLocation(ct,HRegionInfo.FIRST_META_REGIONINFO,SN);
+    ZKUtil.deleteNode(this.watcher,node);
+    Assert.assertTrue(ct.waitForMeta(10000).equals(SN));
+    t.join();
+    Assert.assertTrue(ct.waitForMeta(10000).equals(SN));
+  }
+  finally {
+    HConnectionManager.deleteConnection(UTIL.getConfiguration(),true);
+  }
 }
