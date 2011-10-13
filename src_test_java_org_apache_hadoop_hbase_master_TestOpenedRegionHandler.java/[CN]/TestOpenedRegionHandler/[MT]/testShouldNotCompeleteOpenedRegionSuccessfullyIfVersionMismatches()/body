@@ -1,20 +1,34 @@
 {
-  String tableName="testIfVersionMismatches";
-  MiniHBaseCluster cluster=createRegions(tableName);
-  AssignmentManager am=cluster.getMaster().assignmentManager;
-  abortMaster(cluster);
-  HRegionServer regionServer=cluster.getRegionServer(0);
-  HRegion region=getRegionBeingServed(cluster,regionServer);
-  cluster.stopRegionServer(0);
-  zkw=HBaseTestingUtility.createAndForceNodeToOpenedState(TEST_UTIL,region,regionServer);
-  Stat stat=new Stat();
-  String nodeName=ZKAssign.getNodeName(zkw,region.getRegionNameAsString());
-  ZKUtil.getDataAndWatch(zkw,nodeName,stat);
-  OpenedRegionHandler handler=new OpenedRegionHandler(regionServer,am,region.getRegionInfo(),regionServer.getServerName(),stat.getVersion());
-  am.regionsInTransition.put(region.getRegionInfo().getEncodedName(),new RegionState(region.getRegionInfo(),RegionState.State.OPEN,System.currentTimeMillis(),regionServer.getServerName()));
-  ZKAssign.transitionNodeOpened(zkw,region.getRegionInfo(),regionServer.getServerName(),stat.getVersion() + 1);
-  handler.process();
-  List<String> znodes=ZKUtil.listChildrenAndWatchForNewChildren(zkw,zkw.assignmentZNode);
-  String regionName=znodes.get(0);
-  assertEquals("The region should not be opened successfully.",regionName,region.getRegionInfo().getEncodedName());
+  try {
+    int testIndex=0;
+    TEST_UTIL.startMiniZKCluster();
+    final Server server=new MockServer(TEST_UTIL);
+    HTableDescriptor htd=new HTableDescriptor("testShouldNotCompeleteOpenedRegionSuccessfullyIfVersionMismatches");
+    HRegionInfo hri=new HRegionInfo(htd.getName(),Bytes.toBytes(testIndex),Bytes.toBytes(testIndex + 1));
+    HRegion region=HRegion.createHRegion(hri,HBaseTestingUtility.getTestDir(),TEST_UTIL.getConfiguration(),htd);
+    assertNotNull(region);
+    AssignmentManager am=Mockito.mock(AssignmentManager.class);
+    when(am.isRegionInTransition(hri)).thenReturn(new RegionState(region.getRegionInfo(),RegionState.State.OPEN,System.currentTimeMillis(),server.getServerName()));
+    zkw=HBaseTestingUtility.createAndForceNodeToOpenedState(TEST_UTIL,region,server.getServerName());
+    when(am.getZKTable()).thenReturn(new ZKTable(zkw));
+    Stat stat=new Stat();
+    String nodeName=ZKAssign.getNodeName(zkw,region.getRegionInfo().getEncodedName());
+    ZKUtil.getDataAndWatch(zkw,nodeName,stat);
+    OpenedRegionHandler handler=new OpenedRegionHandler(server,am,region.getRegionInfo(),server.getServerName(),stat.getVersion());
+    ZKAssign.transitionNode(zkw,region.getRegionInfo(),server.getServerName(),EventType.RS_ZK_REGION_OPENED,EventType.RS_ZK_REGION_OPENED,stat.getVersion());
+    boolean expectedException=false;
+    try {
+      handler.process();
+    }
+ catch (    Exception e) {
+      expectedException=true;
+    }
+    assertFalse("The process method should not throw any exception.",expectedException);
+    List<String> znodes=ZKUtil.listChildrenAndWatchForNewChildren(zkw,zkw.assignmentZNode);
+    String regionName=znodes.get(0);
+    assertEquals("The region should not be opened successfully.",regionName,region.getRegionInfo().getEncodedName());
+  }
+  finally {
+    TEST_UTIL.shutdownMiniZKCluster();
+  }
 }
