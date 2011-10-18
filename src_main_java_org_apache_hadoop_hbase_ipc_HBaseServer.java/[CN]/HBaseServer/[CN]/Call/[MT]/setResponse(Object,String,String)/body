@@ -15,7 +15,7 @@
   int size=BUFFER_INITIAL_SIZE;
   if (result instanceof WritableWithSize) {
     WritableWithSize ohint=(WritableWithSize)result;
-    long hint=ohint.getWritableSize() + Bytes.SIZEOF_BYTE + Bytes.SIZEOF_INT;
+    long hint=ohint.getWritableSize() + Bytes.SIZEOF_BYTE + (2 * Bytes.SIZEOF_INT);
     if (hint > Integer.MAX_VALUE) {
       IOException ioe=new IOException("Result buffer size too large: " + hint);
       errorClass=ioe.getClass().getName();
@@ -29,7 +29,9 @@
   DataOutputStream out=new DataOutputStream(buf);
   try {
     out.writeInt(this.id);
-    out.writeBoolean(error != null);
+    byte flag=(error != null) ? ResponseFlag.getErrorAndLengthSet() : ResponseFlag.getLengthSetOnly();
+    out.writeByte(flag);
+    out.writeInt(0xdeadbeef);
   }
  catch (  IOException e) {
     errorClass=e.getClass().getName();
@@ -47,5 +49,10 @@
  catch (  IOException e) {
     LOG.warn("Error sending response to call: ",e);
   }
-  this.response=buf.getByteBuffer();
+  ByteBuffer bb=buf.getByteBuffer();
+  int bufSiz=bb.remaining();
+  bb.position(Bytes.SIZEOF_INT + Bytes.SIZEOF_BYTE);
+  bb.putInt(bufSiz);
+  bb.position(0);
+  this.response=bb;
 }
