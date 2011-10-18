@@ -14,13 +14,27 @@
       HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheBlock);
       if (cachedBlock != null) {
         cacheHits.incrementAndGet();
+        if (isCompaction) {
+          HRegion.incrNumericMetric(this.compactionBlockReadCacheHitCntMetric,1);
+        }
+ else {
+          HRegion.incrNumericMetric(this.fsBlockReadCacheHitCntMetric,1);
+        }
         return cachedBlock;
       }
     }
     long startTimeNs=System.nanoTime();
     HFileBlock dataBlock=fsBlockReader.readBlockData(dataBlockOffset,onDiskBlockSize,-1,pread);
-    HFile.readTimeNano.addAndGet(System.nanoTime() - startTimeNs);
+    dataBlock.setColumnFamilyName(this.getColumnFamilyName());
+    long delta=System.nanoTime() - startTimeNs;
+    HFile.readTimeNano.addAndGet(delta);
     HFile.readOps.incrementAndGet();
+    if (isCompaction) {
+      HRegion.incrTimeVaryingMetric(this.compactionReadTimeNanoMetric,delta);
+    }
+ else {
+      HRegion.incrTimeVaryingMetric(this.fsReadTimeNanoMetric,delta);
+    }
     if (cacheBlock) {
       cacheConf.getBlockCache().cacheBlock(cacheKey,dataBlock,cacheConf.isInMemory());
     }

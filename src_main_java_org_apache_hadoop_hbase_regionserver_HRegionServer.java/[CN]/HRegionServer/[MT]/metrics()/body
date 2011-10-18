@@ -10,6 +10,13 @@
   HDFSBlocksDistribution hdfsBlocksDistribution=new HDFSBlocksDistribution();
   long totalStaticIndexSize=0;
   long totalStaticBloomSize=0;
+  long tmpfiles;
+  long tmpindex;
+  long tmpfilesize;
+  long tmpbloomsize;
+  long tmpstaticsize;
+  String cfname;
+  Map<String,MutableDouble> tempVals=new HashMap<String,MutableDouble>();
   for (  Map.Entry<String,HRegion> e : this.onlineRegions.entrySet()) {
     HRegion r=e.getValue();
     memstoreSize+=r.memstoreSize.get();
@@ -19,13 +26,28 @@ synchronized (r.stores) {
       stores+=r.stores.size();
       for (      Map.Entry<byte[],Store> ee : r.stores.entrySet()) {
         Store store=ee.getValue();
-        storefiles+=store.getStorefilesCount();
-        storefileIndexSize+=store.getStorefilesIndexSize();
-        totalStaticIndexSize+=store.getTotalStaticIndexSize();
-        totalStaticBloomSize+=store.getTotalStaticBloomSize();
+        tmpfiles=store.getStorefilesCount();
+        tmpindex=store.getStorefilesIndexSize();
+        tmpfilesize=store.getStorefilesSize();
+        tmpbloomsize=store.getTotalStaticBloomSize();
+        tmpstaticsize=store.getTotalStaticIndexSize();
+        cfname="cf." + store.toString();
+        this.incrMap(tempVals,cfname + ".storeFileCount",tmpfiles);
+        this.incrMap(tempVals,cfname + ".storeFileIndexSizeMB",(tmpindex / (1024.0 * 1024)));
+        this.incrMap(tempVals,cfname + ".storeFileSizeMB",(tmpfilesize / (1024.0 * 1024)));
+        this.incrMap(tempVals,cfname + ".staticBloomSizeKB",(tmpbloomsize / 1024.0));
+        this.incrMap(tempVals,cfname + ".memstoreSizeMB",(store.getMemStoreSize() / (1024.0 * 1024)));
+        this.incrMap(tempVals,cfname + ".staticIndexSizeKB",tmpstaticsize / 1024.0);
+        storefiles+=tmpfiles;
+        storefileIndexSize+=tmpindex;
+        totalStaticIndexSize+=tmpstaticsize;
+        totalStaticBloomSize+=tmpbloomsize;
       }
     }
     hdfsBlocksDistribution.add(r.getHDFSBlocksDistribution());
+  }
+  for (  Entry<String,MutableDouble> e : tempVals.entrySet()) {
+    HRegion.setNumericMetric(e.getKey(),e.getValue().longValue());
   }
   this.metrics.stores.set(stores);
   this.metrics.storefiles.set(storefiles);
