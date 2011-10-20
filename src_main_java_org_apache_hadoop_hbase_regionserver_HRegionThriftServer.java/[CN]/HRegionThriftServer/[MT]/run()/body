@@ -1,0 +1,51 @@
+{
+  try {
+    HBaseHandlerRegion handler=new HBaseHandlerRegion(this.conf);
+    Hbase.Processor processor=new Hbase.Processor(handler);
+    TProtocolFactory protocolFactory;
+    if (this.protocol != null && this.protocol.equals("compact")) {
+      protocolFactory=new TCompactProtocol.Factory();
+    }
+ else {
+      protocolFactory=new TBinaryProtocol.Factory();
+    }
+    if (this.nonblocking) {
+      TNonblockingServerTransport serverTransport=new TNonblockingServerSocket(this.port);
+      TFramedTransport.Factory transportFactory=new TFramedTransport.Factory();
+      TNonblockingServer.Args serverArgs=new TNonblockingServer.Args(serverTransport);
+      serverArgs.processor(processor);
+      serverArgs.transportFactory(transportFactory);
+      serverArgs.protocolFactory(protocolFactory);
+      LOG.info("starting HRegionServer Nonblocking Thrift server on " + this.port);
+      LOG.info("HRegionServer Nonblocking Thrift server does not " + "support address binding.");
+      tserver=new TNonblockingServer(serverArgs);
+    }
+ else {
+      InetAddress listenAddress=null;
+      if (this.bindIpAddress != null) {
+        listenAddress=InetAddress.getByName(this.bindIpAddress);
+      }
+ else {
+        listenAddress=InetAddress.getLocalHost();
+      }
+      TServerTransport serverTransport=new TServerSocket(new InetSocketAddress(listenAddress,port));
+      TTransportFactory transportFactory;
+      if (this.transport != null && this.transport.equals("framed")) {
+        transportFactory=new TFramedTransport.Factory();
+      }
+ else {
+        transportFactory=new TTransportFactory();
+      }
+      TThreadPoolServer.Args serverArgs=new TThreadPoolServer.Args(serverTransport);
+      serverArgs.processor(processor);
+      serverArgs.protocolFactory(protocolFactory);
+      serverArgs.transportFactory(transportFactory);
+      LOG.info("starting HRegionServer ThreadPool Thrift server on " + listenAddress + ":"+ this.port);
+      tserver=new TThreadPoolServer(serverArgs);
+    }
+    tserver.serve();
+  }
+ catch (  Exception e) {
+    LOG.warn("Unable to start HRegionServerThrift interface.",e);
+  }
+}

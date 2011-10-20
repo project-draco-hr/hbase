@@ -1,0 +1,35 @@
+{
+  try {
+    byte[] row=rowb.array();
+    HTable table=getTable(tableName.array());
+    HRegionLocation location=table.getRegionLocation(row);
+    byte[] regionName=location.getRegionInfo().getEncodedNameAsBytes();
+    if (columns == null) {
+      Get get=new Get(row);
+      get.setTimeRange(Long.MIN_VALUE,timestamp);
+      Result result=rs.get(regionName,get);
+      return ThriftUtilities.rowResultFromHBase(result);
+    }
+    ByteBuffer[] columnArr=columns.toArray(new ByteBuffer[columns.size()]);
+    Get get=new Get(row);
+    for (    ByteBuffer column : columnArr) {
+      byte[][] famAndQf=KeyValue.parseColumn(column.array());
+      if (famAndQf.length == 1) {
+        get.addFamily(famAndQf[0]);
+      }
+ else {
+        get.addColumn(famAndQf[0],famAndQf[1]);
+      }
+    }
+    get.setTimeRange(Long.MIN_VALUE,timestamp);
+    Result result=rs.get(regionName,get);
+    return ThriftUtilities.rowResultFromHBase(result);
+  }
+ catch (  NotServingRegionException e) {
+    LOG.info("ThriftServer redirecting getRowWithColumnsTs");
+    return super.getRowWithColumnsTs(tableName,rowb,columns,timestamp);
+  }
+catch (  IOException e) {
+    throw new IOError(e.getMessage());
+  }
+}
