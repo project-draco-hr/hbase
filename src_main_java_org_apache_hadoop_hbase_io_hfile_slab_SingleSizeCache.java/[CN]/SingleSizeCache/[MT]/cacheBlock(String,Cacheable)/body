@@ -10,10 +10,15 @@
   }
   CacheablePair newEntry=new CacheablePair(toBeCached.getDeserializer(),storedBlock);
   toBeCached.serialize(storedBlock);
-  CacheablePair alreadyCached=backingMap.putIfAbsent(blockName,newEntry);
-  if (alreadyCached != null) {
-    backingStore.free(storedBlock);
-    throw new RuntimeException("already cached " + blockName);
+synchronized (this) {
+    CacheablePair alreadyCached=backingMap.putIfAbsent(blockName,newEntry);
+    if (alreadyCached != null) {
+      backingStore.free(storedBlock);
+      throw new RuntimeException("already cached " + blockName);
+    }
+    if (actionWatcher != null) {
+      actionWatcher.onInsertion(blockName,this);
+    }
   }
   newEntry.recentlyAccessed.set(System.nanoTime());
   this.size.addAndGet(newEntry.heapSize());
