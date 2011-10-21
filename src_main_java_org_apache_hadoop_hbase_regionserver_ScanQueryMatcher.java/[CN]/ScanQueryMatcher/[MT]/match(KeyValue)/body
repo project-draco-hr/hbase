@@ -30,18 +30,26 @@
     return columns.getNextRowOrNextColumn(bytes,offset,qualLength);
   }
   byte type=kv.getType();
-  if (isDelete(type)) {
-    if (tr.withinOrAfterTimeRange(timestamp)) {
-      this.deletes.add(bytes,offset,qualLength,timestamp,type);
+  if (kv.isDelete()) {
+    if (!keepDeletedCells) {
+      boolean includeDeleteMarker=seePastDeleteMarkers ? tr.withinTimeRange(timestamp + 1) : tr.withinOrAfterTimeRange(timestamp);
+      if (includeDeleteMarker) {
+        this.deletes.add(bytes,offset,qualLength,timestamp,type);
+      }
     }
     if (retainDeletesInOutput) {
       return MatchCode.INCLUDE;
+    }
+ else     if (keepDeletedCells) {
+      if (timestamp < earliestPutTs) {
+        return columns.getNextRowOrNextColumn(bytes,offset,qualLength);
+      }
     }
  else {
       return MatchCode.SKIP;
     }
   }
-  if (!this.deletes.isEmpty()) {
+ else   if (!this.deletes.isEmpty()) {
     DeleteResult deleteResult=deletes.isDeleted(bytes,offset,qualLength,timestamp);
 switch (deleteResult) {
 case FAMILY_DELETED:
@@ -78,7 +86,7 @@ return MatchCode.SEEK_NEXT_ROW;
 return MatchCode.SEEK_NEXT_USING_HINT;
 }
 }
-MatchCode colChecker=columns.checkColumn(bytes,offset,qualLength,timestamp);
+MatchCode colChecker=columns.checkColumn(bytes,offset,qualLength,timestamp,type);
 if (colChecker == MatchCode.SEEK_NEXT_ROW) {
 stickyNextRow=true;
 }

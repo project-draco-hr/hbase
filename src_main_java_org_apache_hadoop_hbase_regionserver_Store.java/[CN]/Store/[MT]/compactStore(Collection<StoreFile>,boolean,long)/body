@@ -1,5 +1,6 @@
 {
   int maxKeyCount=0;
+  long earliestPutTs=HConstants.LATEST_TIMESTAMP;
   for (  StoreFile file : filesToCompact) {
     StoreFile.Reader r=file.getReader();
     if (r != null) {
@@ -7,6 +8,15 @@
       maxKeyCount+=keyCount;
       if (LOG.isDebugEnabled()) {
         LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length()));
+      }
+    }
+    if (majorCompaction) {
+      byte[] tmp=r.loadFileInfo().get(StoreFile.EARLIEST_PUT_TS);
+      if (tmp == null) {
+        earliestPutTs=HConstants.OLDEST_TIMESTAMP;
+      }
+ else {
+        earliestPutTs=Math.min(earliestPutTs,Bytes.toLong(tmp));
       }
     }
   }
@@ -18,7 +28,7 @@
     try {
       Scan scan=new Scan();
       scan.setMaxVersions(family.getMaxVersions());
-      scanner=new StoreScanner(this,scan,scanners,!majorCompaction);
+      scanner=new StoreScanner(this,scan,scanners,majorCompaction ? ScanType.MAJOR_COMPACT : ScanType.MINOR_COMPACT,earliestPutTs);
       if (region.getCoprocessorHost() != null) {
         InternalScanner cpScanner=region.getCoprocessorHost().preCompact(this,scanner);
         if (cpScanner == null) {
