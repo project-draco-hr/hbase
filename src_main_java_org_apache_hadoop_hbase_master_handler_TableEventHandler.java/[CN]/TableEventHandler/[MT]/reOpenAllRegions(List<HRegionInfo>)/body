@@ -4,15 +4,22 @@
   HTable table=new HTable(masterServices.getConfiguration(),tableName);
   TreeMap<ServerName,List<HRegionInfo>> serverToRegions=Maps.newTreeMap();
   NavigableMap<HRegionInfo,ServerName> hriHserverMapping=table.getRegionLocations();
+  List<HRegionInfo> reRegions=new ArrayList<HRegionInfo>();
   for (  HRegionInfo hri : regions) {
     ServerName rsLocation=hriHserverMapping.get(hri);
+    if (null == rsLocation) {
+      LOG.info("Skip " + hri);
+      continue;
+    }
     if (!serverToRegions.containsKey(rsLocation)) {
       LinkedList<HRegionInfo> hriList=Lists.newLinkedList();
       serverToRegions.put(rsLocation,hriList);
     }
+    reRegions.add(hri);
     serverToRegions.get(rsLocation).add(hri);
   }
-  LOG.info("Reopening " + regions.size() + " regions on "+ serverToRegions.size()+ " region servers.");
+  LOG.info("Reopening " + reRegions.size() + " regions on "+ serverToRegions.size()+ " region servers.");
+  this.masterServices.getAssignmentManager().setRegionsToReopen(reRegions);
   BulkReOpen bulkReopen=new BulkReOpen(this.server,serverToRegions,this.masterServices.getAssignmentManager());
   while (true) {
     try {
