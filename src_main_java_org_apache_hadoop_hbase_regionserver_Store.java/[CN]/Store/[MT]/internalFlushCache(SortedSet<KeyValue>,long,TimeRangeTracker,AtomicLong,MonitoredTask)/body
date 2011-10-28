@@ -1,0 +1,49 @@
+{
+  StoreFile.Writer writer;
+  String fileName;
+  long flushed=0;
+  Path pathName;
+  if (set.size() == 0) {
+    return null;
+  }
+  Scan scan=new Scan();
+  scan.setMaxVersions(scanInfo.getMaxVersions());
+  InternalScanner scanner=new StoreScanner(this,scan,Collections.singletonList(new CollectionBackedScanner(set,this.comparator)),ScanType.MINOR_COMPACT,HConstants.OLDEST_TIMESTAMP);
+  try {
+synchronized (flushLock) {
+      status.setStatus("Flushing " + this + ": creating writer");
+      writer=createWriterInTmp(set.size());
+      writer.setTimeRangeTracker(snapshotTimeRangeTracker);
+      pathName=writer.getPath();
+      try {
+        List<KeyValue> kvs=new ArrayList<KeyValue>();
+        boolean hasMore;
+        do {
+          hasMore=scanner.next(kvs);
+          if (!kvs.isEmpty()) {
+            for (            KeyValue kv : kvs) {
+              writer.append(kv);
+              flushed+=this.memstore.heapSizeChange(kv,true);
+            }
+            kvs.clear();
+          }
+        }
+ while (hasMore);
+      }
+  finally {
+        status.setStatus("Flushing " + this + ": appending metadata");
+        writer.appendMetadata(logCacheFlushId,false);
+        status.setStatus("Flushing " + this + ": closing flushed file");
+        writer.close();
+      }
+    }
+  }
+  finally {
+    flushedSize.set(flushed);
+    scanner.close();
+  }
+  if (LOG.isInfoEnabled()) {
+    LOG.info("Flushed " + ", sequenceid=" + logCacheFlushId + ", memsize="+ StringUtils.humanReadableInt(flushed)+ ", into tmp file "+ pathName);
+  }
+  return pathName;
+}
