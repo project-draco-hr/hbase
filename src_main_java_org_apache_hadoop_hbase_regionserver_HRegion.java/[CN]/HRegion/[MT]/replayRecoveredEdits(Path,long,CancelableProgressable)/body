@@ -1,5 +1,5 @@
 {
-  String msg="Replaying edits from " + edits + "; minSequenceid="+ minSeqId;
+  String msg="Replaying edits from " + edits + "; minSequenceid="+ minSeqId+ "; path="+ edits;
   LOG.info(msg);
   MonitoredTask status=TaskMonitor.get().createStatus(msg);
   status.setStatus("Opening logs");
@@ -12,6 +12,7 @@
     long intervalEdits=0;
     HLog.Entry entry;
     Store store=null;
+    boolean reported_once=false;
     try {
       int interval=this.conf.getInt("hbase.hstore.report.interval.edits",2000);
       int period=this.conf.getInt("hbase.hstore.report.period",this.conf.getInt("hbase.master.assignment.timeoutmonitor.timeout",180000) / 2);
@@ -32,6 +33,7 @@
                 status.abort(msg);
                 throw new IOException(msg);
               }
+              reported_once=true;
               lastReport=cur;
             }
           }
@@ -91,11 +93,12 @@ catch (    IOException ioe) {
         throw ioe;
       }
     }
-    msg="Applied " + editsCount + ", skipped "+ skippedEdits+ ", firstSequenceidInLog="+ firstSeqIdInLog+ ", maxSequenceidInLog="+ currentEditSeqId;
-    status.markComplete(msg);
-    if (LOG.isDebugEnabled()) {
-      LOG.debug(msg);
+    if (reporter != null && !reported_once) {
+      reporter.progress();
     }
+    msg="Applied " + editsCount + ", skipped "+ skippedEdits+ ", firstSequenceidInLog="+ firstSeqIdInLog+ ", maxSequenceidInLog="+ currentEditSeqId+ ", path="+ edits;
+    status.markComplete(msg);
+    LOG.debug(msg);
     return currentEditSeqId;
   }
   finally {
