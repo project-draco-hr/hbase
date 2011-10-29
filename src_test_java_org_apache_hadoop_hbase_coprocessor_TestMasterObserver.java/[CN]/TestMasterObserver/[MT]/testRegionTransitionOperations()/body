@@ -7,19 +7,32 @@
   cp.resetStates();
   HTable table=UTIL.createTable(TEST_TABLE,TEST_FAMILY);
   UTIL.createMultiRegions(table,TEST_FAMILY);
-  Map<HRegionInfo,HServerAddress> regions=table.getRegionsInfo();
-  assertFalse(regions.isEmpty());
-  Map.Entry<HRegionInfo,HServerAddress> firstRegion=regions.entrySet().iterator().next();
-  Collection<ServerName> servers=master.getClusterStatus().getServers();
-  String destName=null;
-  for (  ServerName info : servers) {
-    HServerAddress hsa=new HServerAddress(info.getHostname(),info.getPort());
-    if (!hsa.equals(firstRegion.getValue())) {
-      destName=info.toString();
+  NavigableMap<HRegionInfo,ServerName> regions=table.getRegionLocations();
+  Map.Entry<HRegionInfo,ServerName> firstGoodPair=null;
+  for (  Map.Entry<HRegionInfo,ServerName> e : regions.entrySet()) {
+    if (e.getValue() != null) {
+      firstGoodPair=e;
       break;
     }
   }
-  master.move(firstRegion.getKey().getEncodedNameAsBytes(),Bytes.toBytes(destName));
+  assertNotNull("Found a non-null entry",firstGoodPair);
+  LOG.info("Found " + firstGoodPair.toString());
+  Collection<ServerName> servers=master.getClusterStatus().getServers();
+  String destName=null;
+  String firstRegionHostnamePortStr=firstGoodPair.getValue().toString();
+  LOG.info("firstRegionHostnamePortStr=" + firstRegionHostnamePortStr);
+  boolean found=false;
+  for (  ServerName info : servers) {
+    LOG.info("ServerName=" + info);
+    if (!firstRegionHostnamePortStr.equals(info.getHostAndPort())) {
+      destName=info.toString();
+      found=true;
+      break;
+    }
+  }
+  assertTrue("Found server",found);
+  LOG.info("Found " + destName);
+  master.move(firstGoodPair.getKey().getEncodedNameAsBytes(),Bytes.toBytes(destName));
   assertTrue("Coprocessor should have been called on region move",cp.wasMoveCalled());
   master.balanceSwitch(true);
   assertTrue("Coprocessor should have been called on balance switch",cp.wasBalanceSwitchCalled());
