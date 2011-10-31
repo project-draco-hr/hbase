@@ -1,0 +1,28 @@
+{
+  Scan s=new Scan();
+  for (  byte[] family : targetFamilies) {
+    s.addFamily(family);
+  }
+  ResultScanner scanner=table.getScanner(s);
+  for (  Result res : scanner) {
+    byte[] lastRow=null, lastFam=null, lastQual=null;
+    byte[] gotValue=null;
+    for (    byte[] family : targetFamilies) {
+      byte qualifier[]=QUAL;
+      byte thisValue[]=res.getValue(family,qualifier);
+      if (gotValue != null && thisValue != null && !Bytes.equals(gotValue,thisValue)) {
+        StringBuilder msg=new StringBuilder();
+        msg.append("Failed on scan ").append(numScans).append(" after scanning ").append(numRowsScanned).append(" rows!\n");
+        msg.append("Current  was " + Bytes.toString(res.getRow()) + "/"+ Bytes.toString(family)+ ":"+ Bytes.toString(qualifier)+ " = "+ Bytes.toString(thisValue)+ "\n");
+        msg.append("Previous  was " + Bytes.toString(lastRow) + "/"+ Bytes.toString(lastFam)+ ":"+ Bytes.toString(lastQual)+ " = "+ Bytes.toString(gotValue));
+        throw new RuntimeException(msg.toString());
+      }
+      lastFam=family;
+      lastQual=qualifier;
+      lastRow=res.getRow();
+      gotValue=thisValue;
+    }
+    numRowsScanned.getAndIncrement();
+  }
+  numScans.getAndIncrement();
+}

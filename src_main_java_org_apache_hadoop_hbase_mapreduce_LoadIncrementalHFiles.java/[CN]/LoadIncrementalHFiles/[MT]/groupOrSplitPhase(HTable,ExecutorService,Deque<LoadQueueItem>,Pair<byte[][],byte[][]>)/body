@@ -1,0 +1,38 @@
+{
+  Multimap<ByteBuffer,LoadQueueItem> rgs=HashMultimap.create();
+  final Multimap<ByteBuffer,LoadQueueItem> regionGroups=Multimaps.synchronizedMultimap(rgs);
+  Set<Future<List<LoadQueueItem>>> splittingFutures=new HashSet<Future<List<LoadQueueItem>>>();
+  while (!queue.isEmpty()) {
+    final LoadQueueItem item=queue.remove();
+    final Callable<List<LoadQueueItem>> call=new Callable<List<LoadQueueItem>>(){
+      public List<LoadQueueItem> call() throws Exception {
+        List<LoadQueueItem> splits=groupOrSplit(regionGroups,item,table,startEndKeys);
+        return splits;
+      }
+    }
+;
+    splittingFutures.add(pool.submit(call));
+  }
+  for (  Future<List<LoadQueueItem>> lqis : splittingFutures) {
+    try {
+      List<LoadQueueItem> splits=lqis.get();
+      if (splits != null) {
+        queue.addAll(splits);
+      }
+    }
+ catch (    ExecutionException e1) {
+      Throwable t=e1.getCause();
+      if (t instanceof IOException) {
+        LOG.error("IOException during splitting",e1);
+        throw (IOException)t;
+      }
+      LOG.error("Unexpected execution exception during splitting",e1);
+      throw new IllegalStateException(t);
+    }
+catch (    InterruptedException e1) {
+      LOG.error("Unexpected interrupted exception during splitting",e1);
+      throw new IllegalStateException(e1);
+    }
+  }
+  return regionGroups;
+}

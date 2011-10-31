@@ -1,0 +1,33 @@
+{
+  String table="bulkPhaseRetry";
+  setupTable(table,10);
+  final AtomicInteger attmptedCalls=new AtomicInteger();
+  final AtomicInteger failedCalls=new AtomicInteger();
+  LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
+    protected List<LoadQueueItem> tryAtomicRegionLoad(    final HConnection conn,    byte[] tableName,    final byte[] first,    Collection<LoadQueueItem> lqis){
+      int i=attmptedCalls.incrementAndGet();
+      if (i == 1) {
+        HConnection errConn=mock(HConnection.class);
+        try {
+          doThrow(new IOException("injecting bulk load error")).when(errConn).getRegionServerWithRetries((ServerCallable)anyObject());
+        }
+ catch (        Exception e) {
+          LOG.fatal("mocking cruft, should never happen",e);
+          throw new RuntimeException("mocking cruft, should never happen");
+        }
+        failedCalls.incrementAndGet();
+        return super.tryAtomicRegionLoad(errConn,tableName,first,lqis);
+      }
+      return super.tryAtomicRegionLoad(conn,tableName,first,lqis);
+    }
+  }
+;
+  FileSystem fs=util.getTestFileSystem();
+  Path dir=util.getDataTestDir(table);
+  buildHFiles(fs,dir,1);
+  HTable t=new HTable(util.getConfiguration(),Bytes.toBytes(table));
+  lih.doBulkLoad(dir,t);
+  assertEquals(attmptedCalls.get(),2);
+  assertEquals(failedCalls.get(),1);
+  assertExpectedTable(table,ROWCOUNT,1);
+}

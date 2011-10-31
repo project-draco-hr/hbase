@@ -1,0 +1,24 @@
+{
+  final List<Pair<byte[],String>> famPaths=new ArrayList<Pair<byte[],String>>(lqis.size());
+  for (  LoadQueueItem lqi : lqis) {
+    famPaths.add(Pair.newPair(lqi.family,lqi.hfilePath.toString()));
+  }
+  final ServerCallable<Void> svrCallable=new ServerCallable<Void>(conn,tableName,first){
+    @Override public Void call() throws Exception {
+      LOG.debug("Going to connect to server " + location + " for row "+ Bytes.toStringBinary(row));
+      byte[] regionName=location.getRegionInfo().getRegionName();
+      server.bulkLoadHFiles(famPaths,regionName);
+      return null;
+    }
+  }
+;
+  List<LoadQueueItem> toRetry=new ArrayList<LoadQueueItem>();
+  try {
+    conn.getRegionServerWithRetries(svrCallable);
+  }
+ catch (  IOException e) {
+    LOG.warn("Attempt to bulk load region containing " + Bytes.toStringBinary(first) + " into table "+ Bytes.toStringBinary(tableName)+ " with files "+ lqis+ " failed");
+    toRetry.addAll(lqis);
+  }
+  return toRetry;
+}

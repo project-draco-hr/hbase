@@ -1,0 +1,35 @@
+{
+  long iteration=numBulkLoads.getAndIncrement();
+  Path dir=UTIL.getDataTestDir(String.format("bulkLoad_%08d",iteration));
+  FileSystem fs=UTIL.getTestFileSystem();
+  byte[] val=Bytes.toBytes(String.format("%010d",iteration));
+  final List<Pair<byte[],String>> famPaths=new ArrayList<Pair<byte[],String>>(NUM_CFS);
+  for (int i=0; i < NUM_CFS; i++) {
+    Path hfile=new Path(dir,family(i));
+    byte[] fam=Bytes.toBytes(family(i));
+    createHFile(fs,hfile,fam,QUAL,val,1000);
+    famPaths.add(new Pair<byte[],String>(fam,hfile.toString()));
+  }
+  HConnection conn=UTIL.getHBaseAdmin().getConnection();
+  byte[] tbl=Bytes.toBytes(tableName);
+  conn.getRegionServerWithRetries(new ServerCallable<Void>(conn,tbl,Bytes.toBytes("aaa")){
+    @Override public Void call() throws Exception {
+      LOG.debug("Going to connect to server " + location + " for row "+ Bytes.toStringBinary(row));
+      byte[] regionName=location.getRegionInfo().getRegionName();
+      server.bulkLoadHFiles(famPaths,regionName);
+      return null;
+    }
+  }
+);
+  if (numBulkLoads.get() % 10 == 0) {
+    conn.getRegionServerWithRetries(new ServerCallable<Void>(conn,tbl,Bytes.toBytes("aaa")){
+      @Override public Void call() throws Exception {
+        LOG.debug("compacting " + location + " for row "+ Bytes.toStringBinary(row));
+        server.compactRegion(location.getRegionInfo(),true);
+        numCompactions.incrementAndGet();
+        return null;
+      }
+    }
+);
+  }
+}
