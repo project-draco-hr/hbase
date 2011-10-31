@@ -1,12 +1,26 @@
 {
-  for (  HRegionInfo region : regions) {
-    if (assignmentManager.isRegionInTransition(region) != null)     continue;
-    final HRegionInfo hri=region;
-    pool.execute(new Runnable(){
-      public void run(){
-        assignmentManager.assign(hri,true);
+  boolean roundRobinAssignment=this.server.getConfiguration().getBoolean("hbase.master.enabletable.roundrobin",false);
+  if (!roundRobinAssignment) {
+    for (    HRegionInfo region : regions) {
+      if (assignmentManager.isRegionInTransition(region) != null) {
+        continue;
       }
-    }
+      final HRegionInfo hri=region;
+      pool.execute(new Runnable(){
+        public void run(){
+          assignmentManager.assign(hri,true);
+        }
+      }
 );
+    }
+  }
+ else {
+    try {
+      assignmentManager.assignUserRegionsToOnlineServers(regions);
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Assignment was interrupted");
+      Thread.currentThread().interrupt();
+    }
   }
 }
