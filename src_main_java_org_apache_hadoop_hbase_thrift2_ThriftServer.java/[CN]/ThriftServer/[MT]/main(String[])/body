@@ -1,0 +1,47 @@
+{
+  TServer server=null;
+  Options options=getOptions();
+  try {
+    CommandLine cmd=parseArguments(options,args);
+    List<?> argList=cmd.getArgList();
+    if (cmd.hasOption("help") || !argList.contains("start") || argList.contains("stop")) {
+      printUsage();
+      System.exit(1);
+    }
+    int listenPort=0;
+    try {
+      listenPort=Integer.parseInt(cmd.getOptionValue("port",DEFAULT_LISTEN_PORT));
+    }
+ catch (    NumberFormatException e) {
+      throw new RuntimeException("Could not parse the value provided for the port option",e);
+    }
+    boolean nonblocking=cmd.hasOption("nonblocking");
+    boolean hsha=cmd.hasOption("hsha");
+    TProtocolFactory protocolFactory=getTProtocolFactory(cmd.hasOption("compact"));
+    THBaseService.Iface handler=new ThriftHBaseServiceHandler();
+    THBaseService.Processor processor=new THBaseService.Processor(handler);
+    boolean framed=cmd.hasOption("framed") || nonblocking || hsha;
+    TTransportFactory transportFactory=getTTransportFactory(framed);
+    if (cmd.hasOption("bind") && (nonblocking || hsha)) {
+      log.error("The Nonblocking and HsHaServer servers don't support IP address binding at the moment." + " See https://issues.apache.org/jira/browse/HBASE-2155 for details.");
+      printUsage();
+      System.exit(1);
+    }
+    InetSocketAddress inetSocketAddress=bindToPort(cmd.getOptionValue("bind"),listenPort);
+    if (nonblocking) {
+      server=getTNonBlockingServer(protocolFactory,processor,transportFactory,inetSocketAddress);
+    }
+ else     if (hsha) {
+      server=getTHsHaServer(protocolFactory,processor,transportFactory,inetSocketAddress);
+    }
+ else {
+      server=getTThreadPoolServer(protocolFactory,processor,transportFactory,inetSocketAddress);
+    }
+  }
+ catch (  Exception e) {
+    log.error(e.getMessage(),e);
+    printUsage();
+    System.exit(1);
+  }
+  server.serve();
+}
