@@ -1,0 +1,48 @@
+{
+  final String F_INTERVAL="hbase.regionserver.optionallogflushinterval";
+  long oldFlushInterval=conf.getLong(F_INTERVAL,1000);
+  conf.setLong(F_INTERVAL,1000 * 1000 * 100);
+  HLog log=null;
+  Path thisTestsDir=new Path(hbaseDir,"testLogRollAfterSplitStart");
+  try {
+    byte[] tableName=Bytes.toBytes(this.getClass().getName());
+    HRegionInfo regioninfo=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    log=new HLog(fs,thisTestsDir,oldLogDir,conf);
+    final int total=20;
+    for (int i=0; i < total; i++) {
+      WALEdit kvs=new WALEdit();
+      kvs.add(new KeyValue(Bytes.toBytes(i),tableName,tableName));
+      HTableDescriptor htd=new HTableDescriptor(tableName);
+      htd.addFamily(new HColumnDescriptor("column"));
+      log.append(regioninfo,tableName,kvs,System.currentTimeMillis(),htd);
+    }
+    log.sync();
+    log.cleanupCurrentWriter(log.getFilenum());
+    Path rsSplitDir=new Path(thisTestsDir.getParent(),thisTestsDir.getName() + "-splitting");
+    fs.rename(thisTestsDir,rsSplitDir);
+    LOG.debug("Renamed region directory: " + rsSplitDir);
+    HLogSplitter splitter=HLogSplitter.createLogSplitter(conf,hbaseDir,rsSplitDir,oldLogDir,fs);
+    splitter.splitLog();
+    try {
+      log.rollWriter();
+      Assert.fail("rollWriter() did not throw any exception.");
+    }
+ catch (    IOException ioe) {
+      if (ioe.getCause().getMessage().contains("FileNotFound")) {
+        LOG.info("Got the expected exception: ",ioe.getCause());
+      }
+ else {
+        Assert.fail("Unexpected exception: " + ioe);
+      }
+    }
+  }
+  finally {
+    conf.setLong(F_INTERVAL,oldFlushInterval);
+    if (log != null) {
+      log.close();
+    }
+    if (fs.exists(thisTestsDir)) {
+      fs.delete(thisTestsDir,true);
+    }
+  }
+}
