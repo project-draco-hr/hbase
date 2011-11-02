@@ -1,0 +1,27 @@
+{
+  LOG.info("Before delete:");
+  HTableDescriptor htd=tbl.getTableDescriptor();
+  dumpMeta(htd);
+  Map<HRegionInfo,HServerAddress> hris=tbl.getRegionsInfo();
+  for (  Entry<HRegionInfo,HServerAddress> e : hris.entrySet()) {
+    HRegionInfo hri=e.getKey();
+    HServerAddress hsa=e.getValue();
+    if (Bytes.compareTo(hri.getStartKey(),startKey) == 0 && Bytes.compareTo(hri.getEndKey(),endKey) == 0) {
+      LOG.info("RegionName: " + hri.getRegionNameAsString());
+      byte[] deleteRow=hri.getRegionName();
+      TEST_UTIL.getHBaseAdmin().unassign(deleteRow,true);
+      LOG.info("deleting hdfs data: " + hri.toString() + hsa.toString());
+      Path rootDir=new Path(conf.get(HConstants.HBASE_DIR));
+      FileSystem fs=rootDir.getFileSystem(conf);
+      Path p=new Path(rootDir + "/" + htd.getNameAsString(),hri.getEncodedName());
+      fs.delete(p,true);
+      HTable meta=new HTable(conf,HConstants.META_TABLE_NAME);
+      Delete delete=new Delete(deleteRow);
+      meta.delete(delete);
+    }
+    LOG.info(hri.toString() + hsa.toString());
+  }
+  TEST_UTIL.getMetaTableRows(htd.getName());
+  LOG.info("After delete:");
+  dumpMeta(htd);
+}
