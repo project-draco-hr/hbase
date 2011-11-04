@@ -1,0 +1,39 @@
+{
+  Path tmpTableDir=new Path(tableDir,".tmp");
+  int currentSequenceid=status == null ? 0 : getTableInfoSequenceid(status.getPath());
+  int sequenceid=currentSequenceid;
+  int retries=10;
+  int retrymax=currentSequenceid + retries;
+  Path tableInfoPath=null;
+  do {
+    sequenceid+=1;
+    Path p=getTableInfoFileName(tmpTableDir,sequenceid);
+    if (fs.exists(p)) {
+      LOG.debug(p + " exists; retrying up to " + retries+ " times");
+      continue;
+    }
+    try {
+      writeHTD(fs,p,hTableDescriptor);
+      tableInfoPath=getTableInfoFileName(tableDir,sequenceid);
+      if (!fs.rename(p,tableInfoPath)) {
+        throw new IOException("Failed rename of " + p + " to "+ tableInfoPath);
+      }
+    }
+ catch (    IOException ioe) {
+      LOG.debug("Failed write and/or rename; retrying",ioe);
+      if (!FSUtils.deleteDirectory(fs,p)) {
+        LOG.warn("Failed cleanup of " + p);
+      }
+      tableInfoPath=null;
+      continue;
+    }
+    if (status != null) {
+      if (!FSUtils.deleteDirectory(fs,status.getPath())) {
+        LOG.warn("Failed delete of " + status.getPath() + "; continuing");
+      }
+    }
+    break;
+  }
+ while (sequenceid < retrymax);
+  return tableInfoPath;
+}
