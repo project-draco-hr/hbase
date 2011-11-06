@@ -3,8 +3,19 @@
   DataInputStream dis=new DataInputStream(new ByteArrayInputStream(array));
   int id=dis.readInt();
   if (LOG.isDebugEnabled())   LOG.debug(" got call #" + id + ", "+ array.length+ " bytes");
-  Writable param=ReflectionUtils.newInstance(paramClass,conf);
-  param.readFields(dis);
+  Writable param;
+  try {
+    param=ReflectionUtils.newInstance(paramClass,conf);
+    param.readFields(dis);
+  }
+ catch (  Throwable t) {
+    LOG.warn("Unable to read call parameters for client " + getHostAddress(),t);
+    final Call readParamsFailedCall=new Call(id,null,this,responder);
+    ByteArrayOutputStream responseBuffer=new ByteArrayOutputStream();
+    setupResponse(responseBuffer,readParamsFailedCall,Status.FATAL,null,t.getClass().getName(),"IPC server unable to read call parameters: " + t.getMessage());
+    responder.doRespond(readParamsFailedCall);
+    return;
+  }
   Call call=new Call(id,param,this,responder);
   if (priorityCallQueue != null && getQosLevel(param) > highPriorityLevel) {
     priorityCallQueue.put(call);
