@@ -3,22 +3,25 @@
   for (  LoadQueueItem lqi : lqis) {
     famPaths.add(Pair.newPair(lqi.family,lqi.hfilePath.toString()));
   }
-  final ServerCallable<Void> svrCallable=new ServerCallable<Void>(conn,tableName,first){
-    @Override public Void call() throws Exception {
+  final ServerCallable<Boolean> svrCallable=new ServerCallable<Boolean>(conn,tableName,first){
+    @Override public Boolean call() throws Exception {
       LOG.debug("Going to connect to server " + location + " for row "+ Bytes.toStringBinary(row));
       byte[] regionName=location.getRegionInfo().getRegionName();
-      server.bulkLoadHFiles(famPaths,regionName);
-      return null;
+      return server.bulkLoadHFiles(famPaths,regionName);
     }
   }
 ;
-  List<LoadQueueItem> toRetry=new ArrayList<LoadQueueItem>();
   try {
-    conn.getRegionServerWithRetries(svrCallable);
+    List<LoadQueueItem> toRetry=new ArrayList<LoadQueueItem>();
+    boolean success=conn.getRegionServerWithRetries(svrCallable);
+    if (!success) {
+      LOG.warn("Attempt to bulk load region containing " + Bytes.toStringBinary(first) + " into table "+ Bytes.toStringBinary(tableName)+ " with files "+ lqis+ " failed.  This is recoverable and they will be retried.");
+      toRetry.addAll(lqis);
+    }
+    return toRetry;
   }
  catch (  IOException e) {
-    LOG.warn("Attempt to bulk load region containing " + Bytes.toStringBinary(first) + " into table "+ Bytes.toStringBinary(tableName)+ " with files "+ lqis+ " failed");
-    toRetry.addAll(lqis);
+    LOG.error("Encountered unrecoverable error from region server",e);
+    throw e;
   }
-  return toRetry;
 }
