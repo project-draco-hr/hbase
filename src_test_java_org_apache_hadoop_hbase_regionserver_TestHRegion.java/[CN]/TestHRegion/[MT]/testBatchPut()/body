@@ -4,8 +4,8 @@
   byte[] qual=Bytes.toBytes("qual");
   byte[] val=Bytes.toBytes("val");
   initHRegion(b,getName(),cf);
-  HLog.getSyncOps();
-  assertEquals(0,HLog.getSyncOps());
+  HLog.getSyncTime();
+  assertEquals(0,HLog.getSyncTime().count);
   LOG.info("First a batch put with all valid puts");
   final Put[] puts=new Put[10];
   for (int i=0; i < 10; i++) {
@@ -17,7 +17,7 @@
   for (int i=0; i < 10; i++) {
     assertEquals(OperationStatusCode.SUCCESS,codes[i].getOperationStatusCode());
   }
-  assertEquals(1,HLog.getSyncOps());
+  assertEquals(1,HLog.getSyncTime().count);
   LOG.info("Next a batch put with one invalid family");
   puts[5].add(Bytes.toBytes("BAD_CF"),qual,val);
   codes=this.region.put(puts);
@@ -25,7 +25,7 @@
   for (int i=0; i < 10; i++) {
     assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY : OperationStatusCode.SUCCESS,codes[i].getOperationStatusCode());
   }
-  assertEquals(1,HLog.getSyncOps());
+  assertEquals(1,HLog.getSyncTime().count);
   LOG.info("Next a batch put that has to break into two batches to avoid a lock");
   Integer lockedRow=region.obtainRowLock(Bytes.toBytes("row_2"));
   MultithreadedTestUtil.TestContext ctx=new MultithreadedTestUtil.TestContext(HBaseConfiguration.create());
@@ -41,7 +41,7 @@
   ctx.startThreads();
   LOG.info("...waiting for put thread to sync first time");
   long startWait=System.currentTimeMillis();
-  while (HLog.getSyncOps() == 0) {
+  while (HLog.getSyncTime().count == 0) {
     Thread.sleep(100);
     if (System.currentTimeMillis() - startWait > 10000) {
       fail("Timed out waiting for thread to sync first minibatch");
@@ -52,7 +52,7 @@
   LOG.info("...joining on thread");
   ctx.stop();
   LOG.info("...checking that next batch was synced");
-  assertEquals(1,HLog.getSyncOps());
+  assertEquals(1,HLog.getSyncTime().count);
   codes=retFromThread.get();
   for (int i=0; i < 10; i++) {
     assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY : OperationStatusCode.SUCCESS,codes[i].getOperationStatusCode());
@@ -71,7 +71,7 @@
   for (int i=0; i < 10; i++) {
     assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY : OperationStatusCode.SUCCESS,codes[i].getOperationStatusCode());
   }
-  assertEquals(1,HLog.getSyncOps());
+  assertEquals(1,HLog.getSyncTime().count);
   assertTrue(region.isRowLocked(lockedRow));
   LOG.info("...releasing lock");
   region.releaseRowLock(lockedRow);
