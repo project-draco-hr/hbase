@@ -17,33 +17,33 @@
   List<KeyValue> results=new ArrayList<KeyValue>();
   KeyValue.KVComparator comparator=store != null ? store.getComparator() : null;
   LOOP:   while ((kv=this.heap.peek()) != null) {
-    KeyValue copyKv=kv.shallowCopy();
     if (prevKV != null && comparator != null && comparator.compare(prevKV,kv) > 0) {
       throw new IOException("Key " + prevKV + " followed by a "+ "smaller key "+ kv+ " in cf "+ store);
     }
-    prevKV=copyKv;
-    ScanQueryMatcher.MatchCode qcode=matcher.match(copyKv);
+    prevKV=kv;
+    ScanQueryMatcher.MatchCode qcode=matcher.match(kv);
 switch (qcode) {
 case INCLUDE:
 case INCLUDE_AND_SEEK_NEXT_ROW:
 case INCLUDE_AND_SEEK_NEXT_COL:
-      results.add(copyKv);
-    if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_ROW) {
-      if (!matcher.moreRowsMayExistAfter(kv)) {
-        outResult.addAll(results);
-        return false;
-      }
-      reseek(matcher.getKeyForNextRow(kv));
+      Filter f=matcher.getFilter();
+    results.add(f == null ? kv : f.transform(kv));
+  if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_ROW) {
+    if (!matcher.moreRowsMayExistAfter(kv)) {
+      outResult.addAll(results);
+      return false;
     }
- else     if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_COL) {
-      reseek(matcher.getKeyForNextColumn(kv));
-    }
- else {
-      this.heap.next();
-    }
-  if (limit > 0 && (results.size() == limit)) {
-    break LOOP;
+    reseek(matcher.getKeyForNextRow(kv));
   }
+ else   if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_COL) {
+    reseek(matcher.getKeyForNextColumn(kv));
+  }
+ else {
+    this.heap.next();
+  }
+if (limit > 0 && (results.size() == limit)) {
+  break LOOP;
+}
 continue;
 case DONE:
 outResult.addAll(results);
