@@ -9,22 +9,11 @@
   String cacheKey=HFile.getBlockCacheKey(name,offset);
 synchronized (dataBlockIndexReader.getRootBlockKey(block)) {
     blockLoads.incrementAndGet();
-    if (isCompaction) {
-      HRegion.incrNumericMetric(this.compactionBlockReadCntMetric,1);
-    }
- else {
-      HRegion.incrNumericMetric(this.fsBlockReadCntMetric,1);
-    }
     if (cacheConf.isBlockCacheEnabled()) {
       HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheConf.shouldCacheDataOnRead());
       if (cachedBlock != null) {
         cacheHits.incrementAndGet();
-        if (isCompaction) {
-          HRegion.incrNumericMetric(this.compactionBlockReadCacheHitCntMetric,1);
-        }
- else {
-          HRegion.incrNumericMetric(this.fsBlockReadCacheHitCntMetric,1);
-        }
+        getSchemaMetrics().updateOnCacheHit(BlockCategory.DATA,isCompaction);
         return cachedBlock.getBufferWithoutHeader();
       }
     }
@@ -37,18 +26,13 @@ synchronized (dataBlockIndexReader.getRootBlockKey(block)) {
       nextOffset=dataBlockIndexReader.getRootBlockOffset(block + 1);
     }
     HFileBlock hfileBlock=fsBlockReader.readBlockData(offset,nextOffset - offset,dataBlockIndexReader.getRootBlockDataSize(block),pread);
-    hfileBlock.setColumnFamilyName(this.getColumnFamilyName());
+    passSchemaMetricsTo(hfileBlock);
     hfileBlock.expectType(BlockType.DATA);
     ByteBuffer buf=hfileBlock.getBufferWithoutHeader();
     long delta=System.nanoTime() - startTimeNs;
     HFile.readTimeNano.addAndGet(delta);
     HFile.readOps.incrementAndGet();
-    if (isCompaction) {
-      HRegion.incrTimeVaryingMetric(this.compactionReadTimeNanoMetric,delta);
-    }
- else {
-      HRegion.incrTimeVaryingMetric(this.fsReadTimeNanoMetric,delta);
-    }
+    getSchemaMetrics().updateOnCacheMiss(BlockCategory.DATA,isCompaction,delta);
     if (cacheConf.shouldCacheDataOnRead() && cacheBlock) {
       cacheConf.getBlockCache().cacheBlock(cacheKey,hfileBlock,cacheConf.isInMemory());
     }
