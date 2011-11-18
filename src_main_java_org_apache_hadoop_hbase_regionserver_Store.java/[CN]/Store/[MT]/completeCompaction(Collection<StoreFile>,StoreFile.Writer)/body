@@ -12,8 +12,8 @@
     result=new StoreFile(this.fs,destPath,this.conf,this.cacheConf,this.family.getBloomFilterType());
     result.createReader();
   }
-  this.lock.writeLock().lock();
   try {
+    this.lock.writeLock().lock();
     try {
       ArrayList<StoreFile> newStoreFiles=Lists.newArrayList(storefiles);
       newStoreFiles.removeAll(compactedFiles);
@@ -22,29 +22,29 @@
         newStoreFiles.add(result);
       }
       this.storefiles=sortAndClone(newStoreFiles);
-      notifyChangedReadersObservers();
-      for (      StoreFile hsf : compactedFiles) {
-        hsf.deleteReader();
-      }
     }
- catch (    IOException e) {
-      e=RemoteExceptionHandler.checkIOException(e);
-      LOG.error("Failed replacing compacted files in " + this.storeNameStr + ". Compacted file is "+ (result == null ? "none" : result.toString())+ ".  Files replaced "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+  finally {
+      this.lock.writeLock().unlock();
     }
-    this.storeSize=0L;
-    this.totalUncompressedBytes=0L;
-    for (    StoreFile hsf : this.storefiles) {
-      StoreFile.Reader r=hsf.getReader();
-      if (r == null) {
-        LOG.warn("StoreFile " + hsf + " has a null Reader");
-        continue;
-      }
-      this.storeSize+=r.length();
-      this.totalUncompressedBytes+=r.getTotalUncompressedBytes();
+    notifyChangedReadersObservers();
+    for (    StoreFile hsf : compactedFiles) {
+      hsf.deleteReader();
     }
   }
-  finally {
-    this.lock.writeLock().unlock();
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    LOG.error("Failed replacing compacted files in " + this.storeNameStr + ". Compacted file is "+ (result == null ? "none" : result.toString())+ ".  Files replaced "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+  }
+  this.storeSize=0L;
+  this.totalUncompressedBytes=0L;
+  for (  StoreFile hsf : this.storefiles) {
+    StoreFile.Reader r=hsf.getReader();
+    if (r == null) {
+      LOG.warn("StoreFile " + hsf + " has a null Reader");
+      continue;
+    }
+    this.storeSize+=r.length();
+    this.totalUncompressedBytes+=r.getTotalUncompressedBytes();
   }
   return result;
 }
