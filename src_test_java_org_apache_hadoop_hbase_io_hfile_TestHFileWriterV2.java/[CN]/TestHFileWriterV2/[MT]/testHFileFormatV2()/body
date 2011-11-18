@@ -27,8 +27,19 @@
   assertEquals(2,trailer.getVersion());
   assertEquals(ENTRY_COUNT,trailer.getEntryCount());
   HFileBlock.FSReader blockReader=new HFileBlock.FSReaderV2(fsdis,COMPRESS_ALGO,fileSize);
+  RawComparator<byte[]> comparator=trailer.createComparator();
+  HFileBlockIndex.BlockIndexReader dataBlockIndexReader=new HFileBlockIndex.BlockIndexReader(comparator,trailer.getNumDataIndexLevels());
+  HFileBlockIndex.BlockIndexReader metaBlockIndexReader=new HFileBlockIndex.BlockIndexReader(Bytes.BYTES_RAWCOMPARATOR,1);
+  HFileBlock.BlockIterator blockIter=blockReader.blockRange(trailer.getLoadOnOpenDataOffset(),fileSize - trailer.getTrailerSize());
+  dataBlockIndexReader.readMultiLevelIndexRoot(blockIter.nextBlockAsStream(BlockType.ROOT_INDEX),trailer.getDataIndexCount());
+  metaBlockIndexReader.readRootIndex(blockIter.nextBlockAsStream(BlockType.ROOT_INDEX),trailer.getMetaIndexCount());
+  FileInfo fileInfo=new FileInfo();
+  fileInfo.readFields(blockIter.nextBlockAsStream(BlockType.FILE_INFO));
+  byte[] keyValueFormatVersion=fileInfo.get(HFileWriterV2.KEY_VALUE_VERSION);
+  boolean includeMemstoreTS=(keyValueFormatVersion != null && Bytes.toInt(keyValueFormatVersion) > 0);
   int entriesRead=0;
   int blocksRead=0;
+  long memstoreTS=0;
   fsdis.seek(0);
   long curBlockPos=0;
   while (curBlockPos <= trailer.getLastDataBlockOffset()) {
@@ -42,6 +53,12 @@
       buf.get(key);
       byte[] value=new byte[valueLen];
       buf.get(value);
+      if (includeMemstoreTS) {
+        ByteArrayInputStream byte_input=new ByteArrayInputStream(buf.array(),buf.arrayOffset() + buf.position(),buf.remaining());
+        DataInputStream data_input=new DataInputStream(byte_input);
+        memstoreTS=WritableUtils.readVLong(data_input);
+        buf.position(buf.position() + WritableUtils.getVIntSize(memstoreTS));
+      }
       assertTrue(Bytes.compareTo(key,keys.get(entriesRead)) == 0);
       assertTrue(Bytes.compareTo(value,values.get(entriesRead)) == 0);
       ++entriesRead;

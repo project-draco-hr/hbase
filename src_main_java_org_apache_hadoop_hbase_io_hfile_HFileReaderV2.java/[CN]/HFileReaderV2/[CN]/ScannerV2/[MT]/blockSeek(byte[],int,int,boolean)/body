@@ -1,11 +1,25 @@
 {
   int klen, vlen;
+  long memstoreTS=0;
+  int memstoreTSLen=0;
   int lastKeyValueSize=-1;
   do {
     blockBuffer.mark();
     klen=blockBuffer.getInt();
     vlen=blockBuffer.getInt();
     blockBuffer.reset();
+    if (this.reader.shouldIncludeMemstoreTS()) {
+      try {
+        ByteArrayInputStream byte_input=new ByteArrayInputStream(blockBuffer.array());
+        byte_input.skip(blockBuffer.arrayOffset() + blockBuffer.position() + KEY_VALUE_LEN_SIZE+ klen+ vlen);
+        DataInputStream data_input=new DataInputStream(byte_input);
+        memstoreTS=WritableUtils.readVLong(data_input);
+        memstoreTSLen=WritableUtils.getVIntSize(memstoreTS);
+      }
+ catch (      Exception e) {
+        throw new RuntimeException("Error reading memstoreTS. " + e);
+      }
+    }
     int keyOffset=blockBuffer.arrayOffset() + blockBuffer.position() + KEY_VALUE_LEN_SIZE;
     int comp=reader.getComparator().compare(key,offset,length,blockBuffer.array(),keyOffset,klen);
     if (comp == 0) {
@@ -19,6 +33,10 @@
       }
       currKeyLen=klen;
       currValueLen=vlen;
+      if (this.reader.shouldIncludeMemstoreTS()) {
+        currMemstoreTS=memstoreTS;
+        currMemstoreTSLen=memstoreTSLen;
+      }
       return 0;
     }
     if (comp < 0) {
@@ -26,7 +44,7 @@
       readKeyValueLen();
       return 1;
     }
-    lastKeyValueSize=klen + vlen + KEY_VALUE_LEN_SIZE;
+    lastKeyValueSize=klen + vlen + memstoreTSLen+ KEY_VALUE_LEN_SIZE;
     blockBuffer.position(blockBuffer.position() + lastKeyValueSize);
   }
  while (blockBuffer.remaining() > 0);

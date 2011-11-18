@@ -8,14 +8,19 @@
     this.stopRow=scan.getStopRow();
   }
   this.isScan=scan.isGetScan() ? -1 : 0;
-  this.readPt=ReadWriteConsistencyControl.resetThreadReadPoint(rwcc);
+synchronized (scannerReadPoints) {
+    this.readPt=ReadWriteConsistencyControl.resetThreadReadPoint(rwcc);
+    scannerReadPoints.put(this,this.readPt);
+  }
   List<KeyValueScanner> scanners=new ArrayList<KeyValueScanner>();
   if (additionalScanners != null) {
     scanners.addAll(additionalScanners);
   }
   for (  Map.Entry<byte[],NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
     Store store=stores.get(entry.getKey());
-    scanners.add(store.getScanner(scan,entry.getValue()));
+    StoreScanner scanner=store.getScanner(scan,entry.getValue());
+    scanner.useRWCC(true);
+    scanners.add(scanner);
   }
   this.storeHeap=new KeyValueHeap(scanners,comparator);
 }
