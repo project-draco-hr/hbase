@@ -1,0 +1,85 @@
+{
+  while (true) {
+    int count=-1;
+    if (dataLengthBuffer.remaining() > 0) {
+      count=channelRead(channel,dataLengthBuffer);
+      if (count < 0 || dataLengthBuffer.remaining() > 0)       return count;
+    }
+    if (!rpcHeaderRead) {
+      if (rpcHeaderBuffer == null) {
+        rpcHeaderBuffer=ByteBuffer.allocate(2);
+      }
+      count=channelRead(channel,rpcHeaderBuffer);
+      if (count < 0 || rpcHeaderBuffer.remaining() > 0) {
+        return count;
+      }
+      int version=rpcHeaderBuffer.get(0);
+      byte[] method=new byte[]{rpcHeaderBuffer.get(1)};
+      authMethod=AuthMethod.read(new DataInputStream(new ByteArrayInputStream(method)));
+      dataLengthBuffer.flip();
+      if (!HEADER.equals(dataLengthBuffer) || version != CURRENT_VERSION) {
+        LOG.warn("Incorrect header or version mismatch from " + hostAddress + ":"+ remotePort+ " got version "+ version+ " expected version "+ CURRENT_VERSION);
+        return -1;
+      }
+      dataLengthBuffer.clear();
+      if (authMethod == null) {
+        throw new IOException("Unable to read authentication method");
+      }
+      if (isSecurityEnabled && authMethod == AuthMethod.SIMPLE) {
+        AccessControlException ae=new AccessControlException("Authentication is required");
+        SecureCall failedCall=new SecureCall(AUTHORIZATION_FAILED_CALLID,null,this,null);
+        failedCall.setResponse(null,Status.FATAL,ae.getClass().getName(),ae.getMessage());
+        responder.doRespond(failedCall);
+        throw ae;
+      }
+      if (!isSecurityEnabled && authMethod != AuthMethod.SIMPLE) {
+        doSaslReply(SaslStatus.SUCCESS,new IntWritable(HBaseSaslRpcServer.SWITCH_TO_SIMPLE_AUTH),null,null);
+        authMethod=AuthMethod.SIMPLE;
+        skipInitialSaslHandshake=true;
+      }
+      if (authMethod != AuthMethod.SIMPLE) {
+        useSasl=true;
+      }
+      rpcHeaderBuffer=null;
+      rpcHeaderRead=true;
+      continue;
+    }
+    if (data == null) {
+      dataLengthBuffer.flip();
+      dataLength=dataLengthBuffer.getInt();
+      if (dataLength == HBaseClient.PING_CALL_ID) {
+        if (!useWrap) {
+          dataLengthBuffer.clear();
+          return 0;
+        }
+      }
+      if (dataLength < 0) {
+        LOG.warn("Unexpected data length " + dataLength + "!! from "+ getHostAddress());
+      }
+      data=ByteBuffer.allocate(dataLength);
+      incRpcCount();
+    }
+    count=channelRead(channel,data);
+    if (data.remaining() == 0) {
+      dataLengthBuffer.clear();
+      data.flip();
+      if (skipInitialSaslHandshake) {
+        data=null;
+        skipInitialSaslHandshake=false;
+        continue;
+      }
+      boolean isHeaderRead=headerRead;
+      if (useSasl) {
+        saslReadAndProcess(data.array());
+      }
+ else {
+        processOneRpc(data.array());
+      }
+      data=null;
+      if (!isHeaderRead) {
+        continue;
+      }
+    }
+    return count;
+  }
+}

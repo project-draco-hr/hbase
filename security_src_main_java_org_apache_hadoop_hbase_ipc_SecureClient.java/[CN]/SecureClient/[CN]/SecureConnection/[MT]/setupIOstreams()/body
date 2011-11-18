@@ -1,0 +1,66 @@
+{
+  if (socket != null || shouldCloseConnection.get()) {
+    return;
+  }
+  try {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Connecting to " + server);
+    }
+    short numRetries=0;
+    final short MAX_RETRIES=5;
+    Random rand=null;
+    while (true) {
+      setupConnection();
+      InputStream inStream=NetUtils.getInputStream(socket);
+      OutputStream outStream=NetUtils.getOutputStream(socket);
+      writeRpcHeader(outStream);
+      if (useSasl) {
+        final InputStream in2=inStream;
+        final OutputStream out2=outStream;
+        User ticket=remoteId.getTicket();
+        if (authMethod == AuthMethod.KERBEROS) {
+          UserGroupInformation ugi=ticket.getUGI();
+          if (ugi != null && ugi.getRealUser() != null) {
+            ticket=User.create(ugi.getRealUser());
+          }
+        }
+        boolean continueSasl=false;
+        try {
+          continueSasl=ticket.runAs(new PrivilegedExceptionAction<Boolean>(){
+            @Override public Boolean run() throws IOException {
+              return setupSaslConnection(in2,out2);
+            }
+          }
+);
+        }
+ catch (        Exception ex) {
+          if (rand == null) {
+            rand=new Random();
+          }
+          handleSaslConnectionFailure(numRetries++,MAX_RETRIES,ex,rand,ticket);
+          continue;
+        }
+        if (continueSasl) {
+          inStream=saslRpcClient.getInputStream(inStream);
+          outStream=saslRpcClient.getOutputStream(outStream);
+        }
+ else {
+          authMethod=AuthMethod.SIMPLE;
+          header=new SecureConnectionHeader(header.getProtocol(),header.getUser(),authMethod);
+          useSasl=false;
+        }
+      }
+      this.in=new DataInputStream(new BufferedInputStream(new PingInputStream(inStream)));
+      this.out=new DataOutputStream(new BufferedOutputStream(outStream));
+      writeHeader();
+      touch();
+      start();
+      return;
+    }
+  }
+ catch (  IOException e) {
+    markClosed(e);
+    close();
+    throw e;
+  }
+}

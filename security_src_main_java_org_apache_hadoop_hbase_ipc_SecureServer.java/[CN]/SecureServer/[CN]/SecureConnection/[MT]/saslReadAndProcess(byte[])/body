@@ -1,0 +1,76 @@
+{
+  if (!saslContextEstablished) {
+    byte[] replyToken=null;
+    try {
+      if (saslServer == null) {
+switch (authMethod) {
+case DIGEST:
+          if (secretManager == null) {
+            throw new AccessControlException("Server is not configured to do DIGEST authentication.");
+          }
+        saslServer=Sasl.createSaslServer(AuthMethod.DIGEST.getMechanismName(),null,HBaseSaslRpcServer.SASL_DEFAULT_REALM,HBaseSaslRpcServer.SASL_PROPS,new SaslDigestCallbackHandler(secretManager,this));
+      break;
+default :
+    UserGroupInformation current=UserGroupInformation.getCurrentUser();
+  String fullName=current.getUserName();
+if (LOG.isDebugEnabled()) LOG.debug("Kerberos principal name is " + fullName);
+final String names[]=HBaseSaslRpcServer.splitKerberosName(fullName);
+if (names.length != 3) {
+throw new AccessControlException("Kerberos principal name does NOT have the expected " + "hostname part: " + fullName);
+}
+current.doAs(new PrivilegedExceptionAction<Object>(){
+@Override public Object run() throws SaslException {
+saslServer=Sasl.createSaslServer(AuthMethod.KERBEROS.getMechanismName(),names[0],names[1],HBaseSaslRpcServer.SASL_PROPS,new SaslGssCallbackHandler());
+return null;
+}
+}
+);
+}
+if (saslServer == null) throw new AccessControlException("Unable to find SASL server implementation for " + authMethod.getMechanismName());
+if (LOG.isDebugEnabled()) LOG.debug("Created SASL server with mechanism = " + authMethod.getMechanismName());
+}
+if (LOG.isDebugEnabled()) LOG.debug("Have read input token of size " + saslToken.length + " for processing by saslServer.evaluateResponse()");
+replyToken=saslServer.evaluateResponse(saslToken);
+}
+ catch (IOException e) {
+IOException sendToClient=e;
+Throwable cause=e;
+while (cause != null) {
+if (cause instanceof InvalidToken) {
+sendToClient=(InvalidToken)cause;
+break;
+}
+cause=cause.getCause();
+}
+doSaslReply(SaslStatus.ERROR,null,sendToClient.getClass().getName(),sendToClient.getLocalizedMessage());
+rpcMetrics.authenticationFailures.inc();
+String clientIP=this.toString();
+AUDITLOG.warn(AUTH_FAILED_FOR + clientIP + ":"+ attemptingUser);
+throw e;
+}
+if (replyToken != null) {
+if (LOG.isDebugEnabled()) LOG.debug("Will send token of size " + replyToken.length + " from saslServer.");
+doSaslReply(SaslStatus.SUCCESS,new BytesWritable(replyToken),null,null);
+}
+if (saslServer.isComplete()) {
+LOG.debug("SASL server context established. Negotiated QoP is " + saslServer.getNegotiatedProperty(Sasl.QOP));
+String qop=(String)saslServer.getNegotiatedProperty(Sasl.QOP);
+useWrap=qop != null && !"auth".equalsIgnoreCase(qop);
+ticket=getAuthorizedUgi(saslServer.getAuthorizationID());
+LOG.debug("SASL server successfully authenticated client: " + ticket);
+rpcMetrics.authenticationSuccesses.inc();
+AUDITLOG.trace(AUTH_SUCCESSFUL_FOR + ticket);
+saslContextEstablished=true;
+}
+}
+ else {
+if (LOG.isDebugEnabled()) LOG.debug("Have read input token of size " + saslToken.length + " for processing by saslServer.unwrap()");
+if (!useWrap) {
+processOneRpc(saslToken);
+}
+ else {
+byte[] plaintextData=saslServer.unwrap(saslToken,0,saslToken.length);
+processUnwrappedData(plaintextData);
+}
+}
+}

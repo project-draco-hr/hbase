@@ -1,0 +1,38 @@
+{
+  while (!candidate.isStopped()) {
+    try {
+      if (ZKUtil.createEphemeralNodeAndWatch(watcher,leaderZNode,nodeId)) {
+        leaderExists.set(true);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Claimed the leader znode as '" + Bytes.toStringBinary(nodeId) + "'");
+        }
+        return;
+      }
+      byte[] currentId=ZKUtil.getDataAndWatch(watcher,leaderZNode);
+      if (currentId != null && Bytes.equals(currentId,nodeId)) {
+        LOG.info("Found existing leader with our ID (" + Bytes.toStringBinary(nodeId) + "), removing");
+        ZKUtil.deleteNode(watcher,leaderZNode);
+        leaderExists.set(false);
+      }
+ else {
+        LOG.info("Found existing leader with ID: " + Bytes.toStringBinary(nodeId));
+        leaderExists.set(true);
+      }
+    }
+ catch (    KeeperException ke) {
+      watcher.abort("Unexpected error from ZK, stopping candidate",ke);
+      candidate.stop("Unexpected error from ZK: " + ke.getMessage());
+      return;
+    }
+synchronized (leaderExists) {
+      while (leaderExists.get() && !candidate.isStopped()) {
+        try {
+          leaderExists.wait();
+        }
+ catch (        InterruptedException ie) {
+          LOG.debug("Interrupted waiting on leader",ie);
+        }
+      }
+    }
+  }
+}

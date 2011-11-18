@@ -1,0 +1,33 @@
+{
+  DataInputStream in=new DataInputStream(new ByteArrayInputStream(buf));
+  header.readFields(in);
+  try {
+    String protocolClassName=header.getProtocol();
+    if (protocolClassName != null) {
+      protocol=getProtocolClass(header.getProtocol(),conf);
+    }
+  }
+ catch (  ClassNotFoundException cnfe) {
+    throw new IOException("Unknown protocol: " + header.getProtocol());
+  }
+  User protocolUser=header.getUser();
+  if (!useSasl) {
+    ticket=protocolUser;
+    if (ticket != null) {
+      ticket.getUGI().setAuthenticationMethod(AuthMethod.SIMPLE.authenticationMethod);
+    }
+  }
+ else {
+    ticket.getUGI().setAuthenticationMethod(authMethod.authenticationMethod);
+    if ((protocolUser != null) && (!protocolUser.getName().equals(ticket.getName()))) {
+      if (authMethod == AuthMethod.DIGEST) {
+        throw new AccessControlException("Authenticated user (" + ticket + ") doesn't match what the client claims to be ("+ protocolUser+ ")");
+      }
+ else {
+        UserGroupInformation realUser=ticket.getUGI();
+        ticket=User.create(UserGroupInformation.createProxyUser(protocolUser.getName(),realUser));
+        ticket.getUGI().setAuthenticationMethod(AuthenticationMethod.PROXY);
+      }
+    }
+  }
+}
