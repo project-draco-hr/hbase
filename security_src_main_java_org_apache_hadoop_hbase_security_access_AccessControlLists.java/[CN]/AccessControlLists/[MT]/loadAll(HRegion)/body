@@ -1,0 +1,41 @@
+{
+  if (!isAclRegion(aclRegion)) {
+    throw new IOException("Can only load permissions from " + ACL_TABLE_NAME_STR);
+  }
+  Map<byte[],ListMultimap<String,TablePermission>> allPerms=new TreeMap<byte[],ListMultimap<String,TablePermission>>(Bytes.BYTES_COMPARATOR);
+  Scan scan=new Scan();
+  scan.addFamily(ACL_LIST_FAMILY);
+  InternalScanner iScanner=null;
+  try {
+    iScanner=aclRegion.getScanner(scan);
+    while (true) {
+      List<KeyValue> row=new ArrayList<KeyValue>();
+      boolean hasNext=iScanner.next(row);
+      ListMultimap<String,TablePermission> perms=ArrayListMultimap.create();
+      byte[] table=null;
+      for (      KeyValue kv : row) {
+        if (table == null) {
+          table=kv.getRow();
+        }
+        Pair<String,TablePermission> permissionsOfUserOnTable=parseTablePermissionRecord(table,kv);
+        if (permissionsOfUserOnTable != null) {
+          String username=permissionsOfUserOnTable.getFirst();
+          TablePermission permissions=permissionsOfUserOnTable.getSecond();
+          perms.put(username,permissions);
+        }
+      }
+      if (table != null) {
+        allPerms.put(table,perms);
+      }
+      if (!hasNext) {
+        break;
+      }
+    }
+  }
+  finally {
+    if (iScanner != null) {
+      iScanner.close();
+    }
+  }
+  return allPerms;
+}

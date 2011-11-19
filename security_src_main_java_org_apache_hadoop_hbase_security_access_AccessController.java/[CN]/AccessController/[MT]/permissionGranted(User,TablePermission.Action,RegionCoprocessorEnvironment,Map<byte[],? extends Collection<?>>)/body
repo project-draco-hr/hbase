@@ -1,0 +1,48 @@
+{
+  HRegionInfo hri=e.getRegion().getRegionInfo();
+  HTableDescriptor htd=e.getRegion().getTableDesc();
+  byte[] tableName=hri.getTableName();
+  if ((hri.isRootRegion() || hri.isMetaRegion()) && (permRequest == TablePermission.Action.READ)) {
+    return AuthResult.allow("All users allowed",user,permRequest,hri.getTableName());
+  }
+  if (user == null) {
+    return AuthResult.deny("No user associated with request!",null,permRequest,hri.getTableName());
+  }
+  String owner=htd.getOwnerString();
+  if (user.getShortName().equals(owner)) {
+    return AuthResult.allow("User is table owner",user,permRequest,hri.getTableName());
+  }
+  if (authManager.authorize(user,tableName,(byte[])null,permRequest)) {
+    return AuthResult.allow("Table permission granted",user,permRequest,tableName);
+  }
+  if (families != null && families.size() > 0) {
+    for (    Map.Entry<byte[],? extends Collection<?>> family : families.entrySet()) {
+      if (authManager.authorize(user,tableName,family.getKey(),permRequest)) {
+        continue;
+      }
+      if ((family.getValue() != null) && (family.getValue().size() > 0)) {
+        if (family.getValue() instanceof Set) {
+          Set<byte[]> familySet=(Set<byte[]>)family.getValue();
+          for (          byte[] qualifier : familySet) {
+            if (!authManager.authorize(user,tableName,family.getKey(),qualifier,permRequest)) {
+              return AuthResult.deny("Failed qualifier check",user,permRequest,tableName,family.getKey(),qualifier);
+            }
+          }
+        }
+ else         if (family.getValue() instanceof List) {
+          List<KeyValue> kvList=(List<KeyValue>)family.getValue();
+          for (          KeyValue kv : kvList) {
+            if (!authManager.authorize(user,tableName,family.getKey(),kv.getQualifier(),permRequest)) {
+              return AuthResult.deny("Failed qualifier check",user,permRequest,tableName,family.getKey(),kv.getQualifier());
+            }
+          }
+        }
+      }
+ else {
+        return AuthResult.deny("Failed family check",user,permRequest,tableName,family.getKey(),null);
+      }
+    }
+    return AuthResult.allow("All family checks passed",user,permRequest,tableName);
+  }
+  return AuthResult.deny("No families to check and table permission failed",user,permRequest,tableName);
+}

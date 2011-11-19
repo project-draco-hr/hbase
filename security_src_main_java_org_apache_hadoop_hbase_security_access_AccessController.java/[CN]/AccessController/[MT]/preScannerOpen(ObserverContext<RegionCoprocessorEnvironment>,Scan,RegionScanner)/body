@@ -1,0 +1,27 @@
+{
+  RegionCoprocessorEnvironment e=c.getEnvironment();
+  User user=getActiveUser();
+  AuthResult authResult=permissionGranted(user,TablePermission.Action.READ,e,scan.getFamilyMap());
+  if (!authResult.isAllowed()) {
+    if (hasFamilyQualifierPermission(user,TablePermission.Action.READ,e,scan.getFamilyMap())) {
+      byte[] table=getTableName(e);
+      AccessControlFilter filter=new AccessControlFilter(authManager,user,table);
+      if (scan.hasFilter()) {
+        FilterList wrapper=new FilterList(FilterList.Operator.MUST_PASS_ALL,Lists.newArrayList(filter,scan.getFilter()));
+        scan.setFilter(wrapper);
+      }
+ else {
+        scan.setFilter(filter);
+      }
+      logResult(AuthResult.allow("Access allowed with filter",user,TablePermission.Action.READ,authResult.table));
+    }
+ else {
+      logResult(authResult);
+      throw new AccessDeniedException("Insufficient permissions for user '" + (user != null ? user.getShortName() : "null") + "' "+ "for scanner open on table "+ Bytes.toString(getTableName(e)));
+    }
+  }
+ else {
+    logResult(authResult);
+  }
+  return s;
+}

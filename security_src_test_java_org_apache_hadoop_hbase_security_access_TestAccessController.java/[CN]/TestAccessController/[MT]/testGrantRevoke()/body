@@ -1,0 +1,190 @@
+{
+  final byte[] tableName=Bytes.toBytes("TempTable");
+  final byte[] family1=Bytes.toBytes("f1");
+  final byte[] family2=Bytes.toBytes("f2");
+  final byte[] qualifier=Bytes.toBytes("q");
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  if (admin.tableExists(tableName)) {
+    admin.disableTable(tableName);
+    admin.deleteTable(tableName);
+  }
+  HTableDescriptor htd=new HTableDescriptor(tableName);
+  htd.addFamily(new HColumnDescriptor(family1));
+  htd.addFamily(new HColumnDescriptor(family2));
+  htd.setOwnerString(USER_OWNER.getShortName());
+  admin.createTable(htd);
+  User user=User.createUserForTesting(TEST_UTIL.getConfiguration(),"user",new String[0]);
+  HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  AccessControllerProtocol protocol=acl.coprocessorProxy(AccessControllerProtocol.class,tableName);
+  PrivilegedExceptionAction putActionAll=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Put p=new Put(Bytes.toBytes("a"));
+      p.add(family1,qualifier,Bytes.toBytes("v1"));
+      p.add(family2,qualifier,Bytes.toBytes("v2"));
+      HTable t=new HTable(conf,tableName);
+      t.put(p);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction putAction1=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Put p=new Put(Bytes.toBytes("a"));
+      p.add(family1,qualifier,Bytes.toBytes("v1"));
+      HTable t=new HTable(conf,tableName);
+      t.put(p);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction putAction2=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Put p=new Put(Bytes.toBytes("a"));
+      p.add(family2,qualifier,Bytes.toBytes("v2"));
+      HTable t=new HTable(conf,tableName);
+      t.put(p);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction getActionAll=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Get g=new Get(Bytes.toBytes("random_row"));
+      g.addFamily(family1);
+      g.addFamily(family2);
+      HTable t=new HTable(conf,tableName);
+      t.get(g);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction getAction1=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Get g=new Get(Bytes.toBytes("random_row"));
+      g.addFamily(family1);
+      HTable t=new HTable(conf,tableName);
+      t.get(g);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction getAction2=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Get g=new Get(Bytes.toBytes("random_row"));
+      g.addFamily(family2);
+      HTable t=new HTable(conf,tableName);
+      t.get(g);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction deleteActionAll=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Delete d=new Delete(Bytes.toBytes("random_row"));
+      d.deleteFamily(family1);
+      d.deleteFamily(family2);
+      HTable t=new HTable(conf,tableName);
+      t.delete(d);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction deleteAction1=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Delete d=new Delete(Bytes.toBytes("random_row"));
+      d.deleteFamily(family1);
+      HTable t=new HTable(conf,tableName);
+      t.delete(d);
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction deleteAction2=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      Delete d=new Delete(Bytes.toBytes("random_row"));
+      d.deleteFamily(family2);
+      HTable t=new HTable(conf,tableName);
+      t.delete(d);
+      return null;
+    }
+  }
+;
+  verifyDenied(user,getActionAll);
+  verifyDenied(user,getAction1);
+  verifyDenied(user,getAction2);
+  verifyDenied(user,putActionAll);
+  verifyDenied(user,putAction1);
+  verifyDenied(user,putAction2);
+  verifyDenied(user,deleteActionAll);
+  verifyDenied(user,deleteAction1);
+  verifyDenied(user,deleteAction2);
+  protocol.grant(Bytes.toBytes(user.getShortName()),new TablePermission(tableName,null,Permission.Action.READ));
+  Thread.sleep(100);
+  verifyAllowed(user,getActionAll);
+  verifyAllowed(user,getAction1);
+  verifyAllowed(user,getAction2);
+  verifyDenied(user,putActionAll);
+  verifyDenied(user,putAction1);
+  verifyDenied(user,putAction2);
+  verifyDenied(user,deleteActionAll);
+  verifyDenied(user,deleteAction1);
+  verifyDenied(user,deleteAction2);
+  protocol.grant(Bytes.toBytes(user.getShortName()),new TablePermission(tableName,null,Permission.Action.WRITE));
+  Thread.sleep(100);
+  verifyDenied(user,getActionAll);
+  verifyDenied(user,getAction1);
+  verifyDenied(user,getAction2);
+  verifyAllowed(user,putActionAll);
+  verifyAllowed(user,putAction1);
+  verifyAllowed(user,putAction2);
+  verifyAllowed(user,deleteActionAll);
+  verifyAllowed(user,deleteAction1);
+  verifyAllowed(user,deleteAction2);
+  protocol.grant(Bytes.toBytes(user.getShortName()),new TablePermission(tableName,null,Permission.Action.READ,Permission.Action.WRITE));
+  protocol.revoke(Bytes.toBytes(user.getShortName()),new TablePermission(tableName,null));
+  Thread.sleep(100);
+  verifyDenied(user,getActionAll);
+  verifyDenied(user,getAction1);
+  verifyDenied(user,getAction2);
+  verifyDenied(user,putActionAll);
+  verifyDenied(user,putAction1);
+  verifyDenied(user,putAction2);
+  verifyDenied(user,deleteActionAll);
+  verifyDenied(user,deleteAction1);
+  verifyDenied(user,deleteAction2);
+  protocol.grant(Bytes.toBytes(user.getShortName()),new TablePermission(tableName,family1,Permission.Action.READ));
+  Thread.sleep(100);
+  verifyAllowed(user,getActionAll);
+  verifyAllowed(user,getAction1);
+  verifyDenied(user,getAction2);
+  verifyDenied(user,putActionAll);
+  verifyDenied(user,putAction1);
+  verifyDenied(user,putAction2);
+  verifyDenied(user,deleteActionAll);
+  verifyDenied(user,deleteAction1);
+  verifyDenied(user,deleteAction2);
+  protocol.grant(Bytes.toBytes(user.getShortName()),new TablePermission(tableName,family2,Permission.Action.WRITE));
+  Thread.sleep(100);
+  verifyAllowed(user,getActionAll);
+  verifyAllowed(user,getAction1);
+  verifyDenied(user,getAction2);
+  verifyDenied(user,putActionAll);
+  verifyDenied(user,putAction1);
+  verifyAllowed(user,putAction2);
+  verifyDenied(user,deleteActionAll);
+  verifyDenied(user,deleteAction1);
+  verifyAllowed(user,deleteAction2);
+  protocol.revoke(Bytes.toBytes(user.getShortName()),new TablePermission(tableName,family2));
+  Thread.sleep(100);
+  verifyAllowed(user,getActionAll);
+  verifyAllowed(user,getAction1);
+  verifyDenied(user,getAction2);
+  verifyDenied(user,putActionAll);
+  verifyDenied(user,putAction1);
+  verifyDenied(user,putAction2);
+  verifyDenied(user,deleteActionAll);
+  verifyDenied(user,deleteAction1);
+  verifyDenied(user,deleteAction2);
+  admin.disableTable(tableName);
+  admin.deleteTable(tableName);
+}
