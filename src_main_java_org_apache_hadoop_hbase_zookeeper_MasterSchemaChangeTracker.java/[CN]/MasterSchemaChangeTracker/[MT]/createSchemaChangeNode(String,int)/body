@@ -1,0 +1,29 @@
+{
+  MonitoredTask status=TaskMonitor.get().createStatus("Creating schema change node for table = " + tableName);
+  LOG.debug("Creating schema change node for table = " + tableName + " Path = "+ getSchemaChangeNodePathForTable(tableName));
+  if (doesSchemaChangeNodeExists(tableName)) {
+    LOG.debug("Schema change node already exists for table = " + tableName + " Deleting the schema change node.");
+    while (doesSchemaChangeNodeExists(tableName)) {
+      try {
+        Thread.sleep(50);
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+  int rsCount=ZKUtil.getNumberOfChildren(this.watcher,watcher.rsZNode);
+  if (rsCount <= 0) {
+    String msg="Master is not seeing any online region servers. Aborting the " + "schema change processing by region servers.";
+    LOG.debug(msg);
+    status.abort(msg);
+  }
+ else {
+    LOG.debug("Master is seeing " + rsCount + " region servers online before "+ "the schema change process.");
+    MasterAlterStatus mas=new MasterAlterStatus(numberOfRegions,getActiveRegionServersAsString());
+    LOG.debug("Master creating the master alter status = " + mas);
+    ZKUtil.createSetData(this.watcher,getSchemaChangeNodePathForTable(tableName),Writables.getBytes(mas));
+    status.markComplete("Created the ZK node for schema change. Current Alter Status = " + mas.toString());
+    ZKUtil.listChildrenAndWatchThem(this.watcher,getSchemaChangeNodePathForTable(tableName));
+  }
+}

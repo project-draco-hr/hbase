@@ -1,0 +1,24 @@
+{
+  MasterSchemaChangeTracker msct=TEST_UTIL.getHBaseCluster().getMaster().getSchemaChangeTracker();
+  LOG.info("Start testInstantSchemaChangeWhileRSOpenRegionFailure() ");
+  String tableName="testInstantSchemaChangeWhileRSOpenRegionFailure";
+  HTable ht=createTableAndValidate(tableName);
+  TEST_UTIL.createMultiRegions(conf,ht,HConstants.CATALOG_FAMILY,10);
+  Thread.sleep(10000);
+  List<HRegion> onlineRegions=miniHBaseCluster.getRegions(Bytes.toBytes("testInstantSchemaChangeWhileRSOpenRegionFailure"));
+  int size=onlineRegions.size();
+  LOG.info("Size of online regions = " + onlineRegions.size());
+  HColumnDescriptor hcd=new HColumnDescriptor(HConstants.CATALOG_FAMILY);
+  hcd.setMaxVersions(99);
+  hcd.setBlockCacheEnabled(false);
+  hcd.setCompressionType(Compression.Algorithm.SNAPPY);
+  admin.modifyColumn(Bytes.toBytes(tableName),hcd);
+  Thread.sleep(100);
+  assertEquals(msct.doesSchemaChangeNodeExists(tableName),true);
+  Thread.sleep(10000);
+  MasterSchemaChangeTracker.MasterAlterStatus mas=msct.getMasterAlterStatus(tableName);
+  assertTrue(mas != null);
+  assertEquals(mas.getCurrentAlterStatus(),MasterSchemaChangeTracker.MasterAlterStatus.AlterState.FAILURE);
+  assertTrue(mas.getErrorCause() != null);
+  LOG.info("End testInstantSchemaChangeWhileRSOpenRegionFailure() ");
+}

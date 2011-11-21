@@ -1,0 +1,24 @@
+{
+  LOG.info("Start testInstantSchemaChangeWhileRSCrash()");
+  zkw=miniHBaseCluster.getMaster().getZooKeeperWatcher();
+  final String tableName="TestRSCrashDuringSchemaChange";
+  HTable ht=createTableAndValidate(tableName);
+  HColumnDescriptor hcd=new HColumnDescriptor("family2");
+  admin.addColumn(Bytes.toBytes(tableName),hcd);
+  miniHBaseCluster.getRegionServer(0).abort("Killing while instant schema change");
+  Thread.sleep(10000);
+  waitForSchemaChangeProcess(tableName);
+  Put put2=new Put(row);
+  put2.add(Bytes.toBytes("family2"),qualifier,value);
+  ht.put(put2);
+  Get get2=new Get(row);
+  get2.addColumn(Bytes.toBytes("family2"),qualifier);
+  Result r2=ht.get(get2);
+  byte[] tvalue2=r2.getValue(Bytes.toBytes("family2"),qualifier);
+  int result2=Bytes.compareTo(value,tvalue2);
+  assertEquals(result2,0);
+  String nodePath=msct.getSchemaChangeNodePathForTable("TestRSCrashDuringSchemaChange");
+  assertTrue(ZKUtil.checkExists(zkw,nodePath) == -1);
+  LOG.info("result2 = " + result2);
+  LOG.info("end testInstantSchemaChangeWhileRSCrash()");
+}

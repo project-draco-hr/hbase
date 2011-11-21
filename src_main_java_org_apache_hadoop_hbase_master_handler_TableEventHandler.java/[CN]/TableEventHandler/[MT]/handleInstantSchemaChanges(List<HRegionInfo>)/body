@@ -1,0 +1,36 @@
+{
+  if (regions == null || regions.isEmpty()) {
+    LOG.debug("Region size is null or empty. Ignoring alter request.");
+    return;
+  }
+  MonitoredTask status=TaskMonitor.get().createStatus("Handling alter table request for table = " + tableNameStr);
+  if (canPerformSchemaChange()) {
+    boolean prevBalanceSwitch=false;
+    try {
+      prevBalanceSwitch=master.synchronousBalanceSwitch(false);
+      waitForInflightSplit(regions,status);
+      MasterSchemaChangeTracker masterSchemaChangeTracker=this.masterServices.getSchemaChangeTracker();
+      masterSchemaChangeTracker.createSchemaChangeNode(Bytes.toString(tableName),regions.size());
+      while (!masterSchemaChangeTracker.doesSchemaChangeNodeExists(Bytes.toString(tableName))) {
+        try {
+          Thread.sleep(50);
+        }
+ catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      }
+      status.markComplete("Created ZK node for handling the alter table request for table = " + tableNameStr);
+    }
+ catch (    KeeperException e) {
+      LOG.warn("Instant schema change failed for table " + tableNameStr,e);
+      status.setStatus("Instant schema change failed for table " + tableNameStr + " Cause = "+ e.getCause());
+    }
+catch (    IOException ioe) {
+      LOG.warn("Instant schema change failed for table " + tableNameStr,ioe);
+      status.setStatus("Instant schema change failed for table " + tableNameStr + " Cause = "+ ioe.getCause());
+    }
+ finally {
+      master.synchronousBalanceSwitch(prevBalanceSwitch);
+    }
+  }
+}

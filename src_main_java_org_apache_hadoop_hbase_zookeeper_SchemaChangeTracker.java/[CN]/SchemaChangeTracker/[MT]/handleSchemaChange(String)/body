@@ -1,0 +1,31 @@
+{
+  int refreshedRegionsCount=0, onlineRegionsCount=0;
+  MonitoredTask status=null;
+  try {
+    List<HRegion> onlineRegions=regionServer.getOnlineRegions(Bytes.toBytes(tableName));
+    if (onlineRegions != null && !onlineRegions.isEmpty()) {
+      status=TaskMonitor.get().createStatus("Region server " + regionServer.getServerName().getServerName() + " handling schema change for table = "+ tableName+ " number of online regions = "+ onlineRegions.size());
+      onlineRegionsCount=onlineRegions.size();
+      createStateNode(tableName,onlineRegions.size());
+      for (      HRegion hRegion : onlineRegions) {
+        regionServer.refreshRegion(hRegion);
+        refreshedRegionsCount++;
+      }
+      SchemaAlterStatus alterStatus=getSchemaAlterStatus(tableName);
+      alterStatus.update(SchemaAlterStatus.AlterState.SUCCESS,refreshedRegionsCount);
+      updateSchemaChangeStatus(tableName,alterStatus);
+      String msg="Refresh schema completed for table name = " + tableName + " server = "+ regionServer.getServerName().getServerName()+ " online Regions = "+ onlineRegions.size()+ " refreshed Regions = "+ refreshedRegionsCount;
+      LOG.debug(msg);
+      status.setStatus(msg);
+    }
+ else {
+      LOG.debug("Server " + regionServer.getServerName().getServerName() + " has no online regions for table = "+ tableName+ " Ignoring the schema change request");
+    }
+  }
+ catch (  IOException ioe) {
+    reportAndLogSchemaRefreshError(tableName,onlineRegionsCount,refreshedRegionsCount,ioe,status);
+  }
+catch (  KeeperException ke) {
+    reportAndLogSchemaRefreshError(tableName,onlineRegionsCount,refreshedRegionsCount,ke,status);
+  }
+}
