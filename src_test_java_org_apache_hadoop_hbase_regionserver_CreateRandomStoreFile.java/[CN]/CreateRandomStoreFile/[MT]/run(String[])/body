@@ -1,0 +1,79 @@
+{
+  options.addOption(OUTPUT_DIR_OPTION,"output_dir",true,"Output directory");
+  options.addOption(NUM_KV_OPTION,"num_kv",true,"Number of key/value pairs");
+  options.addOption(KEY_SIZE_OPTION,"key_size",true,"Average key size");
+  options.addOption(VALUE_SIZE_OPTION,"value_size",true,"Average value size");
+  options.addOption(HFILE_VERSION_OPTION,"hfile_version",true,"HFile version to create");
+  options.addOption(COMPRESSION_OPTION,"compression",true," Compression type, one of " + Arrays.toString(Compression.Algorithm.values()));
+  options.addOption(BLOOM_FILTER_OPTION,"bloom_filter",true,"Bloom filter type, one of " + Arrays.toString(StoreFile.BloomType.values()));
+  options.addOption(BLOCK_SIZE_OPTION,"block_size",true,"HFile block size");
+  options.addOption(BLOOM_BLOCK_SIZE_OPTION,"bloom_block_size",true,"Compound Bloom filters block size");
+  options.addOption(INDEX_BLOCK_SIZE_OPTION,"index_block_size",true,"Index block size");
+  if (args.length == 0) {
+    HelpFormatter formatter=new HelpFormatter();
+    formatter.printHelp(CreateRandomStoreFile.class.getSimpleName(),options,true);
+    return false;
+  }
+  CommandLineParser parser=new PosixParser();
+  CommandLine cmdLine;
+  try {
+    cmdLine=parser.parse(options,args);
+  }
+ catch (  ParseException ex) {
+    LOG.error(ex);
+    return false;
+  }
+  if (!cmdLine.hasOption(OUTPUT_DIR_OPTION)) {
+    LOG.error("Output directory is not specified");
+    return false;
+  }
+  if (!cmdLine.hasOption(NUM_KV_OPTION)) {
+    LOG.error("The number of keys/values not specified");
+    return false;
+  }
+  if (!cmdLine.hasOption(KEY_SIZE_OPTION)) {
+    LOG.error("Key size is not specified");
+    return false;
+  }
+  if (!cmdLine.hasOption(VALUE_SIZE_OPTION)) {
+    LOG.error("Value size not specified");
+    return false;
+  }
+  Configuration conf=HBaseConfiguration.create();
+  Path outputDir=new Path(cmdLine.getOptionValue(OUTPUT_DIR_OPTION));
+  long numKV=Long.parseLong(cmdLine.getOptionValue(NUM_KV_OPTION));
+  configureKeyValue(numKV,Integer.parseInt(cmdLine.getOptionValue(KEY_SIZE_OPTION)),Integer.parseInt(cmdLine.getOptionValue(VALUE_SIZE_OPTION)));
+  FileSystem fs=FileSystem.get(conf);
+  Compression.Algorithm compr=Compression.Algorithm.NONE;
+  if (cmdLine.hasOption(COMPRESSION_OPTION)) {
+    compr=Compression.Algorithm.valueOf(cmdLine.getOptionValue(COMPRESSION_OPTION));
+  }
+  StoreFile.BloomType bloomType=StoreFile.BloomType.NONE;
+  if (cmdLine.hasOption(BLOOM_FILTER_OPTION)) {
+    bloomType=StoreFile.BloomType.valueOf(cmdLine.getOptionValue(BLOOM_FILTER_OPTION));
+  }
+  int blockSize=conf.getInt("hfile.min.blocksize.size",65536);
+  if (cmdLine.hasOption(BLOCK_SIZE_OPTION))   blockSize=Integer.valueOf(cmdLine.getOptionValue(BLOCK_SIZE_OPTION));
+  if (cmdLine.hasOption(BLOOM_BLOCK_SIZE_OPTION)) {
+    conf.setInt(BloomFilterFactory.IO_STOREFILE_BLOOM_BLOCK_SIZE,Integer.valueOf(cmdLine.getOptionValue(BLOOM_BLOCK_SIZE_OPTION)));
+  }
+  if (cmdLine.hasOption(INDEX_BLOCK_SIZE_OPTION)) {
+    conf.setInt(HFileBlockIndex.MAX_CHUNK_SIZE_KEY,Integer.valueOf(cmdLine.getOptionValue(INDEX_BLOCK_SIZE_OPTION)));
+  }
+  StoreFile.Writer sfw=StoreFile.createWriter(fs,outputDir,blockSize,compr,KeyValue.COMPARATOR,conf,new CacheConfig(conf),bloomType,numKV);
+  rand=new Random();
+  LOG.info("Writing " + numKV + " key/value pairs");
+  for (long i=0; i < numKV; ++i) {
+    sfw.append(generateKeyValue(i));
+  }
+  int numMetaBlocks=rand.nextInt(10) + 1;
+  LOG.info("Writing " + numMetaBlocks + " meta blocks");
+  for (int metaI=0; metaI < numMetaBlocks; ++metaI) {
+    sfw.getHFileWriter().appendMetaBlock(generateString(),new BytesWritable(generateValue()));
+  }
+  sfw.close();
+  Path storeFilePath=sfw.getPath();
+  long fileSize=fs.getFileStatus(storeFilePath).getLen();
+  LOG.info("Created " + storeFilePath + ", "+ fileSize+ " bytes");
+  return true;
+}
