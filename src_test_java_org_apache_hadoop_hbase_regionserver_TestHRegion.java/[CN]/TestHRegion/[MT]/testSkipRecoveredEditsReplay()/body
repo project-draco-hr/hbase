@@ -1,0 +1,32 @@
+{
+  String method="testSkipRecoveredEditsReplay";
+  byte[] tableName=Bytes.toBytes(method);
+  byte[] family=Bytes.toBytes("family");
+  Configuration conf=HBaseConfiguration.create();
+  initHRegion(tableName,method,conf,family);
+  Path regiondir=region.getRegionDir();
+  FileSystem fs=region.getFilesystem();
+  byte[] regionName=region.getRegionInfo().getEncodedNameAsBytes();
+  Path recoveredEditsDir=HLog.getRegionDirRecoveredEditsDir(regiondir);
+  long maxSeqId=1050;
+  long minSeqId=1000;
+  for (long i=minSeqId; i <= maxSeqId; i+=10) {
+    Path recoveredEdits=new Path(recoveredEditsDir,String.format("%019d",i));
+    HLog.Writer writer=HLog.createWriter(fs,recoveredEdits,conf);
+    long time=System.nanoTime();
+    WALEdit edit=new WALEdit();
+    edit.add(new KeyValue(row,family,Bytes.toBytes(i),time,KeyValue.Type.Put,Bytes.toBytes(i)));
+    writer.append(new HLog.Entry(new HLogKey(regionName,tableName,i,time,HConstants.DEFAULT_CLUSTER_ID),edit));
+    writer.close();
+  }
+  MonitoredTask status=TaskMonitor.get().createStatus(method);
+  long seqId=region.replayRecoveredEditsIfAny(regiondir,minSeqId - 1,null,status);
+  assertEquals(maxSeqId,seqId);
+  Get get=new Get(row);
+  Result result=region.get(get,null);
+  for (long i=minSeqId; i <= maxSeqId; i+=10) {
+    List<KeyValue> kvs=result.getColumn(family,Bytes.toBytes(i));
+    assertEquals(1,kvs.size());
+    assertEquals(Bytes.toBytes(i),kvs.get(0).getValue());
+  }
+}
