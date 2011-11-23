@@ -1,19 +1,36 @@
 {
   String tableName=args[0];
-  Job job=new Job(conf,NAME + "_" + tableName);
-  job.setJarByClass(RowCounter.class);
+  String startKey=null;
+  String endKey=null;
   StringBuilder sb=new StringBuilder();
-  final int columnoffset=1;
-  for (int i=columnoffset; i < args.length; i++) {
-    if (i > columnoffset) {
+  final String rangeSwitch="--range=";
+  for (int i=1; i < args.length; i++) {
+    if (args[i].startsWith(rangeSwitch)) {
+      String[] startEnd=args[i].substring(rangeSwitch.length()).split(",",2);
+      if (startEnd.length != 2 || startEnd[1].contains(",")) {
+        printUsage("Please specify range in such format as \"--range=a,b\" " + "or, with only one boundary, \"--range=,b\" or \"--range=a,\"");
+        return null;
+      }
+      startKey=startEnd[0];
+      endKey=startEnd[1];
+    }
+ else {
+      sb.append(args[i]);
       sb.append(" ");
     }
-    sb.append(args[i]);
   }
+  Job job=new Job(conf,NAME + "_" + tableName);
+  job.setJarByClass(RowCounter.class);
   Scan scan=new Scan();
+  if (startKey != null && !startKey.equals("")) {
+    scan.setStartRow(Bytes.toBytes(startKey));
+  }
+  if (endKey != null && !endKey.equals("")) {
+    scan.setStopRow(Bytes.toBytes(endKey));
+  }
   scan.setFilter(new FirstKeyOnlyFilter());
   if (sb.length() > 0) {
-    for (    String columnName : sb.toString().split(" ")) {
+    for (    String columnName : sb.toString().trim().split(" ")) {
       String[] fields=columnName.split(":");
       if (fields.length == 1) {
         scan.addFamily(Bytes.toBytes(fields[0]));
