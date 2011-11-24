@@ -27,16 +27,28 @@
     LOG.info("Starting flushes on " + server.getServerName() + ", size="+ server.getRegionServerAccounting().getGlobalMemstoreSize());
     for (    HRegionInfo regionInfo : server.getOnlineRegions()) {
       HRegion r=server.getFromOnlineRegions(regionInfo.getEncodedName());
-      LOG.info("Flush " + r.toString() + " on "+ server.getServerName()+ ", "+ r.flushcache()+ ", size="+ server.getRegionServerAccounting().getGlobalMemstoreSize());
-      ;
+      flush(r,server);
     }
     LOG.info("Post flush on " + server.getServerName());
     long now=System.currentTimeMillis();
-    long timeout=now + 3000;
+    long timeout=now + 1000;
     while (server.getRegionServerAccounting().getGlobalMemstoreSize() != 0 && timeout < System.currentTimeMillis()) {
       Threads.sleep(10);
     }
-    assertEquals("Server=" + server.getServerName() + ", i="+ i++,0,server.getRegionServerAccounting().getGlobalMemstoreSize());
+    long size=server.getRegionServerAccounting().getGlobalMemstoreSize();
+    if (size > 0) {
+      for (      HRegionInfo regionInfo : server.getOnlineRegions()) {
+        HRegion r=server.getFromOnlineRegions(regionInfo.getEncodedName());
+        long l=r.getMemstoreSize().longValue();
+        if (l > 0) {
+          assertTrue(regionInfo.isMetaRegion());
+          LOG.info(r.toString() + " " + l+ ", reflushing");
+          r.flushcache();
+        }
+      }
+    }
+    size=server.getRegionServerAccounting().getGlobalMemstoreSize();
+    assertEquals("Server=" + server.getServerName() + ", i="+ i++,0,size);
   }
   TEST_UTIL.shutdownMiniCluster();
 }
