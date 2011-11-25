@@ -1,0 +1,45 @@
+{
+  try {
+    serverTransport_.listen();
+  }
+ catch (  TTransportException ttx) {
+    LOG.error("Error occurred during listening.",ttx);
+    return;
+  }
+  Runtime.getRuntime().addShutdownHook(new Thread(getClass().getSimpleName() + "-shutdown-hook"){
+    @Override public void run(){
+      TBoundedThreadPoolServer.this.stop();
+    }
+  }
+);
+  stopped=false;
+  while (!stopped && !Thread.interrupted()) {
+    TTransport client=null;
+    try {
+      client=serverTransport_.accept();
+    }
+ catch (    TTransportException ttx) {
+      if (!stopped) {
+        LOG.warn("Transport error when accepting message",ttx);
+        continue;
+      }
+ else {
+        break;
+      }
+    }
+    ClientConnnection command=new ClientConnnection(client);
+    try {
+      executorService.execute(command);
+    }
+ catch (    RejectedExecutionException rex) {
+      if (client.getClass() == TSocket.class) {
+        LOG.warn(QUEUE_FULL_MSG + " from " + ((TSocket)client).getSocket().getRemoteSocketAddress());
+      }
+ else {
+        LOG.warn(QUEUE_FULL_MSG,rex);
+      }
+      client.close();
+    }
+  }
+  shutdownServer();
+}

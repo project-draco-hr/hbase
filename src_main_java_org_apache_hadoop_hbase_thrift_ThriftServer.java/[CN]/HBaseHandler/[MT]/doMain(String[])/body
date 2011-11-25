@@ -1,0 +1,95 @@
+{
+  Options options=new Options();
+  options.addOption("b",BIND_OPTION,true,"Address to bind " + "the Thrift server to. Not supported by the Nonblocking and " + "HsHa server [default: " + DEFAULT_BIND_ADDR + "]");
+  options.addOption("p",PORT_OPTION,true,"Port to bind to [default: " + DEFAULT_LISTEN_PORT + "]");
+  options.addOption("f",FRAMED_OPTION,false,"Use framed transport");
+  options.addOption("c",COMPACT_OPTION,false,"Use the compact protocol");
+  options.addOption("h","help",false,"Print help information");
+  options.addOption("m",MIN_WORKERS_OPTION,true,"The minimum number of worker threads for " + ImplType.THREAD_POOL.simpleClassName());
+  options.addOption("w",MAX_WORKERS_OPTION,true,"The maximum number of worker threads for " + ImplType.THREAD_POOL.simpleClassName());
+  options.addOption("q",MAX_QUEUE_SIZE_OPTION,true,"The maximum number of queued requests in " + ImplType.THREAD_POOL.simpleClassName());
+  options.addOption("k",KEEP_ALIVE_SEC_OPTION,true,"The amount of time in secods to keep a thread alive when idle in " + ImplType.THREAD_POOL.simpleClassName());
+  options.addOptionGroup(ImplType.createOptionGroup());
+  CommandLineParser parser=new PosixParser();
+  CommandLine cmd=parser.parse(options,args);
+  List<String> commandLine=Arrays.asList(args);
+  boolean stop=commandLine.contains("stop");
+  boolean start=commandLine.contains("start");
+  boolean invalidStartStop=(start && stop) || (!start && !stop);
+  if (cmd.hasOption("help") || invalidStartStop) {
+    if (invalidStartStop) {
+      LOG.error("Exactly one of 'start' and 'stop' has to be specified");
+    }
+    printUsageAndExit(options,1);
+  }
+  int listenPort=0;
+  try {
+    listenPort=Integer.parseInt(cmd.getOptionValue(PORT_OPTION,String.valueOf(DEFAULT_LISTEN_PORT)));
+  }
+ catch (  NumberFormatException e) {
+    LOG.error("Could not parse the value provided for the port option",e);
+    printUsageAndExit(options,-1);
+  }
+  optionToConf(cmd,MIN_WORKERS_OPTION,conf,TBoundedThreadPoolServer.MIN_WORKER_THREADS_CONF_KEY);
+  optionToConf(cmd,MAX_WORKERS_OPTION,conf,TBoundedThreadPoolServer.MAX_WORKER_THREADS_CONF_KEY);
+  optionToConf(cmd,MAX_QUEUE_SIZE_OPTION,conf,TBoundedThreadPoolServer.MAX_QUEUED_REQUESTS_CONF_KEY);
+  optionToConf(cmd,KEEP_ALIVE_SEC_OPTION,conf,TBoundedThreadPoolServer.THREAD_KEEP_ALIVE_TIME_SEC_CONF_KEY);
+  TProtocolFactory protocolFactory;
+  if (cmd.hasOption(COMPACT_OPTION)) {
+    LOG.debug("Using compact protocol");
+    protocolFactory=new TCompactProtocol.Factory();
+  }
+ else {
+    LOG.debug("Using binary protocol");
+    protocolFactory=new TBinaryProtocol.Factory();
+  }
+  HBaseHandler handler=new HBaseHandler(conf);
+  Hbase.Processor<Hbase.Iface> processor=new Hbase.Processor<Hbase.Iface>(handler);
+  ImplType implType=ImplType.getServerImpl(cmd);
+  TTransportFactory transportFactory;
+  if (cmd.hasOption(FRAMED_OPTION) || implType.isAlwaysFramed) {
+    transportFactory=new TFramedTransport.Factory();
+    LOG.debug("Using framed transport");
+  }
+ else {
+    transportFactory=new TTransportFactory();
+  }
+  if (cmd.hasOption(BIND_OPTION) && !implType.canSpecifyBindIP) {
+    LOG.error("Server types " + Joiner.on(", ").join(ImplType.serversThatCannotSpecifyBindIP()) + " don't support IP "+ "address binding at the moment. See "+ "https://issues.apache.org/jira/browse/HBASE-2155 for details.");
+    printUsageAndExit(options,-1);
+  }
+  if (implType == ImplType.HS_HA || implType == ImplType.NONBLOCKING) {
+    if (cmd.hasOption(BIND_OPTION)) {
+      throw new RuntimeException("-" + BIND_OPTION + " not supported with "+ implType);
+    }
+    TNonblockingServerTransport serverTransport=new TNonblockingServerSocket(listenPort);
+    if (implType == ImplType.NONBLOCKING) {
+      TNonblockingServer.Args serverArgs=new TNonblockingServer.Args(serverTransport);
+      setServerArgs(serverArgs,processor,transportFactory,protocolFactory);
+      server=new TNonblockingServer(serverArgs);
+    }
+ else {
+      THsHaServer.Args serverArgs=new THsHaServer.Args(serverTransport);
+      serverArgs.processor(processor);
+      serverArgs.transportFactory(transportFactory);
+      serverArgs.protocolFactory(protocolFactory);
+      server=new THsHaServer(serverArgs);
+    }
+    LOG.info("starting HBase " + implType.simpleClassName() + " server on "+ Integer.toString(listenPort));
+  }
+ else   if (implType == ImplType.THREAD_POOL) {
+    InetAddress listenAddress=getBindAddress(options,cmd);
+    TServerTransport serverTransport=new TServerSocket(new InetSocketAddress(listenAddress,listenPort));
+    TBoundedThreadPoolServer.Args serverArgs=new TBoundedThreadPoolServer.Args(serverTransport,conf);
+    setServerArgs(serverArgs,processor,transportFactory,protocolFactory);
+    LOG.info("starting " + ImplType.THREAD_POOL.simpleClassName() + " on "+ listenAddress+ ":"+ Integer.toString(listenPort)+ "; "+ serverArgs);
+    server=new TBoundedThreadPoolServer(serverArgs);
+  }
+ else {
+    throw new AssertionError("Unsupported Thrift server implementation: " + implType.simpleClassName());
+  }
+  if (server.getClass() != implType.serverClass) {
+    throw new AssertionError("Expected to create Thrift server class " + implType.serverClass.getName() + " but got "+ server.getClass().getName());
+  }
+  server.serve();
+}
