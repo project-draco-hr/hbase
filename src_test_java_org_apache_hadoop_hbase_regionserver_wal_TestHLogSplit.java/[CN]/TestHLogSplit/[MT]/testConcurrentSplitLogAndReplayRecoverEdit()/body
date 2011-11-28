@@ -1,0 +1,38 @@
+{
+  LOG.info("testConcurrentSplitLogAndReplayRecoverEdit");
+  String regionName="r0";
+  final Path regiondir=new Path(tabledir,regionName);
+  regions=new ArrayList<String>();
+  regions.add(regionName);
+  generateHLogs(-1);
+  HLogSplitter logSplitter=new HLogSplitter(conf,hbaseDir,hlogDir,oldLogDir,fs){
+    protected HLog.Writer createWriter(    FileSystem fs,    Path logfile,    Configuration conf) throws IOException {
+      HLog.Writer writer=HLog.createWriter(fs,logfile,conf);
+      NavigableSet<Path> files=HLog.getSplitEditFilesSorted(this.fs,regiondir);
+      if (files != null && !files.isEmpty()) {
+        for (        Path file : files) {
+          if (!this.fs.delete(file,false)) {
+            LOG.error("Failed delete of " + file);
+          }
+ else {
+            LOG.debug("Deleted recovered.edits file=" + file);
+          }
+        }
+      }
+      return writer;
+    }
+  }
+;
+  try {
+    logSplitter.splitLog();
+  }
+ catch (  IOException e) {
+    LOG.info(e);
+    Assert.fail("Throws IOException when spliting " + "log, it is most likely because writing file does not " + "exist which is caused by concurrent replayRecoveredEditsIfAny()");
+  }
+  if (fs.exists(corruptDir)) {
+    if (fs.listStatus(corruptDir).length > 0) {
+      Assert.fail("There are some corrupt logs, " + "it is most likely caused by concurrent replayRecoveredEditsIfAny()");
+    }
+  }
+}

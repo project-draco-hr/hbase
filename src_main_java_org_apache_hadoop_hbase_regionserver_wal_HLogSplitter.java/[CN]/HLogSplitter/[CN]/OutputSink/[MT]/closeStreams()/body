@@ -11,8 +11,28 @@
       thrown.add(ioe);
       continue;
     }
-    paths.add(wap.p);
     LOG.info("Closed path " + wap.p + " (wrote "+ wap.editsWritten+ " edits in "+ (wap.nanosSpent / 1000 / 1000)+ "ms)");
+    Path dst=getCompletedRecoveredEditsFilePath(wap.p);
+    try {
+      if (!dst.equals(wap.p) && fs.exists(dst)) {
+        LOG.warn("Found existing old edits file. It could be the " + "result of a previous failed split attempt. Deleting " + dst + ", length="+ fs.getFileStatus(dst).getLen());
+        if (!fs.delete(dst,false)) {
+          LOG.warn("Failed deleting of old " + dst);
+          throw new IOException("Failed deleting of old " + dst);
+        }
+      }
+      if (fs.exists(wap.p)) {
+        if (!fs.rename(wap.p,dst)) {
+          throw new IOException("Failed renaming " + wap.p + " to "+ dst);
+        }
+      }
+    }
+ catch (    IOException ioe) {
+      LOG.error("Couldn't rename " + wap.p + " to "+ dst,ioe);
+      thrown.add(ioe);
+      continue;
+    }
+    paths.add(dst);
   }
   if (!thrown.isEmpty()) {
     throw MultipleIOException.createIOException(thrown);
