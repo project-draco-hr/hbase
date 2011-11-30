@@ -1,33 +1,35 @@
 {
-  List<StoreFile> filesToCompact=new ArrayList<StoreFile>(candidates);
+  CompactSelection compactSelection=new CompactSelection(conf,candidates);
   boolean forcemajor=this.forceMajor && filesCompacting.isEmpty();
   if (!forcemajor) {
     int pos=0;
-    while (pos < filesToCompact.size() && filesToCompact.get(pos).getReader().length() > maxCompactSize && !filesToCompact.get(pos).isReference())     ++pos;
-    filesToCompact.subList(0,pos).clear();
+    while (pos < compactSelection.getFilesToCompact().size() && compactSelection.getFilesToCompact().get(pos).getReader().length() > maxCompactSize && !compactSelection.getFilesToCompact().get(pos).isReference())     ++pos;
+    compactSelection.clearSubList(0,pos);
   }
-  if (filesToCompact.isEmpty()) {
+  if (compactSelection.getFilesToCompact().isEmpty()) {
     LOG.debug(this.getHRegionInfo().getEncodedName() + " - " + this.storeNameStr+ ": no store files to compact");
-    return filesToCompact;
+    compactSelection.emptyFileList();
+    return compactSelection;
   }
-  boolean majorcompaction=filesToCompact.size() < this.maxFilesToCompact && (forcemajor || isMajorCompaction(filesToCompact));
-  if (!majorcompaction && !hasReferences(filesToCompact)) {
+  boolean majorcompaction=(forcemajor || isMajorCompaction(compactSelection.getFilesToCompact())) && compactSelection.getFilesToCompact().size() < this.maxFilesToCompact;
+  if (!majorcompaction && !hasReferences(compactSelection.getFilesToCompact())) {
     int start=0;
-    double r=this.compactRatio;
-    if (filesToCompact.size() < this.minFilesToCompact) {
-      return Collections.emptyList();
+    double r=compactSelection.getCompactSelectionRatio();
+    if (compactSelection.getFilesToCompact().size() < this.minFilesToCompact) {
+      compactSelection.emptyFileList();
+      return compactSelection;
     }
-    filesToCompact.removeAll(Collections2.filter(filesToCompact,new Predicate<StoreFile>(){
+    compactSelection.getFilesToCompact().removeAll(Collections2.filter(compactSelection.getFilesToCompact(),new Predicate<StoreFile>(){
       public boolean apply(      StoreFile input){
         return input.excludeFromMinorCompaction();
       }
     }
 ));
-    int countOfFiles=filesToCompact.size();
+    int countOfFiles=compactSelection.getFilesToCompact().size();
     long[] fileSizes=new long[countOfFiles];
     long[] sumSize=new long[countOfFiles];
     for (int i=countOfFiles - 1; i >= 0; --i) {
-      StoreFile file=filesToCompact.get(i);
+      StoreFile file=compactSelection.getFilesToCompact().get(i);
       fileSizes[i]=file.getReader().length();
       int tooFar=i + this.maxFilesToCompact - 1;
       sumSize[i]=fileSizes[i] + ((i + 1 < countOfFiles) ? sumSize[i + 1] : 0) - ((tooFar < countOfFiles) ? fileSizes[tooFar] : 0);
@@ -37,19 +39,20 @@
     }
     int end=Math.min(countOfFiles,start + this.maxFilesToCompact);
     long totalSize=fileSizes[start] + ((start + 1 < countOfFiles) ? sumSize[start + 1] : 0);
-    filesToCompact=filesToCompact.subList(start,end);
-    if (filesToCompact.size() < this.minFilesToCompact) {
+    compactSelection=compactSelection.getSubList(start,end);
+    if (compactSelection.getFilesToCompact().size() < this.minFilesToCompact) {
       if (LOG.isDebugEnabled()) {
         LOG.debug("Skipped compaction of " + this.storeNameStr + ".  Only "+ (end - start)+ " file(s) of size "+ StringUtils.humanReadableInt(totalSize)+ " have met compaction criteria.");
       }
-      return Collections.emptyList();
+      compactSelection.emptyFileList();
+      return compactSelection;
     }
   }
  else {
-    if (filesToCompact.size() > this.maxFilesToCompact) {
-      int pastMax=filesToCompact.size() - this.maxFilesToCompact;
-      filesToCompact.subList(0,pastMax).clear();
+    if (compactSelection.getFilesToCompact().size() > this.maxFilesToCompact) {
+      int pastMax=compactSelection.getFilesToCompact().size() - this.maxFilesToCompact;
+      compactSelection.clearSubList(0,pastMax);
     }
   }
-  return filesToCompact;
+  return compactSelection;
 }
