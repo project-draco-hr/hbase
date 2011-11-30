@@ -1,0 +1,44 @@
+def merge(self):
+    'Merges input configuration files into the output file.'
+    values = {}
+    source_files = {}
+    descriptions = {}
+    for f_path in self.input_files:
+        self.current_file = f_path
+        f_basename = os.path.basename(f_path)
+        f_dom = parse(f_path)
+        for property in f_dom.getElementsByTagName('property'):
+            self.current_property = property
+            name = self.element_text('name')
+            value = self.element_text('value')
+            values[name] = value
+            source_files[name] = f_basename
+            if property.getElementsByTagName('description'):
+                descriptions[name] = self.element_text('description')
+    dom_impl = getDOMImplementation()
+    self.merged_conf = dom_impl.createDocument(None, 'configuration', None)
+    for k in sorted(values.keys()):
+        new_property = self.merged_conf.createElement('property')
+        c = self.merged_conf.createComment(('from ' + source_files[k]))
+        new_property.appendChild(c)
+        self.append_text_child(new_property, 'name', k)
+        self.append_text_child(new_property, 'value', values[k])
+        description = descriptions.get(k, None)
+        if description:
+            description = ' '.join(description.strip().split())
+            textwrap_kwargs = {}
+            if (sys.version_info >= (2, 6)):
+                textwrap_kwargs = dict(break_on_hyphens=False)
+            description = ('\n' + self.DESC_INDENT).join(textwrap.wrap(description, (80 - len(self.DESC_INDENT)), break_long_words=False, **textwrap_kwargs))
+            self.append_text_child(new_property, 'description', description)
+        self.merged_conf.documentElement.appendChild(new_property)
+    pretty_conf = self.merged_conf.toprettyxml(indent=self.INDENT)
+    pretty_conf = re.sub('(?<=<name>)\\s*', '', pretty_conf)
+    pretty_conf = re.sub('(?<=<value>)\\s*', '', pretty_conf)
+    pretty_conf = re.sub('\\s*(?=</name>)', '', pretty_conf)
+    pretty_conf = re.sub('\\s*(?=</value>)', '', pretty_conf)
+    out_f = open(self.output_file, 'w')
+    try:
+        out_f.write(pretty_conf)
+    finally:
+        out_f.close()
