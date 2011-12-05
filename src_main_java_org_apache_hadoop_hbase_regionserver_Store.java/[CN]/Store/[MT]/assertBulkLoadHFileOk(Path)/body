@@ -13,6 +13,24 @@
     if (!hri.containsRange(firstKey,lastKey)) {
       throw new WrongRegionException("Bulk load file " + srcPath.toString() + " does not fit inside region "+ this.region);
     }
+    if (verifyBulkLoads) {
+      KeyValue prevKV=null;
+      HFileScanner scanner=reader.getScanner(false,false,false);
+      scanner.seekTo();
+      do {
+        KeyValue kv=scanner.getKeyValue();
+        if (prevKV != null) {
+          if (Bytes.compareTo(prevKV.getBuffer(),prevKV.getRowOffset(),prevKV.getRowLength(),kv.getBuffer(),kv.getRowOffset(),kv.getRowLength()) > 0) {
+            throw new InvalidHFileException("Previous row is greater than" + " current row: path=" + srcPath + " previous="+ Bytes.toStringBinary(prevKV.getKey())+ " current="+ Bytes.toStringBinary(kv.getKey()));
+          }
+          if (Bytes.compareTo(prevKV.getBuffer(),prevKV.getFamilyOffset(),prevKV.getFamilyLength(),kv.getBuffer(),kv.getFamilyOffset(),kv.getFamilyLength()) != 0) {
+            throw new InvalidHFileException("Previous key had different" + " family compared to current key: path=" + srcPath + " previous="+ Bytes.toStringBinary(prevKV.getFamily())+ " current="+ Bytes.toStringBinary(kv.getFamily()));
+          }
+        }
+        prevKV=kv;
+      }
+ while (scanner.next());
+    }
   }
   finally {
     if (reader != null)     reader.close();
