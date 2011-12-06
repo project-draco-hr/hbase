@@ -1,8 +1,8 @@
 {
-  debugLog(region,"Starting unassignment of region " + region.getRegionNameAsString() + " (offlining)");
+  LOG.debug("Starting unassignment of region " + region.getRegionNameAsString() + " (offlining)");
 synchronized (this.regions) {
     if (!regions.containsKey(region)) {
-      debugLog(region,"Attempted to unassign region " + region.getRegionNameAsString() + " but it is not "+ "currently assigned anywhere");
+      LOG.debug("Attempted to unassign region " + region.getRegionNameAsString() + " but it is not "+ "currently assigned anywhere");
       return;
     }
   }
@@ -15,6 +15,24 @@ synchronized (regionsInTransition) {
         ZKAssign.createNodeClosing(master.getZooKeeper(),region,master.getServerName());
       }
  catch (      KeeperException e) {
+        if (e instanceof NodeExistsException) {
+          NodeExistsException nee=(NodeExistsException)e;
+          String path=nee.getPath();
+          try {
+            if (isSplitOrSplitting(path)) {
+              LOG.debug(path + " is SPLIT or SPLITTING; " + "skipping unassign because region no longer exists -- its split");
+              return;
+            }
+          }
+ catch (          KeeperException.NoNodeException ke) {
+            LOG.warn("Failed getData on SPLITTING/SPLIT at " + path + "; presuming split and that the region to unassign, "+ encodedName+ ", no longer exists -- confirm",ke);
+            return;
+          }
+catch (          KeeperException ke) {
+            LOG.error("Unexpected zk state",ke);
+            ke=e;
+          }
+        }
         master.abort("Unexpected ZK exception creating node CLOSING",e);
         return;
       }
@@ -22,11 +40,11 @@ synchronized (regionsInTransition) {
       regionsInTransition.put(encodedName,state);
     }
  else     if (force && (state.isPendingClose() || state.isClosing())) {
-      debugLog(region,"Attempting to unassign region " + region.getRegionNameAsString() + " which is already "+ state.getState()+ " but forcing to send a CLOSE RPC again ");
+      LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " which is already "+ state.getState()+ " but forcing to send a CLOSE RPC again ");
       state.update(state.getState());
     }
  else {
-      debugLog(region,"Attempting to unassign region " + region.getRegionNameAsString() + " but it is "+ "already in transition ("+ state.getState()+ ")");
+      LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " but it is "+ "already in transition ("+ state.getState()+ ", force="+ force+ ")");
       return;
     }
   }
@@ -36,7 +54,7 @@ synchronized (this.regions) {
   }
   try {
     if (serverManager.sendRegionClose(server,state.getRegion())) {
-      debugLog(region,"Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
+      LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
       return;
     }
     LOG.warn("Server " + server + " region CLOSE RPC returned false for "+ region.getEncodedName());
@@ -59,7 +77,7 @@ synchronized (this.regions) {
         }
       }
       if (t instanceof RegionAlreadyInTransitionException) {
-        debugLog(region,"update " + state + " the timestamp.");
+        LOG.debug("update " + state + " the timestamp.");
         state.update(state.getState());
       }
     }
