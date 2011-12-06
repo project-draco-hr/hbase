@@ -1,0 +1,47 @@
+{
+  HBaseTestingUtility htu=new HBaseTestingUtility();
+  setRootDirAndCleanIt(htu,rootDir);
+  Server server=new MockServer(htu);
+  MasterServices services=new MockMasterServices(server);
+  CatalogJanitor janitor=new CatalogJanitor(server,services);
+  final HTableDescriptor htd=createHTableDescriptor();
+  HRegionInfo parent=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),lastEndKey);
+  Thread.sleep(1001);
+  HRegionInfo splita=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("ccc"));
+  Thread.sleep(1001);
+  HRegionInfo splitaa=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("bbb"));
+  HRegionInfo splitab=new HRegionInfo(htd.getName(),Bytes.toBytes("bbb"),Bytes.toBytes("ccc"));
+  HRegionInfo splitb=new HRegionInfo(htd.getName(),Bytes.toBytes("ccc"),lastEndKey);
+  Thread.sleep(1001);
+  HRegionInfo splitba=new HRegionInfo(htd.getName(),Bytes.toBytes("ccc"),Bytes.toBytes("ddd"));
+  HRegionInfo splitbb=new HRegionInfo(htd.getName(),Bytes.toBytes("ddd"),lastEndKey);
+  SortedMap<HRegionInfo,Result> regions=new TreeMap<HRegionInfo,Result>(new CatalogJanitor.SplitParentFirstComparator());
+  regions.put(parent,createResult(parent,splita,splitb));
+  regions.put(splitb,createResult(splitb,splitba,splitbb));
+  regions.put(splita,createResult(splita,splitaa,splitab));
+  int index=0;
+  for (  Map.Entry<HRegionInfo,Result> e : regions.entrySet()) {
+    if (index == 0) {
+      assertTrue(e.getKey().getEncodedName().equals(parent.getEncodedName()));
+    }
+ else     if (index == 1) {
+      assertTrue(e.getKey().getEncodedName().equals(splita.getEncodedName()));
+    }
+ else     if (index == 2) {
+      assertTrue(e.getKey().getEncodedName().equals(splitb.getEncodedName()));
+    }
+    index++;
+  }
+  Path splitaRef=createReferences(services,htd,parent,splita,Bytes.toBytes("ccc"),false);
+  assertFalse(janitor.cleanParent(parent,regions.get(parent)));
+  assertTrue(janitor.cleanParent(splitb,regions.get(splitb)));
+  FileSystem fs=FileSystem.get(htu.getConfiguration());
+  assertTrue(fs.delete(splitaRef,true));
+  Path splitaaRef=createReferences(services,htd,splita,splitaa,Bytes.toBytes("bbb"),false);
+  Path splitabRef=createReferences(services,htd,splita,splitab,Bytes.toBytes("bbb"),true);
+  assertFalse(janitor.cleanParent(splita,regions.get(splita)));
+  assertTrue(fs.delete(splitaaRef,true));
+  assertTrue(fs.delete(splitabRef,true));
+  assertTrue(janitor.cleanParent(splita,regions.get(splita)));
+  assertTrue(janitor.cleanParent(parent,regions.get(parent)));
+}
