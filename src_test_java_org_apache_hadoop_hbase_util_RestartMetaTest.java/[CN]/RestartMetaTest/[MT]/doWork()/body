@@ -1,0 +1,23 @@
+{
+  ProcessBasedLocalHBaseCluster hbaseCluster=new ProcessBasedLocalHBaseCluster(conf,hbaseHome,numRegionServers);
+  hbaseCluster.start();
+  HBaseTestingUtility.createPreSplitLoadTestTable(conf,TABLE_NAME,LoadTestTool.COLUMN_FAMILY);
+  LOG.debug("Loading data....\n\n");
+  loadData();
+  LOG.debug("Sleeping for " + SLEEP_SEC_AFTER_DATA_LOAD + " seconds....\n\n");
+  Threads.sleep(5 * SLEEP_SEC_AFTER_DATA_LOAD);
+  int metaRSPort=HBaseTestingUtility.getMetaRSPort(conf);
+  LOG.debug("Killing META region server running on port " + metaRSPort);
+  hbaseCluster.killRegionServer(metaRSPort);
+  Threads.sleep(2000);
+  LOG.debug("Restarting region server running on port metaRSPort");
+  hbaseCluster.startRegionServer(metaRSPort);
+  Threads.sleep(2000);
+  LOG.debug("Trying to scan meta");
+  HTable metaTable=new HTable(conf,HConstants.META_TABLE_NAME);
+  ResultScanner scanner=metaTable.getScanner(new Scan());
+  Result result;
+  while ((result=scanner.next()) != null) {
+    LOG.info("Region assignment from META: " + Bytes.toStringBinary(result.getRow()) + " => "+ Bytes.toStringBinary(result.getFamilyMap(HConstants.CATALOG_FAMILY).get(HConstants.SERVER_QUALIFIER)));
+  }
+}

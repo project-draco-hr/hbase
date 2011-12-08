@@ -1,0 +1,29 @@
+{
+  long startTime=System.currentTimeMillis();
+  long priorNumKeys=0;
+  long priorCumulativeOpTime=0;
+  int priorAverageKeysPerSecond=0;
+  Threads.sleep(REPORTING_INTERVAL_MS);
+  while (numThreadsWorking.get() != 0) {
+    String threadsLeft="[" + reporterId + ":"+ numThreadsWorking.get()+ "] ";
+    if (numKeys.get() == 0) {
+      LOG.info(threadsLeft + "Number of keys = 0");
+    }
+ else {
+      long numKeys=MultiThreadedAction.this.numKeys.get();
+      long time=System.currentTimeMillis() - startTime;
+      long totalOpTime=totalOpTimeMs.get();
+      long numKeysDelta=numKeys - priorNumKeys;
+      long totalOpTimeDelta=totalOpTime - priorCumulativeOpTime;
+      double averageKeysPerSecond=(time > 0) ? (numKeys * 1000 / time) : 0;
+      LOG.info(threadsLeft + "Keys=" + numKeys+ ", cols="+ StringUtils.humanReadableInt(numCols.get())+ ", time="+ formatTime(time)+ ((numKeys > 0 && time > 0) ? (" Overall: [" + "keys/s= " + numKeys * 1000 / time + ", latency=" + totalOpTime / numKeys + " ms]") : "")+ ((numKeysDelta > 0) ? (" Current: [" + "keys/s=" + numKeysDelta * 1000 / REPORTING_INTERVAL_MS + ", latency=" + totalOpTimeDelta / numKeysDelta + " ms]") : "")+ progressInfo());
+      if (streamingCounters) {
+        printStreamingCounters(numKeysDelta,averageKeysPerSecond - priorAverageKeysPerSecond);
+      }
+      priorNumKeys=numKeys;
+      priorCumulativeOpTime=totalOpTime;
+      priorAverageKeysPerSecond=(int)averageKeysPerSecond;
+    }
+    Threads.sleep(REPORTING_INTERVAL_MS);
+  }
+}

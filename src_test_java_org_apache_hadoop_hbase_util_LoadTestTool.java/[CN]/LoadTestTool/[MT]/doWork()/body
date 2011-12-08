@@ -1,0 +1,35 @@
+{
+  if (cmd.hasOption(OPT_ZK_QUORUM)) {
+    conf.set(HConstants.ZOOKEEPER_QUORUM,cmd.getOptionValue(OPT_ZK_QUORUM));
+  }
+  createTables();
+  if (isWrite) {
+    writerThreads=new MultiThreadedWriter(conf,tableName,COLUMN_FAMILY);
+    writerThreads.setMultiPut(isMultiPut);
+    writerThreads.setColumnsPerKey(minColsPerKey,maxColsPerKey);
+    writerThreads.setDataSize(minColDataSize,maxColDataSize);
+  }
+  if (isRead) {
+    readerThreads=new MultiThreadedReader(conf,tableName,COLUMN_FAMILY,verifyPercent);
+    readerThreads.setMaxErrors(maxReadErrors);
+    readerThreads.setKeyWindow(keyWindow);
+  }
+  if (isRead && isWrite) {
+    LOG.info("Concurrent read/write workload: making readers aware of the " + "write point");
+    readerThreads.linkToWriter(writerThreads);
+  }
+  if (isWrite) {
+    System.out.println("Starting to write data...");
+    writerThreads.start(startKey,endKey,numWriterThreads);
+  }
+  if (isRead) {
+    System.out.println("Starting to read data...");
+    readerThreads.start(startKey,endKey,numReaderThreads);
+  }
+  if (isWrite) {
+    writerThreads.waitForFinish();
+  }
+  if (isRead) {
+    readerThreads.waitForFinish();
+  }
+}

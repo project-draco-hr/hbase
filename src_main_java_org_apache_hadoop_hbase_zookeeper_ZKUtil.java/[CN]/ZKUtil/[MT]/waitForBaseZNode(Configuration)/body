@@ -1,0 +1,34 @@
+{
+  LOG.info("Waiting until the base znode is available");
+  String parentZNode=conf.get(HConstants.ZOOKEEPER_ZNODE_PARENT,HConstants.DEFAULT_ZOOKEEPER_ZNODE_PARENT);
+  ZooKeeper zk=new ZooKeeper(ZKConfig.getZKQuorumServersString(conf),conf.getInt(HConstants.ZK_SESSION_TIMEOUT,HConstants.DEFAULT_ZK_SESSION_TIMEOUT),EmptyWatcher.instance);
+  final int maxTimeMs=10000;
+  final int maxNumAttempts=maxTimeMs / HConstants.SOCKET_RETRY_WAIT_MS;
+  KeeperException keeperEx=null;
+  try {
+    try {
+      for (int attempt=0; attempt < maxNumAttempts; ++attempt) {
+        try {
+          if (zk.exists(parentZNode,false) != null) {
+            LOG.info("Parent znode exists: " + parentZNode);
+            keeperEx=null;
+            break;
+          }
+        }
+ catch (        KeeperException e) {
+          keeperEx=e;
+        }
+        Threads.sleepWithoutInterrupt(HConstants.SOCKET_RETRY_WAIT_MS);
+      }
+    }
+  finally {
+      zk.close();
+    }
+  }
+ catch (  InterruptedException ex) {
+    Thread.currentThread().interrupt();
+  }
+  if (keeperEx != null) {
+    throw new IOException(keeperEx);
+  }
+}
