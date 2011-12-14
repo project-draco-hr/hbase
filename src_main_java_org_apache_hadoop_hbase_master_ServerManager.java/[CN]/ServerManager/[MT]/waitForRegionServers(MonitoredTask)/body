@@ -1,31 +1,31 @@
 {
-  long interval=this.master.getConfiguration().getLong("hbase.master.wait.on.regionservers.interval",1500);
-  long timeout=this.master.getConfiguration().getLong("hbase.master.wait.on.regionservers.timeout",4500);
-  int minToStart=this.master.getConfiguration().getInt("hbase.master.wait.on.regionservers.mintostart",1);
-  int maxToStart=this.master.getConfiguration().getInt("hbase.master.wait.on.regionservers.maxtostart",Integer.MAX_VALUE);
-  int count=0;
+  final long interval=this.master.getConfiguration().getLong("hbase.master.wait.on.regionservers.interval",1500);
+  final long timeout=this.master.getConfiguration().getLong("hbase.master.wait.on.regionservers.timeout",4500);
+  final int minToStart=this.master.getConfiguration().getInt("hbase.master.wait.on.regionservers.mintostart",1);
+  final int maxToStart=this.master.getConfiguration().getInt("hbase.master.wait.on.regionservers.maxtostart",Integer.MAX_VALUE);
+  long now=System.currentTimeMillis();
+  final long startTime=now;
   long slept=0;
-  for (int oldcount=countOfRegionServers(); !this.master.isStopped(); ) {
-    Thread.sleep(interval);
-    slept+=interval;
+  long lastLogTime=0;
+  long lastCountChange=startTime;
+  int count=countOfRegionServers();
+  int oldCount=0;
+  while (!this.master.isStopped() && slept < timeout && count < maxToStart && !(lastCountChange + interval > now && count >= minToStart)) {
+    if (oldCount != count || lastLogTime + interval < now) {
+      lastLogTime=now;
+      String msg="Waiting for region servers count to settle; currently" + " checked in " + count + ", slept for "+ slept+ " ms,"+ " expecting minimum of "+ minToStart+ ", maximum of "+ maxToStart+ ", timeout of "+ timeout+ " ms, interval of "+ interval+ " ms.";
+      LOG.info(msg);
+      status.setStatus(msg);
+    }
+    final long sleepTime=50;
+    Thread.sleep(sleepTime);
+    now=System.currentTimeMillis();
+    slept=now - startTime;
+    oldCount=count;
     count=countOfRegionServers();
-    String msg;
-    if (count == oldcount && count >= minToStart && slept >= timeout) {
-      LOG.info("Finished waiting for regionserver count to settle; " + "count=" + count + ", sleptFor="+ slept);
-      break;
+    if (count != oldCount) {
+      lastCountChange=now;
     }
-    if (count >= maxToStart) {
-      LOG.info("At least the max configured number of regionserver(s) have " + "checked in: " + count);
-      break;
-    }
-    if (count == 0) {
-      msg="Waiting on regionserver(s) to checkin";
-    }
- else {
-      msg="Waiting on regionserver(s) count to settle; currently=" + count;
-    }
-    LOG.info(msg);
-    status.setStatus(msg);
-    oldcount=count;
   }
+  LOG.info("Finished waiting for region servers count to settle;" + " checked in " + count + ", slept for "+ slept+ " ms,"+ " expecting minimum of "+ minToStart+ ", maximum of "+ maxToStart+ ","+ " master is "+ (this.master.isStopped() ? "stopped." : "running."));
 }
