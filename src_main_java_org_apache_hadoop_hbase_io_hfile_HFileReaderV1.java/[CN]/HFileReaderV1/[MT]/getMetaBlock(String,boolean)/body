@@ -18,13 +18,17 @@
   }
   long startTimeNs=System.nanoTime();
   BlockCacheKey cacheKey=HFile.getBlockCacheKey(name,offset);
+  BlockCategory effectiveCategory=BlockCategory.META;
+  if (metaBlockName.equals(HFileWriterV1.BLOOM_FILTER_META_KEY) || metaBlockName.equals(HFileWriterV1.BLOOM_FILTER_DATA_KEY)) {
+    effectiveCategory=BlockCategory.BLOOM;
+  }
 synchronized (metaBlockIndexReader.getRootBlockKey(block)) {
     metaLoads.incrementAndGet();
     if (cacheConf.isBlockCacheEnabled()) {
-      HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheConf.shouldCacheDataOnRead());
+      HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheConf.shouldCacheBlockOnRead(effectiveCategory));
       if (cachedBlock != null) {
         cacheHits.incrementAndGet();
-        getSchemaMetrics().updateOnCacheHit(BlockCategory.META,false);
+        getSchemaMetrics().updateOnCacheHit(effectiveCategory,SchemaMetrics.NO_COMPACTION);
         return cachedBlock.getBufferWithoutHeader();
       }
     }
@@ -34,8 +38,8 @@ synchronized (metaBlockIndexReader.getRootBlockKey(block)) {
     long delta=System.nanoTime() - startTimeNs;
     HFile.preadTimeNano.addAndGet(delta);
     HFile.preadOps.incrementAndGet();
-    getSchemaMetrics().updateOnCacheMiss(BlockCategory.META,false,delta);
-    if (cacheConf.shouldCacheDataOnRead() && cacheBlock) {
+    getSchemaMetrics().updateOnCacheMiss(effectiveCategory,SchemaMetrics.NO_COMPACTION,delta);
+    if (cacheBlock && cacheConf.shouldCacheBlockOnRead(effectiveCategory)) {
       cacheConf.getBlockCache().cacheBlock(cacheKey,hfileBlock,cacheConf.isInMemory());
     }
     return hfileBlock.getBufferWithoutHeader();
