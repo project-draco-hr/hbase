@@ -1,0 +1,42 @@
+{
+  List<Constraint> constraints=new ArrayList<Constraint>();
+  for (  Map.Entry<ImmutableBytesWritable,ImmutableBytesWritable> e : desc.getValues().entrySet()) {
+    String key=Bytes.toString(e.getKey().get()).trim();
+    String[] className=CONSTRAINT_HTD_ATTR_KEY_PATTERN.split(key);
+    if (className.length == 2) {
+      key=className[1];
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Loading constraint:" + key);
+      }
+      Configuration conf;
+      try {
+        conf=readConfiguration(e.getValue().get());
+      }
+ catch (      IOException e1) {
+        LOG.warn("Corrupted configuration found for key:" + key + ",  skipping it.");
+        continue;
+      }
+      if (!conf.getBoolean(ENABLED_KEY,false)) {
+        if (LOG.isDebugEnabled())         LOG.debug("Constraint: " + key + " is DISABLED - skipping it");
+        continue;
+      }
+      try {
+        Class<? extends Constraint> clazz=classloader.loadClass(key).asSubclass(Constraint.class);
+        Constraint constraint=clazz.newInstance();
+        constraint.setConf(conf);
+        constraints.add(constraint);
+      }
+ catch (      ClassNotFoundException e1) {
+        throw new IOException(e1);
+      }
+catch (      InstantiationException e1) {
+        throw new IOException(e1);
+      }
+catch (      IllegalAccessException e1) {
+        throw new IOException(e1);
+      }
+    }
+  }
+  Collections.sort(constraints,constraintComparator);
+  return constraints;
+}

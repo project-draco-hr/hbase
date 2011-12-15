@@ -1,0 +1,23 @@
+{
+  HTableDescriptor desc=new HTableDescriptor(tableName);
+  for (  byte[] family : new byte[][]{dummy,test}) {
+    desc.addFamily(new HColumnDescriptor(family));
+  }
+  Constraints.add(desc,AllFailConstraint.class);
+  util.getHBaseAdmin().createTable(desc);
+  HTable table=new HTable(util.getConfiguration(),tableName);
+  table.setAutoFlush(true);
+  Put put=new Put(row1);
+  put.add(dummy,new byte[0],"fail".getBytes());
+  LOG.warn("Doing put in table");
+  try {
+    table.put(put);
+    fail("This put should not have suceeded - AllFailConstraint was not run!");
+  }
+ catch (  RetriesExhaustedWithDetailsException e) {
+    List<Throwable> causes=e.getCauses();
+    assertEquals("More than one failure cause - should only be the failure constraint exception",1,causes.size());
+    Throwable t=causes.get(0);
+    assertEquals(ConstraintException.class,t.getClass());
+  }
+}
