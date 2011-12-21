@@ -8,6 +8,7 @@
   boolean skipErrors=conf.getBoolean("hbase.hlog.split.skip.errors",HLog.SPLIT_SKIP_ERRORS_DEFAULT);
   int interval=conf.getInt("hbase.splitlog.report.interval.loglines",1024);
   int period=conf.getInt("hbase.splitlog.report.period",conf.getInt("hbase.splitlog.manager.timeout",ZKSplitLog.DEFAULT_TIMEOUT) / 2);
+  int numOpenedFilesBeforeReporting=conf.getInt("hbase.splitlog.report.openedfiles",3);
   Path logPath=logfile.getPath();
   long logLength=logfile.getLen();
   LOG.info("Splitting hlog: " + logPath + ", length="+ logLength);
@@ -33,6 +34,7 @@
     return false;
   }
   int editsCount=0;
+  int numNewlyOpenedFiles=0;
   Entry entry;
   try {
     while ((entry=getNextLogLine(in,logPath,skipErrors)) != null) {
@@ -44,6 +46,7 @@
       WriterAndPath wap=(WriterAndPath)o;
       if (wap == null) {
         wap=createWAP(region,entry,rootDir,tmpname,fs,conf);
+        numNewlyOpenedFiles++;
         if (wap == null) {
           logWriters.put(region,BAD_WRITER);
           continue;
@@ -54,13 +57,15 @@
       }
       wap.w.append(entry);
       editsCount++;
-      if (editsCount % interval == 0) {
-        status.setStatus("Split " + editsCount + " edits");
+      if (editsCount % interval == 0 || (numNewlyOpenedFiles > numOpenedFilesBeforeReporting)) {
+        numNewlyOpenedFiles=0;
+        String countsStr="edits=" + editsCount + ", files="+ logWriters.size();
+        status.setStatus("Split " + countsStr);
         long t1=EnvironmentEdgeManager.currentTimeMillis();
         if ((t1 - last_report_at) > period) {
           last_report_at=t;
           if (reporter != null && reporter.progress() == false) {
-            status.markComplete("Failed: reporter.progress asked us to terminate");
+            status.markComplete("Failed: reporter.progress asked us to terminate; " + countsStr);
             progress_failed=true;
             return false;
           }
@@ -108,7 +113,7 @@ catch (  IOException e) {
         }
       }
     }
-    String msg=("processed " + editsCount + " edits across "+ n+ " regions"+ " threw away edits for "+ (logWriters.size() - n)+ " regions"+ " log file = "+ logPath+ " is corrupted = "+ isCorrupted);
+    String msg="Processed " + editsCount + " edits across "+ n+ " regions"+ " threw away edits for "+ (logWriters.size() - n)+ " regions"+ "; log file="+ logPath+ ", corrupted="+ isCorrupted;
     LOG.info(msg);
     status.markComplete(msg);
   }
