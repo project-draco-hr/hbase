@@ -1,0 +1,45 @@
+{
+  byte flag=in.readByte();
+  int keyLengthFitInBytes=1 + ((flag & KEY_SIZE_MASK) >>> KEY_SIZE_SHIFT);
+  int keyLength=ByteBufferUtils.readCompressedInt(in,keyLengthFitInBytes);
+  int valueLengthFitInBytes=1 + ((flag & VALUE_SIZE_MASK) >>> VALUE_SIZE_SHIFT);
+  int valueLength=ByteBufferUtils.readCompressedInt(in,valueLengthFitInBytes);
+  ByteBufferUtils.ensureSpace(buffer,keyLength + valueLength + KeyValue.ROW_OFFSET);
+  buffer.putInt(keyLength);
+  buffer.putInt(valueLength);
+  int prevElementOffset=state.prevOffset + KeyValue.ROW_OFFSET;
+  int prevRowOffset=prevElementOffset;
+  prevElementOffset+=state.rowLength + KeyValue.ROW_LENGTH_SIZE;
+  if (state.isFirst() || (flag & SAME_ROW_FLAG) == 0) {
+    state.rowLength=in.readShort();
+    buffer.putShort(state.rowLength);
+    ByteBufferUtils.copyFromStream(in,buffer,state.rowLength);
+  }
+ else {
+    ByteBufferUtils.copyFromBuffer(buffer,buffer,prevRowOffset,state.rowLength + KeyValue.ROW_LENGTH_SIZE);
+  }
+  int prevFamilyOffset=prevElementOffset;
+  prevElementOffset+=state.familyLength + KeyValue.FAMILY_LENGTH_SIZE;
+  if (state.isFirst() || (flag & SAME_FAMILY_FLAG) == 0) {
+    state.familyLength=in.readByte();
+    buffer.put(state.familyLength);
+    ByteBufferUtils.copyFromStream(in,buffer,state.familyLength);
+  }
+ else {
+    ByteBufferUtils.copyFromBuffer(buffer,buffer,prevFamilyOffset,state.familyLength + KeyValue.FAMILY_LENGTH_SIZE);
+  }
+  if (state.isFirst() || (flag & SAME_QUALIFIER_FLAG) == 0) {
+    state.qualifierLength=keyLength - state.rowLength - state.familyLength- KeyValue.KEY_INFRASTRUCTURE_SIZE;
+    ByteBufferUtils.copyFromStream(in,buffer,state.qualifierLength);
+  }
+ else {
+    ByteBufferUtils.copyFromBuffer(buffer,buffer,prevElementOffset,state.qualifierLength);
+  }
+  ByteBufferUtils.copyFromStream(in,buffer,KeyValue.TIMESTAMP_SIZE);
+  if (state.isFirst() || (flag & SAME_TYPE_FLAG) == 0) {
+    state.type=in.readByte();
+  }
+  buffer.put(state.type);
+  state.prevOffset=buffer.position() - keyLength - KeyValue.ROW_OFFSET;
+  ByteBufferUtils.copyFromStream(in,buffer,valueLength);
+}

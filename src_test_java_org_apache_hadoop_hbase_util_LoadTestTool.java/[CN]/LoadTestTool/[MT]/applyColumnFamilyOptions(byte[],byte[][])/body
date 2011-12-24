@@ -1,0 +1,32 @@
+{
+  String bloomStr=cmd.getOptionValue(OPT_BLOOM);
+  StoreFile.BloomType bloomType=bloomStr == null ? null : StoreFile.BloomType.valueOf(bloomStr);
+  String compressStr=cmd.getOptionValue(OPT_COMPRESSION);
+  Compression.Algorithm compressAlgo=compressStr == null ? null : Compression.Algorithm.valueOf(compressStr);
+  String dataBlockEncodingStr=cmd.getOptionValue(OPT_DATA_BLOCK_ENCODING);
+  DataBlockEncodings.Algorithm dataBlockEncodingAlgo=dataBlockEncodingStr == null ? null : DataBlockEncodings.Algorithm.valueOf(dataBlockEncodingStr);
+  if (bloomStr == null && compressStr == null && dataBlockEncodingStr == null) {
+    return;
+  }
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  HTableDescriptor tableDesc=admin.getTableDescriptor(tableName);
+  LOG.info("Disabling table " + Bytes.toString(tableName));
+  admin.disableTable(tableName);
+  for (  byte[] cf : columnFamilies) {
+    HColumnDescriptor columnDesc=tableDesc.getFamily(cf);
+    if (bloomStr != null) {
+      columnDesc.setBloomFilterType(bloomType);
+    }
+    if (compressStr != null) {
+      columnDesc.setCompressionType(compressAlgo);
+    }
+    if (dataBlockEncodingAlgo != null) {
+      columnDesc.setDataBlockEncodingOnDisk(cmd.hasOption(OPT_DATA_BLOCK_ENCODING_CACHE_ONLY) ? DataBlockEncodings.Algorithm.NONE : dataBlockEncodingAlgo);
+      columnDesc.setDataBlockEncodingInCache(dataBlockEncodingAlgo);
+      columnDesc.setEncodedDataBlockSeek(cmd.hasOption(OPT_ENCODED_DATA_BLOCK_SEEK));
+    }
+    admin.modifyColumn(tableName,columnDesc);
+  }
+  LOG.info("Enabling table " + Bytes.toString(tableName));
+  admin.enableTable(tableName);
+}

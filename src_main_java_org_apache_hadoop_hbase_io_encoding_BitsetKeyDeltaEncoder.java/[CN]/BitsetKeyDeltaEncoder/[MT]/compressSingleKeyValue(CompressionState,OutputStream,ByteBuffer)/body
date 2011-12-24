@@ -1,0 +1,84 @@
+{
+  int kvPos=in.position();
+  int keyLength=in.getInt();
+  int valueLength=in.getInt();
+  byte flags=0;
+  int keyLengthFitsInBytes=ByteBufferUtils.intFitsIn(keyLength);
+  flags|=(keyLengthFitsInBytes - 1) << KEY_SIZE_SHIFT;
+  int valueLengthFitsInBytes=ByteBufferUtils.intFitsIn(valueLength);
+  flags|=(valueLengthFitsInBytes - 1) << VALUE_SIZE_SHIFT;
+  if (state.isFirst()) {
+    ByteBufferUtils.copyToStream(out,flags);
+    writeKeyValueCompressedLengths(out,in,keyLengthFitsInBytes,valueLengthFitsInBytes);
+    state.readKey(in,keyLength,valueLength);
+    ByteBufferUtils.copyToStream(out,in,keyLength);
+  }
+ else {
+    in.mark();
+    int prevElementOffset=state.prevOffset + KeyValue.ROW_OFFSET + KeyValue.ROW_LENGTH_SIZE;
+    short rowLength=in.getShort();
+    int prevRowOffset=prevElementOffset;
+    prevElementOffset+=state.rowLength + KeyValue.FAMILY_LENGTH_SIZE;
+    if (ByteBufferUtils.arePartsEqual(in,in.position(),rowLength,prevRowOffset,state.rowLength)) {
+      flags|=SAME_ROW_FLAG;
+    }
+ else {
+      state.rowLength=rowLength;
+    }
+    ByteBufferUtils.skip(in,rowLength);
+    byte familyLength=in.get();
+    int prevFamilyOffset=prevElementOffset;
+    prevElementOffset+=state.familyLength;
+    if (ByteBufferUtils.arePartsEqual(in,in.position(),familyLength,prevFamilyOffset,state.familyLength)) {
+      flags|=SAME_FAMILY_FLAG;
+    }
+ else {
+      state.familyLength=familyLength;
+    }
+    ByteBufferUtils.skip(in,familyLength);
+    int qualifierLength=keyLength - rowLength - familyLength- KeyValue.KEY_INFRASTRUCTURE_SIZE;
+    int prevQualifierOffset=prevElementOffset;
+    if (ByteBufferUtils.arePartsEqual(in,in.position(),qualifierLength,prevQualifierOffset,state.qualifierLength)) {
+      flags|=SAME_QUALIFIER_FLAG;
+    }
+ else {
+      state.qualifierLength=qualifierLength;
+    }
+    ByteBufferUtils.skip(in,qualifierLength + KeyValue.TIMESTAMP_SIZE);
+    byte type=in.get();
+    if (type == state.type) {
+      flags|=SAME_TYPE_FLAG;
+    }
+ else {
+      state.type=type;
+    }
+    ByteBufferUtils.copyToStream(out,flags);
+    in.reset();
+    writeKeyValueCompressedLengths(out,in,keyLengthFitsInBytes,valueLengthFitsInBytes);
+    if ((flags & SAME_ROW_FLAG) == 0) {
+      ByteBufferUtils.copyToStream(out,in,rowLength + KeyValue.ROW_LENGTH_SIZE);
+    }
+ else {
+      ByteBufferUtils.skip(in,rowLength + KeyValue.ROW_LENGTH_SIZE);
+    }
+    if ((flags & SAME_FAMILY_FLAG) == 0) {
+      ByteBufferUtils.copyToStream(out,in,familyLength + KeyValue.FAMILY_LENGTH_SIZE);
+    }
+ else {
+      ByteBufferUtils.skip(in,familyLength + KeyValue.FAMILY_LENGTH_SIZE);
+    }
+    if ((flags & SAME_QUALIFIER_FLAG) == 0) {
+      ByteBufferUtils.copyToStream(out,in,qualifierLength);
+    }
+ else {
+      ByteBufferUtils.skip(in,qualifierLength);
+    }
+    ByteBufferUtils.copyToStream(out,in,KeyValue.TIMESTAMP_SIZE);
+    if ((flags & SAME_TYPE_FLAG) == 0) {
+      ByteBufferUtils.copyToStream(out,type);
+    }
+    ByteBufferUtils.skip(in,KeyValue.TYPE_SIZE);
+  }
+  state.prevOffset=kvPos;
+  ByteBufferUtils.copyToStream(out,in,valueLength);
+}

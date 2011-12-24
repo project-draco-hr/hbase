@@ -1,0 +1,83 @@
+{
+  return new BufferedEncodedSeeker(comparator){
+    private int familyLengthWithSize;
+    private int rowLengthWithSize;
+    private void decode(){
+      byte type=0;
+      byte flag=currentBuffer.get();
+      int oldKeyLength=current.keyLength;
+      int keyLengthFitInBytes=1 + ((flag & KEY_SIZE_MASK) >>> KEY_SIZE_SHIFT);
+      current.keyLength=ByteBufferUtils.readCompressedInt(currentBuffer,keyLengthFitInBytes);
+      int valueLengthFitInBytes=1 + ((flag & VALUE_SIZE_MASK) >>> VALUE_SIZE_SHIFT);
+      current.valueLength=ByteBufferUtils.readCompressedInt(currentBuffer,valueLengthFitInBytes);
+      if (oldKeyLength != current.keyLength && (flag & SAME_TYPE_FLAG) != 0) {
+        type=current.keyBuffer[oldKeyLength - 1];
+      }
+      current.lastCommonPrefix=0;
+switch (flag & (SAME_ROW_FLAG | SAME_FAMILY_FLAG | SAME_QUALIFIER_FLAG)) {
+case SAME_ROW_FLAG | SAME_FAMILY_FLAG | SAME_QUALIFIER_FLAG:
+        current.lastCommonPrefix=current.keyLength - familyLengthWithSize - rowLengthWithSize- KeyValue.TIMESTAMP_TYPE_SIZE;
+case SAME_ROW_FLAG | SAME_FAMILY_FLAG:
+      current.lastCommonPrefix+=familyLengthWithSize + rowLengthWithSize;
+case 0:
+    currentBuffer.get(current.keyBuffer,current.lastCommonPrefix,current.keyLength - current.lastCommonPrefix - Bytes.SIZEOF_BYTE);
+  break;
+case SAME_FAMILY_FLAG:
+case SAME_FAMILY_FLAG | SAME_QUALIFIER_FLAG:
+currentBuffer.get(current.keyBuffer,0,Bytes.SIZEOF_SHORT);
+int oldRowLengthWithSize=rowLengthWithSize;
+rowLengthWithSize=Bytes.toShort(current.keyBuffer) + Bytes.SIZEOF_SHORT;
+int moveLength;
+if ((flag & SAME_QUALIFIER_FLAG) == 0) {
+moveLength=familyLengthWithSize;
+}
+ else {
+moveLength=current.keyLength - rowLengthWithSize - KeyValue.TIMESTAMP_TYPE_SIZE;
+}
+System.arraycopy(current.keyBuffer,oldRowLengthWithSize,current.keyBuffer,rowLengthWithSize,moveLength);
+currentBuffer.get(current.keyBuffer,Bytes.SIZEOF_SHORT,rowLengthWithSize - Bytes.SIZEOF_SHORT);
+if ((flag & SAME_QUALIFIER_FLAG) == 0) {
+currentBuffer.get(current.keyBuffer,rowLengthWithSize + familyLengthWithSize,current.keyLength - rowLengthWithSize - familyLengthWithSize- Bytes.SIZEOF_BYTE);
+}
+ else {
+currentBuffer.get(current.keyBuffer,current.keyLength - KeyValue.TIMESTAMP_TYPE_SIZE,Bytes.SIZEOF_LONG);
+}
+break;
+case SAME_QUALIFIER_FLAG:
+case SAME_QUALIFIER_FLAG | SAME_ROW_FLAG:
+case SAME_ROW_FLAG:
+default :
+throw new RuntimeException("Unexpected flag!");
+}
+if ((flag & SAME_ROW_FLAG) == 0) {
+rowLengthWithSize=Bytes.toShort(current.keyBuffer) + Bytes.SIZEOF_SHORT;
+familyLengthWithSize=current.keyBuffer[rowLengthWithSize] + Bytes.SIZEOF_BYTE;
+}
+ else if ((flag & SAME_FAMILY_FLAG) != 0) {
+familyLengthWithSize=current.keyBuffer[rowLengthWithSize] + Bytes.SIZEOF_BYTE;
+}
+if ((flag & SAME_TYPE_FLAG) == 0) {
+currentBuffer.get(current.keyBuffer,current.keyLength - Bytes.SIZEOF_BYTE,Bytes.SIZEOF_BYTE);
+}
+ else if (oldKeyLength != current.keyLength) {
+current.keyBuffer[current.keyLength - Bytes.SIZEOF_BYTE]=type;
+}
+current.valueOffset=currentBuffer.position();
+ByteBufferUtils.skip(currentBuffer,current.valueLength);
+if (includesMemstoreTS) {
+current.memstoreTS=ByteBufferUtils.readVLong(currentBuffer);
+}
+ else {
+current.memstoreTS=0;
+}
+}
+@Override protected void decodeNext(){
+decode();
+}
+@Override protected void decodeFirst(){
+ByteBufferUtils.skip(currentBuffer,Bytes.SIZEOF_INT);
+decode();
+}
+}
+;
+}

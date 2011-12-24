@@ -1,0 +1,56 @@
+{
+  for (  Compression.Algorithm algo : COMPRESSION_ALGORITHMS) {
+    for (    boolean pread : new boolean[]{false,true}) {
+      for (      DataBlockEncodings.Algorithm dataBlockEncoderAlgo : DataBlockEncodings.Algorithm.values()) {
+        Path path=new Path(TEST_UTIL.getDataTestDir(),"blocks_v2_" + algo + "_"+ dataBlockEncoderAlgo.toString());
+        FSDataOutputStream os=fs.create(path);
+        HFileDataBlockEncoder dataBlockEncoder=new HFileDataBlockEncoderImpl(dataBlockEncoderAlgo,DataBlockEncodings.Algorithm.NONE,HFileDataBlockEncoderImpl.NO_ENCODED_SEEK);
+        HFileBlock.Writer hbw=new HFileBlock.Writer(algo,dataBlockEncoder,includesMemstoreTS);
+        long totalSize=0;
+        List<Integer> blockSizes=new ArrayList<Integer>();
+        List<ByteBuffer> blockContent=new ArrayList<ByteBuffer>();
+        for (int blockId=0; blockId < 2; ++blockId) {
+          DataOutputStream dos=hbw.startWriting(BlockType.DATA);
+          ByteArrayOutputStream baos=new ByteArrayOutputStream();
+          DoubleOutputStream doubleOutputStream=new DoubleOutputStream(dos,baos);
+          blockSizes.add(writeTestKeyValues(doubleOutputStream,blockId));
+          ByteBuffer buf=ByteBuffer.wrap(baos.toByteArray());
+          buf.rewind();
+          blockContent.add(buf);
+          hbw.writeHeaderAndData(os);
+          totalSize+=hbw.getOnDiskSizeWithHeader();
+        }
+        os.close();
+        FSDataInputStream is=fs.open(path);
+        HFileBlock.FSReaderV2 hbr=new HFileBlock.FSReaderV2(is,algo,totalSize,dataBlockEncoder);
+        hbr.setIncludesMemstoreTS(includesMemstoreTS);
+        HFileBlock b;
+        int pos=0;
+        for (int blockId=0; blockId < 2; ++blockId) {
+          b=hbr.readBlockData(pos,-1,-1,pread);
+          b.sanityCheck();
+          pos+=b.getOnDiskSizeWithHeader();
+          assertEquals((int)blockSizes.get(blockId),b.getUncompressedSizeWithoutHeader());
+          ByteBuffer actualBuffer=b.getBufferWithoutHeader();
+          ByteBuffer expectedBuffer=blockContent.get(blockId);
+          expectedBuffer.rewind();
+          if (!actualBuffer.equals(expectedBuffer)) {
+            int prefix=0;
+            while (prefix < expectedBuffer.limit() && expectedBuffer.get(prefix) == actualBuffer.get(prefix)) {
+              prefix++;
+            }
+            int kvCount=0;
+            while (actualBuffer.position() + 2 * Bytes.SIZEOF_INT < actualBuffer.limit()) {
+              int keyLength=actualBuffer.getInt();
+              int valueLength=actualBuffer.getInt();
+              kvCount++;
+              actualBuffer.position(actualBuffer.position() + keyLength + valueLength);
+            }
+            fail(String.format("Content mismath compression: %s encoding: %s" + " pread: %s commonPrefix: %d kvCount: %d" + " expected char: %s actual char %s",algo.getName(),dataBlockEncoderAlgo.toString(),pread,prefix,kvCount,expectedBuffer.get(prefix),actualBuffer.get(prefix)));
+          }
+        }
+        is.close();
+      }
+    }
+  }
+}
