@@ -12,16 +12,14 @@
   }
   List<KeyValueScanner> allStoreScanners=this.store.getScanners(cacheBlocks,isGet,false,this.matcher);
   List<KeyValueScanner> scanners=new ArrayList<KeyValueScanner>(allStoreScanners.size());
+  long expiredTimestampCutoff=minVersions == 0 ? oldestUnexpiredTS : Long.MIN_VALUE;
   for (  KeyValueScanner kvs : allStoreScanners) {
-    if (kvs instanceof StoreFileScanner) {
-      if (memOnly == false && ((StoreFileScanner)kvs).shouldSeek(scan,columns)) {
-        scanners.add(kvs);
-      }
+    boolean isFile=kvs.isFileScanner();
+    if ((!isFile && filesOnly) || (isFile && memOnly)) {
+      continue;
     }
- else {
-      if (filesOnly == false && this.store.memstore.shouldSeek(scan)) {
-        scanners.add(kvs);
-      }
+    if (kvs.shouldUseScanner(scan,columns,expiredTimestampCutoff)) {
+      scanners.add(kvs);
     }
   }
   return scanners;
