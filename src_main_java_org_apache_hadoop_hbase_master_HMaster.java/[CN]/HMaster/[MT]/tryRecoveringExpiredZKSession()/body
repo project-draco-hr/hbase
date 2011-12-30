@@ -1,16 +1,33 @@
 {
   this.zooKeeper=new ZooKeeperWatcher(conf,MASTER + ":" + this.serverName.getPort(),this,true);
-  MonitoredTask status=TaskMonitor.get().createStatus("Recovering expired ZK session");
-  try {
-    if (!becomeActiveMaster(status)) {
-      return false;
-    }
-    initializeZKBasedSystemTrackers();
-    assignRootAndMeta(status);
-    this.assignmentManager.processDeadServersAndRegionsInTransition();
-    return true;
-  }
+  Callable<Boolean> callable=new Callable<Boolean>(){
+    public Boolean call() throws InterruptedException, IOException, KeeperException {
+      MonitoredTask status=TaskMonitor.get().createStatus("Recovering expired ZK session");
+      try {
+        if (!becomeActiveMaster(status)) {
+          return Boolean.FALSE;
+        }
+        initializeZKBasedSystemTrackers();
+        assignRootAndMeta(status);
+        assignmentManager.processDeadServersAndRegionsInTransition();
+        return Boolean.TRUE;
+      }
   finally {
-    status.cleanup();
+        status.cleanup();
+      }
+    }
   }
+;
+  long timeout=conf.getLong("hbase.master.zksession.recover.timeout",300000);
+  java.util.concurrent.ExecutorService executor=Executors.newSingleThreadExecutor();
+  Future<Boolean> result=executor.submit(callable);
+  executor.shutdown();
+  if (executor.awaitTermination(timeout,TimeUnit.MILLISECONDS) && result.isDone()) {
+    Boolean recovered=result.get();
+    if (recovered != null) {
+      return recovered.booleanValue();
+    }
+  }
+  executor.shutdownNow();
+  return false;
 }
