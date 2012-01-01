@@ -21,24 +21,37 @@
 ;
   reader.start();
   writer.start();
-  assertTrue(reader.isProgressing());
-  assertTrue(writer.isProgressing());
-  for (int i=0; i < 2; i++) {
-    LOG.info("Restart=" + i);
-    UTIL.ensureSomeRegionServersAvailable(2);
-    int index=-1;
-    do {
-      index=UTIL.getMiniHBaseCluster().getServerWithMeta();
+  final long timeOut=180000;
+  long startTime=System.currentTimeMillis();
+  try {
+    assertTrue(reader.isProgressing());
+    assertTrue(writer.isProgressing());
+    for (int i=0; i < 2; i++) {
+      LOG.info("Restart=" + i);
+      UTIL.ensureSomeRegionServersAvailable(2);
+      int index=-1;
+      do {
+        index=UTIL.getMiniHBaseCluster().getServerWithMeta();
+      }
+ while (index == -1 && startTime + timeOut < System.currentTimeMillis());
+      if (index != -1) {
+        UTIL.getMiniHBaseCluster().abortRegionServer(index);
+        UTIL.getMiniHBaseCluster().waitOnRegionServer(index);
+      }
     }
- while (index == -1);
-    UTIL.getMiniHBaseCluster().abortRegionServer(index);
-    UTIL.getMiniHBaseCluster().waitOnRegionServer(index);
+    assertTrue("reader: " + reader.toString(),reader.isProgressing());
+    assertTrue("writer: " + writer.toString(),writer.isProgressing());
   }
-  assertTrue(reader.toString(),reader.isProgressing());
-  assertTrue(writer.toString(),writer.isProgressing());
-  reader.stop=true;
-  writer.stop=true;
-  reader.join();
-  writer.join();
-  t.close();
+ catch (  IOException e) {
+    throw e;
+  }
+ finally {
+    reader.stop=true;
+    writer.stop=true;
+    reader.join();
+    writer.join();
+    t.close();
+  }
+  long exeTime=System.currentTimeMillis() - startTime;
+  assertTrue("Timeout: test took " + exeTime / 1000 + " sec",exeTime < timeOut);
 }
