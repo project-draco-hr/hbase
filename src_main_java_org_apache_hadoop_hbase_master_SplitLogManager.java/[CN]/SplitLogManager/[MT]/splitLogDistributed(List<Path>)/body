@@ -1,7 +1,6 @@
 {
   MonitoredTask status=TaskMonitor.get().createStatus("Doing distributed log split in " + logDirs);
   FileStatus[] logfiles=getFileList(logDirs);
-  if (logfiles == null)   return 0;
   status.setStatus("Checking directory contents...");
   LOG.debug("Scheduling batch of logs to split");
   tot_mgr_log_split_batch_start.incrementAndGet();
@@ -17,22 +16,28 @@
   }
   waitForSplittingCompletion(batch,status);
   if (batch.done != batch.installed) {
-    stopTrackingTasks(batch);
+    batch.isDead=true;
     tot_mgr_log_split_batch_err.incrementAndGet();
     LOG.warn("error while splitting logs in " + logDirs + " installed = "+ batch.installed+ " but only "+ batch.done+ " done");
     throw new IOException("error or interrupt while splitting logs in " + logDirs + " Task = "+ batch);
   }
   for (  Path logDir : logDirs) {
-    if (anyNewLogFiles(logDir,logfiles)) {
-      tot_mgr_new_unexpected_hlogs.incrementAndGet();
-      LOG.warn("new hlogs were produced while logs in " + logDir + " were being split");
-      throw new OrphanHLogAfterSplitException();
+    status.setStatus("Cleaning up log directory...");
+    try {
+      if (fs.exists(logDir) && !fs.delete(logDir,false)) {
+        LOG.warn("Unable to delete log src dir. Ignoring. " + logDir);
+      }
+    }
+ catch (    IOException ioe) {
+      FileStatus[] files=fs.listStatus(logDir);
+      if (files != null && files.length > 0) {
+        LOG.warn("returning success without actually splitting and " + "deleting all the log files in path " + logDir);
+      }
+ else {
+        LOG.warn("Unable to delete log src dir. Ignoring. " + logDir,ioe);
+      }
     }
     tot_mgr_log_split_batch_success.incrementAndGet();
-    status.setStatus("Cleaning up log directory...");
-    if (!fs.delete(logDir,true)) {
-      throw new IOException("Unable to delete src dir: " + logDir);
-    }
   }
   String msg="finished splitting (more than or equal to) " + totalSize + " bytes in "+ batch.installed+ " log files in "+ logDirs+ " in "+ (EnvironmentEdgeManager.currentTimeMillis() - t)+ "ms";
   status.markComplete(msg);

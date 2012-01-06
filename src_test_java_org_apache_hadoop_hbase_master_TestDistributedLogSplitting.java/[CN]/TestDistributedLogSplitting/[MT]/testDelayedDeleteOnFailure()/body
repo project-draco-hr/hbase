@@ -1,0 +1,39 @@
+{
+  LOG.info("testDelayedDeleteOnFailure");
+  startCluster(1);
+  final SplitLogManager slm=master.getMasterFileSystem().splitLogManager;
+  final FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  final Path logDir=new Path(FSUtils.getRootDir(conf),"x");
+  fs.mkdirs(logDir);
+  final Path corruptedLogFile=new Path(logDir,"x");
+  FSDataOutputStream out;
+  out=fs.create(corruptedLogFile);
+  out.write(0);
+  out.write(Bytes.toBytes("corrupted bytes"));
+  out.close();
+  slm.ignoreZKDeleteForTesting=true;
+  Thread t=new Thread(){
+    @Override public void run(){
+      try {
+        slm.splitLogDistributed(logDir);
+      }
+ catch (      IOException ioe) {
+        try {
+          assertTrue(fs.exists(corruptedLogFile));
+          slm.splitLogDistributed(logDir);
+        }
+ catch (        IOException e) {
+          assertTrue(Thread.currentThread().isInterrupted());
+          return;
+        }
+        fail("did not get the expected IOException from the 2nd call");
+      }
+      fail("did not get the expected IOException from the 1st call");
+    }
+  }
+;
+  t.start();
+  waitForCounter(tot_mgr_wait_for_zk_delete,0,1,10000);
+  t.interrupt();
+  t.join();
+}
