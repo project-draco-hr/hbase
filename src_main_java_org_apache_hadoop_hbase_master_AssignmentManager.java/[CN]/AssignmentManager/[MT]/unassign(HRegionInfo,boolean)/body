@@ -8,11 +8,16 @@ synchronized (this.regions) {
   }
   String encodedName=region.getEncodedName();
   RegionState state;
+  int versionOfClosingNode=-1;
 synchronized (regionsInTransition) {
     state=regionsInTransition.get(encodedName);
     if (state == null) {
       try {
-        ZKAssign.createNodeClosing(master.getZooKeeper(),region,master.getServerName());
+        versionOfClosingNode=ZKAssign.createNodeClosing(master.getZooKeeper(),region,master.getServerName());
+        if (versionOfClosingNode == -1) {
+          LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " but ZK closing node "+ "can't be created.");
+          return;
+        }
       }
  catch (      KeeperException e) {
         if (e instanceof NodeExistsException) {
@@ -53,14 +58,14 @@ synchronized (this.regions) {
     server=regions.get(region);
   }
   try {
-    if (serverManager.sendRegionClose(server,state.getRegion())) {
+    if (serverManager.sendRegionClose(server,state.getRegion(),versionOfClosingNode)) {
       LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
       return;
     }
-    LOG.warn("Server " + server + " region CLOSE RPC returned false for "+ region.getEncodedName());
+    LOG.warn("Server " + server + " region CLOSE RPC returned false for "+ region.getRegionNameAsString());
   }
  catch (  NotServingRegionException nsre) {
-    LOG.info("Server " + server + " returned "+ nsre+ " for "+ region.getEncodedName());
+    LOG.info("Server " + server + " returned "+ nsre+ " for "+ region.getRegionNameAsString());
   }
 catch (  Throwable t) {
     if (t instanceof RemoteException) {
