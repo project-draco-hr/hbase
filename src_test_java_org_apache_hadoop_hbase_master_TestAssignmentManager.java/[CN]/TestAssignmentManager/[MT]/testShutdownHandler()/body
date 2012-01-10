@@ -1,0 +1,26 @@
+{
+  ExecutorService executor=startupMasterExecutor("testShutdownHandler");
+  CatalogTracker ct=Mockito.mock(CatalogTracker.class);
+  AssignmentManager am=new AssignmentManager(this.server,this.serverManager,ct,executor);
+  try {
+    this.watcher.registerListenerFirst(am);
+    HRegionInterface implementation=Mockito.mock(HRegionInterface.class);
+    Result r=getMetaTableRowResult(REGIONINFO,SERVERNAME_A);
+    Mockito.when(implementation.openScanner((byte[])Mockito.any(),(Scan)Mockito.any())).thenReturn(System.currentTimeMillis());
+    Mockito.when(implementation.next(Mockito.anyLong(),Mockito.anyInt())).thenReturn(new Result[]{r},(Result[])null);
+    HConnection connection=HConnectionTestingUtility.getMockedConnectionAndDecorate(HTU.getConfiguration(),implementation,SERVERNAME_B,REGIONINFO);
+    Mockito.when(ct.getConnection()).thenReturn(connection);
+    Mockito.when(this.server.getCatalogTracker()).thenReturn(ct);
+    DeadServer deadServers=new DeadServer();
+    deadServers.add(SERVERNAME_A);
+    MasterServices services=Mockito.mock(MasterServices.class);
+    Mockito.when(services.getAssignmentManager()).thenReturn(am);
+    ServerShutdownHandler handler=new ServerShutdownHandler(this.server,services,deadServers,SERVERNAME_A,false);
+    handler.process();
+  }
+  finally {
+    executor.shutdown();
+    am.shutdown();
+    ZKAssign.deleteAllNodes(this.watcher);
+  }
+}

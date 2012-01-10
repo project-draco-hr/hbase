@@ -1,0 +1,39 @@
+{
+  Configuration c=getConnection().getConfiguration();
+  final long pause=c.getLong(HConstants.HBASE_CLIENT_PAUSE,HConstants.DEFAULT_HBASE_CLIENT_PAUSE);
+  final int numRetries=c.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
+  List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
+  for (int tries=0; tries < numRetries; tries++) {
+    try {
+      beforeCall();
+      connect(tries != 0);
+      return call();
+    }
+ catch (    Throwable t) {
+      shouldRetry(t);
+      t=translateException(t);
+      if (t instanceof SocketTimeoutException || t instanceof ConnectException || t instanceof RetriesExhaustedException) {
+        HRegionLocation hrl=location;
+        if (hrl != null) {
+          getConnection().clearCaches(hrl.getServerAddress().toString());
+        }
+      }
+      RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,System.currentTimeMillis(),toString());
+      exceptions.add(qt);
+      if (tries == numRetries - 1) {
+        throw new RetriesExhaustedException(tries,exceptions);
+      }
+    }
+ finally {
+      afterCall();
+    }
+    try {
+      Thread.sleep(ConnectionUtils.getPauseTime(pause,tries));
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Giving up after tries=" + tries,e);
+    }
+  }
+  return null;
+}

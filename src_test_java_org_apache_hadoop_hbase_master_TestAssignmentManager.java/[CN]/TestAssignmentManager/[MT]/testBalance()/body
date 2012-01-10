@@ -1,0 +1,28 @@
+{
+  ExecutorService executor=startupMasterExecutor("testBalanceExecutor");
+  CatalogTracker ct=Mockito.mock(CatalogTracker.class);
+  AssignmentManager am=new AssignmentManager(this.server,this.serverManager,ct,executor);
+  try {
+    this.watcher.registerListenerFirst(am);
+    am.regionOnline(REGIONINFO,SERVERNAME_A);
+    RegionPlan plan=new RegionPlan(REGIONINFO,SERVERNAME_A,SERVERNAME_B);
+    am.balance(plan);
+    int versionid=ZKAssign.transitionNodeClosed(this.watcher,REGIONINFO,SERVERNAME_A,-1);
+    assertNotSame(versionid,-1);
+    while (!ZKAssign.verifyRegionState(this.watcher,REGIONINFO,EventType.M_ZK_REGION_OFFLINE)) {
+      Threads.sleep(1);
+    }
+    versionid=ZKAssign.getVersion(this.watcher,REGIONINFO);
+    assertNotSame(-1,versionid);
+    versionid=ZKAssign.transitionNode(server.getZooKeeper(),REGIONINFO,SERVERNAME_A,EventType.M_ZK_REGION_OFFLINE,EventType.RS_ZK_REGION_OPENING,versionid);
+    assertNotSame(-1,versionid);
+    versionid=ZKAssign.transitionNodeOpened(this.watcher,REGIONINFO,SERVERNAME_B,versionid);
+    assertNotSame(-1,versionid);
+    while (am.isRegionInTransition(REGIONINFO) != null)     Threads.sleep(1);
+  }
+  finally {
+    executor.shutdown();
+    am.shutdown();
+    ZKAssign.deleteAllNodes(this.watcher);
+  }
+}
