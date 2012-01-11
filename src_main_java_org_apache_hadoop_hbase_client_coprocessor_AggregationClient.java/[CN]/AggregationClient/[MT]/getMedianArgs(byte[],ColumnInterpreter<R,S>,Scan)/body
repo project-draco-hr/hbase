@@ -1,0 +1,28 @@
+{
+  validateParameters(scan);
+  final NavigableMap<byte[],List<S>> map=new TreeMap<byte[],List<S>>(Bytes.BYTES_COMPARATOR);
+class StdCallback implements Batch.Callback<List<S>> {
+    S sumVal=null, sumWeights=null;
+    public Pair<NavigableMap<byte[],List<S>>,List<S>> getMedianParams(){
+      List<S> l=new ArrayList<S>();
+      l.add(sumVal);
+      l.add(sumWeights);
+      Pair<NavigableMap<byte[],List<S>>,List<S>> p=new Pair<NavigableMap<byte[],List<S>>,List<S>>(map,l);
+      return p;
+    }
+    @Override public synchronized void update(    byte[] region,    byte[] row,    List<S> result){
+      map.put(row,result);
+      sumVal=ci.add(sumVal,result.get(0));
+      sumWeights=ci.add(sumWeights,result.get(1));
+    }
+  }
+  StdCallback stdCallback=new StdCallback();
+  HTable table=new HTable(conf,tableName);
+  table.coprocessorExec(AggregateProtocol.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateProtocol,List<S>>(){
+    @Override public List<S> call(    AggregateProtocol instance) throws IOException {
+      return instance.getMedian(ci,scan);
+    }
+  }
+,stdCallback);
+  return stdCallback.getMedianParams();
+}
