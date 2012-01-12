@@ -3,8 +3,33 @@
   try {
     ImmutableList<StoreFile> result=storefiles;
     storefiles=ImmutableList.of();
-    for (    StoreFile f : result) {
-      f.closeReader(true);
+    if (!result.isEmpty()) {
+      ThreadPoolExecutor storeFileCloserThreadPool=this.region.getStoreFileOpenAndCloseThreadPool("StoreFileCloserThread-" + this.family.getNameAsString());
+      CompletionService<Void> completionService=new ExecutorCompletionService<Void>(storeFileCloserThreadPool);
+      for (      final StoreFile f : result) {
+        completionService.submit(new Callable<Void>(){
+          public Void call() throws IOException {
+            f.closeReader(true);
+            return null;
+          }
+        }
+);
+      }
+      try {
+        for (int i=0; i < result.size(); i++) {
+          Future<Void> future=completionService.take();
+          future.get();
+        }
+      }
+ catch (      InterruptedException e) {
+        throw new IOException(e);
+      }
+catch (      ExecutionException e) {
+        throw new IOException(e.getCause());
+      }
+ finally {
+        storeFileCloserThreadPool.shutdownNow();
+      }
     }
     LOG.debug("closed " + this.storeNameStr);
     return result;

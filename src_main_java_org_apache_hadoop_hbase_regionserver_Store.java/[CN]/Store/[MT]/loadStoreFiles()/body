@@ -1,25 +1,53 @@
 {
   ArrayList<StoreFile> results=new ArrayList<StoreFile>();
   FileStatus files[]=FSUtils.listStatus(this.fs,this.homedir,null);
-  for (int i=0; files != null && i < files.length; i++) {
+  if (files == null || files.length == 0) {
+    return results;
+  }
+  ThreadPoolExecutor storeFileOpenerThreadPool=this.region.getStoreFileOpenAndCloseThreadPool("StoreFileOpenerThread-" + this.family.getNameAsString());
+  CompletionService<StoreFile> completionService=new ExecutorCompletionService<StoreFile>(storeFileOpenerThreadPool);
+  int totalValidStoreFile=0;
+  for (int i=0; i < files.length; i++) {
     if (files[i].isDir()) {
       continue;
     }
-    Path p=files[i].getPath();
+    final Path p=files[i].getPath();
     if (this.fs.getFileStatus(p).getLen() <= 0) {
       LOG.warn("Skipping " + p + " because its empty. HBASE-646 DATA LOSS?");
       continue;
     }
-    StoreFile curfile=new StoreFile(fs,p,this.conf,this.cacheConf,this.family.getBloomFilterType());
-    passSchemaMetricsTo(curfile);
-    curfile.createReader();
-    long length=curfile.getReader().length();
-    this.storeSize+=length;
-    this.totalUncompressedBytes+=curfile.getReader().getTotalUncompressedBytes();
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("loaded " + curfile.toStringDetailed());
+    completionService.submit(new Callable<StoreFile>(){
+      public StoreFile call() throws IOException {
+        StoreFile storeFile=new StoreFile(fs,p,conf,cacheConf,family.getBloomFilterType());
+        passSchemaMetricsTo(storeFile);
+        storeFile.createReader();
+        return storeFile;
+      }
     }
-    results.add(curfile);
+);
+    totalValidStoreFile++;
+  }
+  try {
+    for (int i=0; i < totalValidStoreFile; i++) {
+      Future<StoreFile> future=completionService.take();
+      StoreFile storeFile=future.get();
+      long length=storeFile.getReader().length();
+      this.storeSize+=length;
+      this.totalUncompressedBytes+=storeFile.getReader().getTotalUncompressedBytes();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("loaded " + storeFile.toStringDetailed());
+      }
+      results.add(storeFile);
+    }
+  }
+ catch (  InterruptedException e) {
+    throw new IOException(e);
+  }
+catch (  ExecutionException e) {
+    throw new IOException(e.getCause());
+  }
+ finally {
+    storeFileOpenerThreadPool.shutdownNow();
   }
   return results;
 }
