@@ -6,25 +6,33 @@
   FileSystem fs=TEST_UTIL.getTestFileSystem();
   final Path logDir=new Path(fs.getWorkingDirectory(),UUID.randomUUID().toString());
   fs.mkdirs(logDir);
-  Path logFile=new Path(logDir,UUID.randomUUID().toString());
-  fs.createNewFile(logFile);
-  new Thread(){
-    public void run(){
-      try {
-        slm.splitLogDistributed(logDir);
-      }
- catch (      Exception e) {
-        LOG.warn("splitLogDistributed failed",e);
-        fail();
+  Thread thread=null;
+  try {
+    Path logFile=new Path(logDir,UUID.randomUUID().toString());
+    fs.createNewFile(logFile);
+    thread=new Thread(){
+      public void run(){
+        try {
+          slm.splitLogDistributed(logDir);
+        }
+ catch (        Exception e) {
+          LOG.warn("splitLogDistributed failed",e);
+        }
       }
     }
+;
+    thread.start();
+    waitForCounter(tot_mgr_node_create_result,0,1,10000);
+    String znode=ZKSplitLog.getEncodedNodeName(zkw,logFile.toString());
+    ZKUtil.deleteNode(zkw,znode);
+    waitForCounter(tot_mgr_get_data_nonode,0,1,30000);
+    waitForCounter(tot_mgr_log_split_batch_success,0,1,1000);
+    assertTrue(fs.exists(logFile));
   }
-.start();
-  waitForCounter(tot_mgr_node_create_result,0,1,10000);
-  String znode=ZKSplitLog.getEncodedNodeName(zkw,logFile.toString());
-  ZKUtil.deleteNode(zkw,znode);
-  waitForCounter(tot_mgr_get_data_nonode,0,1,30000);
-  waitForCounter(tot_mgr_log_split_batch_success,0,1,1000);
-  assertTrue(fs.exists(logFile));
-  fs.delete(logDir,true);
+  finally {
+    if (thread != null) {
+      thread.interrupt();
+    }
+    fs.delete(logDir,true);
+  }
 }
