@@ -1,0 +1,41 @@
+{
+  boolean op=true;
+  for (int i=0; i < numOps; i++) {
+    try {
+      if (r.nextFloat() < 0.001) {
+        LOG.debug("flushing");
+        region.flushcache();
+      }
+      long ts=timeStamps.incrementAndGet();
+      RowMutation arm=new RowMutation(row);
+      if (op) {
+        Put p=new Put(row,ts);
+        p.add(fam1,qual1,value1);
+        arm.add(p);
+        Delete d=new Delete(row);
+        d.deleteColumns(fam1,qual2,ts);
+        arm.add(d);
+      }
+ else {
+        Delete d=new Delete(row);
+        d.deleteColumns(fam1,qual1,ts);
+        arm.add(d);
+        Put p=new Put(row,ts);
+        p.add(fam1,qual2,value2);
+        arm.add(p);
+      }
+      region.mutateRow(arm,null);
+      op^=true;
+      Get g=new Get(row);
+      Result r=region.get(g,null);
+      if (r.size() != 1) {
+        LOG.debug(r);
+        failures.incrementAndGet();
+        fail();
+      }
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+    }
+  }
+}

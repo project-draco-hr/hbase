@@ -1,8 +1,8 @@
 {
   Map<byte[],List<KeyValue>> familyMap=delete.getFamilyMap();
-  WALEdit walEdit=new WALEdit();
-  if (coprocessorHost != null) {
-    if (coprocessorHost.preDelete(delete,walEdit,writeToWAL)) {
+  WALEdit localWalEdit=walEdit == null ? new WALEdit() : walEdit;
+  if (coprocessorHost != null && walEdit == null) {
+    if (coprocessorHost.preDelete(delete,localWalEdit,writeToWAL)) {
       return;
     }
   }
@@ -47,17 +47,17 @@
       }
     }
     if (writeToWAL) {
-      addFamilyMapToWALEdit(familyMap,walEdit);
-      this.log.append(regionInfo,this.htableDescriptor.getName(),walEdit,clusterId,now,this.htableDescriptor);
+      addFamilyMapToWALEdit(familyMap,localWalEdit);
+      this.log.append(regionInfo,this.htableDescriptor.getName(),localWalEdit,clusterId,now,this.htableDescriptor);
     }
-    long addedSize=applyFamilyMapToMemstore(familyMap,null);
+    long addedSize=applyFamilyMapToMemstore(familyMap,writeEntry);
     flush=isFlushSize(this.addAndGetGlobalMemstoreSize(addedSize));
-    if (coprocessorHost != null) {
-      coprocessorHost.postDelete(delete,walEdit,writeToWAL);
-    }
   }
   finally {
     this.updatesLock.readLock().unlock();
+  }
+  if (coprocessorHost != null && walEdit == null) {
+    coprocessorHost.postDelete(delete,localWalEdit,writeToWAL);
   }
   final long after=EnvironmentEdgeManager.currentTimeMillis();
   final String metricPrefix=SchemaMetrics.generateSchemaMetricsPrefix(getTableDesc().getNameAsString(),familyMap.keySet());
