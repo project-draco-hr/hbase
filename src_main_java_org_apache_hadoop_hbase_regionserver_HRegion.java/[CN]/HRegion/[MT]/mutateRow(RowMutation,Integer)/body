@@ -1,68 +1,79 @@
 {
+  boolean flush=false;
   startRegionOperation();
-  List<WALEdit> walEdits=new ArrayList<WALEdit>(rm.getMutations().size());
-  for (  Mutation m : rm.getMutations()) {
-    WALEdit walEdit=new WALEdit();
-    walEdits.add(walEdit);
-    if (coprocessorHost == null) {
-      continue;
-    }
-    if (m instanceof Put) {
-      if (coprocessorHost.prePut((Put)m,walEdit,m.getWriteToWAL())) {
-        return 0;
-      }
-    }
- else     if (m instanceof Delete) {
-      Delete d=(Delete)m;
-      prepareDelete(d);
-      if (coprocessorHost.preDelete(d,walEdit,d.getWriteToWAL())) {
-        return 0;
-      }
-    }
-  }
-  Integer lid=getLock(lockid,rm.getRow(),true);
-  this.updatesLock.readLock().lock();
-  MultiVersionConsistencyControl.WriteEntry w=mvcc.beginMemstoreInsert();
+  Integer lid=null;
   try {
-    int i=0;
-    for (    Mutation m : rm.getMutations()) {
-      if (m instanceof Put) {
-        internalPut((Put)m,HConstants.DEFAULT_CLUSTER_ID,m.getWriteToWAL(),w,walEdits.get(i));
-      }
- else       if (m instanceof Delete) {
-        Delete d=(Delete)m;
-        prepareDelete(d);
-        internalDelete(d,HConstants.DEFAULT_CLUSTER_ID,d.getWriteToWAL(),w,walEdits.get(i));
-      }
- else {
-        throw new DoNotRetryIOException("Action must be Put or Delete. But was: " + m.getClass().getName());
-      }
-      i++;
-    }
-    return i;
-  }
-  finally {
-    mvcc.completeMemstoreInsert(w);
-    this.updatesLock.readLock().unlock();
-    try {
-      if (coprocessorHost != null) {
-        int i=0;
-        for (        Mutation m : rm.getMutations()) {
-          if (m instanceof Put) {
-            coprocessorHost.postPut((Put)m,walEdits.get(i),m.getWriteToWAL());
+    WALEdit walEdit=new WALEdit();
+    if (coprocessorHost != null) {
+      for (      Mutation m : rm.getMutations()) {
+        if (m instanceof Put) {
+          if (coprocessorHost.prePut((Put)m,walEdit,m.getWriteToWAL())) {
+            return;
           }
- else           if (m instanceof Delete) {
-            coprocessorHost.postDelete((Delete)m,walEdits.get(i),m.getWriteToWAL());
+        }
+ else         if (m instanceof Delete) {
+          Delete d=(Delete)m;
+          prepareDelete(d);
+          if (coprocessorHost.preDelete(d,walEdit,d.getWriteToWAL())) {
+            return;
           }
-          i++;
         }
       }
     }
-  finally {
-      if (lid != null) {
-        releaseRowLock(lid);
+    lid=getLock(lockid,rm.getRow(),true);
+    this.updatesLock.readLock().lock();
+    MultiVersionConsistencyControl.WriteEntry w=mvcc.beginMemstoreInsert();
+    long now=EnvironmentEdgeManager.currentTimeMillis();
+    byte[] byteNow=Bytes.toBytes(now);
+    try {
+      for (      Mutation m : rm.getMutations()) {
+        if (m instanceof Put) {
+          Map<byte[],List<KeyValue>> familyMap=m.getFamilyMap();
+          checkFamilies(familyMap.keySet());
+          checkTimestamps(familyMap,now);
+          updateKVTimestamps(familyMap.values(),byteNow);
+        }
+ else         if (m instanceof Delete) {
+          Delete d=(Delete)m;
+          prepareDelete(d);
+          prepareDeleteTimestamps(d,byteNow);
+        }
+ else {
+          throw new DoNotRetryIOException("Action must be Put or Delete. But was: " + m.getClass().getName());
+        }
+        if (m.getWriteToWAL()) {
+          addFamilyMapToWALEdit(m.getFamilyMap(),walEdit);
+        }
       }
-      closeRegionOperation();
+      this.log.append(regionInfo,this.htableDescriptor.getName(),walEdit,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+      long addedSize=0;
+      for (      Mutation m : rm.getMutations()) {
+        addedSize+=applyFamilyMapToMemstore(m.getFamilyMap(),w);
+      }
+      flush=isFlushSize(this.addAndGetGlobalMemstoreSize(addedSize));
     }
+  finally {
+      mvcc.completeMemstoreInsert(w);
+      this.updatesLock.readLock().unlock();
+    }
+    if (coprocessorHost != null) {
+      for (      Mutation m : rm.getMutations()) {
+        if (m instanceof Put) {
+          coprocessorHost.postPut((Put)m,walEdit,m.getWriteToWAL());
+        }
+ else         if (m instanceof Delete) {
+          coprocessorHost.postDelete((Delete)m,walEdit,m.getWriteToWAL());
+        }
+      }
+    }
+  }
+  finally {
+    if (lid != null) {
+      releaseRowLock(lid);
+    }
+    if (flush) {
+      requestFlush();
+    }
+    closeRegionOperation();
   }
 }
