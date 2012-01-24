@@ -1,0 +1,74 @@
+{
+  servlet.getMetrics().incrementRequests(1);
+  if (servlet.isReadOnly()) {
+    throw new WebApplicationException(Response.Status.FORBIDDEN);
+  }
+  HTablePool pool=servlet.getTablePool();
+  HTableInterface table=null;
+  try {
+    if (model.getRows().size() != 1) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    RowModel rowModel=model.getRows().get(0);
+    byte[] key=rowModel.getKey();
+    if (key == null) {
+      key=rowspec.getRow();
+    }
+    if (key == null) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    if (rowModel.getCells().size() != 2) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    Put put=new Put(key);
+    CellModel valueToPutCell=rowModel.getCells().get(0);
+    byte[] valueToPutColumn=valueToPutCell.getColumn();
+    if (valueToPutColumn == null) {
+      try {
+        valueToPutColumn=rowspec.getColumns()[0];
+      }
+ catch (      final ArrayIndexOutOfBoundsException e) {
+        throw new WebApplicationException(Response.Status.BAD_REQUEST);
+      }
+    }
+    byte[][] valueToPutParts=KeyValue.parseColumn(valueToPutColumn);
+    if (valueToPutParts.length == 2 && valueToPutParts[1].length > 0) {
+      put.add(valueToPutParts[0],valueToPutParts[1],valueToPutCell.getTimestamp(),valueToPutCell.getValue());
+    }
+ else {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    CellModel valueToCheckCell=rowModel.getCells().get(1);
+    byte[] valueToCheckColumn=valueToCheckCell.getColumn();
+    if (valueToCheckColumn == null) {
+      try {
+        valueToCheckColumn=rowspec.getColumns()[1];
+      }
+ catch (      final ArrayIndexOutOfBoundsException e) {
+        throw new WebApplicationException(Response.Status.BAD_REQUEST);
+      }
+    }
+    table=pool.getTable(tableResource.getName());
+    boolean retValue=table.checkAndPut(key,valueToPutParts[0],valueToPutParts[1],valueToCheckCell.getValue(),put);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("CHECK-AND-PUT " + put.toString() + ", returns "+ retValue);
+    }
+    table.flushCommits();
+    ResponseBuilder response=Response.ok();
+    if (!retValue) {
+      response=Response.status(304);
+    }
+    return response.build();
+  }
+ catch (  final IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+ finally {
+    try {
+      pool.putTable(table);
+    }
+ catch (    IOException ioe) {
+      throw new WebApplicationException(ioe,Response.Status.SERVICE_UNAVAILABLE);
+    }
+  }
+}
