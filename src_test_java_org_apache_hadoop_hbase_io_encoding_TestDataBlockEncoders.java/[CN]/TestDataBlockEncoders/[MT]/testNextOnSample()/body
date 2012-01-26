@@ -1,0 +1,37 @@
+{
+  List<KeyValue> sampleKv=generator.generateTestKeyValues(NUMBER_OF_KV);
+  ByteBuffer originalBuffer=RedundantKVGenerator.convertKvToByteBuffer(sampleKv,includesMemstoreTS);
+  List<DataBlockEncoder> dataBlockEncoders=DataBlockEncoding.getAllEncoders();
+  for (  DataBlockEncoder encoder : dataBlockEncoders) {
+    ByteArrayOutputStream baos=new ByteArrayOutputStream();
+    DataOutputStream dataOut=new DataOutputStream(baos);
+    try {
+      encoder.compressKeyValues(dataOut,originalBuffer,includesMemstoreTS);
+    }
+ catch (    IOException e) {
+      throw new RuntimeException(String.format("Bug while encoding using '%s'",encoder.toString()),e);
+    }
+    ByteBuffer encodedBuffer=ByteBuffer.wrap(baos.toByteArray());
+    DataBlockEncoder.EncodedSeeker seeker=encoder.createSeeker(KeyValue.KEY_COMPARATOR,includesMemstoreTS);
+    seeker.setCurrentBuffer(encodedBuffer);
+    int i=0;
+    do {
+      KeyValue expectedKeyValue=sampleKv.get(i);
+      ByteBuffer keyValue=seeker.getKeyValueBuffer();
+      if (0 != Bytes.compareTo(keyValue.array(),keyValue.arrayOffset(),keyValue.limit(),expectedKeyValue.getBuffer(),expectedKeyValue.getOffset(),expectedKeyValue.getLength())) {
+        int commonPrefix=0;
+        byte[] left=keyValue.array();
+        byte[] right=expectedKeyValue.getBuffer();
+        int leftOff=keyValue.arrayOffset();
+        int rightOff=expectedKeyValue.getOffset();
+        int length=Math.min(keyValue.limit(),expectedKeyValue.getLength());
+        while (commonPrefix < length && left[commonPrefix + leftOff] == right[commonPrefix + rightOff]) {
+          commonPrefix++;
+        }
+        fail(String.format("next() produces wrong results " + "encoder: %s i: %d commonPrefix: %d" + "\n expected %s\n actual      %s",encoder.toString(),i,commonPrefix,Bytes.toStringBinary(expectedKeyValue.getBuffer(),expectedKeyValue.getOffset(),expectedKeyValue.getLength()),Bytes.toStringBinary(keyValue)));
+      }
+      i++;
+    }
+ while (seeker.next());
+  }
+}

@@ -1,0 +1,36 @@
+{
+  final int uncompressedSize=uncompressedOutputStream.size();
+  final ByteArrayInputStream bais=new ByteArrayInputStream(getCompressedData());
+  final DataInputStream dis=new DataInputStream(bais);
+  return new Iterator<KeyValue>(){
+    private ByteBuffer decompressedData=null;
+    @Override public boolean hasNext(){
+      if (decompressedData == null) {
+        return uncompressedSize > 0;
+      }
+      return decompressedData.hasRemaining();
+    }
+    @Override public KeyValue next(){
+      if (decompressedData == null) {
+        try {
+          decompressedData=dataBlockEncoder.uncompressKeyValues(dis,includesMemstoreTS);
+        }
+ catch (        IOException e) {
+          throw new RuntimeException("Problem with data block encoder, " + "most likely it requested more bytes than are available.",e);
+        }
+        decompressedData.rewind();
+      }
+      int offset=decompressedData.position();
+      KeyValue kv=new KeyValue(decompressedData.array(),offset);
+      decompressedData.position(offset + kv.getLength());
+      return kv;
+    }
+    @Override public void remove(){
+      throw new NotImplementedException("remove() is not supported!");
+    }
+    @Override public String toString(){
+      return "Iterator of: " + dataBlockEncoder.getClass().getName();
+    }
+  }
+;
+}
