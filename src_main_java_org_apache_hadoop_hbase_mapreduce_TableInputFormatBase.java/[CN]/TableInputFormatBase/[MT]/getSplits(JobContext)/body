@@ -2,6 +2,7 @@
   if (table == null) {
     throw new IOException("No table was provided.");
   }
+  this.nameServer=context.getConfiguration().get("hbase.nameserver.address",null);
   Pair<byte[][],byte[][]> keys=table.getStartEndKeys();
   if (keys == null || keys.getFirst() == null || keys.getFirst().length == 0) {
     throw new IOException("Expecting at least one region.");
@@ -11,7 +12,16 @@
     if (!includeRegionInSplit(keys.getFirst()[i],keys.getSecond()[i])) {
       continue;
     }
-    String regionLocation=table.getRegionLocation(keys.getFirst()[i]).getHostname();
+    HServerAddress regionServerAddress=table.getRegionLocation(keys.getFirst()[i]).getServerAddress();
+    InetAddress regionAddress=regionServerAddress.getInetSocketAddress().getAddress();
+    String regionLocation;
+    try {
+      regionLocation=reverseDNS(regionAddress);
+    }
+ catch (    NamingException e) {
+      LOG.error("Cannot resolve the host name for " + regionAddress + " because of "+ e);
+      regionLocation=regionServerAddress.getHostname();
+    }
     byte[] startRow=scan.getStartRow();
     byte[] stopRow=scan.getStopRow();
     if ((startRow.length == 0 || keys.getSecond()[i].length == 0 || Bytes.compareTo(startRow,keys.getSecond()[i]) < 0) && (stopRow.length == 0 || Bytes.compareTo(stopRow,keys.getFirst()[i]) > 0)) {
