@@ -1,0 +1,49 @@
+{
+  List<Put> puts=new ArrayList<Put>();
+  List<Delete> deletes=new ArrayList<Delete>();
+  for (  BatchMutation batch : rowBatches) {
+    byte[] row=getBytes(batch.row);
+    List<Mutation> mutations=batch.mutations;
+    Delete delete=new Delete(row);
+    addAttributes(delete,attributes);
+    Put put=new Put(row,timestamp,null);
+    addAttributes(put,attributes);
+    for (    Mutation m : mutations) {
+      byte[][] famAndQf=KeyValue.parseColumn(getBytes(m.column));
+      if (m.isDelete) {
+        if (famAndQf.length == 1) {
+          delete.deleteFamily(famAndQf[0],timestamp);
+        }
+ else {
+          delete.deleteColumns(famAndQf[0],famAndQf[1],timestamp);
+        }
+        delete.setWriteToWAL(m.writeToWAL);
+      }
+ else {
+        if (famAndQf.length == 1) {
+          put.add(famAndQf[0],HConstants.EMPTY_BYTE_ARRAY,m.value != null ? m.value.array() : HConstants.EMPTY_BYTE_ARRAY);
+        }
+ else {
+          put.add(famAndQf[0],famAndQf[1],m.value != null ? m.value.array() : HConstants.EMPTY_BYTE_ARRAY);
+        }
+        put.setWriteToWAL(m.writeToWAL);
+      }
+    }
+    if (!delete.isEmpty())     deletes.add(delete);
+    if (!put.isEmpty())     puts.add(put);
+  }
+  HTable table=null;
+  try {
+    table=getTable(tableName);
+    if (!puts.isEmpty())     table.put(puts);
+    for (    Delete del : deletes) {
+      table.delete(del);
+    }
+  }
+ catch (  IOException e) {
+    throw new IOError(e.getMessage());
+  }
+catch (  IllegalArgumentException e) {
+    throw new IllegalArgument(e.getMessage());
+  }
+}
