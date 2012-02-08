@@ -1,11 +1,12 @@
 {
-  LOG.info("Starting test testRowMutationMultiThreads");
+  LOG.info("Starting test testMultiRowMutationMultiThreads");
   initHRegion(tableName,getName(),fam1);
   int numThreads=100;
   int opsPerThread=1000;
   AtomicOperation[] all=new AtomicOperation[numThreads];
   AtomicLong timeStamps=new AtomicLong(0);
   AtomicInteger failures=new AtomicInteger(0);
+  final List<byte[]> rowsToLock=Arrays.asList(row,row2);
   for (int i=0; i < numThreads; i++) {
     all[i]=new AtomicOperation(region,opsPerThread,timeStamps,failures){
       @Override public void run(){
@@ -17,27 +18,29 @@
               region.flushcache();
             }
             long ts=timeStamps.incrementAndGet();
-            RowMutation rm=new RowMutation(row);
+            List<Mutation> mrm=new ArrayList<Mutation>();
             if (op) {
-              Put p=new Put(row,ts);
+              Put p=new Put(row2,ts);
               p.add(fam1,qual1,value1);
-              rm.add(p);
-              Delete d=new Delete(row);
-              d.deleteColumns(fam1,qual2,ts);
-              rm.add(d);
-            }
- else {
+              mrm.add(p);
               Delete d=new Delete(row);
               d.deleteColumns(fam1,qual1,ts);
-              rm.add(d);
-              Put p=new Put(row,ts);
-              p.add(fam1,qual2,value2);
-              rm.add(p);
+              mrm.add(d);
             }
-            region.mutateRow(rm);
+ else {
+              Delete d=new Delete(row2);
+              d.deleteColumns(fam1,qual1,ts);
+              mrm.add(d);
+              Put p=new Put(row,ts);
+              p.add(fam1,qual1,value2);
+              mrm.add(p);
+            }
+            region.mutateRowsWithLocks(mrm,rowsToLock);
             op^=true;
-            Get g=new Get(row);
-            Result r=region.get(g,null);
+            Scan s=new Scan(row);
+            RegionScanner rs=region.getScanner(s);
+            List<KeyValue> r=new ArrayList<KeyValue>();
+            while (rs.next(r))             ;
             if (r.size() != 1) {
               LOG.debug(r);
               failures.incrementAndGet();

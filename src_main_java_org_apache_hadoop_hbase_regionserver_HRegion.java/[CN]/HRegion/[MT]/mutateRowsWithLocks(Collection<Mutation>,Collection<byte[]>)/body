@@ -1,11 +1,11 @@
 {
   boolean flush=false;
   startRegionOperation();
-  Integer lid=null;
+  List<Integer> acquiredLocks=null;
   try {
     WALEdit walEdit=new WALEdit();
     if (coprocessorHost != null) {
-      for (      Mutation m : rm.getMutations()) {
+      for (      Mutation m : mutations) {
         if (m instanceof Put) {
           if (coprocessorHost.prePut((Put)m,walEdit,m.getWriteToWAL())) {
             return;
@@ -20,13 +20,20 @@
         }
       }
     }
-    lid=getLock(lockid,rm.getRow(),true);
+    acquiredLocks=new ArrayList<Integer>(rowsToLock.size());
+    for (    byte[] row : rowsToLock) {
+      Integer lid=getLock(null,row,true);
+      if (lid == null) {
+        throw new IOException("Failed to acquire lock on " + Bytes.toStringBinary(row));
+      }
+      acquiredLocks.add(lid);
+    }
     this.updatesLock.readLock().lock();
     MultiVersionConsistencyControl.WriteEntry w=mvcc.beginMemstoreInsert();
     long now=EnvironmentEdgeManager.currentTimeMillis();
     byte[] byteNow=Bytes.toBytes(now);
     try {
-      for (      Mutation m : rm.getMutations()) {
+      for (      Mutation m : mutations) {
         if (m instanceof Put) {
           Map<byte[],List<KeyValue>> familyMap=m.getFamilyMap();
           checkFamilies(familyMap.keySet());
@@ -47,7 +54,7 @@
       }
       this.log.append(regionInfo,this.htableDescriptor.getName(),walEdit,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
       long addedSize=0;
-      for (      Mutation m : rm.getMutations()) {
+      for (      Mutation m : mutations) {
         addedSize+=applyFamilyMapToMemstore(m.getFamilyMap(),w);
       }
       flush=isFlushSize(this.addAndGetGlobalMemstoreSize(addedSize));
@@ -57,7 +64,7 @@
       this.updatesLock.readLock().unlock();
     }
     if (coprocessorHost != null) {
-      for (      Mutation m : rm.getMutations()) {
+      for (      Mutation m : mutations) {
         if (m instanceof Put) {
           coprocessorHost.postPut((Put)m,walEdit,m.getWriteToWAL());
         }
@@ -68,8 +75,10 @@
     }
   }
   finally {
-    if (lid != null) {
-      releaseRowLock(lid);
+    if (acquiredLocks != null) {
+      for (      Integer lid : acquiredLocks) {
+        releaseRowLock(lid);
+      }
     }
     if (flush) {
       requestFlush();
