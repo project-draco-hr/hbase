@@ -1,0 +1,29 @@
+{
+  int storeFileNum=4;
+  int ttl=1;
+  Configuration conf=HBaseConfiguration.create();
+  conf.setBoolean("hbase.store.delete.expired.storefile",true);
+  HColumnDescriptor hcd=new HColumnDescriptor(family);
+  hcd.setTimeToLive(ttl);
+  init(getName(),conf,hcd);
+  long sleepTime=this.store.scanInfo.getTtl() / storeFileNum;
+  long timeStamp;
+  for (int i=1; i <= storeFileNum; i++) {
+    LOG.info("Adding some data for the store file #" + i);
+    timeStamp=EnvironmentEdgeManager.currentTimeMillis();
+    this.store.add(new KeyValue(row,family,qf1,timeStamp,(byte[])null));
+    this.store.add(new KeyValue(row,family,qf2,timeStamp,(byte[])null));
+    this.store.add(new KeyValue(row,family,qf3,timeStamp,(byte[])null));
+    flush(i);
+    Thread.sleep(sleepTime);
+  }
+  assertEquals(storeFileNum,this.store.getStorefiles().size());
+  for (int i=1; i <= storeFileNum; i++) {
+    CompactionRequest cr=this.store.requestCompaction();
+    assertEquals(1,cr.getFiles().size());
+    assertTrue(cr.getFiles().get(0).getReader().getMaxTimestamp() < (System.currentTimeMillis() - this.store.scanInfo.getTtl()));
+    this.store.compact(cr);
+    assertEquals(storeFileNum - i,this.store.getStorefiles().size());
+    Thread.sleep(sleepTime);
+  }
+}
