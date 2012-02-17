@@ -57,6 +57,19 @@ catch (          KeeperException ke) {
 synchronized (this.regions) {
     server=regions.get(region);
   }
+  if (server == null) {
+synchronized (regionsInTransition) {
+      state=regionsInTransition.get(encodedName);
+      if (state != null) {
+        State presentState=state.getState();
+        if (presentState == State.PENDING_CLOSE || presentState == State.CLOSING) {
+          this.regionsInTransition.remove(encodedName);
+        }
+      }
+    }
+    deleteClosingOrClosedNode(region);
+    return;
+  }
   try {
     if (serverManager.sendRegionClose(server,state.getRegion(),versionOfClosingNode)) {
       LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
@@ -79,6 +92,7 @@ synchronized (this.regionsInTransition) {
 synchronized (this.regions) {
             this.regions.remove(region);
           }
+          deleteClosingOrClosedNode(region);
         }
       }
       if (t instanceof RegionAlreadyInTransitionException) {
