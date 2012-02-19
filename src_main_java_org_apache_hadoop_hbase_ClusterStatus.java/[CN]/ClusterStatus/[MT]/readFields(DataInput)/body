@@ -1,5 +1,12 @@
 {
-  super.readFields(in);
+  int version=getVersion();
+  try {
+    super.readFields(in);
+  }
+ catch (  VersionMismatchException e) {
+    int startIndex=e.toString().lastIndexOf('v') + 1;
+    version=Integer.parseInt(e.toString().substring(startIndex));
+  }
   hbaseVersion=in.readUTF();
   int count=in.readInt();
   this.liveServers=new HashMap<ServerName,HServerLoad>(count);
@@ -27,5 +34,17 @@
   masterCoprocessors=new String[masterCoprocessorsLength];
   for (int i=0; i < masterCoprocessorsLength; i++) {
     masterCoprocessors[i]=in.readUTF();
+  }
+  if (version >= VERSION_MASTER_BACKUPMASTERS) {
+    this.master=ServerName.parseVersionedServerName(Bytes.readByteArray(in));
+    count=in.readInt();
+    this.backupMasters=new ArrayList<ServerName>(count);
+    for (int i=0; i < count; i++) {
+      this.backupMasters.add(ServerName.parseVersionedServerName(Bytes.readByteArray(in)));
+    }
+  }
+ else {
+    this.master=new ServerName(UNKNOWN_SERVERNAME,-1,ServerName.NON_STARTCODE);
+    this.backupMasters=new ArrayList<ServerName>(0);
   }
 }
