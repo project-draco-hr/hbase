@@ -1,0 +1,31 @@
+{
+  int delay=10 * 1000;
+  float jitterPct=0.20f;
+  conf.setLong(HConstants.MAJOR_COMPACTION_PERIOD,delay);
+  conf.setFloat("hbase.hregion.majorcompaction.jitter",jitterPct);
+  Store s=r.getStore(COLUMN_FAMILY);
+  try {
+    createStoreFile(r);
+    createStoreFile(r);
+    r.compactStores(true);
+    createStoreFile(r);
+    r.compactStores(false);
+    assertEquals(2,s.getStorefilesCount());
+    long mcTime=s.getNextMajorCompactTime();
+    for (int i=0; i < 10; ++i) {
+      assertEquals(mcTime,s.getNextMajorCompactTime());
+    }
+    long jitter=Math.round(delay * jitterPct);
+    assertTrue(delay - jitter <= mcTime && mcTime <= delay + jitter);
+    Thread.sleep(mcTime);
+    r.compactStores(false);
+    assertEquals(1,s.getStorefilesCount());
+  }
+  finally {
+    conf.setLong(HConstants.MAJOR_COMPACTION_PERIOD,1000 * 60 * 60* 24);
+    conf.setFloat("hbase.hregion.majorcompaction.jitter",0.20F);
+    createStoreFile(r);
+    r.compactStores(true);
+    assertEquals(1,s.getStorefilesCount());
+  }
+}
