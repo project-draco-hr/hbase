@@ -1,6 +1,7 @@
 {
   int lastCount=-1;
   long previousLogTime=0;
+  Set<String> closedRegions=new HashSet<String>();
   while (!isOnlineRegionsEmpty()) {
     int count=getNumberOfOnlineRegions();
     if (count != lastCount) {
@@ -15,9 +16,16 @@
     }
     for (    Map.Entry<String,HRegion> e : this.onlineRegions.entrySet()) {
       HRegionInfo hri=e.getValue().getRegionInfo();
-      if (!this.regionsInTransitionInRS.containsKey(hri.getEncodedNameAsBytes())) {
+      if (!this.regionsInTransitionInRS.containsKey(hri.getEncodedNameAsBytes()) && !closedRegions.contains(hri.getEncodedName())) {
+        closedRegions.add(hri.getEncodedName());
         closeRegion(hri,abort,false);
       }
+    }
+    if (this.regionsInTransitionInRS.isEmpty()) {
+      if (!isOnlineRegionsEmpty()) {
+        LOG.info("We were exiting though online regions are not empty, because some regions failed closing");
+      }
+      break;
     }
     Threads.sleep(200);
   }
