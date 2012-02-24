@@ -5,8 +5,22 @@
   job.setJarByClass(Importer.class);
   FileInputFormat.setInputPaths(job,inputDir);
   job.setInputFormatClass(SequenceFileInputFormat.class);
-  job.setMapperClass(Importer.class);
-  TableMapReduceUtil.initTableReducerJob(tableName,null,job);
-  job.setNumReduceTasks(0);
+  String hfileOutPath=conf.get(BULK_OUTPUT_CONF_KEY);
+  if (hfileOutPath != null) {
+    job.setMapperClass(KeyValueImporter.class);
+    HTable table=new HTable(conf,tableName);
+    job.setReducerClass(KeyValueSortReducer.class);
+    Path outputDir=new Path(hfileOutPath);
+    FileOutputFormat.setOutputPath(job,outputDir);
+    job.setMapOutputKeyClass(ImmutableBytesWritable.class);
+    job.setMapOutputValueClass(KeyValue.class);
+    HFileOutputFormat.configureIncrementalLoad(job,table);
+    TableMapReduceUtil.addDependencyJars(job.getConfiguration(),com.google.common.base.Preconditions.class);
+  }
+ else {
+    job.setMapperClass(Importer.class);
+    TableMapReduceUtil.initTableReducerJob(tableName,null,job);
+    job.setNumReduceTasks(0);
+  }
   return job;
 }
