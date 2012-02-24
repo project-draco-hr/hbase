@@ -1,0 +1,30 @@
+{
+  conf.set(HConstants.HBASE_REGION_SPLIT_POLICY_KEY,IncreasingToUpperBoundRegionSplitPolicy.class.getName());
+  RegionServerServices rss=Mockito.mock(RegionServerServices.class);
+  final List<HRegion> regions=new ArrayList<HRegion>();
+  Mockito.when(rss.getOnlineRegions(TABLENAME)).thenReturn(regions);
+  Mockito.when(mockRegion.getRegionServerServices()).thenReturn(rss);
+  long maxSplitSize=1024L;
+  htd.setMaxFileSize(maxSplitSize);
+  long flushSize=maxSplitSize / 4;
+  conf.setLong(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,flushSize);
+  htd.setMemStoreFlushSize(flushSize);
+  IncreasingToUpperBoundRegionSplitPolicy policy=(IncreasingToUpperBoundRegionSplitPolicy)RegionSplitPolicy.create(mockRegion,conf);
+  doConstantSizePolicyTests(policy);
+  Store mockStore=Mockito.mock(Store.class);
+  Mockito.doReturn(2000L).when(mockStore).getSize();
+  Mockito.doReturn(true).when(mockStore).canSplit();
+  stores.put(new byte[]{1},mockStore);
+  assertTrue(policy.shouldSplit());
+  regions.add(mockRegion);
+  Mockito.doReturn(flushSize / 2).when(mockStore).getSize();
+  assertFalse(policy.shouldSplit());
+  Mockito.doReturn(flushSize + 1).when(mockStore).getSize();
+  assertTrue(policy.shouldSplit());
+  regions.add(mockRegion);
+  assertFalse(policy.shouldSplit());
+  Mockito.doReturn((flushSize * 2 * 2) + 1).when(mockStore).getSize();
+  assertTrue(policy.shouldSplit());
+  assertEquals(maxSplitSize,policy.getSizeToCheck(1000));
+  assertEquals(maxSplitSize,policy.getSizeToCheck(0));
+}
