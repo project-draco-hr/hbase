@@ -6,12 +6,13 @@
         Path path=new Path(TEST_UTIL.getDataTestDir(),"blocks_v2_" + algo + "_"+ encoding.toString());
         FSDataOutputStream os=fs.create(path);
         HFileDataBlockEncoder dataBlockEncoder=new HFileDataBlockEncoderImpl(encoding);
-        HFileBlock.Writer hbw=new HFileBlock.Writer(algo,dataBlockEncoder,includesMemstoreTS);
+        HFileBlock.Writer hbw=new HFileBlock.Writer(algo,dataBlockEncoder,includesMemstoreTS,HFile.DEFAULT_CHECKSUM_TYPE,HFile.DEFAULT_BYTES_PER_CHECKSUM);
         long totalSize=0;
         final List<Integer> encodedSizes=new ArrayList<Integer>();
         final List<ByteBuffer> encodedBlocks=new ArrayList<ByteBuffer>();
         for (int blockId=0; blockId < numBlocks; ++blockId) {
-          writeEncodedBlock(encoding,hbw,encodedSizes,encodedBlocks,blockId);
+          DataOutputStream dos=hbw.startWriting(BlockType.DATA);
+          writeEncodedBlock(encoding,dos,encodedSizes,encodedBlocks,blockId,includesMemstoreTS);
           hbw.writeHeaderAndData(os);
           totalSize+=hbw.getOnDiskSizeWithHeader();
         }
@@ -24,6 +25,7 @@
         int pos=0;
         for (int blockId=0; blockId < numBlocks; ++blockId) {
           b=hbr.readBlockData(pos,-1,-1,pread);
+          assertEquals(0,HFile.getChecksumFailuresCount());
           b.sanityCheck();
           pos+=b.getOnDiskSizeWithHeader();
           assertEquals((int)encodedSizes.get(blockId),b.getUncompressedSizeWithoutHeader());

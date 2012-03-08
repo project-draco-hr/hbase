@@ -1,17 +1,19 @@
 {
   Path hfilePath=new Path(new Path(util.getDataTestDir("internalScannerExposesErrors"),"regionname"),"familyname");
-  FaultyFileSystem fs=new FaultyFileSystem(util.getTestFileSystem());
+  HFileSystem hfs=(HFileSystem)util.getTestFileSystem();
+  FaultyFileSystem faultyfs=new FaultyFileSystem(hfs.getBackingFs());
+  FileSystem fs=new HFileSystem(faultyfs);
   CacheConfig cacheConf=new CacheConfig(util.getConfiguration());
-  StoreFile.Writer writer=new StoreFile.WriterBuilder(util.getConfiguration(),cacheConf,fs,2 * 1024).withOutputDir(hfilePath).build();
+  StoreFile.Writer writer=new StoreFile.WriterBuilder(util.getConfiguration(),cacheConf,hfs,2 * 1024).withOutputDir(hfilePath).build();
   TestStoreFile.writeStoreFile(writer,Bytes.toBytes("cf"),Bytes.toBytes("qual"));
   StoreFile sf=new StoreFile(fs,writer.getPath(),util.getConfiguration(),cacheConf,StoreFile.BloomType.NONE,NoOpDataBlockEncoder.INSTANCE);
   StoreFile.Reader reader=sf.createReader();
   HFileScanner scanner=reader.getScanner(false,true);
-  FaultyInputStream inStream=fs.inStreams.get(0).get();
+  FaultyInputStream inStream=faultyfs.inStreams.get(0).get();
   assertNotNull(inStream);
   scanner.seekTo();
   assertTrue(scanner.next());
-  inStream.startFaults();
+  faultyfs.startFaults();
   try {
     int scanned=0;
     while (scanner.next()) {

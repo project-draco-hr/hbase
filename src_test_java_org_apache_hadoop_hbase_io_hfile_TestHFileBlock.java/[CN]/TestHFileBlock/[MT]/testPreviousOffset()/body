@@ -3,7 +3,7 @@
     for (    boolean pread : BOOLEAN_VALUES) {
       for (      boolean cacheOnWrite : BOOLEAN_VALUES) {
         Random rand=defaultRandom();
-        LOG.info("Compression algorithm: " + algo + ", pread="+ pread);
+        LOG.info("testPreviousOffset:Compression algorithm: " + algo + ", pread="+ pread+ ", cacheOnWrite="+ cacheOnWrite);
         Path path=new Path(TEST_UTIL.getDataTestDir(),"prev_offset");
         List<Long> expectedOffsets=new ArrayList<Long>();
         List<Long> expectedPrevOffsets=new ArrayList<Long>();
@@ -37,15 +37,23 @@
           assertEquals(b.getUncompressedSizeWithoutHeader(),b2.getUncompressedSizeWithoutHeader());
           assertEquals(b.getPrevBlockOffset(),b2.getPrevBlockOffset());
           assertEquals(curOffset,b2.getOffset());
+          assertEquals(b.getBytesPerChecksum(),b2.getBytesPerChecksum());
+          assertEquals(b.getOnDiskDataSizeWithHeader(),b2.getOnDiskDataSizeWithHeader());
+          assertEquals(0,HFile.getChecksumFailuresCount());
           curOffset+=b.getOnDiskSizeWithHeader();
           if (cacheOnWrite) {
             ByteBuffer bufRead=b.getBufferWithHeader();
             ByteBuffer bufExpected=expectedContents.get(i);
-            boolean bytesAreCorrect=Bytes.compareTo(bufRead.array(),bufRead.arrayOffset(),bufRead.limit(),bufExpected.array(),bufExpected.arrayOffset(),bufExpected.limit()) == 0;
+            boolean bytesAreCorrect=Bytes.compareTo(bufRead.array(),bufRead.arrayOffset(),bufRead.limit() - b.totalChecksumBytes(),bufExpected.array(),bufExpected.arrayOffset(),bufExpected.limit()) == 0;
             String wrongBytesMsg="";
             if (!bytesAreCorrect) {
-              wrongBytesMsg="Expected bytes in block #" + i + " (algo="+ algo+ ", pread="+ pread+ "):\n";
+              wrongBytesMsg="Expected bytes in block #" + i + " (algo="+ algo+ ", pread="+ pread+ ", cacheOnWrite="+ cacheOnWrite+ "):\n";
               wrongBytesMsg+=Bytes.toStringBinary(bufExpected.array(),bufExpected.arrayOffset(),Math.min(32,bufExpected.limit())) + ", actual:\n" + Bytes.toStringBinary(bufRead.array(),bufRead.arrayOffset(),Math.min(32,bufRead.limit()));
+              if (detailedLogging) {
+                LOG.warn("expected header" + HFileBlock.toStringHeader(bufExpected) + "\nfound    header"+ HFileBlock.toStringHeader(bufRead));
+                LOG.warn("bufread offset " + bufRead.arrayOffset() + " limit "+ bufRead.limit()+ " expected offset "+ bufExpected.arrayOffset()+ " limit "+ bufExpected.limit());
+                LOG.warn(wrongBytesMsg);
+              }
             }
             assertTrue(wrongBytesMsg,bytesAreCorrect);
           }
