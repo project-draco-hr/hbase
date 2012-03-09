@@ -20,6 +20,9 @@
         }
       }
     }
+    long txid=0;
+    boolean walSyncSuccessful=false;
+    boolean locked=false;
     acquiredLocks=new ArrayList<Integer>(rowsToLock.size());
     for (    byte[] row : rowsToLock) {
       Integer lid=getLock(null,row,true);
@@ -29,6 +32,7 @@
       acquiredLocks.add(lid);
     }
     this.updatesLock.readLock().lock();
+    locked=true;
     MultiVersionConsistencyControl.WriteEntry w=mvcc.beginMemstoreInsert();
     long now=EnvironmentEdgeManager.currentTimeMillis();
     byte[] byteNow=Bytes.toBytes(now);
@@ -52,34 +56,69 @@
           addFamilyMapToWALEdit(m.getFamilyMap(),walEdit);
         }
       }
-      this.log.append(regionInfo,this.htableDescriptor.getName(),walEdit,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+      if (walEdit.size() > 0) {
+        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdit,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+      }
       long addedSize=0;
       for (      Mutation m : mutations) {
         addedSize+=applyFamilyMapToMemstore(m.getFamilyMap(),w);
       }
       flush=isFlushSize(this.addAndGetGlobalMemstoreSize(addedSize));
+      this.updatesLock.readLock().unlock();
+      locked=false;
+      if (acquiredLocks != null) {
+        for (        Integer lid : acquiredLocks) {
+          releaseRowLock(lid);
+        }
+        acquiredLocks=null;
+      }
+      if (walEdit.size() > 0 && (this.regionInfo.isMetaRegion() || !this.htableDescriptor.isDeferredLogFlush())) {
+        this.log.sync(txid);
+      }
+      walSyncSuccessful=true;
+      mvcc.completeMemstoreInsert(w);
+      w=null;
+      if (coprocessorHost != null) {
+        for (        Mutation m : mutations) {
+          if (m instanceof Put) {
+            coprocessorHost.postPut((Put)m,walEdit,m.getWriteToWAL());
+          }
+ else           if (m instanceof Delete) {
+            coprocessorHost.postDelete((Delete)m,walEdit,m.getWriteToWAL());
+          }
+        }
+      }
     }
   finally {
-      mvcc.completeMemstoreInsert(w);
-      this.updatesLock.readLock().unlock();
-    }
-    if (coprocessorHost != null) {
-      for (      Mutation m : mutations) {
-        if (m instanceof Put) {
-          coprocessorHost.postPut((Put)m,walEdit,m.getWriteToWAL());
+      if (!walSyncSuccessful) {
+        int kvsRolledback=0;
+        for (        Mutation m : mutations) {
+          for (          Map.Entry<byte[],List<KeyValue>> e : m.getFamilyMap().entrySet()) {
+            List<KeyValue> kvs=e.getValue();
+            byte[] family=e.getKey();
+            Store store=getStore(family);
+            for (            KeyValue kv : kvs) {
+              store.rollback(kv);
+              kvsRolledback++;
+            }
+          }
         }
- else         if (m instanceof Delete) {
-          coprocessorHost.postDelete((Delete)m,walEdit,m.getWriteToWAL());
+        LOG.info("mutateRowWithLocks: rolled back " + kvsRolledback + " KeyValues");
+      }
+      if (w != null) {
+        mvcc.completeMemstoreInsert(w);
+      }
+      if (locked) {
+        this.updatesLock.readLock().unlock();
+      }
+      if (acquiredLocks != null) {
+        for (        Integer lid : acquiredLocks) {
+          releaseRowLock(lid);
         }
       }
     }
   }
   finally {
-    if (acquiredLocks != null) {
-      for (      Integer lid : acquiredLocks) {
-        releaseRowLock(lid);
-      }
-    }
     if (flush) {
       requestFlush();
     }
