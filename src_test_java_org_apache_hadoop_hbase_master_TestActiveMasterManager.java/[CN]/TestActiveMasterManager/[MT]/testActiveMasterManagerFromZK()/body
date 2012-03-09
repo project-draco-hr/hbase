@@ -2,20 +2,21 @@
   ZooKeeperWatcher zk=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"testActiveMasterManagerFromZK",null,true);
   try {
     ZKUtil.deleteNode(zk,zk.masterAddressZNode);
+    ZKUtil.deleteNode(zk,zk.clusterStateZNode);
   }
  catch (  KeeperException.NoNodeException nne) {
   }
   ServerName firstMasterAddress=new ServerName("localhost",1,System.currentTimeMillis());
   ServerName secondMasterAddress=new ServerName("localhost",2,System.currentTimeMillis());
-  DummyMaster ms1=new DummyMaster();
-  ActiveMasterManager activeMasterManager=new ActiveMasterManager(zk,firstMasterAddress,ms1);
-  zk.registerListener(activeMasterManager);
+  DummyMaster ms1=new DummyMaster(zk,firstMasterAddress);
+  ActiveMasterManager activeMasterManager=ms1.getActiveMasterManager();
   assertFalse(activeMasterManager.clusterHasActiveMaster.get());
-  activeMasterManager.blockUntilBecomingActiveMaster(Mockito.mock(MonitoredTask.class));
+  ClusterStatusTracker clusterStatusTracker=ms1.getClusterStatusTracker();
+  clusterStatusTracker.setClusterUp();
+  activeMasterManager.blockUntilBecomingActiveMaster(Mockito.mock(MonitoredTask.class),clusterStatusTracker);
   assertTrue(activeMasterManager.clusterHasActiveMaster.get());
   assertMaster(zk,firstMasterAddress);
   WaitToBeMasterThread t=new WaitToBeMasterThread(zk,secondMasterAddress);
-  zk.registerListener(t.manager);
   t.start();
   int sleeps=0;
   while (!t.manager.clusterHasActiveMaster.get() && sleeps < 100) {
