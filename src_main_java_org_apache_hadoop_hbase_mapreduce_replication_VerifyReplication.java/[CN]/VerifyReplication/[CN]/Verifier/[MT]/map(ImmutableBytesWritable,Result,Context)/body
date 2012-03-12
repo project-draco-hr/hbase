@@ -17,15 +17,37 @@
     }
     HConnectionManager.execute(new HConnectable<Void>(conf){
       @Override public Void connect(      HConnection conn) throws IOException {
+        ZooKeeperWatcher localZKW=null;
+        ReplicationZookeeper zk=null;
+        ReplicationPeer peer=null;
         try {
-          ReplicationZookeeper zk=new ReplicationZookeeper(conn,conf,conn.getZooKeeperWatcher());
-          ReplicationPeer peer=zk.getPeer(conf.get(NAME + ".peerId"));
+          localZKW=new ZooKeeperWatcher(conf,"VerifyReplication",new Abortable(){
+            @Override public void abort(            String why,            Throwable e){
+            }
+            @Override public boolean isAborted(){
+              return false;
+            }
+          }
+);
+          zk=new ReplicationZookeeper(conn,conf,localZKW);
+          peer=zk.getPeer(peerId);
           HTable replicatedTable=new HTable(peer.getConfiguration(),conf.get(NAME + ".tableName"));
           scan.setStartRow(value.getRow());
           replicatedScanner=replicatedTable.getScanner(scan);
         }
  catch (        KeeperException e) {
           throw new IOException("Got a ZK exception",e);
+        }
+ finally {
+          if (peer != null) {
+            peer.close();
+          }
+          if (zk != null) {
+            zk.close();
+          }
+          if (localZKW != null) {
+            localZKW.close();
+          }
         }
         return null;
       }

@@ -1,13 +1,13 @@
 {
-  isMasterRunning();
   HTableDescriptor.isLegalTableName(tableName);
   HRegionLocation firstMetaServer=getFirstMetaServerForTable(tableName);
-  try {
-    getMaster().deleteTable(tableName);
+  execute(new MasterCallable<Void>(){
+    @Override public Void call() throws IOException {
+      master.deleteTable(tableName);
+      return null;
+    }
   }
- catch (  RemoteException e) {
-    throw RemoteExceptionHandler.decodeRemoteException(e);
-  }
+);
   HRegionInterface server=connection.getHRegionConnection(firstMetaServer.getHostname(),firstMetaServer.getPort());
   for (int tries=0; tries < (this.numRetries * this.retryLongerMultiplier); tries++) {
     long scannerId=-1L;
@@ -18,7 +18,14 @@
       Result values=server.next(scannerId);
       if (values == null) {
         boolean tableExists=false;
-        HTableDescriptor[] htds=getMaster().getHTableDescriptors();
+        HTableDescriptor[] htds;
+        MasterKeepAliveConnection master=connection.getKeepAliveMaster();
+        try {
+          htds=master.getHTableDescriptors();
+        }
+  finally {
+          master.close();
+        }
         if (htds != null && htds.length > 0) {
           for (          HTableDescriptor htd : htds) {
             if (Bytes.equals(tableName,htd.getName())) {
@@ -35,9 +42,11 @@
  catch (    IOException ex) {
       if (tries == numRetries - 1) {
         if (ex instanceof RemoteException) {
-          ex=RemoteExceptionHandler.decodeRemoteException((RemoteException)ex);
+          throw ((RemoteException)ex).unwrapRemoteException();
         }
-        throw ex;
+ else {
+          throw ex;
+        }
       }
     }
  finally {
@@ -45,7 +54,7 @@
         try {
           server.close(scannerId);
         }
- catch (        Exception ex) {
+ catch (        IOException ex) {
           LOG.warn(ex);
         }
       }

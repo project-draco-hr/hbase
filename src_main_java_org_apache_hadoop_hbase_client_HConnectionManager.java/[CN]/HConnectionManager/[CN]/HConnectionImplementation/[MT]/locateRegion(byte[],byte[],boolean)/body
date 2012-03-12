@@ -4,15 +4,20 @@
     throw new IllegalArgumentException("table name cannot be null or zero length");
   }
   if (Bytes.equals(tableName,HConstants.ROOT_TABLE_NAME)) {
+    ZooKeeperKeepAliveConnection zkw=getKeepAliveZooKeeperWatcher();
     try {
-      ServerName servername=this.rootRegionTracker.waitRootRegionLocation(this.rpcTimeout);
-      LOG.debug("Looked up root region location, connection=" + this + "; serverName="+ ((servername == null) ? "" : servername.toString()));
+      LOG.debug("Looking up root region location in ZK," + " connection=" + this);
+      ServerName servername=RootRegionTracker.dataToServerName(ZKUtil.blockUntilAvailable(zkw,zkw.rootServerZNode,this.rpcTimeout));
+      LOG.debug("Looked up root region location, connection=" + this + "; serverName="+ ((servername == null) ? "null" : servername));
       if (servername == null)       return null;
       return new HRegionLocation(HRegionInfo.ROOT_REGIONINFO,servername.getHostname(),servername.getPort());
     }
  catch (    InterruptedException e) {
       Thread.currentThread().interrupt();
       return null;
+    }
+ finally {
+      zkw.close();
     }
   }
  else   if (Bytes.equals(tableName,HConstants.META_TABLE_NAME)) {

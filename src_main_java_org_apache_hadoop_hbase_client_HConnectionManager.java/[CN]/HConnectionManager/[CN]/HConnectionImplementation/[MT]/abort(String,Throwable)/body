@@ -1,18 +1,20 @@
 {
-  if (t instanceof KeeperException.SessionExpiredException) {
-    try {
-      LOG.info("This client just lost it's session with ZooKeeper, trying" + " to reconnect.");
-      resetZooKeeperTrackers();
-      LOG.info("Reconnected successfully. This disconnect could have been" + " caused by a network partition or a long-running GC pause," + " either way it's recommended that you verify your environment.");
-      return;
-    }
- catch (    ZooKeeperConnectionException e) {
-      LOG.error("Could not reconnect to ZooKeeper after session" + " expiration, aborting");
-      t=e;
+  if (t instanceof KeeperException.SessionExpiredException && keepAliveZookeeper != null) {
+synchronized (masterAndZKLock) {
+      if (keepAliveZookeeper != null) {
+        LOG.warn("This client just lost it's session with ZooKeeper," + " closing it." + " It will be recreated next time someone needs it",t);
+        closeZooKeeperWatcher();
+      }
     }
   }
-  if (t != null)   LOG.fatal(msg,t);
- else   LOG.fatal(msg);
-  this.aborted=true;
-  this.closed=true;
+ else {
+    if (t != null) {
+      LOG.fatal(msg,t);
+    }
+ else {
+      LOG.fatal(msg);
+    }
+    this.aborted=true;
+    this.closed=true;
+  }
 }

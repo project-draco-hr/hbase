@@ -1,11 +1,41 @@
 {
   Configuration copyOfConf=HBaseConfiguration.create(conf);
   copyOfConf.setInt("hbase.client.retries.number",1);
-  HBaseAdmin admin=new HBaseAdmin(copyOfConf);
+  copyOfConf.setInt("zookeeper.recovery.retry",0);
+  HConnectionManager.HConnectionImplementation connection=(HConnectionManager.HConnectionImplementation)HConnectionManager.getConnection(copyOfConf);
   try {
-    admin.close();
+    ZooKeeperKeepAliveConnection zkw=null;
+    try {
+      zkw=connection.getKeepAliveZooKeeperWatcher();
+      zkw.getRecoverableZooKeeper().getZooKeeper().exists(zkw.baseZNode,false);
+    }
+ catch (    IOException e) {
+      throw new ZooKeeperConnectionException("Can't connect to ZooKeeper",e);
+    }
+catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ZooKeeperConnectionException("Can't connect to ZooKeeper",e);
+    }
+catch (    KeeperException e) {
+      throw new ZooKeeperConnectionException("Can't connect to ZooKeeper",e);
+    }
+ finally {
+      if (zkw != null) {
+        zkw.close();
+      }
+    }
+    MasterKeepAliveConnection master=null;
+    try {
+      master=connection.getKeepAliveMaster();
+      master.isMasterRunning();
+    }
+  finally {
+      if (master != null) {
+        master.close();
+      }
+    }
   }
- catch (  IOException ioe) {
-    admin.LOG.info("Failed to close connection",ioe);
+  finally {
+    connection.close();
   }
 }

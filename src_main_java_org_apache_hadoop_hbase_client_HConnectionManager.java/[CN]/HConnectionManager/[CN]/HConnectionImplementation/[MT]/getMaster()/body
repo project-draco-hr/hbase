@@ -1,56 +1,14 @@
 {
-  try {
-    if (master != null && master.isMasterRunning()) {
-      return master;
+synchronized (this.masterAndZKLock) {
+    canCloseMaster=false;
+    try {
+      return getKeepAliveMaster();
     }
-  }
- catch (  UndeclaredThrowableException ute) {
-    LOG.info("Exception contacting master. Retrying...",ute.getCause());
-  }
-  checkIfBaseNodeAvailable();
-  ServerName sn=null;
-synchronized (this.masterLock) {
-    this.master=null;
-    for (int tries=0; !this.closed && !this.masterChecked && this.master == null && tries < numRetries; tries++) {
-      try {
-        sn=masterAddressTracker.getMasterAddress();
-        if (sn == null) {
-          LOG.info("ZooKeeper available but no active master location found");
-          throw new MasterNotRunningException();
-        }
-        if (clusterId.hasId()) {
-          conf.set(HConstants.CLUSTER_ID,clusterId.getId());
-        }
-        InetSocketAddress isa=new InetSocketAddress(sn.getHostname(),sn.getPort());
-        HMasterInterface tryMaster=(HMasterInterface)HBaseRPC.getProxy(HMasterInterface.class,HMasterInterface.VERSION,isa,this.conf,this.rpcTimeout);
-        if (tryMaster.isMasterRunning()) {
-          this.master=tryMaster;
-          this.masterLock.notifyAll();
-          break;
-        }
-      }
- catch (      IOException e) {
-        if (tries == numRetries - 1) {
-          LOG.info("getMaster attempt " + tries + " of "+ numRetries+ " failed; no more retrying.",e);
-          break;
-        }
-        LOG.info("getMaster attempt " + tries + " of "+ numRetries+ " failed; retrying after sleep of "+ ConnectionUtils.getPauseTime(this.pause,tries),e);
-      }
-      try {
-        this.masterLock.wait(ConnectionUtils.getPauseTime(this.pause,tries));
-      }
- catch (      InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new RuntimeException("Thread was interrupted while trying to connect to master.");
-      }
+ catch (    MasterNotRunningException e) {
+      throw e;
     }
-    this.masterChecked=managed;
-    if (this.master == null) {
-      if (sn == null) {
-        throw new MasterNotRunningException();
-      }
-      throw new MasterNotRunningException(sn.toString());
+catch (    IOException e) {
+      throw new ZooKeeperConnectionException("Can't create a connection to master",e);
     }
-    return this.master;
   }
 }
