@@ -2,6 +2,8 @@
   List<Result> results=MetaReader.fullScan(this.catalogTracker);
   Map<ServerName,List<Pair<HRegionInfo,Result>>> offlineServers=new TreeMap<ServerName,List<Pair<HRegionInfo,Result>>>();
   for (  Result result : results) {
+    boolean disabled=false;
+    boolean disablingOrEnabling=false;
     Pair<HRegionInfo,ServerName> region=MetaReader.parseCatalogResult(result);
     if (region == null)     continue;
     HRegionInfo regionInfo=region.getFirst();
@@ -21,13 +23,18 @@
         offlineServers.put(regionLocation,offlineRegions);
       }
       offlineRegions.add(new Pair<HRegionInfo,Result>(regionInfo,result));
+      disabled=checkIfRegionBelongsToDisabled(regionInfo);
+      disablingOrEnabling=addTheTablesInPartialState(this.disablingTables,this.enablingTables,regionInfo,tableName);
+      enableTableIfNotDisabledOrDisablingOrEnabling(disabled,disablingOrEnabling,tableName);
     }
  else {
       if (false == checkIfRegionBelongsToDisabled(regionInfo) && false == checkIfRegionsBelongsToEnabling(regionInfo)) {
         regions.put(regionInfo,regionLocation);
         addToServers(regionLocation,regionInfo);
       }
-      addTheTablesInPartialState(this.disablingTables,this.enablingTables,regionInfo,tableName);
+      disablingOrEnabling=addTheTablesInPartialState(this.disablingTables,this.enablingTables,regionInfo,tableName);
+      disabled=checkIfRegionBelongsToDisabled(regionInfo);
+      enableTableIfNotDisabledOrDisablingOrEnabling(disabled,disablingOrEnabling,tableName);
     }
   }
   return offlineServers;
