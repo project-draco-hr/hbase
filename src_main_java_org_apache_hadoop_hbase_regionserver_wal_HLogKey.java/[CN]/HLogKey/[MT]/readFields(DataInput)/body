@@ -1,17 +1,25 @@
 {
-  int version=0;
+  Version version=Version.UNVERSIONED;
   int len=WritableUtils.readVInt(in);
   if (len < 0) {
-    version=len;
-    len=WritableUtils.readVInt(in);
+    version=Version.fromCode(len);
+    if (compressionContext == null || !version.atLeast(Version.COMPRESSED)) {
+      len=WritableUtils.readVInt(in);
+    }
   }
-  this.encodedRegionName=new byte[len];
-  in.readFully(this.encodedRegionName);
-  this.tablename=Bytes.readByteArray(in);
+  if (compressionContext == null || !version.atLeast(Version.COMPRESSED)) {
+    this.encodedRegionName=new byte[len];
+    in.readFully(this.encodedRegionName);
+    this.tablename=Bytes.readByteArray(in);
+  }
+ else {
+    this.encodedRegionName=Compressor.readCompressed(in,compressionContext.regionDict);
+    this.tablename=Compressor.readCompressed(in,compressionContext.tableDict);
+  }
   this.logSeqNum=in.readLong();
   this.writeTime=in.readLong();
   this.clusterId=HConstants.DEFAULT_CLUSTER_ID;
-  if (version < 0) {
+  if (version.atLeast(Version.INITIAL)) {
     if (in.readBoolean()) {
       this.clusterId=new UUID(in.readLong(),in.readLong());
     }
