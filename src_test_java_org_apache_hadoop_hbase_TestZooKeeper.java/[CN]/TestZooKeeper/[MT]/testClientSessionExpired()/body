@@ -1,18 +1,38 @@
 {
-  LOG.info("testClientSessionExpired");
   Configuration c=new Configuration(TEST_UTIL.getConfiguration());
-  new HTable(c,HConstants.META_TABLE_NAME).close();
+  c.set(HConstants.HBASE_CLIENT_INSTANCE_ID,"1111");
   HConnection connection=HConnectionManager.getConnection(c);
   ZooKeeperWatcher connectionZK=connection.getZooKeeperWatcher();
+  LOG.info("ZooKeeperWatcher= 0x" + Integer.toHexString(connectionZK.hashCode()));
+  LOG.info("getRecoverableZooKeeper= 0x" + Integer.toHexString(connectionZK.getRecoverableZooKeeper().hashCode()));
+  LOG.info("session=" + Long.toHexString(connectionZK.getRecoverableZooKeeper().getSessionId()));
   TEST_UTIL.expireSession(connectionZK);
-  LOG.info("Before dump state=" + connectionZK.getRecoverableZooKeeper().getState());
-  ZKUtil.dump(connectionZK);
-  LOG.info("ZooKeeper should have timed out");
+  LOG.info("Before using zkw state=" + connectionZK.getRecoverableZooKeeper().getState());
+  try {
+    connectionZK.getRecoverableZooKeeper().getZooKeeper().exists("/1/1",false);
+  }
+ catch (  KeeperException ignored) {
+  }
   States state=connectionZK.getRecoverableZooKeeper().getState();
-  LOG.info("After dump state=" + state);
+  LOG.info("After using zkw state=" + state);
+  LOG.info("session=" + Long.toHexString(connectionZK.getRecoverableZooKeeper().getSessionId()));
+  final long limit1=System.currentTimeMillis() + 3000;
+  while (System.currentTimeMillis() < limit1 && state != States.CLOSED) {
+    state=connectionZK.getRecoverableZooKeeper().getState();
+  }
+  LOG.info("After using zkw loop=" + state);
+  LOG.info("ZooKeeper should have timed out");
+  LOG.info("session=" + Long.toHexString(connectionZK.getRecoverableZooKeeper().getSessionId()));
   Assert.assertTrue(state == States.CLOSED);
   ZooKeeperWatcher newConnectionZK=connection.getZooKeeperWatcher();
   States state2=newConnectionZK.getRecoverableZooKeeper().getState();
   LOG.info("After new get state=" + state2);
+  final long limit2=System.currentTimeMillis() + 3000;
+  while (System.currentTimeMillis() < limit2 && state2 != States.CONNECTED && state2 != States.CONNECTING) {
+    newConnectionZK=connection.getZooKeeperWatcher();
+    state2=newConnectionZK.getRecoverableZooKeeper().getState();
+  }
+  LOG.info("After new get state loop=" + state2);
   Assert.assertTrue(state2 == States.CONNECTED || state2 == States.CONNECTING);
+  connection.close();
 }
