@@ -1,17 +1,18 @@
 {
   List<KeyValue> sampleKv=generator.generateTestKeyValues(NUMBER_OF_KV);
   ByteBuffer originalBuffer=RedundantKVGenerator.convertKvToByteBuffer(sampleKv,includesMemstoreTS);
-  List<DataBlockEncoder> dataBlockEncoders=DataBlockEncoding.getAllEncoders();
-  for (  DataBlockEncoder encoder : dataBlockEncoders) {
-    ByteArrayOutputStream baos=new ByteArrayOutputStream();
-    DataOutputStream dataOut=new DataOutputStream(baos);
+  for (  DataBlockEncoding encoding : DataBlockEncoding.values()) {
+    if (encoding.getEncoder() == null) {
+      continue;
+    }
+    DataBlockEncoder encoder=encoding.getEncoder();
+    ByteBuffer encodedBuffer=null;
     try {
-      encoder.compressKeyValues(dataOut,originalBuffer,includesMemstoreTS);
+      encodedBuffer=ByteBuffer.wrap(encodeBytes(encoding,originalBuffer));
     }
  catch (    IOException e) {
       throw new RuntimeException(String.format("Bug while encoding using '%s'",encoder.toString()),e);
     }
-    ByteBuffer encodedBuffer=ByteBuffer.wrap(baos.toByteArray());
     ByteBuffer keyBuffer=encoder.getFirstKeyInBlock(encodedBuffer);
     KeyValue firstKv=sampleKv.get(0);
     if (0 != Bytes.compareTo(keyBuffer.array(),keyBuffer.arrayOffset(),keyBuffer.limit(),firstKv.getBuffer(),firstKv.getKeyOffset(),firstKv.getKeyLength())) {
