@@ -1,0 +1,43 @@
+{
+  final Configuration conf=TESTUTIL.getConfiguration();
+  final long now=System.currentTimeMillis();
+  final ServerName sn=new ServerName("0.example.org",0,now);
+  final MockRegionServer rs0=new MockRegionServer(conf,sn);
+  HMaster master=new HMaster(conf){
+    InetAddress getRemoteInetAddress(    final int port,    final long serverStartCode) throws UnknownHostException {
+      return InetAddress.getByAddress(rs0.getServerName().getHostname(),new byte[]{10,0,0,0});
+    }
+    @Override ServerManager createServerManager(    Server master,    MasterServices services) throws IOException {
+      ServerManager sm=super.createServerManager(master,services);
+      ServerManager spy=Mockito.spy(sm);
+      Mockito.doReturn(RegionOpeningState.OPENED).when(spy).sendRegionOpen((ServerName)Mockito.any(),(HRegionInfo)Mockito.any(),Mockito.anyInt());
+      return spy;
+    }
+    @Override CatalogTracker createCatalogTracker(    ZooKeeperWatcher zk,    Configuration conf,    Abortable abortable,    int defaultTimeout) throws IOException {
+      HConnection connection=HConnectionTestingUtility.getMockedConnectionAndDecorate(TESTUTIL.getConfiguration(),rs0,rs0.getServerName(),HRegionInfo.ROOT_REGIONINFO);
+      return new CatalogTracker(zk,conf,connection,abortable,defaultTimeout);
+    }
+  }
+;
+  master.start();
+  try {
+    while (!master.isRpcServerOpen())     Threads.sleep(10);
+    MapWritable mw=master.regionServerStartup(rs0.getServerName().getPort(),rs0.getServerName().getStartcode(),now);
+    String rshostname=mw.get(new Text(HConstants.KEY_FOR_HOSTNAME_SEEN_BY_MASTER)).toString();
+    assertEquals(rs0.getServerName().getHostname(),rshostname);
+    Mocking.fakeRegionServerRegionOpenInZK(rs0.getZooKeeper(),rs0.getServerName(),HRegionInfo.ROOT_REGIONINFO);
+    RootLocationEditor.setRootLocation(rs0.getZooKeeper(),rs0.getServerName());
+    Mocking.fakeRegionServerRegionOpenInZK(rs0.getZooKeeper(),rs0.getServerName(),HRegionInfo.FIRST_META_REGIONINFO);
+    byte[] rootregion=Bytes.toBytes("-ROOT-,,0");
+    rs0.setGetResult(rootregion,HRegionInfo.FIRST_META_REGIONINFO.getRegionName(),Mocking.getMetaTableRowResult(HRegionInfo.FIRST_META_REGIONINFO,rs0.getServerName()));
+    while (!master.isInitialized()) {
+      Threads.sleep(10);
+    }
+    assertTrue(master.isInitialized());
+  }
+  finally {
+    rs0.stop("Test is done");
+    master.stopMaster();
+    master.join();
+  }
+}
