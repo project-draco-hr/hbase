@@ -1,2 +1,30 @@
 {
+  while (!exitWorker) {
+    int seq_start=taskReadySeq;
+    List<String> paths=getTaskList();
+    if (paths == null) {
+      LOG.warn("Could not get tasks, did someone remove " + this.watcher.splitLogZNode + " ... worker thread exiting.");
+      return;
+    }
+    int offset=(int)(Math.random() * paths.size());
+    for (int i=0; i < paths.size(); i++) {
+      int idx=(i + offset) % paths.size();
+      grabTask(ZKUtil.joinZNode(watcher.splitLogZNode,paths.get(idx)));
+      if (exitWorker) {
+        return;
+      }
+    }
+synchronized (taskReadyLock) {
+      while (seq_start == taskReadySeq) {
+        try {
+          taskReadyLock.wait();
+        }
+ catch (        InterruptedException e) {
+          LOG.info("SplitLogWorker interrupted while waiting for task," + " exiting: " + e.toString() + (exitWorker ? "" : " (ERROR: exitWorker is not set, exiting anyway)"));
+          exitWorker=true;
+          return;
+        }
+      }
+    }
+  }
 }
