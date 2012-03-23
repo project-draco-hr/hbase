@@ -3,13 +3,12 @@
   long earliestPutTs=HConstants.LATEST_TIMESTAMP;
   for (  StoreFile file : filesToCompact) {
     StoreFile.Reader r=file.getReader();
-    if (r != null) {
-      long keyCount=(r.getBloomFilterType() == family.getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
-      maxKeyCount+=keyCount;
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getEncodingOnDisk());
-      }
+    if (r == null) {
+      LOG.warn("Null reader for " + file.getPath());
+      continue;
     }
+    long keyCount=(r.getBloomFilterType() == store.getFamily().getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
+    maxKeyCount+=keyCount;
     if (majorCompaction) {
       byte[] tmp=r.loadFileInfo().get(StoreFile.EARLIEST_PUT_TS);
       if (tmp == null) {
@@ -19,32 +18,38 @@
         earliestPutTs=Math.min(earliestPutTs,Bytes.toLong(tmp));
       }
     }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getEncodingOnDisk()+ (majorCompaction ? ", earliestPutTs=" + earliestPutTs : ""));
+    }
   }
-  progress=new CompactionProgress(maxKeyCount);
+  this.progress=new CompactionProgress(maxKeyCount);
   List<StoreFileScanner> scanners=StoreFileScanner.getScannersForStoreFiles(filesToCompact,false,false,true);
+  int compactionKVMax=getConf().getInt("hbase.hstore.compaction.kv.max",10);
+  Compression.Algorithm compression=store.getFamily().getCompression();
+  Compression.Algorithm compactionCompression=(store.getFamily().getCompactionCompression() != Compression.Algorithm.NONE) ? store.getFamily().getCompactionCompression() : compression;
   StoreFile.Writer writer=null;
-  long smallestReadPoint=region.getSmallestReadPoint();
+  long smallestReadPoint=store.getHRegion().getSmallestReadPoint();
   MultiVersionConsistencyControl.setThreadReadPoint(smallestReadPoint);
   try {
     InternalScanner scanner=null;
     try {
       Scan scan=new Scan();
-      scan.setMaxVersions(family.getMaxVersions());
-      scanner=new StoreScanner(this,scan,scanners,majorCompaction ? ScanType.MAJOR_COMPACT : ScanType.MINOR_COMPACT,smallestReadPoint,earliestPutTs);
-      if (region.getCoprocessorHost() != null) {
-        InternalScanner cpScanner=region.getCoprocessorHost().preCompact(this,scanner);
+      scan.setMaxVersions(store.getFamily().getMaxVersions());
+      scanner=new StoreScanner(store,scan,scanners,majorCompaction ? ScanType.MAJOR_COMPACT : ScanType.MINOR_COMPACT,smallestReadPoint,earliestPutTs);
+      if (store.getHRegion().getCoprocessorHost() != null) {
+        InternalScanner cpScanner=store.getHRegion().getCoprocessorHost().preCompact(store,scanner);
         if (cpScanner == null) {
           return null;
         }
         scanner=cpScanner;
       }
       int bytesWritten=0;
-      ArrayList<KeyValue> kvs=new ArrayList<KeyValue>();
+      List<KeyValue> kvs=new ArrayList<KeyValue>();
       boolean hasMore;
       do {
-        hasMore=scanner.next(kvs,this.compactionKVMax);
+        hasMore=scanner.next(kvs,compactionKVMax);
         if (writer == null && !kvs.isEmpty()) {
-          writer=createWriterInTmp(maxKeyCount,this.compactionCompression,true);
+          writer=store.createWriterInTmp(maxKeyCount,compactionCompression,true);
         }
         if (writer != null) {
           for (          KeyValue kv : kvs) {
@@ -57,11 +62,7 @@
               bytesWritten+=kv.getLength();
               if (bytesWritten > Store.closeCheckInterval) {
                 bytesWritten=0;
-                if (!this.region.areWritesEnabled()) {
-                  writer.close();
-                  fs.delete(writer.getPath(),false);
-                  throw new InterruptedIOException("Aborting compaction of store " + this + " in region "+ this.region+ " because user requested stop.");
-                }
+                isInterrupted(store,writer);
               }
             }
           }

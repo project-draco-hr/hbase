@@ -1,41 +1,26 @@
 {
-  super(conf,region.getTableDesc().getNameAsString(),Bytes.toString(family.getName()));
-  HRegionInfo info=region.regionInfo;
+  super(conf,region.getRegionInfo().getTableNameAsString(),Bytes.toString(family.getName()));
+  HRegionInfo info=region.getRegionInfo();
   this.fs=fs;
-  this.homedir=getStoreHomedir(basedir,info.getEncodedName(),family.getName());
-  if (!this.fs.exists(this.homedir)) {
-    if (!this.fs.mkdirs(this.homedir))     throw new IOException("Failed create of: " + this.homedir.toString());
-  }
+  Path p=getStoreHomedir(basedir,info.getEncodedName(),family.getName());
+  this.homedir=createStoreHomeDir(this.fs,p);
   this.region=region;
   this.family=family;
   this.conf=conf;
   this.blocksize=family.getBlocksize();
-  this.compression=family.getCompression();
-  this.compactionCompression=(family.getCompactionCompression() != Compression.Algorithm.NONE) ? family.getCompactionCompression() : this.compression;
   this.dataBlockEncoder=new HFileDataBlockEncoderImpl(family.getDataBlockEncodingOnDisk(),family.getDataBlockEncoding());
   this.comparator=info.getComparator();
-  this.ttl=family.getTimeToLive();
-  if (ttl == HConstants.FOREVER) {
-    ttl=Long.MAX_VALUE;
-  }
- else   if (ttl == -1) {
-    ttl=Long.MAX_VALUE;
-  }
- else {
-    this.ttl*=1000;
-  }
+  this.ttl=getTTL(family);
   long timeToPurgeDeletes=Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes",0),0);
-  LOG.info("time to purge deletes set to " + timeToPurgeDeletes + "ms in store "+ this);
+  LOG.trace("Time to purge deletes set to " + timeToPurgeDeletes + "ms in store "+ this);
   scanInfo=new ScanInfo(family.getName(),family.getMinVersions(),family.getMaxVersions(),ttl,family.getKeepDeletedCells(),timeToPurgeDeletes,this.comparator);
   this.memstore=new MemStore(conf,this.comparator);
-  this.storeNameStr=getColumnFamilyName();
   this.minFilesToCompact=Math.max(2,conf.getInt("hbase.hstore.compaction.min",conf.getInt("hbase.hstore.compactionThreshold",3)));
   this.cacheConf=new CacheConfig(conf,family);
   this.blockingStoreFileCount=conf.getInt("hbase.hstore.blockingStoreFiles",7);
   this.maxFilesToCompact=conf.getInt("hbase.hstore.compaction.max",10);
   this.minCompactSize=conf.getLong("hbase.hstore.compaction.min.size",this.region.memstoreFlushSize);
   this.maxCompactSize=conf.getLong("hbase.hstore.compaction.max.size",Long.MAX_VALUE);
-  this.compactionKVMax=conf.getInt("hbase.hstore.compaction.kv.max",10);
   this.verifyBulkLoads=conf.getBoolean("hbase.hstore.bulkload.verify",false);
   if (Store.closeCheckInterval == 0) {
     Store.closeCheckInterval=conf.getInt("hbase.hstore.close.check.interval",10 * 1000 * 1000);
@@ -43,4 +28,5 @@
   this.storefiles=sortAndClone(loadStoreFiles());
   this.checksumType=getChecksumType(conf);
   this.bytesPerChecksum=getBytesPerChecksum(conf);
+  this.compactor=new Compactor(this.conf);
 }

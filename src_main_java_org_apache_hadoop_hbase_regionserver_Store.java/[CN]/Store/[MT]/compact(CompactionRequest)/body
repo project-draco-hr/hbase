@@ -1,20 +1,24 @@
 {
-  if (cr == null || cr.getFiles().isEmpty()) {
-    return;
-  }
+  if (cr == null || cr.getFiles().isEmpty())   return null;
   Preconditions.checkArgument(cr.getStore().toString().equals(this.toString()));
   List<StoreFile> filesToCompact=cr.getFiles();
 synchronized (filesCompacting) {
     Preconditions.checkArgument(filesCompacting.containsAll(filesToCompact));
   }
   long maxId=StoreFile.getMaxSequenceIdInList(filesToCompact);
-  LOG.info("Starting compaction of " + filesToCompact.size() + " file(s) in "+ this.storeNameStr+ " of "+ this.region.getRegionInfo().getRegionNameAsString()+ " into tmpdir="+ region.getTmpDir()+ ", seqid="+ maxId+ ", totalSize="+ StringUtils.humanReadableInt(cr.getSize()));
+  LOG.info("Starting compaction of " + filesToCompact.size() + " file(s) in "+ this+ " of "+ this.region.getRegionInfo().getRegionNameAsString()+ " into tmpdir="+ region.getTmpDir()+ ", seqid="+ maxId+ ", totalSize="+ StringUtils.humanReadableInt(cr.getSize()));
   StoreFile sf=null;
   try {
-    StoreFile.Writer writer=compactStore(filesToCompact,cr.isMajor(),maxId);
-    sf=completeCompaction(filesToCompact,writer);
-    if (region.getCoprocessorHost() != null) {
-      region.getCoprocessorHost().postCompact(this,sf);
+    StoreFile.Writer writer=this.compactor.compact(this,filesToCompact,cr.isMajor(),maxId);
+    if (this.conf.getBoolean("hbase.hstore.compaction.complete",true)) {
+      sf=completeCompaction(filesToCompact,writer);
+      if (region.getCoprocessorHost() != null) {
+        region.getCoprocessorHost().postCompact(this,sf);
+      }
+    }
+ else {
+      sf=new StoreFile(this.fs,writer.getPath(),this.conf,this.cacheConf,this.family.getBloomFilterType(),this.dataBlockEncoder);
+      sf.createReader();
     }
   }
   finally {
@@ -22,5 +26,6 @@ synchronized (filesCompacting) {
       filesCompacting.removeAll(filesToCompact);
     }
   }
-  LOG.info("Completed" + (cr.isMajor() ? " major " : " ") + "compaction of "+ filesToCompact.size()+ " file(s) in "+ this.storeNameStr+ " of "+ this.region.getRegionInfo().getRegionNameAsString()+ " into "+ (sf == null ? "none" : sf.getPath().getName())+ ", size="+ (sf == null ? "none" : StringUtils.humanReadableInt(sf.getReader().length()))+ "; total size for store is "+ StringUtils.humanReadableInt(storeSize));
+  LOG.info("Completed" + (cr.isMajor() ? " major " : " ") + "compaction of "+ filesToCompact.size()+ " file(s) in "+ this+ " of "+ this.region.getRegionInfo().getRegionNameAsString()+ " into "+ (sf == null ? "none" : sf.getPath().getName())+ ", size="+ (sf == null ? "none" : StringUtils.humanReadableInt(sf.getReader().length()))+ "; total size for store is "+ StringUtils.humanReadableInt(storeSize));
+  return sf;
 }
