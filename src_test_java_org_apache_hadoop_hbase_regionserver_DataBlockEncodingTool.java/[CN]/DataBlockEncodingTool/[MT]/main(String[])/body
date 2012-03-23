@@ -1,12 +1,14 @@
 {
   Options options=new Options();
-  options.addOption("f",true,"HFile to analyse (REQUIRED)");
-  options.getOption("f").setArgName("FILENAME");
-  options.addOption("n",true,"Limit number of KeyValue which will be analysed");
-  options.getOption("n").setArgName("NUMBER");
-  options.addOption("b",false,"Measure read throughput");
-  options.addOption("c",false,"Omit corectness tests.");
-  options.addOption("a",true,"What kind of compression algorithm use for comparison.");
+  options.addOption(OPT_HFILE_NAME,true,"HFile to analyse (REQUIRED)");
+  options.getOption(OPT_HFILE_NAME).setArgName("FILENAME");
+  options.addOption(OPT_KV_LIMIT,true,"Maximum number of KeyValues to process. A benchmark stops running " + "after iterating over this many KV pairs.");
+  options.getOption(OPT_KV_LIMIT).setArgName("NUMBER");
+  options.addOption(OPT_MEASURE_THROUGHPUT,false,"Measure read throughput");
+  options.addOption(OPT_OMIT_CORRECTNESS_TEST,false,"Omit corectness tests.");
+  options.addOption(OPT_ENCODING_ALGORITHM,true,"What kind of compression algorithm use for comparison.");
+  options.addOption(OPT_BENCHMARK_N_TIMES,true,"Number of times to run each benchmark. Default value: " + DEFAULT_BENCHMARK_N_TIMES);
+  options.addOption(OPT_BENCHMARK_N_OMIT,true,"Number of first runs of every benchmark to exclude from " + "statistics (" + DEFAULT_BENCHMARK_N_OMIT + " by default, so that "+ "only the last "+ (DEFAULT_BENCHMARK_N_TIMES - DEFAULT_BENCHMARK_N_OMIT)+ " times are included in statistics.)");
   CommandLineParser parser=new PosixParser();
   CommandLine cmd=null;
   try {
@@ -18,21 +20,32 @@
     return;
   }
   int kvLimit=Integer.MAX_VALUE;
-  if (cmd.hasOption("n")) {
-    kvLimit=Integer.parseInt(cmd.getOptionValue("n"));
+  if (cmd.hasOption(OPT_KV_LIMIT)) {
+    kvLimit=Integer.parseInt(cmd.getOptionValue(OPT_KV_LIMIT));
   }
-  if (!cmd.hasOption("f")) {
-    System.err.println("ERROR: Filename is required!");
+  if (!cmd.hasOption(OPT_HFILE_NAME)) {
+    LOG.error("Please specify HFile name using the " + OPT_HFILE_NAME + " option");
     printUsage(options);
     System.exit(-1);
   }
-  String pathName=cmd.getOptionValue("f");
+  String pathName=cmd.getOptionValue(OPT_HFILE_NAME);
   String compressionName=DEFAULT_COMPRESSION.getName();
-  if (cmd.hasOption("a")) {
-    compressionName=cmd.getOptionValue("a").toLowerCase();
+  if (cmd.hasOption(OPT_ENCODING_ALGORITHM)) {
+    compressionName=cmd.getOptionValue(OPT_ENCODING_ALGORITHM).toLowerCase();
   }
-  boolean doBenchmark=cmd.hasOption("b");
-  boolean doVerify=!cmd.hasOption("c");
+  boolean doBenchmark=cmd.hasOption(OPT_MEASURE_THROUGHPUT);
+  boolean doVerify=!cmd.hasOption(OPT_OMIT_CORRECTNESS_TEST);
+  if (cmd.hasOption(OPT_BENCHMARK_N_TIMES)) {
+    benchmarkNTimes=Integer.valueOf(cmd.getOptionValue(OPT_BENCHMARK_N_TIMES));
+  }
+  if (cmd.hasOption(OPT_BENCHMARK_N_OMIT)) {
+    benchmarkNOmit=Integer.valueOf(cmd.getOptionValue(OPT_BENCHMARK_N_OMIT));
+  }
+  if (benchmarkNTimes < benchmarkNOmit) {
+    LOG.error("The number of times to run each benchmark (" + benchmarkNTimes + ") must be greater than the number of benchmark runs to exclude "+ "from statistics ("+ benchmarkNOmit+ ")");
+    System.exit(1);
+  }
+  LOG.info("Running benchmark " + benchmarkNTimes + " times. "+ "Excluding the first "+ benchmarkNOmit+ " times from statistics.");
   final Configuration conf=HBaseConfiguration.create();
   try {
     testCodecs(conf,kvLimit,pathName,compressionName,doBenchmark,doVerify);

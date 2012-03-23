@@ -1,19 +1,21 @@
 {
-  final int uncompressedSize=uncompressedOutputStream.size();
-  final ByteArrayInputStream bais=new ByteArrayInputStream(getCompressedData());
+  final int rawSize=rawKVs.length;
+  byte[] encodedDataWithHeader=getEncodedData();
+  int bytesToSkip=encodingCtx.getHeaderSize() + Bytes.SIZEOF_SHORT;
+  ByteArrayInputStream bais=new ByteArrayInputStream(encodedDataWithHeader,bytesToSkip,encodedDataWithHeader.length - bytesToSkip);
   final DataInputStream dis=new DataInputStream(bais);
   return new Iterator<KeyValue>(){
     private ByteBuffer decompressedData=null;
     @Override public boolean hasNext(){
       if (decompressedData == null) {
-        return uncompressedSize > 0;
+        return rawSize > 0;
       }
       return decompressedData.hasRemaining();
     }
     @Override public KeyValue next(){
       if (decompressedData == null) {
         try {
-          decompressedData=dataBlockEncoder.uncompressKeyValues(dis,includesMemstoreTS);
+          decompressedData=dataBlockEncoder.decodeKeyValues(dis,includesMemstoreTS);
         }
  catch (        IOException e) {
           throw new RuntimeException("Problem with data block encoder, " + "most likely it requested more bytes than are available.",e);

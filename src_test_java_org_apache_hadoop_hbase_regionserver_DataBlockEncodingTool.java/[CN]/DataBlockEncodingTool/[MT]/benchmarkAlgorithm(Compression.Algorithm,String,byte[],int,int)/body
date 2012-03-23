@@ -1,0 +1,63 @@
+{
+  System.out.println(name + ":");
+  List<Long> compressDurations=new ArrayList<Long>();
+  ByteArrayOutputStream compressedStream=new ByteArrayOutputStream();
+  CompressionOutputStream compressingStream=algorithm.createPlainCompressionStream(compressedStream,compressor);
+  try {
+    for (int itTime=0; itTime < benchmarkNTimes; ++itTime) {
+      final long startTime=System.nanoTime();
+      compressingStream.resetState();
+      compressedStream.reset();
+      compressingStream.write(buffer,offset,length);
+      compressingStream.flush();
+      compressedStream.toByteArray();
+      final long finishTime=System.nanoTime();
+      if (itTime >= benchmarkNOmit) {
+        compressDurations.add(finishTime - startTime);
+      }
+    }
+  }
+ catch (  IOException e) {
+    throw new RuntimeException(String.format("Benchmark, or encoding algorithm '%s' cause some stream problems",name),e);
+  }
+  compressingStream.close();
+  printBenchmarkResult(length,compressDurations,Manipulation.COMPRESSION);
+  byte[] compBuffer=compressedStream.toByteArray();
+  List<Long> durations=new ArrayList<Long>();
+  for (int itTime=0; itTime < benchmarkNTimes; ++itTime) {
+    final long startTime=System.nanoTime();
+    byte[] newBuf=new byte[length + 1];
+    try {
+      ByteArrayInputStream downStream=new ByteArrayInputStream(compBuffer,0,compBuffer.length);
+      InputStream decompressedStream=algorithm.createDecompressionStream(downStream,decompressor,0);
+      int destOffset=0;
+      int nextChunk;
+      while ((nextChunk=decompressedStream.available()) > 0) {
+        destOffset+=decompressedStream.read(newBuf,destOffset,nextChunk);
+      }
+      decompressedStream.close();
+      KeyValue kv;
+      for (int pos=0; pos < length; pos+=kv.getLength()) {
+        kv=new KeyValue(newBuf,pos);
+      }
+    }
+ catch (    IOException e) {
+      throw new RuntimeException(String.format("Decoding path in '%s' algorithm cause exception ",name),e);
+    }
+    final long finishTime=System.nanoTime();
+    if (0 != Bytes.compareTo(buffer,0,length,newBuf,0,length)) {
+      int prefix=0;
+      for (; prefix < buffer.length && prefix < newBuf.length; ++prefix) {
+        if (buffer[prefix] != newBuf[prefix]) {
+          break;
+        }
+      }
+      throw new RuntimeException(String.format("Algorithm '%s' is corrupting the data",name));
+    }
+    if (itTime >= benchmarkNOmit) {
+      durations.add(finishTime - startTime);
+    }
+  }
+  printBenchmarkResult(length,durations,Manipulation.DECOMPRESSION);
+  System.out.println();
+}

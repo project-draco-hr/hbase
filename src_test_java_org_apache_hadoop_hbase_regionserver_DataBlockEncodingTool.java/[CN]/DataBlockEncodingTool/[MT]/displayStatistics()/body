@@ -1,31 +1,27 @@
 {
-  int totalLength=totalPrefixLength + totalKeyLength + totalValueLength;
-  if (compressor != null) {
-    compressor.reset();
-  }
+  final String comprAlgo=compressionAlgorithmName.toUpperCase();
+  long rawBytes=totalKeyLength + totalPrefixLength + totalValueLength;
+  System.out.println("Raw data size:");
+  outputTuple("Raw bytes",INT_FORMAT,rawBytes);
+  outputTuplePct("Key bytes",totalKeyLength);
+  outputTuplePct("Value bytes",totalValueLength);
+  outputTuplePct("KV infrastructure",totalPrefixLength);
+  outputTuplePct("CF overhead",totalCFLength);
+  outputTuplePct("Total key redundancy",totalKeyRedundancyLength);
+  int compressedSize=EncodedDataBlock.getCompressedSize(compressionAlgorithm,compressor,rawKVs,0,rawKVs.length);
+  outputTuple(comprAlgo + " only size",INT_FORMAT,compressedSize);
+  outputSavings(comprAlgo + " only",compressedSize,rawBytes);
+  System.out.println();
   for (  EncodedDataBlock codec : codecs) {
     System.out.println(codec.toString());
-    int saved=totalKeyLength + totalPrefixLength + totalValueLength - codec.getSize();
-    System.out.println(String.format("  Saved bytes:                 %8d",saved));
-    double keyRatio=(saved * 100.0) / (totalPrefixLength + totalKeyLength);
-    double allRatio=(saved * 100.0) / totalLength;
-    System.out.println(String.format("  Key compression ratio:        %.2f %%",keyRatio));
-    System.out.println(String.format("  All compression ratio:        %.2f %%",allRatio));
-    String compressedSizeCaption=String.format("  %s compressed size:         ",compressionAlgorithmName.toUpperCase());
-    String compressOnlyRatioCaption=String.format("  %s compression ratio:        ",compressionAlgorithmName.toUpperCase());
-    if (compressor != null) {
-      int compressedSize=codec.checkCompressedSize(compressor);
-      System.out.println(compressedSizeCaption + String.format("%8d",compressedSize));
-      double compressOnlyRatio=100.0 * (1.0 - compressedSize / (0.0 + totalLength));
-      System.out.println(compressOnlyRatioCaption + String.format("%.2f %%",compressOnlyRatio));
-    }
- else {
-      System.out.println(compressedSizeCaption + "N/A");
-      System.out.println(compressOnlyRatioCaption + "N/A");
-    }
+    long encodedBytes=codec.getSize();
+    outputTuple("Encoded bytes",INT_FORMAT,encodedBytes);
+    outputSavings("Key encoding",encodedBytes - totalValueLength,rawBytes - totalValueLength);
+    outputSavings("Total encoding",encodedBytes,rawBytes);
+    int encodedCompressedSize=codec.getEncodedCompressedSize(compressionAlgorithm,compressor);
+    outputTuple("Encoding + " + comprAlgo + " size",INT_FORMAT,encodedCompressedSize);
+    outputSavings("Encoding + " + comprAlgo,encodedCompressedSize,rawBytes);
+    outputSavings("Encoding with " + comprAlgo,encodedCompressedSize,compressedSize);
+    System.out.println();
   }
-  System.out.println(String.format("Total KV prefix length:   %8d",totalPrefixLength));
-  System.out.println(String.format("Total key length:         %8d",totalKeyLength));
-  System.out.println(String.format("Total key redundancy:     %8d",totalKeyRedundancyLength));
-  System.out.println(String.format("Total value length:       %8d",totalValueLength));
 }

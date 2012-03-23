@@ -1,28 +1,36 @@
 {
   scanner.seek(KeyValue.LOWESTKEY);
-  KeyValue currentKv;
+  KeyValue currentKV;
   byte[] previousKey=null;
   byte[] currentKey;
   DataBlockEncoding[] encodings=DataBlockEncoding.values();
-  for (  DataBlockEncoding encoding : encodings) {
-    DataBlockEncoder d=encoding.getEncoder();
-    codecs.add(new EncodedDataBlock(d,includesMemstoreTS,encoding));
-  }
+  ByteArrayOutputStream uncompressedOutputStream=new ByteArrayOutputStream();
   int j=0;
-  while ((currentKv=scanner.next()) != null && j < kvLimit) {
+  while ((currentKV=scanner.next()) != null && j < kvLimit) {
     j++;
-    currentKey=currentKv.getKey();
+    currentKey=currentKV.getKey();
     if (previousKey != null) {
       for (int i=0; i < previousKey.length && i < currentKey.length && previousKey[i] == currentKey[i]; ++i) {
         totalKeyRedundancyLength++;
       }
     }
-    for (    EncodedDataBlock codec : codecs) {
-      codec.addKv(currentKv);
-    }
+    uncompressedOutputStream.write(currentKV.getBuffer(),currentKV.getOffset(),currentKV.getLength());
     previousKey=currentKey;
-    totalPrefixLength+=currentKv.getLength() - currentKv.getKeyLength() - currentKv.getValueLength();
-    totalKeyLength+=currentKv.getKeyLength();
-    totalValueLength+=currentKv.getValueLength();
+    int kLen=currentKV.getKeyLength();
+    int vLen=currentKV.getValueLength();
+    int cfLen=currentKV.getFamilyLength(currentKV.getFamilyOffset());
+    int restLen=currentKV.getLength() - kLen - vLen;
+    totalKeyLength+=kLen;
+    totalValueLength+=vLen;
+    totalPrefixLength+=restLen;
+    totalCFLength+=cfLen;
+  }
+  rawKVs=uncompressedOutputStream.toByteArray();
+  for (  DataBlockEncoding encoding : encodings) {
+    if (encoding == DataBlockEncoding.NONE) {
+      continue;
+    }
+    DataBlockEncoder d=encoding.getEncoder();
+    codecs.add(new EncodedDataBlock(d,includesMemstoreTS,encoding,rawKVs));
   }
 }
