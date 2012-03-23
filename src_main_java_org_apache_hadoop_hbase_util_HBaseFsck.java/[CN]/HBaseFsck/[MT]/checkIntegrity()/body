@@ -1,13 +1,33 @@
 {
-  for (  HbckInfo hbi : regionInfo.values()) {
-    if (hbi.metaEntry == null)     continue;
-    if (hbi.metaEntry.regionServer == null)     continue;
-    if (hbi.onlyEdits)     continue;
+  tablesInfo=new TreeMap<String,TableInfo>();
+  List<HbckInfo> noHDFSRegionInfos=new ArrayList<HbckInfo>();
+  LOG.debug("There are " + regionInfoMap.size() + " region info entries");
+  for (  HbckInfo hbi : regionInfoMap.values()) {
+    if (hbi.metaEntry == null) {
+      noHDFSRegionInfos.add(hbi);
+      Path p=hbi.getHdfsRegionDir();
+      if (p == null) {
+        errors.report("No regioninfo in Meta or HDFS. " + hbi);
+      }
+      continue;
+    }
+    if (hbi.metaEntry.regionServer == null) {
+      errors.detail("Skipping region because no region server: " + hbi);
+      continue;
+    }
+    if (hbi.metaEntry.isOffline()) {
+      errors.detail("Skipping region because it is offline: " + hbi);
+      continue;
+    }
+    if (hbi.containsOnlyHdfsEdits()) {
+      errors.detail("Skipping region because it only contains edits" + hbi);
+      continue;
+    }
     if (hbi.deployedOn.size() == 0)     continue;
     String tableName=hbi.metaEntry.getTableNameAsString();
-    TInfo modTInfo=tablesInfo.get(tableName);
+    TableInfo modTInfo=tablesInfo.get(tableName);
     if (modTInfo == null) {
-      modTInfo=new TInfo(tableName);
+      modTInfo=new TableInfo(tableName);
     }
     for (    ServerName server : hbi.deployedOn) {
       modTInfo.addServer(server);
@@ -15,9 +35,11 @@
     modTInfo.addRegionInfo(hbi);
     tablesInfo.put(tableName,modTInfo);
   }
-  for (  TInfo tInfo : tablesInfo.values()) {
-    if (!tInfo.checkRegionChain()) {
+  for (  TableInfo tInfo : tablesInfo.values()) {
+    TableIntegrityErrorHandler handler=tInfo.new IntegrityFixSuggester(tInfo,errors);
+    if (!tInfo.checkRegionChain(handler)) {
       errors.report("Found inconsistency in table " + tInfo.getName());
     }
   }
+  return tablesInfo;
 }

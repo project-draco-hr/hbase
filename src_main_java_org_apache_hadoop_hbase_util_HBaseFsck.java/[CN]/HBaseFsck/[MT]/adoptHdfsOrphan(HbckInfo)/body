@@ -1,0 +1,65 @@
+{
+  Path p=hi.getHdfsRegionDir();
+  FileSystem fs=p.getFileSystem(conf);
+  FileStatus[] dirs=fs.listStatus(p);
+  String tableName=Bytes.toString(hi.getTableName());
+  TableInfo tableInfo=tablesInfo.get(tableName);
+  Preconditions.checkNotNull("Table " + tableName + "' not present!",tableInfo);
+  HTableDescriptor template=tableInfo.getHTD();
+  Pair<byte[],byte[]> orphanRegionRange=null;
+  for (  FileStatus cf : dirs) {
+    String cfName=cf.getPath().getName();
+    if (cfName.startsWith(".") || cfName.equals("splitlog"))     continue;
+    FileStatus[] hfiles=fs.listStatus(cf.getPath());
+    for (    FileStatus hfile : hfiles) {
+      byte[] start, end;
+      HFile.Reader hf=null;
+      try {
+        CacheConfig cacheConf=new CacheConfig(conf);
+        hf=HFile.createReader(fs,hfile.getPath(),cacheConf);
+        hf.loadFileInfo();
+        KeyValue startKv=KeyValue.createKeyValueFromKey(hf.getFirstKey());
+        start=startKv.getRow();
+        KeyValue endKv=KeyValue.createKeyValueFromKey(hf.getLastKey());
+        end=endKv.getRow();
+      }
+ catch (      IOException ioe) {
+        LOG.warn("Problem reading orphan file " + hfile + ", skipping");
+        continue;
+      }
+catch (      NullPointerException ioe) {
+        LOG.warn("Orphan file " + hfile + " is possibly corrupted HFile, skipping");
+        continue;
+      }
+ finally {
+        if (hf != null) {
+          hf.close();
+        }
+      }
+      if (orphanRegionRange == null) {
+        orphanRegionRange=new Pair<byte[],byte[]>(start,end);
+      }
+ else {
+        if (Bytes.compareTo(orphanRegionRange.getFirst(),start) > 0) {
+          orphanRegionRange.setFirst(start);
+        }
+        if (Bytes.compareTo(orphanRegionRange.getSecond(),end) < 0) {
+          orphanRegionRange.setSecond(end);
+        }
+      }
+    }
+  }
+  if (orphanRegionRange == null) {
+    LOG.warn("No data in dir " + p + ", sidelining data");
+    fixes++;
+    sidelineRegionDir(fs,hi);
+    return;
+  }
+  LOG.info("Min max keys are : [" + Bytes.toString(orphanRegionRange.getFirst()) + ", "+ Bytes.toString(orphanRegionRange.getSecond())+ ")");
+  HRegionInfo hri=new HRegionInfo(template.getName(),orphanRegionRange.getFirst(),orphanRegionRange.getSecond());
+  LOG.info("Creating new region : " + hri);
+  HRegion region=HBaseFsckRepair.createHDFSRegionDir(conf,hri,template);
+  Path target=region.getRegionDir();
+  mergeRegionDirs(target,hi);
+  fixes++;
+}

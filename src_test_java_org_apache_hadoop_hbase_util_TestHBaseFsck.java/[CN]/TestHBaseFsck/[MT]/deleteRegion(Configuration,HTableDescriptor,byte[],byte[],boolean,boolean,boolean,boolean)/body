@@ -1,0 +1,44 @@
+{
+  LOG.info("** Before delete:");
+  dumpMeta(htd.getName());
+  Map<HRegionInfo,ServerName> hris=tbl.getRegionLocations();
+  for (  Entry<HRegionInfo,ServerName> e : hris.entrySet()) {
+    HRegionInfo hri=e.getKey();
+    ServerName hsa=e.getValue();
+    if (Bytes.compareTo(hri.getStartKey(),startKey) == 0 && Bytes.compareTo(hri.getEndKey(),endKey) == 0) {
+      LOG.info("RegionName: " + hri.getRegionNameAsString());
+      byte[] deleteRow=hri.getRegionName();
+      if (unassign) {
+        LOG.info("Undeploying region " + hri + " from server "+ hsa);
+        undeployRegion(new HBaseAdmin(conf),hsa,hri);
+      }
+      if (regionInfoOnly) {
+        LOG.info("deleting hdfs .regioninfo data: " + hri.toString() + hsa.toString());
+        Path rootDir=new Path(conf.get(HConstants.HBASE_DIR));
+        FileSystem fs=rootDir.getFileSystem(conf);
+        Path p=new Path(rootDir + "/" + htd.getNameAsString(),hri.getEncodedName());
+        Path hriPath=new Path(p,HRegion.REGIONINFO_FILE);
+        fs.delete(hriPath,true);
+      }
+      if (hdfs) {
+        LOG.info("deleting hdfs data: " + hri.toString() + hsa.toString());
+        Path rootDir=new Path(conf.get(HConstants.HBASE_DIR));
+        FileSystem fs=rootDir.getFileSystem(conf);
+        Path p=new Path(rootDir + "/" + htd.getNameAsString(),hri.getEncodedName());
+        HBaseFsck.debugLsr(conf,p);
+        boolean success=fs.delete(p,true);
+        LOG.info("Deleted " + p + " sucessfully? "+ success);
+        HBaseFsck.debugLsr(conf,p);
+      }
+      if (metaRow) {
+        HTable meta=new HTable(conf,HConstants.META_TABLE_NAME);
+        Delete delete=new Delete(deleteRow);
+        meta.delete(delete);
+      }
+    }
+    LOG.info(hri.toString() + hsa.toString());
+  }
+  TEST_UTIL.getMetaTableRows(htd.getName());
+  LOG.info("*** After delete:");
+  dumpMeta(htd.getName());
+}

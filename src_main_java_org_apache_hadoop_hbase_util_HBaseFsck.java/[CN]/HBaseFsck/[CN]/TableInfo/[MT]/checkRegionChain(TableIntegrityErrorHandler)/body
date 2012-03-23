@@ -1,0 +1,69 @@
+{
+  int originalErrorsCount=errors.getErrorList().size();
+  Multimap<byte[],HbckInfo> regions=sc.calcCoverage();
+  SortedSet<byte[]> splits=sc.getSplits();
+  byte[] prevKey=null;
+  byte[] problemKey=null;
+  for (  byte[] key : splits) {
+    Collection<HbckInfo> ranges=regions.get(key);
+    if (prevKey == null && !Bytes.equals(key,HConstants.EMPTY_BYTE_ARRAY)) {
+      for (      HbckInfo rng : ranges) {
+        handler.handleRegionStartKeyNotEmpty(rng);
+      }
+    }
+    for (    HbckInfo rng : ranges) {
+      byte[] endKey=rng.getEndKey();
+      endKey=(endKey.length == 0) ? null : endKey;
+      if (Bytes.equals(rng.getStartKey(),endKey)) {
+        handler.handleDegenerateRegion(rng);
+      }
+    }
+    if (ranges.size() == 1) {
+      if (problemKey != null) {
+        LOG.warn("reached end of problem group: " + Bytes.toStringBinary(key));
+      }
+      problemKey=null;
+    }
+ else     if (ranges.size() > 1) {
+      if (problemKey == null) {
+        LOG.warn("Naming new problem group: " + Bytes.toStringBinary(key));
+        problemKey=key;
+      }
+      overlapGroups.putAll(problemKey,ranges);
+      ArrayList<HbckInfo> subRange=new ArrayList<HbckInfo>(ranges);
+      for (      HbckInfo r1 : ranges) {
+        subRange.remove(r1);
+        for (        HbckInfo r2 : subRange) {
+          if (Bytes.compareTo(r1.getStartKey(),r2.getStartKey()) == 0) {
+            handler.handleDuplicateStartKeys(r1,r2);
+          }
+ else {
+            handler.handleOverlapInRegionChain(r1,r2);
+          }
+        }
+      }
+    }
+ else     if (ranges.size() == 0) {
+      if (problemKey != null) {
+        LOG.warn("reached end of problem group: " + Bytes.toStringBinary(key));
+      }
+      problemKey=null;
+      byte[] holeStopKey=sc.getSplits().higher(key);
+      if (holeStopKey != null) {
+        handler.handleHoleInRegionChain(key,holeStopKey);
+      }
+    }
+    prevKey=key;
+  }
+  for (  Collection<HbckInfo> overlap : overlapGroups.asMap().values()) {
+    handler.handleOverlapGroup(overlap);
+  }
+  if (details) {
+    System.out.println("---- Table '" + this.tableName + "': region split map");
+    dump(splits,regions);
+    System.out.println("---- Table '" + this.tableName + "': overlap groups");
+    dumpOverlapProblems(overlapGroups);
+    System.out.println("There are " + overlapGroups.keySet().size() + " overlap groups with "+ overlapGroups.size()+ " overlapping regions");
+  }
+  return errors.getErrorList().size() == originalErrorsCount;
+}

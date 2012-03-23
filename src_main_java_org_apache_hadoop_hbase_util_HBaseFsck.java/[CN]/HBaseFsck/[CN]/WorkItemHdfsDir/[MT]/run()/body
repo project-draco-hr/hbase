@@ -6,23 +6,28 @@
     for (    FileStatus regionDir : regionDirs) {
       String encodedName=regionDir.getPath().getName();
       if (!encodedName.toLowerCase().matches("[0-9a-f]+"))       continue;
+      LOG.debug("Loading region info from hdfs:" + regionDir.getPath());
       HbckInfo hbi=hbck.getOrCreateInfo(encodedName);
-      hbi.hdfsTableName=tableName;
+      HdfsEntry he=new HdfsEntry();
 synchronized (hbi) {
-        if (hbi.foundRegionDir != null) {
-          errors.print("Directory " + encodedName + " duplicate??"+ hbi.foundRegionDir);
+        if (hbi.getHdfsRegionDir() != null) {
+          errors.print("Directory " + encodedName + " duplicate??"+ hbi.getHdfsRegionDir());
         }
-        hbi.foundRegionDir=regionDir;
-        hbi.onlyEdits=true;
+        he.hdfsRegionDir=regionDir.getPath();
+        he.hdfsRegionDirModTime=regionDir.getModificationTime();
+        Path regioninfoFile=new Path(he.hdfsRegionDir,HRegion.REGIONINFO_FILE);
+        he.hdfsRegioninfoFilePresent=fs.exists(regioninfoFile);
+        he.hdfsOnlyEdits=true;
         FileStatus[] subDirs=fs.listStatus(regionDir.getPath());
         Path ePath=HLog.getRegionDirRecoveredEditsDir(regionDir.getPath());
         for (        FileStatus subDir : subDirs) {
           String sdName=subDir.getPath().getName();
           if (!sdName.startsWith(".") && !sdName.equals(ePath.getName())) {
-            hbi.onlyEdits=false;
+            he.hdfsOnlyEdits=false;
             break;
           }
         }
+        hbi.hdfsEntry=he;
       }
     }
   }

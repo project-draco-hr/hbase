@@ -1,0 +1,39 @@
+{
+  LOG.info("Loading HBase regioninfo from HDFS...");
+  loadHdfsRegionDirs();
+  int errs=errors.getErrorList().size();
+  tablesInfo=loadHdfsRegionInfos();
+  checkHdfsIntegrity(false,false);
+  if (errors.getErrorList().size() != errs) {
+    while (true) {
+      fixes=0;
+      suggestFixes(tablesInfo);
+      errors.clear();
+      loadHdfsRegionInfos();
+      checkHdfsIntegrity(shouldFixHdfsHoles(),shouldFixHdfsOverlaps());
+      int errCount=errors.getErrorList().size();
+      if (fixes == 0) {
+        if (errCount > 0) {
+          return false;
+        }
+ else {
+          break;
+        }
+      }
+    }
+  }
+  LOG.info("HDFS regioninfo's seems good.  Sidelining old .META.");
+  sidelineOldRootAndMeta();
+  LOG.info("Creating new .META.");
+  HRegion meta=createNewRootAndMeta();
+  List<Put> puts=generatePuts(tablesInfo);
+  if (puts == null) {
+    LOG.fatal("Problem encountered when creating new .META. entries.  " + "You may need to restore the previously sidelined -ROOT- and .META.");
+    return false;
+  }
+  meta.put(puts.toArray(new Put[0]));
+  meta.close();
+  meta.getLog().closeAndDelete();
+  LOG.info("Success! .META. table rebuilt.");
+  return true;
+}
