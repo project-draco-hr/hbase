@@ -1,21 +1,27 @@
 {
   try {
-    List<HRegionInfo> hris=this.getHBaseAdmin().getTableRegions(getBytes(tableName));
-    List<TRegionInfo> regions=new ArrayList<TRegionInfo>();
-    if (hris != null) {
-      for (      HRegionInfo regionInfo : hris) {
-        TRegionInfo region=new TRegionInfo();
-        region.startKey=ByteBuffer.wrap(regionInfo.getStartKey());
-        region.endKey=ByteBuffer.wrap(regionInfo.getEndKey());
-        region.id=regionInfo.getRegionId();
-        region.name=ByteBuffer.wrap(regionInfo.getRegionName());
-        region.version=regionInfo.getVersion();
-        regions.add(region);
-      }
+    HTable table=getTable(tableName);
+    Map<HRegionInfo,ServerName> regionLocations=table.getRegionLocations();
+    List<TRegionInfo> results=new ArrayList<TRegionInfo>();
+    for (    Map.Entry<HRegionInfo,ServerName> entry : regionLocations.entrySet()) {
+      HRegionInfo info=entry.getKey();
+      ServerName serverName=entry.getValue();
+      TRegionInfo region=new TRegionInfo();
+      region.serverName=ByteBuffer.wrap(Bytes.toBytes(serverName.getHostname()));
+      region.port=serverName.getPort();
+      region.startKey=ByteBuffer.wrap(info.getStartKey());
+      region.endKey=ByteBuffer.wrap(info.getEndKey());
+      region.id=info.getRegionId();
+      region.name=ByteBuffer.wrap(info.getRegionName());
+      region.version=info.getVersion();
+      results.add(region);
     }
-    return regions;
+    return results;
   }
- catch (  IOException e) {
+ catch (  TableNotFoundException e) {
+    return Collections.emptyList();
+  }
+catch (  IOException e) {
     LOG.warn(e.getMessage(),e);
     throw new IOError(e.getMessage());
   }
