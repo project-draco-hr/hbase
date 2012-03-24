@@ -10,28 +10,24 @@ switch (e.code()) {
 case CONNECTIONLOSS:
 case SESSIONEXPIRED:
 case OPERATIONTIMEOUT:
-        LOG.warn("Possibly transient ZooKeeper exception: " + e);
-      if (!retryCounter.shouldRetry()) {
-        LOG.error("ZooKeeper setData failed after " + retryCounter.getMaxRetries() + " retries");
-        throw e;
-      }
-    break;
+        retryOrThrow(retryCounter,e,"setData");
+      break;
 case BADVERSION:
-  try {
-    Stat stat=new Stat();
-    byte[] revData=zk.getData(path,false,stat);
-    int idLength=Bytes.toInt(revData,ID_OFFSET);
-    int dataLength=revData.length - ID_OFFSET - idLength;
-    int dataOffset=ID_OFFSET + idLength;
-    if (Bytes.compareTo(revData,ID_OFFSET,id.length,revData,dataOffset,dataLength) == 0) {
-      return stat;
+    try {
+      Stat stat=new Stat();
+      byte[] revData=zk.getData(path,false,stat);
+      int idLength=Bytes.toInt(revData,ID_LENGTH_SIZE);
+      int dataLength=revData.length - ID_LENGTH_SIZE - idLength;
+      int dataOffset=ID_LENGTH_SIZE + idLength;
+      if (Bytes.compareTo(revData,ID_LENGTH_SIZE,id.length,revData,dataOffset,dataLength) == 0) {
+        return stat;
+      }
     }
-  }
- catch (  KeeperException keeperException) {
-    throw keeperException;
-  }
+ catch (    KeeperException keeperException) {
+      throw keeperException;
+    }
 default :
-throw e;
+  throw e;
 }
 }
 retryCounter.sleepUntilNextRetry();
