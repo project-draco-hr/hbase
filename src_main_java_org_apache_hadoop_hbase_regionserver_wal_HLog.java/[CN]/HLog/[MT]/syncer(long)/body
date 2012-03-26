@@ -1,6 +1,8 @@
 {
+  Writer tempWriter;
 synchronized (this.updateLock) {
     if (this.closed)     return;
+    tempWriter=this.writer;
   }
   if (txid <= this.syncedTillHere) {
     return;
@@ -8,19 +10,19 @@ synchronized (this.updateLock) {
   try {
     long doneUpto=this.unflushedEntries.get();
     long now=System.currentTimeMillis();
-    boolean syncSuccessful=true;
+    List<Entry> pending=logSyncerThread.getPendingWrites();
     try {
-      logSyncerThread.hlogFlush(this.writer);
-      this.writer.sync();
+      logSyncerThread.hlogFlush(tempWriter,pending);
+      pending=null;
+      tempWriter.sync();
       syncBatchSize.addAndGet(doneUpto - this.syncedTillHere);
       this.syncedTillHere=Math.max(this.syncedTillHere,doneUpto);
     }
  catch (    IOException io) {
-      syncSuccessful=false;
-    }
-    if (!syncSuccessful) {
 synchronized (this.updateLock) {
-        this.writer.sync();
+        tempWriter=this.writer;
+        logSyncerThread.hlogFlush(tempWriter,pending);
+        tempWriter.sync();
         syncBatchSize.addAndGet(doneUpto - this.syncedTillHere);
         this.syncedTillHere=doneUpto;
       }
@@ -28,8 +30,13 @@ synchronized (this.updateLock) {
     syncTime.inc(System.currentTimeMillis() - now);
     if (!this.logRollRunning) {
       checkLowReplication();
-      if (this.writer.getLength() > this.logrollsize) {
-        requestLogRoll();
+      try {
+        if (tempWriter.getLength() > this.logrollsize) {
+          requestLogRoll();
+        }
+      }
+ catch (      IOException x) {
+        LOG.debug("Log roll failed and will be retried. (This is not an error)");
       }
     }
   }
