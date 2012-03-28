@@ -1,4 +1,6 @@
 {
+  final long startNanoTime=System.nanoTime();
+  String metricsName="rowprocessor." + processor.getName();
   for (  byte[] row : processor.getRowsToLock()) {
     checkRow(row,"processRowsWithLocks");
   }
@@ -15,11 +17,19 @@
       doProcessRowWithTimeout(processor,now,this,null,null,timeout);
       processor.postProcess(this,walEdit);
     }
-  finally {
+ catch (    IOException e) {
+      long endNanoTime=System.nanoTime();
+      HRegion.incrTimeVaryingMetric(metricsName + ".error.nano",endNanoTime - startNanoTime);
+      throw e;
+    }
+ finally {
       closeRegionOperation();
     }
+    final long endNanoTime=System.nanoTime();
+    HRegion.incrTimeVaryingMetric(metricsName + ".nano",endNanoTime - startNanoTime);
     return;
   }
+  long lockedNanoTime, processDoneNanoTime, unlockedNanoTime=0;
   MultiVersionConsistencyControl.WriteEntry writeEntry=null;
   boolean locked=false;
   boolean walSyncSuccessful=false;
@@ -38,9 +48,11 @@
     }
     this.updatesLock.readLock().lock();
     locked=true;
+    lockedNanoTime=System.nanoTime();
     long now=EnvironmentEdgeManager.currentTimeMillis();
     try {
       doProcessRowWithTimeout(processor,now,this,mutations,walEdit,timeout);
+      processDoneNanoTime=System.nanoTime();
       if (!mutations.isEmpty()) {
         writeEntry=mvcc.beginMemstoreInsert();
         for (        KeyValue kv : mutations) {
@@ -57,6 +69,7 @@
           this.updatesLock.readLock().unlock();
           locked=false;
         }
+        unlockedNanoTime=System.nanoTime();
         if (acquiredLocks != null) {
           for (          Integer lid : acquiredLocks) {
             releaseRowLock(lid);
@@ -89,13 +102,25 @@
           releaseRowLock(lid);
         }
       }
+      unlockedNanoTime=unlockedNanoTime == 0 ? System.nanoTime() : unlockedNanoTime;
     }
     processor.postProcess(this,walEdit);
   }
-  finally {
+ catch (  IOException e) {
+    long endNanoTime=System.nanoTime();
+    HRegion.incrTimeVaryingMetric(metricsName + ".error.nano",endNanoTime - startNanoTime);
+    throw e;
+  }
+ finally {
     closeRegionOperation();
     if (!mutations.isEmpty() && isFlushSize(this.addAndGetGlobalMemstoreSize(addedSize))) {
       requestFlush();
     }
   }
+  long endNanoTime=System.nanoTime();
+  HRegion.incrTimeVaryingMetric(metricsName + ".nano",endNanoTime - startNanoTime);
+  HRegion.incrTimeVaryingMetric(metricsName + ".acquirelock.nano",lockedNanoTime - startNanoTime);
+  HRegion.incrTimeVaryingMetric(metricsName + ".process.nano",processDoneNanoTime - lockedNanoTime);
+  HRegion.incrTimeVaryingMetric(metricsName + ".occupylock.nano",unlockedNanoTime - lockedNanoTime);
+  HRegion.incrTimeVaryingMetric(metricsName + ".sync.nano",endNanoTime - unlockedNanoTime);
 }
