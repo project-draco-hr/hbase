@@ -28,32 +28,27 @@
   ByteBufferOutputStream buf=new ByteBufferOutputStream(size);
   DataOutputStream out=new DataOutputStream(buf);
   try {
-    out.writeInt(this.id);
-    byte flag=(error != null) ? ResponseFlag.getErrorAndLengthSet() : ResponseFlag.getLengthSetOnly();
-    out.writeByte(flag);
-    out.writeInt(0xdeadbeef);
-    out.writeInt(status.state);
-  }
- catch (  IOException e) {
-    errorClass=e.getClass().getName();
-    error=StringUtils.stringifyException(e);
-  }
-  try {
-    if (error == null) {
-      result.write(out);
+    RpcResponse.Builder builder=RpcResponse.newBuilder();
+    builder.setCallId(this.id);
+    builder.setError(error != null);
+    if (error != null) {
+      RpcException.Builder b=RpcException.newBuilder();
+      b.setExceptionName(errorClass);
+      b.setStackTrace(error);
+      builder.setException(b.build());
     }
  else {
-      WritableUtils.writeString(out,errorClass);
-      WritableUtils.writeString(out,error);
+      DataOutputBuffer d=new DataOutputBuffer(size);
+      result.write(d);
+      byte[] response=d.getData();
+      builder.setResponse(ByteString.copyFrom(response));
     }
+    builder.build().writeDelimitedTo(DataOutputOutputStream.constructOutputStream(out));
   }
  catch (  IOException e) {
-    LOG.warn("Error sending response to call: ",e);
+    LOG.warn("Exception while creating response " + e);
   }
   ByteBuffer bb=buf.getByteBuffer();
-  int bufSiz=bb.remaining();
-  bb.position(Bytes.SIZEOF_INT + Bytes.SIZEOF_BYTE);
-  bb.putInt(bufSiz);
   bb.position(0);
   this.response=bb;
 }

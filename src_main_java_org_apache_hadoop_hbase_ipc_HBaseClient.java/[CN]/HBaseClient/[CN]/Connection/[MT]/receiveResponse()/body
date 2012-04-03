@@ -4,23 +4,21 @@
   }
   touch();
   try {
-    int id=in.readInt();
+    RpcResponse response=RpcResponse.parseDelimitedFrom(in);
+    int id=response.getCallId();
     if (LOG.isDebugEnabled())     LOG.debug(getName() + " got value #" + id);
     Call call=calls.remove(id);
-    byte flag=in.readByte();
-    boolean isError=ResponseFlag.isError(flag);
-    if (ResponseFlag.isLength(flag)) {
-      in.readInt();
-    }
-    int state=in.readInt();
+    boolean isError=response.getError();
     if (isError) {
       if (call != null) {
-        call.setException(new RemoteException(WritableUtils.readString(in),WritableUtils.readString(in)));
+        call.setException(new RemoteException(response.getException().getExceptionName(),response.getException().getStackTrace()));
       }
     }
  else {
+      ByteString responseObj=response.getResponse();
+      DataInputStream dis=new DataInputStream(responseObj.newInput());
       Writable value=ReflectionUtils.newInstance(valueClass,conf);
-      value.readFields(in);
+      value.readFields(dis);
       if (call != null) {
         call.setValue(value);
       }
