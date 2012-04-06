@@ -3,7 +3,7 @@
     startupStatus.setStatus("Trying to register in ZK as active master");
     try {
       String backupZNode=ZKUtil.joinZNode(this.watcher.backupMasterAddressesZNode,this.sn.toString());
-      if (ZKUtil.createEphemeralNodeAndWatch(this.watcher,this.watcher.masterAddressZNode,this.sn.getVersionedBytes())) {
+      if (MasterAddressTracker.setMasterAddress(this.watcher,this.watcher.getMasterAddressZNode(),this.sn)) {
         LOG.info("Deleting ZNode for " + backupZNode + " from backup master directory");
         ZKUtil.deleteNodeFailSilent(this.watcher,backupZNode);
         startupStatus.setStatus("Successfully registered as active master.");
@@ -13,17 +13,17 @@
       }
       this.clusterHasActiveMaster.set(true);
       LOG.info("Adding ZNode for " + backupZNode + " in backup master directory");
-      ZKUtil.createEphemeralNodeAndWatch(this.watcher,backupZNode,this.sn.getVersionedBytes());
+      MasterAddressTracker.setMasterAddress(this.watcher,backupZNode,this.sn);
       String msg;
-      byte[] bytes=ZKUtil.getDataAndWatch(this.watcher,this.watcher.masterAddressZNode);
+      byte[] bytes=ZKUtil.getDataAndWatch(this.watcher,this.watcher.getMasterAddressZNode());
       if (bytes == null) {
         msg=("A master was detected, but went down before its address " + "could be read.  Attempting to become the next active master");
       }
  else {
-        ServerName currentMaster=ServerName.parseVersionedServerName(bytes);
+        ServerName currentMaster=ZKUtil.znodeContentToServerName(bytes);
         if (ServerName.isSameHostnameAndPort(currentMaster,this.sn)) {
           msg=("Current master has this master's address, " + currentMaster + "; master was restarted? Deleting node.");
-          ZKUtil.deleteNode(this.watcher,this.watcher.masterAddressZNode);
+          ZKUtil.deleteNode(this.watcher,this.watcher.getMasterAddressZNode());
         }
  else {
           msg="Another master is the active master, " + currentMaster + "; waiting to become the next active master";
