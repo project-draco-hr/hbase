@@ -56,6 +56,7 @@
         }
       }
       wap.w.append(entry);
+      outputSink.updateRegionMaximumEditLogSeqNum(entry);
       editsCount++;
       if (editsCount % interval == 0 || (numNewlyOpenedFiles > numOpenedFilesBeforeReporting)) {
         numNewlyOpenedFiles=0;
@@ -84,7 +85,8 @@ catch (  IOException e) {
   }
  finally {
     int n=0;
-    for (    Object o : logWriters.values()) {
+    for (    Map.Entry<byte[],Object> logWritersEntry : logWriters.entrySet()) {
+      Object o=logWritersEntry.getValue();
       long t1=EnvironmentEdgeManager.currentTimeMillis();
       if ((t1 - last_report_at) > period) {
         last_report_at=t;
@@ -99,7 +101,7 @@ catch (  IOException e) {
       WriterAndPath wap=(WriterAndPath)o;
       wap.w.close();
       LOG.debug("Closed " + wap.p);
-      Path dst=getCompletedRecoveredEditsFilePath(wap.p);
+      Path dst=getCompletedRecoveredEditsFilePath(wap.p,outputSink.getRegionMaximumEditLogSeqNum(logWritersEntry.getKey()));
       if (!dst.equals(wap.p) && fs.exists(dst)) {
         LOG.warn("Found existing old edits file. It could be the " + "result of a previous failed split attempt. Deleting " + dst + ", length="+ fs.getFileStatus(dst).getLen());
         if (!fs.delete(dst,false)) {
@@ -111,6 +113,7 @@ catch (  IOException e) {
         if (!fs.rename(wap.p,dst)) {
           throw new IOException("Failed renaming " + wap.p + " to "+ dst);
         }
+        LOG.debug("Rename " + wap.p + " to "+ dst);
       }
     }
     String msg="Processed " + editsCount + " edits across "+ n+ " regions"+ " threw away edits for "+ (logWriters.size() - n)+ " regions"+ "; log file="+ logPath+ " is corrupted = "+ isCorrupted+ " progress failed = "+ progress_failed;
