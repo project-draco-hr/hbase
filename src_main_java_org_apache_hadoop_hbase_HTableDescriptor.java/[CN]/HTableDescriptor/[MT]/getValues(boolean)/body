@@ -1,0 +1,48 @@
+{
+  StringBuilder s=new StringBuilder();
+  Set<ImmutableBytesWritable> reservedKeys=new TreeSet<ImmutableBytesWritable>();
+  Set<ImmutableBytesWritable> configKeys=new TreeSet<ImmutableBytesWritable>();
+  for (  ImmutableBytesWritable k : values.keySet()) {
+    if (k == null || k.get() == null)     continue;
+    String key=Bytes.toString(k.get());
+    if (!RESERVED_KEYWORDS.contains(k) && !key.startsWith("coprocessor$")) {
+      configKeys.add(k);
+      continue;
+    }
+    String value=Bytes.toString(values.get(k).get());
+    if (key.equalsIgnoreCase(IS_ROOT) || key.equalsIgnoreCase(IS_META)) {
+      if (Boolean.valueOf(value) == false)       continue;
+    }
+    if (printDefaults || !DEFAULT_VALUES.containsKey(key) || !DEFAULT_VALUES.get(key).equalsIgnoreCase(value)) {
+      reservedKeys.add(k);
+    }
+  }
+  if (reservedKeys.isEmpty() && configKeys.isEmpty())   return s;
+  s.append(", {METHOD => 'table_att'");
+  for (  ImmutableBytesWritable k : reservedKeys) {
+    String key=Bytes.toString(k.get());
+    String value=Bytes.toString(values.get(k).get());
+    s.append(", ");
+    s.append(key);
+    s.append(" => ");
+    s.append('\'').append(value).append('\'');
+  }
+  if (!configKeys.isEmpty()) {
+    s.append(", ");
+    s.append(HConstants.CONFIG).append(" => ");
+    s.append("{");
+    boolean printComma=false;
+    for (    ImmutableBytesWritable k : configKeys) {
+      String key=Bytes.toString(k.get());
+      String value=Bytes.toString(values.get(k).get());
+      if (printComma)       s.append(", ");
+      printComma=true;
+      s.append('\'').append(key).append('\'');
+      s.append(" => ");
+      s.append('\'').append(value).append('\'');
+    }
+    s.append("}");
+  }
+  s.append('}');
+  return s;
+}
