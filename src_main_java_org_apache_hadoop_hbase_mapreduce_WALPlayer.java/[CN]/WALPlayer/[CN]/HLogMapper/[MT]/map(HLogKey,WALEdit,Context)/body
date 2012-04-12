@@ -1,0 +1,36 @@
+{
+  try {
+    if (tables.isEmpty() || tables.containsKey(key.getTablename())) {
+      byte[] targetTable=tables.isEmpty() ? key.getTablename() : tables.get(key.getTablename());
+      ImmutableBytesWritable tableOut=new ImmutableBytesWritable(targetTable);
+      Put put=null;
+      Delete del=null;
+      KeyValue lastKV=null;
+      for (      KeyValue kv : value.getKeyValues()) {
+        if (HLog.isMetaFamily(kv.getFamily()))         continue;
+        if (lastKV == null || lastKV.getType() != kv.getType() || !lastKV.matchingRow(kv)) {
+          if (put != null)           context.write(tableOut,put);
+          if (del != null)           context.write(tableOut,del);
+          if (kv.isDelete()) {
+            del=new Delete(kv.getRow());
+          }
+ else {
+            put=new Put(kv.getRow());
+          }
+        }
+        if (kv.isDelete()) {
+          del.addDeleteMarker(kv);
+        }
+ else {
+          put.add(kv);
+        }
+        lastKV=kv;
+      }
+      if (put != null)       context.write(tableOut,put);
+      if (del != null)       context.write(tableOut,del);
+    }
+  }
+ catch (  InterruptedException e) {
+    e.printStackTrace();
+  }
+}
