@@ -1,0 +1,103 @@
+{
+  try {
+    HRegion region=getRegion(request.getRegion());
+    MultiResponse.Builder builder=MultiResponse.newBuilder();
+    if (request.hasAtomic() && request.getAtomic()) {
+      List<Mutate> mutates=new ArrayList<Mutate>();
+      for (      NameBytesPair parameter : request.getActionList()) {
+        Object action=ProtobufUtil.toObject(parameter);
+        if (action instanceof Mutate) {
+          mutates.add((Mutate)action);
+        }
+ else {
+          throw new DoNotRetryIOException("Unsupported atomic atction type: " + action.getClass().getName());
+        }
+      }
+      mutateRows(region,mutates);
+    }
+ else {
+      ActionResult.Builder resultBuilder=null;
+      List<Mutate> puts=new ArrayList<Mutate>();
+      for (      NameBytesPair parameter : request.getActionList()) {
+        requestCount.incrementAndGet();
+        try {
+          Object result=null;
+          Object action=ProtobufUtil.toObject(parameter);
+          if (action instanceof ClientProtos.Get) {
+            Get get=ProtobufUtil.toGet((ClientProtos.Get)action);
+            Integer lock=getLockFromId(get.getLockId());
+            Result r=region.get(get,lock);
+            if (r != null) {
+              result=ProtobufUtil.toResult(r);
+            }
+          }
+ else           if (action instanceof Mutate) {
+            Mutate mutate=(Mutate)action;
+            MutateType type=mutate.getMutateType();
+            if (type != MutateType.PUT) {
+              if (!puts.isEmpty()) {
+                put(builder,region,puts);
+                puts.clear();
+              }
+ else               if (!region.getRegionInfo().isMetaTable()) {
+                cacheFlusher.reclaimMemStoreMemory();
+              }
+            }
+            Result r=null;
+switch (type) {
+case APPEND:
+              r=append(region,mutate);
+            break;
+case INCREMENT:
+          r=increment(region,mutate);
+        break;
+case PUT:
+      puts.add(mutate);
+    break;
+case DELETE:
+  Delete delete=ProtobufUtil.toDelete(mutate);
+Integer lock=getLockFromId(delete.getLockId());
+region.delete(delete,lock,delete.getWriteToWAL());
+r=new Result();
+break;
+default :
+throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
+}
+if (r != null) {
+result=ProtobufUtil.toResult(r);
+}
+}
+ else if (action instanceof ClientProtos.Exec) {
+Exec call=ProtobufUtil.toExec((ClientProtos.Exec)action);
+result=region.exec(call).getValue();
+}
+ else {
+LOG.debug("Error: invalid action, " + "it must be a Get, Mutate, or Exec.");
+throw new DoNotRetryIOException("Invalid action, " + "it must be a Get, Mutate, or Exec.");
+}
+if (result != null) {
+if (resultBuilder == null) {
+resultBuilder=ActionResult.newBuilder();
+}
+ else {
+resultBuilder.clear();
+}
+NameBytesPair value=ProtobufUtil.toParameter(result);
+resultBuilder.setValue(value);
+builder.addResult(resultBuilder.build());
+}
+}
+ catch (IOException ie) {
+builder.addResult(ResponseConverter.buildActionResult(ie));
+}
+}
+if (!puts.isEmpty()) {
+put(builder,region,puts);
+}
+}
+return builder.build();
+}
+ catch (IOException ie) {
+throw new ServiceException(ie);
+}
+}

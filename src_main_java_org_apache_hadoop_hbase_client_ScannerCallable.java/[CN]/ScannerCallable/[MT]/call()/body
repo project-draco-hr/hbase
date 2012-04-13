@@ -1,37 +1,53 @@
 {
-  if (scannerId != -1L && closed) {
-    close();
-  }
- else   if (scannerId == -1L && !closed) {
-    this.scannerId=openScanner();
+  if (closed) {
+    if (scannerId != -1) {
+      close();
+    }
   }
  else {
-    Result[] rrs=null;
-    try {
-      incRPCcallsMetrics();
-      rrs=server.next(scannerId,caching);
-      updateResultsMetrics(rrs);
+    if (scannerId == -1L) {
+      this.scannerId=openScanner();
     }
- catch (    IOException e) {
-      IOException ioe=null;
-      if (e instanceof RemoteException) {
-        ioe=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
-      }
-      if (ioe == null)       throw new IOException(e);
-      if (ioe instanceof NotServingRegionException) {
-        if (this.scanMetrics != null) {
-          this.scanMetrics.countOfNSRE.inc();
+ else {
+      Result[] rrs=null;
+      try {
+        incRPCcallsMetrics();
+        ScanRequest request=RequestConverter.buildScanRequest(scannerId,caching,false);
+        try {
+          ScanResponse response=server.scan(null,request);
+          rrs=ResponseConverter.getResults(response);
+          if (response.hasMoreResults() && !response.getMoreResults()) {
+            scannerId=-1L;
+            closed=true;
+            return null;
+          }
         }
-        throw new DoNotRetryIOException("Reset scanner",ioe);
+ catch (        ServiceException se) {
+          throw ProtobufUtil.getRemoteException(se);
+        }
+        updateResultsMetrics(rrs);
       }
- else       if (ioe instanceof RegionServerStoppedException) {
-        throw new DoNotRetryIOException("Reset scanner",ioe);
-      }
+ catch (      IOException e) {
+        IOException ioe=null;
+        if (e instanceof RemoteException) {
+          ioe=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+        }
+        if (ioe == null)         throw new IOException(e);
+        if (ioe instanceof NotServingRegionException) {
+          if (this.scanMetrics != null) {
+            this.scanMetrics.countOfNSRE.inc();
+          }
+          throw new DoNotRetryIOException("Reset scanner",ioe);
+        }
+ else         if (ioe instanceof RegionServerStoppedException) {
+          throw new DoNotRetryIOException("Reset scanner",ioe);
+        }
  else {
-        throw ioe;
+          throw ioe;
+        }
       }
+      return rrs;
     }
-    return rrs;
   }
   return null;
 }

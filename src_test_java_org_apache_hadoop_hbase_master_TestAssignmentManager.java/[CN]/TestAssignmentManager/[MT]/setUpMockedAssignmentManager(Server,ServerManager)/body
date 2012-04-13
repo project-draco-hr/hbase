@@ -1,11 +1,15 @@
 {
   CatalogTracker ct=Mockito.mock(CatalogTracker.class);
-  HRegionInterface ri=Mockito.mock(HRegionInterface.class);
+  ClientProtocol ri=Mockito.mock(ClientProtocol.class);
   Result r=Mocking.getMetaTableRowResult(REGIONINFO,SERVERNAME_A);
-  Mockito.when(ri.openScanner((byte[])Mockito.any(),(Scan)Mockito.any())).thenReturn(System.currentTimeMillis());
-  Mockito.when(ri.next(Mockito.anyLong(),Mockito.anyInt())).thenReturn(new Result[]{r},(Result[])null);
-  Mockito.when(ri.get((byte[])Mockito.any(),(Get)Mockito.any())).thenReturn(r);
-  HConnection connection=HConnectionTestingUtility.getMockedConnectionAndDecorate(HTU.getConfiguration(),ri,SERVERNAME_B,REGIONINFO);
+  ScanResponse.Builder builder=ScanResponse.newBuilder();
+  builder.setMoreResults(false);
+  builder.addResult(ProtobufUtil.toResult(r));
+  Mockito.when(ri.scan((RpcController)Mockito.any(),(ScanRequest)Mockito.any())).thenReturn(builder.build());
+  GetResponse.Builder getBuilder=GetResponse.newBuilder();
+  getBuilder.setResult(ProtobufUtil.toResult(r));
+  Mockito.when(ri.get((RpcController)Mockito.any(),(GetRequest)Mockito.any())).thenReturn(getBuilder.build());
+  HConnection connection=HConnectionTestingUtility.getMockedConnectionAndDecorate(HTU.getConfiguration(),null,ri,SERVERNAME_B,REGIONINFO);
   Mockito.when(ct.getConnection()).thenReturn(connection);
   ExecutorService executor=startupMasterExecutor("mockedAMExecutor");
   AssignmentManagerWithExtrasForTesting am=new AssignmentManagerWithExtrasForTesting(server,manager,ct,executor);

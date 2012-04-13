@@ -8,15 +8,21 @@
     }
   }
 );
-  HRegionInterface server=connection.getHRegionConnection(firstMetaServer.getHostname(),firstMetaServer.getPort());
+  ClientProtocol server=connection.getClient(firstMetaServer.getHostname(),firstMetaServer.getPort());
   for (int tries=0; tries < (this.numRetries * this.retryLongerMultiplier); tries++) {
-    long scannerId=-1L;
     try {
       Scan scan=MetaReader.getScanForTableName(tableName);
       scan.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-      scannerId=server.openScanner(firstMetaServer.getRegionInfo().getRegionName(),scan);
-      Result values=server.next(scannerId);
-      if (values == null) {
+      ScanRequest request=RequestConverter.buildScanRequest(firstMetaServer.getRegionInfo().getRegionName(),scan,1,true);
+      Result[] values=null;
+      try {
+        ScanResponse response=server.scan(null,request);
+        values=ResponseConverter.getResults(response);
+      }
+ catch (      ServiceException se) {
+        throw ProtobufUtil.getRemoteException(se);
+      }
+      if (values == null || values.length == 0) {
         boolean tableExists=false;
         HTableDescriptor[] htds;
         MasterKeepAliveConnection master=connection.getKeepAliveMaster();
@@ -46,16 +52,6 @@
         }
  else {
           throw ex;
-        }
-      }
-    }
- finally {
-      if (scannerId != -1L) {
-        try {
-          server.close(scannerId);
-        }
- catch (        IOException ex) {
-          LOG.warn(ex);
         }
       }
     }

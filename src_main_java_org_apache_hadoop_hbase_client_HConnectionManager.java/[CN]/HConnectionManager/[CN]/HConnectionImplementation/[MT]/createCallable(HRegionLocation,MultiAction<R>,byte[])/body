@@ -4,10 +4,39 @@
     public MultiResponse call() throws IOException {
       ServerCallable<MultiResponse> callable=new ServerCallable<MultiResponse>(connection,tableName,null){
         public MultiResponse call() throws IOException {
-          return server.multi(multi);
+          try {
+            MultiResponse response=new MultiResponse();
+            for (            Map.Entry<byte[],List<Action<R>>> e : multi.actions.entrySet()) {
+              byte[] regionName=e.getKey();
+              int rowMutations=0;
+              List<Action<R>> actions=e.getValue();
+              for (              Action<R> action : actions) {
+                Row row=action.getAction();
+                if (row instanceof RowMutations) {
+                  MultiRequest request=RequestConverter.buildMultiRequest(regionName,(RowMutations)row);
+                  server.multi(null,request);
+                  response.add(regionName,action.getOriginalIndex(),new Result());
+                  rowMutations++;
+                }
+              }
+              if (actions.size() > rowMutations) {
+                MultiRequest request=RequestConverter.buildMultiRequest(regionName,actions);
+                ClientProtos.MultiResponse proto=server.multi(null,request);
+                List<Object> results=ResponseConverter.getResults(proto);
+                for (int i=0, n=results.size(); i < n; i++) {
+                  int originalIndex=actions.get(i).getOriginalIndex();
+                  response.add(regionName,originalIndex,results.get(i));
+                }
+              }
+            }
+            return response;
+          }
+ catch (          ServiceException se) {
+            throw ProtobufUtil.getRemoteException(se);
+          }
         }
         @Override public void connect(        boolean reload) throws IOException {
-          server=connection.getHRegionConnection(loc.getHostname(),loc.getPort());
+          server=connection.getClient(loc.getHostname(),loc.getPort());
         }
       }
 ;

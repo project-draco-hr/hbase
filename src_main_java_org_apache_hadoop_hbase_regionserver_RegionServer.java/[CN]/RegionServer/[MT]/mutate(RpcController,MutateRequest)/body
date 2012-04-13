@@ -1,0 +1,88 @@
+{
+  try {
+    requestCount.incrementAndGet();
+    HRegion region=getRegion(request.getRegion());
+    MutateResponse.Builder builder=MutateResponse.newBuilder();
+    Mutate mutate=request.getMutate();
+    if (!region.getRegionInfo().isMetaTable()) {
+      cacheFlusher.reclaimMemStoreMemory();
+    }
+    Integer lock=null;
+    Result r=null;
+    Boolean processed=null;
+    MutateType type=mutate.getMutateType();
+switch (type) {
+case APPEND:
+      r=append(region,mutate);
+    break;
+case INCREMENT:
+  r=increment(region,mutate);
+break;
+case PUT:
+Put put=ProtobufUtil.toPut(mutate);
+lock=getLockFromId(put.getLockId());
+if (request.hasCondition()) {
+Condition condition=request.getCondition();
+byte[] row=condition.getRow().toByteArray();
+byte[] family=condition.getFamily().toByteArray();
+byte[] qualifier=condition.getQualifier().toByteArray();
+CompareOp compareOp=CompareOp.valueOf(condition.getCompareType().name());
+WritableByteArrayComparable comparator=(WritableByteArrayComparable)ProtobufUtil.toObject(condition.getComparator());
+if (region.getCoprocessorHost() != null) {
+processed=region.getCoprocessorHost().preCheckAndPut(row,family,qualifier,compareOp,comparator,put);
+}
+if (processed == null) {
+boolean result=region.checkAndMutate(row,family,qualifier,compareOp,comparator,put,lock,true);
+if (region.getCoprocessorHost() != null) {
+result=region.getCoprocessorHost().postCheckAndPut(row,family,qualifier,compareOp,comparator,put,result);
+}
+processed=Boolean.valueOf(result);
+}
+}
+ else {
+region.put(put,lock);
+processed=Boolean.TRUE;
+}
+break;
+case DELETE:
+Delete delete=ProtobufUtil.toDelete(mutate);
+lock=getLockFromId(delete.getLockId());
+if (request.hasCondition()) {
+Condition condition=request.getCondition();
+byte[] row=condition.getRow().toByteArray();
+byte[] family=condition.getFamily().toByteArray();
+byte[] qualifier=condition.getQualifier().toByteArray();
+CompareOp compareOp=CompareOp.valueOf(condition.getCompareType().name());
+WritableByteArrayComparable comparator=(WritableByteArrayComparable)ProtobufUtil.toObject(condition.getComparator());
+if (region.getCoprocessorHost() != null) {
+processed=region.getCoprocessorHost().preCheckAndDelete(row,family,qualifier,compareOp,comparator,delete);
+}
+if (processed == null) {
+boolean result=region.checkAndMutate(row,family,qualifier,compareOp,comparator,delete,lock,true);
+if (region.getCoprocessorHost() != null) {
+result=region.getCoprocessorHost().postCheckAndDelete(row,family,qualifier,compareOp,comparator,delete,result);
+}
+processed=Boolean.valueOf(result);
+}
+}
+ else {
+region.delete(delete,lock,delete.getWriteToWAL());
+processed=Boolean.TRUE;
+}
+break;
+default :
+throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
+}
+if (processed != null) {
+builder.setProcessed(processed.booleanValue());
+}
+ else if (r != null) {
+builder.setResult(ProtobufUtil.toResult(r));
+}
+return builder.build();
+}
+ catch (IOException ie) {
+checkFileSystem();
+throw new ServiceException(ie);
+}
+}

@@ -1,0 +1,45 @@
+{
+  try {
+    requestCount.incrementAndGet();
+    HRegion region=getRegion(request.getRegion());
+    GetResponse.Builder builder=GetResponse.newBuilder();
+    ClientProtos.Get get=request.getGet();
+    Boolean existence=null;
+    Result r=null;
+    if (request.getClosestRowBefore()) {
+      if (get.getColumnCount() != 1) {
+        throw new DoNotRetryIOException("get ClosestRowBefore supports one and only one family now, not " + get.getColumnCount() + " families");
+      }
+      byte[] row=get.getRow().toByteArray();
+      byte[] family=get.getColumn(0).getFamily().toByteArray();
+      r=region.getClosestRowBefore(row,family);
+    }
+ else {
+      Get clientGet=ProtobufUtil.toGet(get);
+      if (request.getExistenceOnly() && region.getCoprocessorHost() != null) {
+        existence=region.getCoprocessorHost().preExists(clientGet);
+      }
+      if (existence == null) {
+        Integer lock=getLockFromId(clientGet.getLockId());
+        r=region.get(clientGet,lock);
+        if (request.getExistenceOnly()) {
+          boolean exists=r != null && !r.isEmpty();
+          if (region.getCoprocessorHost() != null) {
+            exists=region.getCoprocessorHost().postExists(clientGet,exists);
+          }
+          existence=Boolean.valueOf(exists);
+        }
+      }
+    }
+    if (existence != null) {
+      builder.setExists(existence.booleanValue());
+    }
+ else     if (r != null) {
+      builder.setResult(ProtobufUtil.toResult(r));
+    }
+    return builder.build();
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
+}

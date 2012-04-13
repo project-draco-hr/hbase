@@ -1,0 +1,33 @@
+{
+  @SuppressWarnings("unchecked") Pair<Put,Integer>[] putsWithLocks=new Pair[puts.size()];
+  try {
+    ActionResult.Builder resultBuilder=ActionResult.newBuilder();
+    NameBytesPair value=ProtobufUtil.toParameter(new Result());
+    resultBuilder.setValue(value);
+    ActionResult result=resultBuilder.build();
+    int i=0;
+    for (    Mutate put : puts) {
+      Put p=ProtobufUtil.toPut(put);
+      Integer lock=getLockFromId(p.getLockId());
+      putsWithLocks[i++]=new Pair<Put,Integer>(p,lock);
+      builder.addResult(result);
+    }
+    requestCount.addAndGet(puts.size());
+    if (!region.getRegionInfo().isMetaTable()) {
+      cacheFlusher.reclaimMemStoreMemory();
+    }
+    OperationStatus codes[]=region.put(putsWithLocks);
+    for (i=0; i < codes.length; i++) {
+      if (codes[i].getOperationStatusCode() != OperationStatusCode.SUCCESS) {
+        result=ResponseConverter.buildActionResult(new DoNotRetryIOException(codes[i].getExceptionMsg()));
+        builder.setResult(i,result);
+      }
+    }
+  }
+ catch (  IOException ie) {
+    ActionResult result=ResponseConverter.buildActionResult(ie);
+    for (int i=0, n=puts.size(); i < n; i++) {
+      builder.setResult(i,result);
+    }
+  }
+}

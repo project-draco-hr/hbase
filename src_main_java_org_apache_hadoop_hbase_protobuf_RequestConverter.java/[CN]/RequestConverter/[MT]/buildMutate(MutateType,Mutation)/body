@@ -1,0 +1,37 @@
+{
+  Mutate.Builder mutateBuilder=Mutate.newBuilder();
+  mutateBuilder.setRow(ByteString.copyFrom(mutation.getRow()));
+  mutateBuilder.setMutateType(mutateType);
+  mutateBuilder.setWriteToWAL(mutation.getWriteToWAL());
+  if (mutation.getLockId() >= 0) {
+    mutateBuilder.setLockId(mutation.getLockId());
+  }
+  mutateBuilder.setTimestamp(mutation.getTimeStamp());
+  Map<String,byte[]> attributes=mutation.getAttributesMap();
+  if (!attributes.isEmpty()) {
+    NameBytesPair.Builder attributeBuilder=NameBytesPair.newBuilder();
+    for (    Map.Entry<String,byte[]> attribute : attributes.entrySet()) {
+      attributeBuilder.setName(attribute.getKey());
+      attributeBuilder.setValue(ByteString.copyFrom(attribute.getValue()));
+      mutateBuilder.addAttribute(attributeBuilder.build());
+    }
+  }
+  ColumnValue.Builder columnBuilder=ColumnValue.newBuilder();
+  QualifierValue.Builder valueBuilder=QualifierValue.newBuilder();
+  for (  Map.Entry<byte[],List<KeyValue>> family : mutation.getFamilyMap().entrySet()) {
+    columnBuilder.setFamily(ByteString.copyFrom(family.getKey()));
+    columnBuilder.clearQualifierValue();
+    for (    KeyValue value : family.getValue()) {
+      valueBuilder.setQualifier(ByteString.copyFrom(value.getQualifier()));
+      valueBuilder.setValue(ByteString.copyFrom(value.getValue()));
+      valueBuilder.setTimestamp(value.getTimestamp());
+      if (mutateType == MutateType.DELETE) {
+        KeyValue.Type keyValueType=KeyValue.Type.codeToType(value.getType());
+        valueBuilder.setDeleteType(toDeleteType(keyValueType));
+      }
+      columnBuilder.addQualifierValue(valueBuilder.build());
+    }
+    mutateBuilder.addColumnValue(columnBuilder.build());
+  }
+  return mutateBuilder.build();
+}
