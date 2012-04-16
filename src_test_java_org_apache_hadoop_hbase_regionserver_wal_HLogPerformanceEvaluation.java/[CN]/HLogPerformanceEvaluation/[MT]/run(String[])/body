@@ -1,0 +1,80 @@
+{
+  Path rootRegionDir=null;
+  int numThreads=1;
+  long numIterations=10000;
+  int numFamilies=1;
+  boolean noSync=false;
+  boolean verify=false;
+  for (int i=0; i < args.length; i++) {
+    String cmd=args[i];
+    try {
+      if (cmd.equals("-threads")) {
+        numThreads=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-iterations")) {
+        numIterations=Long.parseLong(args[++i]);
+      }
+ else       if (cmd.equals("-path")) {
+        rootRegionDir=new Path(args[++i]);
+      }
+ else       if (cmd.equals("-families")) {
+        numFamilies=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-qualifiers")) {
+        numQualifiers=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-keySize")) {
+        keySize=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-valueSize")) {
+        valueSize=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-nosync")) {
+        noSync=true;
+      }
+ else       if (cmd.equals("-verify")) {
+        verify=true;
+      }
+ else {
+        printUsageAndExit();
+      }
+    }
+ catch (    Exception e) {
+      printUsageAndExit();
+    }
+  }
+  FileSystem fs=FileSystem.get(getConf());
+  try {
+    if (rootRegionDir == null) {
+      rootRegionDir=TEST_UTIL.getDataTestDir("HLogPerformanceEvaluation");
+    }
+    rootRegionDir=rootRegionDir.makeQualified(fs);
+    cleanRegionRootDir(fs,rootRegionDir);
+    HTableDescriptor htd=createHTableDescriptor(numFamilies);
+    HLog hlog=new HLog(fs,new Path(rootRegionDir,"wals"),new Path(rootRegionDir,"old.wals"),getConf());
+    HRegion region=null;
+    try {
+      region=openRegion(fs,rootRegionDir,htd,hlog);
+      long putTime=runBenchmark(new HLogPutBenchmark(region,htd,numIterations,noSync),numThreads);
+      logBenchmarkResult("Summary: threads=" + numThreads + ", iterations="+ numIterations,numIterations * numThreads,putTime);
+      if (region != null) {
+        closeRegion(region);
+        region=null;
+      }
+      if (verify) {
+        Path dir=hlog.getDir();
+        for (        FileStatus fss : fs.listStatus(dir)) {
+          verifyInSequence(fss.getPath());
+        }
+      }
+    }
+  finally {
+      if (region != null)       closeRegion(region);
+      cleanRegionRootDir(fs,rootRegionDir);
+    }
+  }
+  finally {
+    fs.close();
+  }
+  return (0);
+}
