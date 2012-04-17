@@ -5,6 +5,8 @@
   int numFamilies=1;
   boolean noSync=false;
   boolean verify=false;
+  boolean verbose=false;
+  long roll=Long.MAX_VALUE;
   for (int i=0; i < args.length; i++) {
     String cmd=args[i];
     try {
@@ -35,6 +37,12 @@
  else       if (cmd.equals("-verify")) {
         verify=true;
       }
+ else       if (cmd.equals("-verbose")) {
+        verbose=true;
+      }
+ else       if (cmd.equals("-roll")) {
+        roll=Long.parseLong(args[++i]);
+      }
  else {
         printUsageAndExit();
       }
@@ -51,7 +59,20 @@
     rootRegionDir=rootRegionDir.makeQualified(fs);
     cleanRegionRootDir(fs,rootRegionDir);
     HTableDescriptor htd=createHTableDescriptor(numFamilies);
-    HLog hlog=new HLog(fs,new Path(rootRegionDir,"wals"),new Path(rootRegionDir,"old.wals"),getConf());
+    final long whenToRoll=roll;
+    HLog hlog=new HLog(fs,new Path(rootRegionDir,"wals"),new Path(rootRegionDir,"old.wals"),getConf()){
+      int appends=0;
+      protected void doWrite(      HRegionInfo info,      HLogKey logKey,      WALEdit logEdit,      HTableDescriptor htd) throws IOException {
+        this.appends++;
+        if (this.appends % whenToRoll == 0) {
+          LOG.info("Rolling after " + appends + " edits");
+          rollWriter();
+        }
+        super.doWrite(info,logKey,logEdit,htd);
+      }
+    }
+;
+    hlog.rollWriter();
     HRegion region=null;
     try {
       region=openRegion(fs,rootRegionDir,htd,hlog);
@@ -63,8 +84,13 @@
       }
       if (verify) {
         Path dir=hlog.getDir();
+        long editCount=0;
         for (        FileStatus fss : fs.listStatus(dir)) {
-          verify(fss.getPath(),numIterations * numThreads);
+          editCount+=verify(fss.getPath(),verbose);
+        }
+        long expected=numIterations * numThreads;
+        if (editCount != expected) {
+          throw new IllegalStateException("Counted=" + editCount + ", expected="+ expected);
         }
       }
     }
