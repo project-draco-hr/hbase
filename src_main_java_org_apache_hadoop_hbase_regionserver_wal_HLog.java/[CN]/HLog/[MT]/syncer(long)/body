@@ -8,25 +8,37 @@ synchronized (this.updateLock) {
     return;
   }
   try {
-    long doneUpto=this.unflushedEntries.get();
+    long doneUpto;
     long now=System.currentTimeMillis();
-    List<Entry> pending=logSyncerThread.getPendingWrites();
+synchronized (flushLock) {
+      if (txid <= this.syncedTillHere) {
+        return;
+      }
+      doneUpto=this.unflushedEntries.get();
+      List<Entry> pending=logSyncerThread.getPendingWrites();
+      try {
+        logSyncerThread.hlogFlush(tempWriter,pending);
+      }
+ catch (      IOException io) {
+synchronized (this.updateLock) {
+          tempWriter=this.writer;
+          logSyncerThread.hlogFlush(tempWriter,pending);
+        }
+      }
+    }
+    if (txid <= this.syncedTillHere) {
+      return;
+    }
     try {
-      logSyncerThread.hlogFlush(tempWriter,pending);
-      pending=null;
       tempWriter.sync();
-      syncBatchSize.addAndGet(doneUpto - this.syncedTillHere);
-      this.syncedTillHere=Math.max(this.syncedTillHere,doneUpto);
     }
  catch (    IOException io) {
 synchronized (this.updateLock) {
         tempWriter=this.writer;
-        logSyncerThread.hlogFlush(tempWriter,pending);
         tempWriter.sync();
-        syncBatchSize.addAndGet(doneUpto - this.syncedTillHere);
-        this.syncedTillHere=doneUpto;
       }
     }
+    this.syncedTillHere=Math.max(this.syncedTillHere,doneUpto);
     syncTime.inc(System.currentTimeMillis() - now);
     if (!this.logRollRunning) {
       checkLowReplication();
