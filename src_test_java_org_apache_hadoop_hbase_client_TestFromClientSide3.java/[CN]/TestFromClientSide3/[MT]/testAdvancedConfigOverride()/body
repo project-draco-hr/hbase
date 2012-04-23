@@ -9,21 +9,21 @@
   performMultiplePutAndFlush(admin,hTable,row,FAMILY,3,100);
   HRegionLocation loc=hTable.getRegionLocation(row,true);
   byte[] regionName=loc.getRegionInfo().getRegionName();
-  HRegionInterface server=connection.getHRegionConnection(loc.getHostname(),loc.getPort());
-  assertTrue(server.getStoreFileList(regionName,FAMILY).size() > 1);
+  AdminProtocol server=connection.getAdmin(loc.getHostname(),loc.getPort());
+  assertTrue(ProtobufUtil.getStoreFiles(server,regionName,FAMILY).size() > 1);
   admin.compact(TABLE);
   for (int i=0; i < 10 * 1000 / 40; ++i) {
     loc=hTable.getRegionLocation(row,true);
     if (!loc.getRegionInfo().isOffline()) {
       regionName=loc.getRegionInfo().getRegionName();
-      server=connection.getHRegionConnection(loc.getHostname(),loc.getPort());
-      if (server.getStoreFileList(regionName,FAMILY).size() <= 1) {
+      server=connection.getAdmin(loc.getHostname(),loc.getPort());
+      if (ProtobufUtil.getStoreFiles(server,regionName,FAMILY).size() <= 1) {
         break;
       }
     }
     Thread.sleep(40);
   }
-  assertTrue(server.getStoreFileList(regionName,FAMILY).size() <= 1);
+  assertTrue(ProtobufUtil.getStoreFiles(server,regionName,FAMILY).size() <= 1);
   LOG.info("hbase.hstore.compaction.min should now be 5");
   HTableDescriptor htd=new HTableDescriptor(hTable.getTableDescriptor());
   htd.setValue("hbase.hstore.compaction.min",String.valueOf(5));
@@ -37,11 +37,10 @@
   performMultiplePutAndFlush(admin,hTable,row,FAMILY,3,10);
   admin.compact(TABLE);
   Thread.sleep(10 * 1000);
-  int sfCount=0;
   loc=hTable.getRegionLocation(row,true);
   regionName=loc.getRegionInfo().getRegionName();
-  server=connection.getHRegionConnection(loc.getHostname(),loc.getPort());
-  sfCount=server.getStoreFileList(regionName,FAMILY).size();
+  server=connection.getAdmin(loc.getHostname(),loc.getPort());
+  int sfCount=ProtobufUtil.getStoreFiles(server,regionName,FAMILY).size();
   assertTrue(sfCount > 1);
   LOG.info("hbase.hstore.compaction.min should now be 2");
   HColumnDescriptor hcd=new HColumnDescriptor(htd.getFamily(FAMILY));
@@ -58,8 +57,8 @@
     loc=hTable.getRegionLocation(row,true);
     regionName=loc.getRegionInfo().getRegionName();
     try {
-      server=connection.getHRegionConnection(loc.getHostname(),loc.getPort());
-      if (server.getStoreFileList(regionName,FAMILY).size() < sfCount) {
+      server=connection.getAdmin(loc.getHostname(),loc.getPort());
+      if (ProtobufUtil.getStoreFiles(server,regionName,FAMILY).size() < sfCount) {
         break;
       }
     }
@@ -68,7 +67,7 @@
     }
     Thread.sleep(40);
   }
-  assertTrue(server.getStoreFileList(regionName,FAMILY).size() < sfCount);
+  assertTrue(ProtobufUtil.getStoreFiles(server,regionName,FAMILY).size() < sfCount);
   LOG.info("Removing CF config value");
   LOG.info("hbase.hstore.compaction.min should now be 5");
   hcd=new HColumnDescriptor(htd.getFamily(FAMILY));

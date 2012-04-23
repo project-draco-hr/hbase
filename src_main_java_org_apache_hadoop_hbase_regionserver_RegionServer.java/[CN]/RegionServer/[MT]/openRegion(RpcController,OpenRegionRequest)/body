@@ -1,0 +1,45 @@
+{
+  int versionOfOfflineNode=-1;
+  if (request.hasVersionOfOfflineNode()) {
+    versionOfOfflineNode=request.getVersionOfOfflineNode();
+  }
+  try {
+    checkOpen();
+    requestCount.incrementAndGet();
+    OpenRegionResponse.Builder builder=OpenRegionResponse.newBuilder();
+    for (    RegionInfo regionInfo : request.getRegionList()) {
+      HRegionInfo region=ProtobufUtil.toRegionInfo(regionInfo);
+      checkIfRegionInTransition(region,OPEN);
+      HRegion onlineRegion=getFromOnlineRegions(region.getEncodedName());
+      if (null != onlineRegion) {
+        Pair<HRegionInfo,ServerName> p=MetaReader.getRegion(this.catalogTracker,region.getRegionName());
+        if (this.getServerName().equals(p.getSecond())) {
+          LOG.warn("Attempted open of " + region.getEncodedName() + " but already online on this server");
+          builder.addOpeningState(RegionOpeningState.ALREADY_OPENED);
+          continue;
+        }
+ else {
+          LOG.warn("The region " + region.getEncodedName() + " is online on this server but META does not have this server.");
+          removeFromOnlineRegions(region.getEncodedName());
+        }
+      }
+      LOG.info("Received request to open region: " + region.getEncodedName());
+      this.regionsInTransitionInRS.putIfAbsent(region.getEncodedNameAsBytes(),true);
+      HTableDescriptor htd=this.tableDescriptors.get(region.getTableName());
+      if (region.isRootRegion()) {
+        this.service.submit(new OpenRootHandler(this,this,region,htd,versionOfOfflineNode));
+      }
+ else       if (region.isMetaRegion()) {
+        this.service.submit(new OpenMetaHandler(this,this,region,htd,versionOfOfflineNode));
+      }
+ else {
+        this.service.submit(new OpenRegionHandler(this,this,region,htd,versionOfOfflineNode));
+      }
+      builder.addOpeningState(RegionOpeningState.OPENED);
+    }
+    return builder.build();
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
+}
