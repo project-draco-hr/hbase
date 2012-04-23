@@ -15,53 +15,59 @@
     qualifiers[i]=Bytes.toBytes("qual" + i);
   }
   String method="testWritesWhileGetting";
-  initHRegion(tableName,method,families);
-  PutThread putThread=new PutThread(numRows,families,qualifiers);
-  putThread.start();
-  putThread.waitForFirstPut();
-  FlushThread flushThread=new FlushThread();
-  flushThread.start();
-  Get get=new Get(Bytes.toBytes("row0"));
-  Result result=null;
-  int expectedCount=numFamilies * numQualifiers;
-  long prevTimestamp=0L;
-  for (int i=0; i < testCount; i++) {
-    if (i != 0 && i % compactInterval == 0) {
-      region.compactStores(true);
-    }
-    if (i != 0 && i % flushInterval == 0) {
-      flushThread.flush();
-    }
-    boolean previousEmpty=result == null || result.isEmpty();
-    result=region.get(get,null);
-    if (!result.isEmpty() || !previousEmpty || i > compactInterval) {
-      assertEquals("i=" + i,expectedCount,result.size());
-      long timestamp=0;
-      for (      KeyValue kv : result.raw()) {
-        if (Bytes.equals(kv.getFamily(),families[0]) && Bytes.equals(kv.getQualifier(),qualifiers[0])) {
-          timestamp=kv.getTimestamp();
-        }
+  this.region=initHRegion(tableName,method,families);
+  try {
+    PutThread putThread=new PutThread(numRows,families,qualifiers);
+    putThread.start();
+    putThread.waitForFirstPut();
+    FlushThread flushThread=new FlushThread();
+    flushThread.start();
+    Get get=new Get(Bytes.toBytes("row0"));
+    Result result=null;
+    int expectedCount=numFamilies * numQualifiers;
+    long prevTimestamp=0L;
+    for (int i=0; i < testCount; i++) {
+      if (i != 0 && i % compactInterval == 0) {
+        region.compactStores(true);
       }
-      assertTrue(timestamp >= prevTimestamp);
-      prevTimestamp=timestamp;
-      KeyValue previousKV=null;
-      for (      KeyValue kv : result.raw()) {
-        byte[] thisValue=kv.getValue();
-        if (previousKV != null) {
-          if (Bytes.compareTo(previousKV.getValue(),thisValue) != 0) {
-            LOG.warn("These two KV should have the same value." + " Previous KV:" + previousKV + "(memStoreTS:"+ previousKV.getMemstoreTS()+ ")"+ ", New KV: "+ kv+ "(memStoreTS:"+ kv.getMemstoreTS()+ ")");
-            assertEquals(previousKV.getValue(),thisValue);
+      if (i != 0 && i % flushInterval == 0) {
+        flushThread.flush();
+      }
+      boolean previousEmpty=result == null || result.isEmpty();
+      result=region.get(get,null);
+      if (!result.isEmpty() || !previousEmpty || i > compactInterval) {
+        assertEquals("i=" + i,expectedCount,result.size());
+        long timestamp=0;
+        for (        KeyValue kv : result.raw()) {
+          if (Bytes.equals(kv.getFamily(),families[0]) && Bytes.equals(kv.getQualifier(),qualifiers[0])) {
+            timestamp=kv.getTimestamp();
           }
         }
-        previousKV=kv;
+        assertTrue(timestamp >= prevTimestamp);
+        prevTimestamp=timestamp;
+        KeyValue previousKV=null;
+        for (        KeyValue kv : result.raw()) {
+          byte[] thisValue=kv.getValue();
+          if (previousKV != null) {
+            if (Bytes.compareTo(previousKV.getValue(),thisValue) != 0) {
+              LOG.warn("These two KV should have the same value." + " Previous KV:" + previousKV + "(memStoreTS:"+ previousKV.getMemstoreTS()+ ")"+ ", New KV: "+ kv+ "(memStoreTS:"+ kv.getMemstoreTS()+ ")");
+              assertEquals(previousKV.getValue(),thisValue);
+            }
+          }
+          previousKV=kv;
+        }
       }
     }
+    putThread.done();
+    region.flushcache();
+    putThread.join();
+    putThread.checkNoError();
+    flushThread.done();
+    flushThread.join();
+    flushThread.checkNoError();
   }
-  putThread.done();
-  region.flushcache();
-  putThread.join();
-  putThread.checkNoError();
-  flushThread.done();
-  flushThread.join();
-  flushThread.checkNoError();
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
 }

@@ -9,38 +9,44 @@
   htd.addFamily(hcd);
   HRegionInfo info=new HRegionInfo(htd.getName(),null,null,false);
   Path path=new Path(DIR + "testBloomFilterSize");
-  region=HRegion.createHRegion(info,path,conf,htd);
-  int num_unique_rows=10;
-  int duplicate_multiplier=2;
-  int num_storefiles=4;
-  int version=0;
-  for (int f=0; f < num_storefiles; f++) {
-    for (int i=0; i < duplicate_multiplier; i++) {
-      for (int j=0; j < num_unique_rows; j++) {
-        Put put=new Put(Bytes.toBytes("row" + j));
-        put.setWriteToWAL(false);
-        put.add(fam1,qf1,version++,val1);
-        region.put(put);
+  this.region=HRegion.createHRegion(info,path,conf,htd);
+  try {
+    int num_unique_rows=10;
+    int duplicate_multiplier=2;
+    int num_storefiles=4;
+    int version=0;
+    for (int f=0; f < num_storefiles; f++) {
+      for (int i=0; i < duplicate_multiplier; i++) {
+        for (int j=0; j < num_unique_rows; j++) {
+          Put put=new Put(Bytes.toBytes("row" + j));
+          put.setWriteToWAL(false);
+          put.add(fam1,qf1,version++,val1);
+          region.put(put);
+        }
       }
+      region.flushcache();
     }
-    region.flushcache();
+    Store store=region.getStore(fam1);
+    List<StoreFile> storeFiles=store.getStorefiles();
+    for (    StoreFile storefile : storeFiles) {
+      StoreFile.Reader reader=storefile.getReader();
+      reader.loadFileInfo();
+      reader.loadBloomfilter();
+      assertEquals(num_unique_rows * duplicate_multiplier,reader.getEntries());
+      assertEquals(num_unique_rows,reader.getFilterEntries());
+    }
+    region.compactStores(true);
+    storeFiles=store.getStorefiles();
+    for (    StoreFile storefile : storeFiles) {
+      StoreFile.Reader reader=storefile.getReader();
+      reader.loadFileInfo();
+      reader.loadBloomfilter();
+      assertEquals(num_unique_rows * duplicate_multiplier * num_storefiles,reader.getEntries());
+      assertEquals(num_unique_rows,reader.getFilterEntries());
+    }
   }
-  Store store=region.getStore(fam1);
-  List<StoreFile> storeFiles=store.getStorefiles();
-  for (  StoreFile storefile : storeFiles) {
-    StoreFile.Reader reader=storefile.getReader();
-    reader.loadFileInfo();
-    reader.loadBloomfilter();
-    assertEquals(num_unique_rows * duplicate_multiplier,reader.getEntries());
-    assertEquals(num_unique_rows,reader.getFilterEntries());
-  }
-  region.compactStores(true);
-  storeFiles=store.getStorefiles();
-  for (  StoreFile storefile : storeFiles) {
-    StoreFile.Reader reader=storefile.getReader();
-    reader.loadFileInfo();
-    reader.loadBloomfilter();
-    assertEquals(num_unique_rows * duplicate_multiplier * num_storefiles,reader.getEntries());
-    assertEquals(num_unique_rows,reader.getFilterEntries());
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
   }
 }

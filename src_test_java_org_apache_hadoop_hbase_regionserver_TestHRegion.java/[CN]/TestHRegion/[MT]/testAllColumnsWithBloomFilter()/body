@@ -6,22 +6,28 @@
   htd.addFamily(hcd);
   HRegionInfo info=new HRegionInfo(htd.getName(),null,null,false);
   Path path=new Path(DIR + "testAllColumnsWithBloomFilter");
-  region=HRegion.createHRegion(info,path,conf,htd);
-  byte row[]=Bytes.toBytes("row:" + 0);
-  byte column[]=Bytes.toBytes("column:" + 0);
-  Put put=new Put(row);
-  put.setWriteToWAL(false);
-  for (long idx=1; idx <= 4; idx++) {
-    put.add(FAMILY,column,idx,Bytes.toBytes("value-version-" + idx));
+  this.region=HRegion.createHRegion(info,path,conf,htd);
+  try {
+    byte row[]=Bytes.toBytes("row:" + 0);
+    byte column[]=Bytes.toBytes("column:" + 0);
+    Put put=new Put(row);
+    put.setWriteToWAL(false);
+    for (long idx=1; idx <= 4; idx++) {
+      put.add(FAMILY,column,idx,Bytes.toBytes("value-version-" + idx));
+    }
+    region.put(put);
+    region.flushcache();
+    Get get=new Get(row);
+    get.setMaxVersions();
+    KeyValue[] kvs=region.get(get,null).raw();
+    assertEquals(4,kvs.length);
+    checkOneCell(kvs[0],FAMILY,0,0,4);
+    checkOneCell(kvs[1],FAMILY,0,0,3);
+    checkOneCell(kvs[2],FAMILY,0,0,2);
+    checkOneCell(kvs[3],FAMILY,0,0,1);
   }
-  region.put(put);
-  region.flushcache();
-  Get get=new Get(row);
-  get.setMaxVersions();
-  KeyValue[] kvs=region.get(get,null).raw();
-  assertEquals(4,kvs.length);
-  checkOneCell(kvs[0],FAMILY,0,0,4);
-  checkOneCell(kvs[1],FAMILY,0,0,3);
-  checkOneCell(kvs[2],FAMILY,0,0,2);
-  checkOneCell(kvs[3],FAMILY,0,0,1);
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
 }

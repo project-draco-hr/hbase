@@ -15,39 +15,45 @@
     qualifiers[i]=Bytes.toBytes("qual" + i);
   }
   String method="testWritesWhileScanning";
-  initHRegion(tableName,method,families);
-  PutThread putThread=new PutThread(numRows,families,qualifiers);
-  putThread.start();
-  putThread.waitForFirstPut();
-  FlushThread flushThread=new FlushThread();
-  flushThread.start();
-  Scan scan=new Scan(Bytes.toBytes("row0"),Bytes.toBytes("row1"));
-  int expectedCount=numFamilies * numQualifiers;
-  List<KeyValue> res=new ArrayList<KeyValue>();
-  long prevTimestamp=0L;
-  for (int i=0; i < testCount; i++) {
-    if (i != 0 && i % compactInterval == 0) {
-      region.compactStores(true);
+  this.region=initHRegion(tableName,method,families);
+  try {
+    PutThread putThread=new PutThread(numRows,families,qualifiers);
+    putThread.start();
+    putThread.waitForFirstPut();
+    FlushThread flushThread=new FlushThread();
+    flushThread.start();
+    Scan scan=new Scan(Bytes.toBytes("row0"),Bytes.toBytes("row1"));
+    int expectedCount=numFamilies * numQualifiers;
+    List<KeyValue> res=new ArrayList<KeyValue>();
+    long prevTimestamp=0L;
+    for (int i=0; i < testCount; i++) {
+      if (i != 0 && i % compactInterval == 0) {
+        region.compactStores(true);
+      }
+      if (i != 0 && i % flushInterval == 0) {
+        flushThread.flush();
+      }
+      boolean previousEmpty=res.isEmpty();
+      res.clear();
+      InternalScanner scanner=region.getScanner(scan);
+      while (scanner.next(res))       ;
+      if (!res.isEmpty() || !previousEmpty || i > compactInterval) {
+        assertEquals("i=" + i,expectedCount,res.size());
+        long timestamp=res.get(0).getTimestamp();
+        assertTrue("Timestamps were broke: " + timestamp + " prev: "+ prevTimestamp,timestamp >= prevTimestamp);
+        prevTimestamp=timestamp;
+      }
     }
-    if (i != 0 && i % flushInterval == 0) {
-      flushThread.flush();
-    }
-    boolean previousEmpty=res.isEmpty();
-    res.clear();
-    InternalScanner scanner=region.getScanner(scan);
-    while (scanner.next(res))     ;
-    if (!res.isEmpty() || !previousEmpty || i > compactInterval) {
-      assertEquals("i=" + i,expectedCount,res.size());
-      long timestamp=res.get(0).getTimestamp();
-      assertTrue("Timestamps were broke: " + timestamp + " prev: "+ prevTimestamp,timestamp >= prevTimestamp);
-      prevTimestamp=timestamp;
-    }
+    putThread.done();
+    region.flushcache();
+    putThread.join();
+    putThread.checkNoError();
+    flushThread.done();
+    flushThread.join();
+    flushThread.checkNoError();
   }
-  putThread.done();
-  region.flushcache();
-  putThread.join();
-  putThread.checkNoError();
-  flushThread.done();
-  flushThread.join();
-  flushThread.checkNoError();
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
 }
