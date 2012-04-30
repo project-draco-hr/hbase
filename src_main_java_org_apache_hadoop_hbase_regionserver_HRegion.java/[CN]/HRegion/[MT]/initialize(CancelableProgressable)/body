@@ -1,76 +1,13 @@
 {
   MonitoredTask status=TaskMonitor.get().createStatus("Initializing region " + this);
-  if (coprocessorHost != null) {
-    status.setStatus("Running coprocessor pre-open hook");
-    coprocessorHost.preOpen();
+  long nextSeqId=-1;
+  try {
+    nextSeqId=initializeRegionInternals(reporter,status);
+    return nextSeqId;
   }
-  status.setStatus("Writing region info on filesystem");
-  checkRegioninfoOnFilesystem();
-  status.setStatus("Cleaning up temporary data from old regions");
-  cleanupTmpDir();
-  long minSeqId=-1;
-  long maxSeqId=-1;
-  long maxMemstoreTS=-1;
-  if (this.htableDescriptor != null && !htableDescriptor.getFamilies().isEmpty()) {
-    ThreadPoolExecutor storeOpenerThreadPool=getStoreOpenAndCloseThreadPool("StoreOpenerThread-" + this.regionInfo.getRegionNameAsString());
-    CompletionService<Store> completionService=new ExecutorCompletionService<Store>(storeOpenerThreadPool);
-    for (    final HColumnDescriptor family : htableDescriptor.getFamilies()) {
-      status.setStatus("Instantiating store for column family " + family);
-      completionService.submit(new Callable<Store>(){
-        public Store call() throws IOException {
-          return instantiateHStore(tableDir,family);
-        }
-      }
-);
-    }
-    try {
-      for (int i=0; i < htableDescriptor.getFamilies().size(); i++) {
-        Future<Store> future=completionService.take();
-        Store store=future.get();
-        this.stores.put(store.getColumnFamilyName().getBytes(),store);
-        long storeSeqId=store.getMaxSequenceId();
-        if (minSeqId == -1 || storeSeqId < minSeqId) {
-          minSeqId=storeSeqId;
-        }
-        if (maxSeqId == -1 || storeSeqId > maxSeqId) {
-          maxSeqId=storeSeqId;
-        }
-        long maxStoreMemstoreTS=store.getMaxMemstoreTS();
-        if (maxStoreMemstoreTS > maxMemstoreTS) {
-          maxMemstoreTS=maxStoreMemstoreTS;
-        }
-      }
-    }
- catch (    InterruptedException e) {
-      throw new IOException(e);
-    }
-catch (    ExecutionException e) {
-      throw new IOException(e.getCause());
-    }
- finally {
-      storeOpenerThreadPool.shutdownNow();
+  finally {
+    if (nextSeqId == -1) {
+      status.abort("Exception during region " + this.getRegionNameAsString() + " initialization.");
     }
   }
-  mvcc.initialize(maxMemstoreTS + 1);
-  maxSeqId=Math.max(maxSeqId,replayRecoveredEditsIfAny(this.regiondir,minSeqId,reporter,status));
-  status.setStatus("Cleaning up detritus from prior splits");
-  SplitTransaction.cleanupAnySplitDetritus(this);
-  FSUtils.deleteDirectory(this.fs,new Path(regiondir,MERGEDIR));
-  if (this.htableDescriptor != null) {
-    this.writestate.setReadOnly(this.htableDescriptor.isReadOnly());
-  }
-  this.writestate.flushRequested=false;
-  this.writestate.compacting=0;
-  this.splitPolicy=RegionSplitPolicy.create(this,conf);
-  this.lastFlushTime=EnvironmentEdgeManager.currentTimeMillis();
-  long nextSeqid=maxSeqId + 1;
-  LOG.info("Onlined " + this.toString() + "; next sequenceid="+ nextSeqid);
-  this.closing.set(false);
-  this.closed.set(false);
-  if (coprocessorHost != null) {
-    status.setStatus("Running coprocessor post-open hooks");
-    coprocessorHost.postOpen();
-  }
-  status.markComplete("Region opened successfully");
-  return nextSeqid;
 }
