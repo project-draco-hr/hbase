@@ -10,7 +10,7 @@
     if (task.unforcedResubmits >= resubmit_threshold) {
       if (!task.resubmitThresholdReached) {
         task.resubmitThresholdReached=true;
-        tot_mgr_resubmit_threshold_reached.incrementAndGet();
+        SplitLogCounters.tot_mgr_resubmit_threshold_reached.incrementAndGet();
         LOG.info("Skipping resubmissions of task " + path + " because threshold "+ resubmit_threshold+ " reached");
       }
       return false;
@@ -23,7 +23,8 @@
   LOG.info("resubmitting task " + path);
   task.incarnation++;
   try {
-    if (ZKUtil.setData(this.watcher,path,TaskState.TASK_UNASSIGNED.get(serverName),version) == false) {
+    SplitLogTask slt=new SplitLogTask.Unassigned(this.serverName);
+    if (ZKUtil.setData(this.watcher,path,slt.toByteArray(),version) == false) {
       LOG.debug("failed to resubmit task " + path + " version changed");
       task.heartbeatNoDetails(EnvironmentEdgeManager.currentTimeMillis());
       return false;
@@ -31,7 +32,14 @@
   }
  catch (  NoNodeException e) {
     LOG.warn("failed to resubmit because znode doesn't exist " + path + " task done (or forced done by removing the znode)");
-    getDataSetWatchSuccess(path,null,Integer.MIN_VALUE);
+    try {
+      getDataSetWatchSuccess(path,null,Integer.MIN_VALUE);
+    }
+ catch (    DeserializationException e1) {
+      LOG.debug("failed to re-resubmit task " + path + " because of deserialization issue");
+      task.heartbeatNoDetails(EnvironmentEdgeManager.currentTimeMillis());
+      return false;
+    }
     return false;
   }
 catch (  KeeperException.BadVersionException e) {
@@ -40,7 +48,7 @@ catch (  KeeperException.BadVersionException e) {
     return false;
   }
 catch (  KeeperException e) {
-    tot_mgr_resubmit_failed.incrementAndGet();
+    SplitLogCounters.tot_mgr_resubmit_failed.incrementAndGet();
     LOG.warn("failed to resubmit " + path,e);
     return false;
   }
@@ -49,6 +57,6 @@ catch (  KeeperException e) {
   }
   task.setUnassigned();
   createRescanNode(Long.MAX_VALUE);
-  tot_mgr_resubmit.incrementAndGet();
+  SplitLogCounters.tot_mgr_resubmit.incrementAndGet();
   return true;
 }

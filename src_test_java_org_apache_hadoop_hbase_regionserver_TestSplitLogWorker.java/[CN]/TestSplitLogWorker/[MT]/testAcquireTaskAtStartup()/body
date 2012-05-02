@@ -1,12 +1,16 @@
 {
   LOG.info("testAcquireTaskAtStartup");
-  ZKSplitLog.Counters.resetCounters();
-  zkw.getRecoverableZooKeeper().create(ZKSplitLog.getEncodedNodeName(zkw,"tatas"),TaskState.TASK_UNASSIGNED.get("mgr"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
-  SplitLogWorker slw=new SplitLogWorker(zkw,TEST_UTIL.getConfiguration(),"rs",neverEndingTask);
+  SplitLogCounters.resetCounters();
+  final String TATAS="tatas";
+  final ServerName RS=new ServerName("rs,1,1");
+  zkw.getRecoverableZooKeeper().create(ZKSplitLog.getEncodedNodeName(zkw,TATAS),new SplitLogTask.Unassigned(new ServerName("mgr,1,1")).toByteArray(),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+  SplitLogWorker slw=new SplitLogWorker(zkw,TEST_UTIL.getConfiguration(),RS,neverEndingTask);
   slw.start();
   try {
-    waitForCounter(tot_wkr_task_acquired,0,1,100);
-    assertTrue(TaskState.TASK_OWNED.equals(ZKUtil.getData(zkw,ZKSplitLog.getEncodedNodeName(zkw,"tatas")),"rs"));
+    waitForCounter(SplitLogCounters.tot_wkr_task_acquired,0,1,100);
+    byte[] bytes=ZKUtil.getData(zkw,ZKSplitLog.getEncodedNodeName(zkw,TATAS));
+    SplitLogTask slt=SplitLogTask.parseFrom(bytes);
+    assertTrue(slt.isOwned(RS));
   }
   finally {
     stopSplitLogWorker(slw);

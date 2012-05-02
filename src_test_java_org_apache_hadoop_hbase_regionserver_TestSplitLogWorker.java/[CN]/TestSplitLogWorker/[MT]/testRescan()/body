@@ -1,21 +1,23 @@
 {
   LOG.info("testRescan");
-  ZKSplitLog.Counters.resetCounters();
-  slw=new SplitLogWorker(zkw,TEST_UTIL.getConfiguration(),"svr",neverEndingTask);
+  SplitLogCounters.resetCounters();
+  final ServerName SRV=new ServerName("svr,1,1");
+  slw=new SplitLogWorker(zkw,TEST_UTIL.getConfiguration(),SRV,neverEndingTask);
   slw.start();
   Thread.yield();
   Thread.sleep(100);
   String task=ZKSplitLog.getEncodedNodeName(zkw,"task");
-  zkw.getRecoverableZooKeeper().create(task,TaskState.TASK_UNASSIGNED.get("manager"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
-  waitForCounter(tot_wkr_task_acquired,0,1,1000);
-  ZKUtil.setData(zkw,task,TaskState.TASK_UNASSIGNED.get("manager"));
-  waitForCounter(tot_wkr_preempt_task,0,1,1000);
+  SplitLogTask slt=new SplitLogTask.Unassigned(MANAGER);
+  zkw.getRecoverableZooKeeper().create(task,slt.toByteArray(),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+  waitForCounter(SplitLogCounters.tot_wkr_task_acquired,0,1,1000);
+  ZKUtil.setData(zkw,task,slt.toByteArray());
+  waitForCounter(SplitLogCounters.tot_wkr_preempt_task,0,1,1000);
   String rescan=ZKSplitLog.getEncodedNodeName(zkw,"RESCAN");
-  rescan=zkw.getRecoverableZooKeeper().create(rescan,TaskState.TASK_UNASSIGNED.get("manager"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT_SEQUENTIAL);
-  waitForCounter(tot_wkr_task_acquired,1,2,1000);
-  ZKUtil.setData(zkw,task,TaskState.TASK_UNASSIGNED.get("manager"));
-  waitForCounter(tot_wkr_preempt_task,1,2,1000);
-  waitForCounter(tot_wkr_task_acquired_rescan,0,1,1000);
+  rescan=zkw.getRecoverableZooKeeper().create(rescan,slt.toByteArray(),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT_SEQUENTIAL);
+  waitForCounter(SplitLogCounters.tot_wkr_task_acquired,1,2,1000);
+  ZKUtil.setData(zkw,task,slt.toByteArray());
+  waitForCounter(SplitLogCounters.tot_wkr_preempt_task,1,2,1000);
+  waitForCounter(SplitLogCounters.tot_wkr_task_acquired_rescan,0,1,1000);
   List<String> nodes=ZKUtil.listChildrenNoWatch(zkw,zkw.splitLogZNode);
   LOG.debug(nodes);
   int num=0;
@@ -25,8 +27,8 @@
       String name=ZKSplitLog.getEncodedNodeName(zkw,node);
       String fn=ZKSplitLog.getFileName(name);
       byte[] data=ZKUtil.getData(zkw,ZKUtil.joinZNode(zkw.splitLogZNode,fn));
-      String datastr=Bytes.toString(data);
-      assertTrue("data=" + datastr,TaskState.TASK_DONE.equals(data,"svr"));
+      slt=SplitLogTask.parseFrom(data);
+      assertTrue(slt.toString(),slt.isDone(SRV));
     }
   }
   assertEquals(2,num);

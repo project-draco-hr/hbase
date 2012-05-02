@@ -4,27 +4,28 @@
       setDone(path,SUCCESS);
       return;
     }
-    tot_mgr_null_data.incrementAndGet();
+    SplitLogCounters.tot_mgr_null_data.incrementAndGet();
     LOG.fatal("logic error - got null data " + path);
     setDone(path,FAILURE);
     return;
   }
   data=this.watcher.getRecoverableZooKeeper().removeMetaData(data);
-  if (TaskState.TASK_UNASSIGNED.equals(data)) {
+  SplitLogTask slt=SplitLogTask.parseFrom(data);
+  if (slt.isUnassigned()) {
     LOG.debug("task not yet acquired " + path + " ver = "+ version);
     handleUnassignedTask(path);
   }
- else   if (TaskState.TASK_OWNED.equals(data)) {
-    heartbeat(path,version,TaskState.TASK_OWNED.getWriterName(data));
+ else   if (slt.isOwned()) {
+    heartbeat(path,version,slt.getServerName());
   }
- else   if (TaskState.TASK_RESIGNED.equals(data)) {
+ else   if (slt.isResigned()) {
     LOG.info("task " + path + " entered state "+ new String(data));
     resubmitOrFail(path,FORCE);
   }
- else   if (TaskState.TASK_DONE.equals(data)) {
+ else   if (slt.isDone()) {
     LOG.info("task " + path + " entered state "+ new String(data));
     if (taskFinisher != null && !ZKSplitLog.isRescanNode(watcher,path)) {
-      if (taskFinisher.finish(TaskState.TASK_DONE.getWriterName(data),ZKSplitLog.getFileName(path)) == Status.DONE) {
+      if (taskFinisher.finish(slt.getServerName(),ZKSplitLog.getFileName(path)) == Status.DONE) {
         setDone(path,SUCCESS);
       }
  else {
@@ -35,7 +36,7 @@
       setDone(path,SUCCESS);
     }
   }
- else   if (TaskState.TASK_ERR.equals(data)) {
+ else   if (slt.isErr()) {
     LOG.info("task " + path + " entered state "+ new String(data));
     resubmitOrFail(path,CHECK);
   }

@@ -12,30 +12,39 @@ synchronized (grabTaskLock) {
   try {
     try {
       if ((data=ZKUtil.getDataNoWatch(this.watcher,path,stat)) == null) {
-        tot_wkr_failed_to_grab_task_no_data.incrementAndGet();
+        SplitLogCounters.tot_wkr_failed_to_grab_task_no_data.incrementAndGet();
         return;
       }
     }
  catch (    KeeperException e) {
       LOG.warn("Failed to get data for znode " + path,e);
-      tot_wkr_failed_to_grab_task_exception.incrementAndGet();
+      SplitLogCounters.tot_wkr_failed_to_grab_task_exception.incrementAndGet();
       return;
     }
-    if (TaskState.TASK_UNASSIGNED.equals(data) == false) {
-      tot_wkr_failed_to_grab_task_owned.incrementAndGet();
+    SplitLogTask slt;
+    try {
+      slt=SplitLogTask.parseFrom(data);
+    }
+ catch (    DeserializationException e) {
+      LOG.warn("Failed parse data for znode " + path,e);
+      SplitLogCounters.tot_wkr_failed_to_grab_task_exception.incrementAndGet();
+      return;
+    }
+    if (slt.isUnassigned() == false) {
+      SplitLogCounters.tot_wkr_failed_to_grab_task_owned.incrementAndGet();
       return;
     }
     currentVersion=stat.getVersion();
     if (attemptToOwnTask(true) == false) {
-      tot_wkr_failed_to_grab_task_lost_race.incrementAndGet();
+      SplitLogCounters.tot_wkr_failed_to_grab_task_lost_race.incrementAndGet();
       return;
     }
     if (ZKSplitLog.isRescanNode(watcher,currentTask)) {
-      endTask(TaskState.TASK_DONE,tot_wkr_task_acquired_rescan);
+      endTask(new SplitLogTask.Done(this.serverName),SplitLogCounters.tot_wkr_task_acquired_rescan);
       return;
     }
     LOG.info("worker " + serverName + " acquired task "+ path);
-    tot_wkr_task_acquired.incrementAndGet();
+    SplitLogCounters.tot_wkr_task_acquired.incrementAndGet();
     getDataSetWatchAsync();
     t=System.currentTimeMillis();
     TaskExecutor.Status status;
@@ -51,24 +60,24 @@ synchronized (grabTaskLock) {
 );
 switch (status) {
 case DONE:
-      endTask(TaskState.TASK_DONE,tot_wkr_task_done);
+      endTask(new SplitLogTask.Done(this.serverName),SplitLogCounters.tot_wkr_task_done);
     break;
 case PREEMPTED:
-  tot_wkr_preempt_task.incrementAndGet();
+  SplitLogCounters.tot_wkr_preempt_task.incrementAndGet();
 LOG.warn("task execution prempted " + path);
 break;
 case ERR:
 if (!exitWorker) {
-endTask(TaskState.TASK_ERR,tot_wkr_task_err);
+endTask(new SplitLogTask.Err(this.serverName),SplitLogCounters.tot_wkr_task_err);
 break;
 }
 case RESIGNED:
 if (exitWorker) {
 LOG.info("task execution interrupted because worker is exiting " + path);
-endTask(TaskState.TASK_RESIGNED,tot_wkr_task_resigned);
+endTask(new SplitLogTask.Resigned(this.serverName),SplitLogCounters.tot_wkr_task_resigned);
 }
  else {
-tot_wkr_preempt_task.incrementAndGet();
+SplitLogCounters.tot_wkr_preempt_task.incrementAndGet();
 LOG.info("task execution interrupted via zk by manager " + path);
 }
 break;

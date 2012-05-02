@@ -1,12 +1,12 @@
 {
   final int NUM_MASTERS=1;
   final int NUM_RS=2;
-  Configuration conf=HBaseConfiguration.create();
+  HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility();
+  Configuration conf=TEST_UTIL.getConfiguration();
   conf.setInt("hbase.master.assignment.timeoutmonitor.period",2000);
   conf.setInt("hbase.master.assignment.timeoutmonitor.timeout",4000);
   conf.setInt("hbase.master.wait.on.regionservers.mintostart",1);
   conf.setInt("hbase.master.wait.on.regionservers.maxtostart",2);
-  HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility(conf);
   TEST_UTIL.startMiniCluster(NUM_MASTERS,NUM_RS);
   MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
   log("Cluster started");
@@ -127,8 +127,9 @@
   ZKAssign.createNodeOffline(zkw,region,deadServerName);
   hrsDead.openRegion(region);
   while (true) {
-    RegionTransitionData rtd=ZKAssign.getData(zkw,region.getEncodedName());
-    if (rtd != null && rtd.getEventType() == EventType.RS_ZK_REGION_OPENED) {
+    byte[] bytes=ZKAssign.getData(zkw,region.getEncodedName());
+    RegionTransition rt=RegionTransition.parseFrom(bytes);
+    if (rt != null && rt.getEventType().equals(EventType.RS_ZK_REGION_OPENED)) {
       break;
     }
     Thread.sleep(100);
@@ -139,8 +140,9 @@
   ZKAssign.createNodeOffline(zkw,region,deadServerName);
   hrsDead.openRegion(region);
   while (true) {
-    RegionTransitionData rtd=ZKAssign.getData(zkw,region.getEncodedName());
-    if (rtd != null && rtd.getEventType() == EventType.RS_ZK_REGION_OPENED) {
+    byte[] bytes=ZKAssign.getData(zkw,region.getEncodedName());
+    RegionTransition rt=RegionTransition.parseFrom(bytes);
+    if (rt != null && rt.getEventType().equals(EventType.RS_ZK_REGION_OPENED)) {
       break;
     }
     Thread.sleep(100);
@@ -151,9 +153,11 @@
   ZKAssign.createNodeOffline(zkw,region,deadServerName);
   hrsDead.openRegion(region);
   while (true) {
-    RegionTransitionData rtd=ZKAssign.getData(zkw,region.getEncodedName());
-    if (rtd != null && rtd.getEventType() == EventType.RS_ZK_REGION_OPENED) {
+    byte[] bytes=ZKAssign.getData(zkw,region.getEncodedName());
+    RegionTransition rt=RegionTransition.parseFrom(bytes);
+    if (rt != null && rt.getEventType().equals(EventType.RS_ZK_REGION_OPENED)) {
       ZKAssign.deleteOpenedNode(zkw,region.getEncodedName());
+      LOG.debug("DELETED " + rt);
       break;
     }
     Thread.sleep(100);
@@ -164,8 +168,9 @@
   ZKAssign.createNodeOffline(zkw,region,deadServerName);
   hrsDead.openRegion(region);
   while (true) {
-    RegionTransitionData rtd=ZKAssign.getData(zkw,region.getEncodedName());
-    if (rtd != null && rtd.getEventType() == EventType.RS_ZK_REGION_OPENED) {
+    byte[] bytes=ZKAssign.getData(zkw,region.getEncodedName());
+    RegionTransition rt=RegionTransition.parseFrom(bytes);
+    if (rt != null && rt.getEventType().equals(EventType.RS_ZK_REGION_OPENED)) {
       ZKAssign.deleteOpenedNode(zkw,region.getEncodedName());
       break;
     }
@@ -214,7 +219,7 @@
     }
   }
   for (  HRegionInfo hri : regionsThatShouldBeOnline) {
-    assertTrue("region=" + hri.getRegionNameAsString(),onlineRegions.contains(hri));
+    assertTrue("region=" + hri.getRegionNameAsString() + ", "+ onlineRegions.toString(),onlineRegions.contains(hri));
   }
   for (  HRegionInfo hri : regionsThatShouldBeOffline) {
     assertFalse(onlineRegions.contains(hri));

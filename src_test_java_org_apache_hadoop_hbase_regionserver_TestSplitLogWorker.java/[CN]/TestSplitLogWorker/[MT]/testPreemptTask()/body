@@ -1,17 +1,22 @@
 {
   LOG.info("testPreemptTask");
-  ZKSplitLog.Counters.resetCounters();
-  SplitLogWorker slw=new SplitLogWorker(zkw,TEST_UTIL.getConfiguration(),"tpt_svr",neverEndingTask);
+  SplitLogCounters.resetCounters();
+  final ServerName SRV=new ServerName("tpt_svr,1,1");
+  final String PATH=ZKSplitLog.getEncodedNodeName(zkw,"tpt_task");
+  SplitLogWorker slw=new SplitLogWorker(zkw,TEST_UTIL.getConfiguration(),SRV,neverEndingTask);
   slw.start();
   try {
     Thread.yield();
     Thread.sleep(100);
-    zkw.getRecoverableZooKeeper().create(ZKSplitLog.getEncodedNodeName(zkw,"tpt_task"),TaskState.TASK_UNASSIGNED.get("manager"),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
-    waitForCounter(tot_wkr_task_acquired,0,1,1000);
+    zkw.getRecoverableZooKeeper().create(PATH,new SplitLogTask.Unassigned(MANAGER).toByteArray(),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+    waitForCounter(SplitLogCounters.tot_wkr_task_acquired,0,1,1000);
     assertEquals(1,slw.taskReadySeq);
-    assertTrue(TaskState.TASK_OWNED.equals(ZKUtil.getData(zkw,ZKSplitLog.getEncodedNodeName(zkw,"tpt_task")),"tpt_svr"));
-    ZKUtil.setData(zkw,ZKSplitLog.getEncodedNodeName(zkw,"tpt_task"),TaskState.TASK_UNASSIGNED.get("manager"));
-    waitForCounter(tot_wkr_preempt_task,0,1,1000);
+    byte[] bytes=ZKUtil.getData(zkw,PATH);
+    SplitLogTask slt=SplitLogTask.parseFrom(bytes);
+    assertTrue(slt.isOwned(SRV));
+    slt=new SplitLogTask.Unassigned(MANAGER);
+    ZKUtil.setData(zkw,PATH,slt.toByteArray());
+    waitForCounter(SplitLogCounters.tot_wkr_preempt_task,0,1,1000);
   }
   finally {
     stopSplitLogWorker(slw);
