@@ -6,16 +6,30 @@
     try {
       return getProxy(protocol,clientVersion,addr,conf,rpcTimeout);
     }
- catch (    ConnectException se) {
-      ioe=se;
-      if (maxAttempts >= 0 && ++reconnectAttempts >= maxAttempts) {
-        LOG.info("Server at " + addr + " could not be reached after "+ reconnectAttempts+ " tries, giving up.");
-        throw new RetriesExhaustedException("Failed setting up proxy " + protocol + " to "+ addr.toString()+ " after attempts="+ reconnectAttempts,se);
-      }
-    }
-catch (    SocketTimeoutException te) {
+ catch (    SocketTimeoutException te) {
       LOG.info("Problem connecting to server: " + addr);
       ioe=te;
+    }
+catch (    IOException ioex) {
+      ConnectException ce=null;
+      if (ioex instanceof ConnectException) {
+        ce=(ConnectException)ioex;
+        ioe=ce;
+      }
+ else       if (ioex.getCause() != null && ioex.getCause() instanceof ConnectException) {
+        ce=(ConnectException)ioex.getCause();
+        ioe=ce;
+      }
+ else       if (ioex.getMessage().toLowerCase().contains("connection refused")) {
+        ce=new ConnectException(ioex.getMessage());
+        ioe=ce;
+      }
+ else {
+        ioe=ioex;
+      }
+      if (ce != null) {
+        handleConnectionException(++reconnectAttempts,maxAttempts,protocol,addr,ce);
+      }
     }
     if (System.currentTimeMillis() - timeout >= startTime) {
       throw ioe;
