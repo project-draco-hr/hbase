@@ -1,5 +1,5 @@
 {
-  MapWritable result=null;
+  RegionServerStartupResponse result=null;
   ServerName masterServerName=getMaster();
   if (masterServerName == null)   return result;
   try {
@@ -7,20 +7,21 @@
     LOG.info("Telling master at " + masterServerName + " that we are up "+ "with port="+ this.isa.getPort()+ ", startcode="+ this.startcode);
     long now=EnvironmentEdgeManager.currentTimeMillis();
     int port=this.isa.getPort();
-    result=this.hbaseMaster.regionServerStartup(port,this.startcode,now);
+    RegionServerStartupRequest.Builder request=RegionServerStartupRequest.newBuilder();
+    request.setPort(port);
+    request.setServerStartCode(this.startcode);
+    request.setServerCurrentTime(now);
+    result=this.hbaseMaster.regionServerStartup(null,request.build());
   }
- catch (  RemoteException e) {
-    IOException ioe=e.unwrapRemoteException();
+ catch (  ServiceException se) {
+    IOException ioe=ProtobufUtil.getRemoteException(se);
     if (ioe instanceof ClockOutOfSyncException) {
       LOG.fatal("Master rejected startup because clock is out of sync",ioe);
       throw ioe;
     }
  else {
-      LOG.warn("remote error telling master we are up",e);
+      LOG.warn("error telling master we are up",se);
     }
-  }
-catch (  IOException e) {
-    LOG.warn("error telling master we are up",e);
   }
   return result;
 }

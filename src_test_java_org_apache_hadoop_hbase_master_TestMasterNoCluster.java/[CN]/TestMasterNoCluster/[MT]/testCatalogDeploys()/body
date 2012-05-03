@@ -22,8 +22,17 @@
   master.start();
   try {
     while (!master.isRpcServerOpen())     Threads.sleep(10);
-    MapWritable mw=master.regionServerStartup(rs0.getServerName().getPort(),rs0.getServerName().getStartcode(),now);
-    String rshostname=mw.get(new Text(HConstants.KEY_FOR_HOSTNAME_SEEN_BY_MASTER)).toString();
+    RegionServerStartupRequest.Builder request=RegionServerStartupRequest.newBuilder();
+    request.setPort(rs0.getServerName().getPort());
+    request.setServerStartCode(rs0.getServerName().getStartcode());
+    request.setServerCurrentTime(now);
+    RegionServerStartupResponse result=master.regionServerStartup(null,request.build());
+    String rshostname=new String();
+    for (    NameStringPair e : result.getMapEntriesList()) {
+      if (e.getName().toString().equals(HConstants.KEY_FOR_HOSTNAME_SEEN_BY_MASTER)) {
+        rshostname=e.getValue();
+      }
+    }
     assertEquals(rs0.getServerName().getHostname(),rshostname);
     Mocking.fakeRegionServerRegionOpenInZK(rs0.getZooKeeper(),rs0.getServerName(),HRegionInfo.ROOT_REGIONINFO);
     RootRegionTracker.setRootLocation(rs0.getZooKeeper(),rs0.getServerName());
