@@ -1,0 +1,162 @@
+{
+  Leases.Lease lease=null;
+  String scannerName=null;
+  try {
+    if (!request.hasScannerId() && !request.hasScan()) {
+      throw new DoNotRetryIOException("Missing required input: scannerId or scan");
+    }
+    long scannerId=-1;
+    if (request.hasScannerId()) {
+      scannerId=request.getScannerId();
+      scannerName=String.valueOf(scannerId);
+    }
+    try {
+      checkOpen();
+    }
+ catch (    IOException e) {
+      if (scannerName != null) {
+        try {
+          leases.cancelLease(scannerName);
+        }
+ catch (        LeaseException le) {
+          LOG.info("Server shutting down and client tried to access missing scanner " + scannerName);
+        }
+      }
+      throw e;
+    }
+    requestCount.incrementAndGet();
+    try {
+      int ttl=0;
+      HRegion region=null;
+      RegionScanner scanner=null;
+      boolean moreResults=true;
+      boolean closeScanner=false;
+      ScanResponse.Builder builder=ScanResponse.newBuilder();
+      if (request.hasCloseScanner()) {
+        closeScanner=request.getCloseScanner();
+      }
+      int rows=1;
+      if (request.hasNumberOfRows()) {
+        rows=request.getNumberOfRows();
+      }
+      if (request.hasScannerId()) {
+        scanner=scanners.get(scannerName);
+        if (scanner == null) {
+          throw new UnknownScannerException("Name: " + scannerName + ", already closed?");
+        }
+        region=getRegion(scanner.getRegionInfo().getRegionName());
+      }
+ else {
+        region=getRegion(request.getRegion());
+        ClientProtos.Scan protoScan=request.getScan();
+        Scan scan=ProtobufUtil.toScan(protoScan);
+        region.prepareScanner(scan);
+        if (region.getCoprocessorHost() != null) {
+          scanner=region.getCoprocessorHost().preScannerOpen(scan);
+        }
+        if (scanner == null) {
+          scanner=region.getScanner(scan);
+        }
+        if (region.getCoprocessorHost() != null) {
+          scanner=region.getCoprocessorHost().postScannerOpen(scan,scanner);
+        }
+        scannerId=addScanner(scanner);
+        scannerName=String.valueOf(scannerId);
+        ttl=leases.leasePeriod;
+      }
+      if (rows > 0) {
+        try {
+          lease=leases.removeLease(scannerName);
+          List<Result> results=new ArrayList<Result>(rows);
+          long currentScanResultSize=0;
+          boolean done=false;
+          if (region != null && region.getCoprocessorHost() != null) {
+            Boolean bypass=region.getCoprocessorHost().preScannerNext(scanner,results,rows);
+            if (!results.isEmpty()) {
+              for (              Result r : results) {
+                for (                KeyValue kv : r.raw()) {
+                  currentScanResultSize+=kv.heapSize();
+                }
+              }
+            }
+            if (bypass != null && bypass.booleanValue()) {
+              done=true;
+            }
+          }
+          if (!done) {
+            long maxResultSize=scanner.getMaxResultSize();
+            if (maxResultSize <= 0) {
+              maxResultSize=maxScannerResultSize;
+            }
+            List<KeyValue> values=new ArrayList<KeyValue>();
+            for (int i=0; i < rows && currentScanResultSize < maxResultSize; i++) {
+              boolean moreRows=scanner.next(values,SchemaMetrics.METRIC_NEXTSIZE);
+              if (!values.isEmpty()) {
+                for (                KeyValue kv : values) {
+                  currentScanResultSize+=kv.heapSize();
+                }
+                results.add(new Result(values));
+              }
+              if (!moreRows) {
+                break;
+              }
+              values.clear();
+            }
+            if (region != null && region.getCoprocessorHost() != null) {
+              region.getCoprocessorHost().postScannerNext(scanner,results,rows,true);
+            }
+          }
+          if (scanner.isFilterDone() && results.isEmpty()) {
+            moreResults=false;
+            results=null;
+          }
+ else {
+            for (            Result result : results) {
+              if (result != null) {
+                builder.addResult(ProtobufUtil.toResult(result));
+              }
+            }
+          }
+        }
+  finally {
+          if (scanners.containsKey(scannerName)) {
+            if (lease != null)             leases.addLease(lease);
+            ttl=leases.leasePeriod;
+          }
+        }
+      }
+      if (!moreResults || closeScanner) {
+        ttl=0;
+        moreResults=false;
+        if (region != null && region.getCoprocessorHost() != null) {
+          if (region.getCoprocessorHost().preScannerClose(scanner)) {
+            return builder.build();
+          }
+        }
+        scanner=scanners.remove(scannerName);
+        if (scanner != null) {
+          scanner.close();
+          leases.cancelLease(scannerName);
+          if (region != null && region.getCoprocessorHost() != null) {
+            region.getCoprocessorHost().postScannerClose(scanner);
+          }
+        }
+      }
+      if (ttl > 0) {
+        builder.setTtl(ttl);
+      }
+      builder.setScannerId(scannerId);
+      builder.setMoreResults(moreResults);
+      return builder.build();
+    }
+ catch (    Throwable t) {
+      if (scannerName != null && t instanceof NotServingRegionException) {
+        scanners.remove(scannerName);
+      }
+      throw convertThrowableToIOE(cleanup(t));
+    }
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
+}
