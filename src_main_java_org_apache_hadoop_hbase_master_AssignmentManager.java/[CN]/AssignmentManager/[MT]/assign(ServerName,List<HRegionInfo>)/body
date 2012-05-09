@@ -1,6 +1,6 @@
 {
   if (regions.size() == 0) {
-    return;
+    return true;
   }
   LOG.debug("Bulk assigning " + regions.size() + " region(s) to "+ destination.toString());
   List<RegionState> states=new ArrayList<RegionState>(regions.size());
@@ -18,7 +18,7 @@ synchronized (this.regionsInTransition) {
   CreateUnassignedAsyncCallback cb=new CreateUnassignedAsyncCallback(this.watcher,destination,counter);
   for (  RegionState state : states) {
     if (!asyncSetOfflineInZooKeeper(state,cb,state)) {
-      return;
+      return false;
     }
   }
   int total=regions.size();
@@ -42,7 +42,7 @@ synchronized (this.regionsInTransition) {
         IOException decodedException=e.unwrapRemoteException();
         if (decodedException instanceof RegionServerStoppedException) {
           LOG.warn("The region server was shut down, ",decodedException);
-          return;
+          return false;
         }
  else         if (decodedException instanceof ServerNotRunningYetException) {
           long now=System.currentTimeMillis();
@@ -56,9 +56,11 @@ synchronized (this.regionsInTransition) {
   }
  catch (  IOException e) {
     LOG.info("Unable to communicate with the region server in order" + " to assign regions",e);
+    return false;
   }
 catch (  InterruptedException e) {
     throw new RuntimeException(e);
   }
   LOG.debug("Bulk assigning done for " + destination.toString());
+  return true;
 }
