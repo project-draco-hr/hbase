@@ -15,7 +15,7 @@
   int size=BUFFER_INITIAL_SIZE;
   if (result instanceof WritableWithSize) {
     WritableWithSize ohint=(WritableWithSize)result;
-    long hint=ohint.getWritableSize() + Bytes.SIZEOF_BYTE + (2 * Bytes.SIZEOF_INT);
+    long hint=ohint.getWritableSize() + 2 * Bytes.SIZEOF_INT;
     if (hint > Integer.MAX_VALUE) {
       IOException ioe=new IOException("Result buffer size too large: " + hint);
       errorClass=ioe.getClass().getName();
@@ -26,11 +26,10 @@
     }
   }
   ByteBufferOutputStream buf=new ByteBufferOutputStream(size);
-  DataOutputStream out=new DataOutputStream(buf);
   try {
     RpcResponse.Builder builder=RpcResponse.newBuilder();
     builder.setCallId(this.id);
-    builder.setError(error != null);
+    builder.setStatus(status);
     if (error != null) {
       RpcException.Builder b=RpcException.newBuilder();
       b.setExceptionName(errorClass);
@@ -43,7 +42,10 @@
       byte[] response=d.getData();
       builder.setResponse(ByteString.copyFrom(response));
     }
-    builder.build().writeDelimitedTo(DataOutputOutputStream.constructOutputStream(out));
+    builder.build().writeDelimitedTo(buf);
+    if (connection.useWrap) {
+      wrapWithSasl(buf);
+    }
   }
  catch (  IOException e) {
     LOG.warn("Exception while creating response " + e);

@@ -1,17 +1,21 @@
 {
   while (true) {
-    int count;
+    int count=-1;
     if (dataLengthBuffer.remaining() > 0) {
       count=channelRead(channel,dataLengthBuffer);
       if (count < 0 || dataLengthBuffer.remaining() > 0)       return count;
     }
-    if (!versionRead) {
-      ByteBuffer versionBuffer=ByteBuffer.allocate(1);
-      count=channelRead(channel,versionBuffer);
-      if (count <= 0) {
+    if (!rpcHeaderRead) {
+      if (rpcHeaderBuffer == null) {
+        rpcHeaderBuffer=ByteBuffer.allocate(2);
+      }
+      count=channelRead(channel,rpcHeaderBuffer);
+      if (count < 0 || rpcHeaderBuffer.remaining() > 0) {
         return count;
       }
-      int version=versionBuffer.get(0);
+      int version=rpcHeaderBuffer.get(0);
+      byte[] method=new byte[]{rpcHeaderBuffer.get(1)};
+      authMethod=AuthMethod.read(new DataInputStream(new ByteArrayInputStream(method)));
       dataLengthBuffer.flip();
       if (!HEADER.equals(dataLengthBuffer) || version != CURRENT_VERSION) {
         LOG.warn("Incorrect header or version mismatch from " + hostAddress + ":"+ remotePort+ " got version "+ version+ " expected version "+ CURRENT_VERSION);
@@ -19,15 +23,38 @@
         return -1;
       }
       dataLengthBuffer.clear();
-      versionRead=true;
+      if (authMethod == null) {
+        throw new IOException("Unable to read authentication method");
+      }
+      if (isSecurityEnabled && authMethod == AuthMethod.SIMPLE) {
+        AccessControlException ae=new AccessControlException("Authentication is required");
+        setupResponse(authFailedResponse,authFailedCall,Status.FATAL,null,ae.getClass().getName(),ae.getMessage());
+        responder.doRespond(authFailedCall);
+        throw ae;
+      }
+      if (!isSecurityEnabled && authMethod != AuthMethod.SIMPLE) {
+        doRawSaslReply(SaslStatus.SUCCESS,new IntWritable(HBaseSaslRpcServer.SWITCH_TO_SIMPLE_AUTH),null,null);
+        authMethod=AuthMethod.SIMPLE;
+        skipInitialSaslHandshake=true;
+      }
+      if (authMethod != AuthMethod.SIMPLE) {
+        useSasl=true;
+      }
+      rpcHeaderBuffer=null;
+      rpcHeaderRead=true;
       continue;
     }
     if (data == null) {
       dataLengthBuffer.flip();
       dataLength=dataLengthBuffer.getInt();
       if (dataLength == HBaseClient.PING_CALL_ID) {
-        dataLengthBuffer.clear();
-        return 0;
+        if (!useWrap) {
+          dataLengthBuffer.clear();
+          return 0;
+        }
+      }
+      if (dataLength < 0) {
+        throw new IllegalArgumentException("Unexpected data length " + dataLength + "!! from "+ getHostAddress());
       }
       data=ByteBuffer.allocate(dataLength);
       incRpcCount();
@@ -36,15 +63,22 @@
     if (data.remaining() == 0) {
       dataLengthBuffer.clear();
       data.flip();
-      if (headerRead) {
-        processData(data.array());
+      if (skipInitialSaslHandshake) {
         data=null;
-        return count;
+        skipInitialSaslHandshake=false;
+        continue;
       }
-      processHeader();
-      headerRead=true;
+      boolean isHeaderRead=headerRead;
+      if (useSasl) {
+        saslReadAndProcess(data.array());
+      }
+ else {
+        processOneRpc(data.array());
+      }
       data=null;
-      continue;
+      if (!isHeaderRead) {
+        continue;
+      }
     }
     return count;
   }
