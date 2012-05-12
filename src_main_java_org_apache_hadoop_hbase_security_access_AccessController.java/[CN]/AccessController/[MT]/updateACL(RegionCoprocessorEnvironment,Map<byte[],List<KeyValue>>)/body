@@ -1,19 +1,20 @@
 {
-  Set<String> tableSet=new HashSet<String>();
+  Set<byte[]> tableSet=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
   for (  Map.Entry<byte[],List<KeyValue>> f : familyMap.entrySet()) {
     List<KeyValue> kvs=f.getValue();
     for (    KeyValue kv : kvs) {
-      if (Bytes.compareTo(kv.getBuffer(),kv.getFamilyOffset(),kv.getFamilyLength(),AccessControlLists.ACL_LIST_FAMILY,0,AccessControlLists.ACL_LIST_FAMILY.length) == 0) {
-        String tableName=Bytes.toString(kv.getRow());
-        tableSet.add(tableName);
+      if (Bytes.equals(kv.getBuffer(),kv.getFamilyOffset(),kv.getFamilyLength(),AccessControlLists.ACL_LIST_FAMILY,0,AccessControlLists.ACL_LIST_FAMILY.length)) {
+        tableSet.add(kv.getRow());
       }
     }
   }
-  for (  String tableName : tableSet) {
+  ZKPermissionWatcher zkw=this.authManager.getZKPermissionWatcher();
+  Configuration conf=regionEnv.getConfiguration();
+  for (  byte[] tableName : tableSet) {
     try {
-      ListMultimap<String,TablePermission> perms=AccessControlLists.getTablePermissions(regionEnv.getConfiguration(),Bytes.toBytes(tableName));
-      byte[] serialized=AccessControlLists.writePermissionsAsBytes(perms,regionEnv.getConfiguration());
-      this.authManager.getZKPermissionWatcher().writeToZookeeper(tableName,serialized);
+      ListMultimap<String,TablePermission> perms=AccessControlLists.getTablePermissions(conf,tableName);
+      byte[] serialized=AccessControlLists.writePermissionsAsBytes(perms,conf);
+      zkw.writeToZookeeper(tableName,serialized);
     }
  catch (    IOException ex) {
       LOG.error("Failed updating permissions mirror for '" + tableName + "'",ex);
