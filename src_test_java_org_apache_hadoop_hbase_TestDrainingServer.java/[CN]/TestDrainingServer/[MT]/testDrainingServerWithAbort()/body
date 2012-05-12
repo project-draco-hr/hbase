@@ -1,19 +1,51 @@
 {
-  HRegionServer drainingServer=setDrainingServer(TEST_UTIL.getMiniHBaseCluster().getRegionServer(0));
+  TEST_UTIL.getHBaseAdmin().balanceSwitch(false);
+  waitForAllRegionsOnline();
+  final long regionCount=TEST_UTIL.getMiniHBaseCluster().countServedRegions();
+  Collection<HRegion> regions=new ArrayList<HRegion>();
+  for (int i=0; i < NB_SLAVES; i++) {
+    HRegionServer hrs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(i);
+    regions.addAll(hrs.getCopyOfOnlineRegionsSortedBySize().values());
+  }
+  HRegionServer drainingServer=TEST_UTIL.getMiniHBaseCluster().getRegionServer(0);
+  final int regionsOnDrainingServer=drainingServer.getNumberOfOnlineRegions();
+  Assert.assertTrue(regionsOnDrainingServer > 0);
+  ServerManager sm=TEST_UTIL.getHBaseCluster().getMaster().getServerManager();
+  Collection<HRegion> regionsBefore=drainingServer.getCopyOfOnlineRegionsSortedBySize().values();
+  LOG.info("Regions of drained server are: " + regionsBefore);
   try {
-    final int regionsOnDrainingServer=drainingServer.getNumberOfOnlineRegions();
-    Assert.assertTrue(regionsOnDrainingServer > 0);
-    int aborted=0;
-    final int numberToAbort=2;
-    for (int i=1; i < TEST_UTIL.getMiniHBaseCluster().countServedRegions(); i++) {
-      HRegionServer hrs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(i);
-      if (hrs.getServerName().equals(drainingServer.getServerName()))       continue;
+    setDrainingServer(drainingServer);
+    while (sm.createDestinationServersList().contains(drainingServer.getServerName()))     ;
+    LOG.info("The available servers are: " + sm.createDestinationServersList());
+    Assert.assertEquals("Nothing should have happened here.",regionsOnDrainingServer,drainingServer.getNumberOfOnlineRegions());
+    Assert.assertTrue("We should not have regions in transition here.",TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionsInTransition().isEmpty());
+    for (int aborted=0; aborted <= 2; aborted++) {
+      HRegionServer hrs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(aborted + 1);
       hrs.abort("Aborting");
-      aborted++;
-      if (aborted >= numberToAbort)       break;
     }
     waitForAllRegionsOnline();
-    Assert.assertEquals(regionsOnDrainingServer,drainingServer.getNumberOfOnlineRegions());
+    Collection<HRegion> regionsAfter=drainingServer.getCopyOfOnlineRegionsSortedBySize().values();
+    LOG.info("Regions of drained server are: " + regionsAfter);
+    Assert.assertEquals("Test conditions are not met: regions were" + " created/deleted during the test. ",regionCount,TEST_UTIL.getMiniHBaseCluster().countServedRegions());
+    StringBuilder result=new StringBuilder();
+    for (    HRegion r : regionsAfter) {
+      if (!regionsBefore.contains(r)) {
+        result.append(r).append(" was added after the drain");
+        if (regions.contains(r)) {
+          result.append("(existing region");
+        }
+ else {
+          result.append("(new region)");
+        }
+        result.append("; ");
+      }
+    }
+    for (    HRegion r : regionsBefore) {
+      if (!regionsAfter.contains(r)) {
+        result.append(r).append(" was removed after the drain; ");
+      }
+    }
+    Assert.assertTrue("Errors are: " + result.toString(),result.length() == 0);
   }
   finally {
     unsetDrainingServer(drainingServer);

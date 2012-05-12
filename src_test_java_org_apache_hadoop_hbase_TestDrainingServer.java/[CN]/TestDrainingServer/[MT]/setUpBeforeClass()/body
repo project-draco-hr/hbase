@@ -1,5 +1,5 @@
 {
-  TEST_UTIL.startMiniCluster(5);
+  TEST_UTIL.startMiniCluster(NB_SLAVES);
   TEST_UTIL.getConfiguration().setBoolean("hbase.master.enabletable.roundrobin",true);
   ZooKeeperWatcher zkw=HBaseTestingUtility.getZooKeeperWatcher(TEST_UTIL);
   HTableDescriptor htd=new HTableDescriptor(TABLENAME);
@@ -8,12 +8,24 @@
   FileSystem fs=FileSystem.get(TEST_UTIL.getConfiguration());
   FSTableDescriptors.createTableDescriptor(fs,FSUtils.getRootDir(TEST_UTIL.getConfiguration()),htd);
   HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+  MiniHBaseCluster cluster=TEST_UTIL.getMiniHBaseCluster();
   admin.disableTable(TABLENAME);
   admin.enableTable(TABLENAME);
-  ZKAssign.blockUntilNoRIT(zkw);
-  MiniHBaseCluster cluster=TEST_UTIL.getMiniHBaseCluster();
-  for (int i=0; i < cluster.getRegionServerThreads().size(); i++) {
-    HRegionServer hrs=cluster.getRegionServer(i);
-    Assert.assertFalse(ProtobufUtil.getOnlineRegions(hrs).isEmpty());
+  boolean ready=false;
+  while (!ready) {
+    ZKAssign.blockUntilNoRIT(zkw);
+    int i=0;
+    ready=true;
+    while (i < NB_SLAVES && ready) {
+      HRegionServer hrs=cluster.getRegionServer(i);
+      if (ProtobufUtil.getOnlineRegions(hrs).isEmpty()) {
+        ready=false;
+      }
+      i++;
+    }
+    if (!ready) {
+      admin.balancer();
+      Thread.sleep(100);
+    }
   }
 }
