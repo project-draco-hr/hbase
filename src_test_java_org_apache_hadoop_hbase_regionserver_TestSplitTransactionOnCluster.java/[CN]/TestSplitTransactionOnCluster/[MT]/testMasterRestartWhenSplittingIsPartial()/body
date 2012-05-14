@@ -1,0 +1,39 @@
+{
+  final byte[] tableName=Bytes.toBytes("testMasterRestartWhenSplittingIsPartial");
+  HTable t=TESTING_UTIL.createTable(tableName,HConstants.CATALOG_FAMILY);
+  List<HRegion> regions=cluster.getRegions(tableName);
+  HRegionInfo hri=getAndCheckSingleTableRegion(regions);
+  int tableRegionIndex=ensureTableRegionNotOnSameServerAsMeta(admin,hri);
+  this.admin.balanceSwitch(false);
+  cluster.getMaster().setCatalogJanitorEnabled(false);
+  try {
+    TESTING_UTIL.loadTable(t,HConstants.CATALOG_FAMILY);
+    HRegionServer server=cluster.getRegionServer(tableRegionIndex);
+    printOutRegions(server,"Initial regions: ");
+    SplitRegionHandler.TEST_SKIP=true;
+    this.admin.split(hri.getRegionNameAsString());
+    while (!(cluster.getRegions(tableName).size() >= 2)) {
+      LOG.debug("Waiting on region to split");
+      Thread.sleep(100);
+    }
+    List<HRegion> daughters=cluster.getRegions(tableName);
+    assertTrue(daughters.size() >= 2);
+    String path=ZKAssign.getNodeName(t.getConnection().getZooKeeperWatcher(),hri.getEncodedName());
+    Stat stats=t.getConnection().getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
+    LOG.info("EPHEMERAL NODE BEFORE SERVER ABORT, path=" + path + ", stats="+ stats);
+    byte[] bytes=ZKAssign.getData(t.getConnection().getZooKeeperWatcher(),hri.getEncodedName());
+    RegionTransition rtd=RegionTransition.parseFrom(bytes);
+    assertTrue(rtd.getEventType().equals(EventType.RS_ZK_REGION_SPLIT) || rtd.getEventType().equals(EventType.RS_ZK_REGION_SPLITTING));
+    MockMasterWithoutCatalogJanitor master=abortAndWaitForMaster();
+    this.admin=new HBaseAdmin(TESTING_UTIL.getConfiguration());
+    hri.setOffline(true);
+    hri.setSplit(true);
+    ServerName regionServerOfRegion=master.getAssignmentManager().getRegionServerOfRegion(hri);
+    assertTrue(regionServerOfRegion != null);
+  }
+  finally {
+    SplitRegionHandler.TEST_SKIP=false;
+    admin.balanceSwitch(true);
+    cluster.getMaster().setCatalogJanitorEnabled(true);
+  }
+}
