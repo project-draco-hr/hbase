@@ -5,16 +5,8 @@
   this.regionSplitLimit=conf.getInt("hbase.regionserver.regionSplitLimit",Integer.MAX_VALUE);
   int largeThreads=Math.max(1,conf.getInt("hbase.regionserver.thread.compaction.large",1));
   int smallThreads=conf.getInt("hbase.regionserver.thread.compaction.small",1);
-  if (conf.get("hbase.regionserver.thread.compaction.throttle") != null) {
-    throttleSize=conf.getLong("hbase.regionserver.thread.compaction.throttle",0);
-  }
- else {
-    long flushSize=conf.getLong(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,HTableDescriptor.DEFAULT_MEMSTORE_FLUSH_SIZE);
-    long splitSize=conf.getLong(HConstants.HREGION_MAX_FILESIZE,HConstants.DEFAULT_MAX_FILE_SIZE);
-    throttleSize=Math.min(flushSize * 2,splitSize / 2);
-  }
   int splitThreads=conf.getInt("hbase.regionserver.thread.split",1);
-  Preconditions.checkArgument(smallThreads == 0 || throttleSize > 0);
+  Preconditions.checkArgument(largeThreads > 0 && smallThreads > 0);
   final String n=Thread.currentThread().getName();
   this.largeCompactions=new ThreadPoolExecutor(largeThreads,largeThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>(),new ThreadFactory(){
     @Override public Thread newThread(    Runnable r){
@@ -25,20 +17,15 @@
   }
 );
   this.largeCompactions.setRejectedExecutionHandler(new CompactionRequest.Rejection());
-  if (smallThreads <= 0) {
-    this.smallCompactions=null;
-  }
- else {
-    this.smallCompactions=new ThreadPoolExecutor(smallThreads,smallThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>(),new ThreadFactory(){
-      @Override public Thread newThread(      Runnable r){
-        Thread t=new Thread(r);
-        t.setName(n + "-smallCompactions-" + System.currentTimeMillis());
-        return t;
-      }
+  this.smallCompactions=new ThreadPoolExecutor(smallThreads,smallThreads,60,TimeUnit.SECONDS,new PriorityBlockingQueue<Runnable>(),new ThreadFactory(){
+    @Override public Thread newThread(    Runnable r){
+      Thread t=new Thread(r);
+      t.setName(n + "-smallCompactions-" + System.currentTimeMillis());
+      return t;
     }
-);
-    this.smallCompactions.setRejectedExecutionHandler(new CompactionRequest.Rejection());
   }
+);
+  this.smallCompactions.setRejectedExecutionHandler(new CompactionRequest.Rejection());
   this.splits=(ThreadPoolExecutor)Executors.newFixedThreadPool(splitThreads,new ThreadFactory(){
     @Override public Thread newThread(    Runnable r){
       Thread t=new Thread(r);
