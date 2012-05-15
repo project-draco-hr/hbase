@@ -7,6 +7,7 @@
     checkOpen();
     requestCount.incrementAndGet();
     OpenRegionResponse.Builder builder=OpenRegionResponse.newBuilder();
+    Map<String,HTableDescriptor> htds=new HashMap<String,HTableDescriptor>(request.getRegionList().size());
     for (    RegionInfo regionInfo : request.getRegionList()) {
       HRegionInfo region=ProtobufUtil.toRegionInfo(regionInfo);
       checkIfRegionInTransition(region,OPEN);
@@ -24,7 +25,11 @@
         }
       }
       LOG.info("Received request to open region: " + region.getRegionNameAsString() + " on "+ this.serverNameFromMasterPOV);
-      HTableDescriptor htd=this.tableDescriptors.get(region.getTableName());
+      HTableDescriptor htd=htds.get(region.getTableNameAsString());
+      if (htd == null) {
+        htd=this.tableDescriptors.get(region.getTableName());
+        htds.put(region.getTableNameAsString(),htd);
+      }
       this.regionsInTransitionInRS.putIfAbsent(region.getEncodedNameAsBytes(),true);
       if (region.isRootRegion()) {
         this.service.submit(new OpenRootHandler(this,this,region,htd,versionOfOfflineNode));
