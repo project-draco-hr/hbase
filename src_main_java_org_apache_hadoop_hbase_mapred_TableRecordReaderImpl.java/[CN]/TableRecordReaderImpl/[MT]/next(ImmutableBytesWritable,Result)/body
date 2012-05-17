@@ -1,30 +1,51 @@
 {
   Result result;
   try {
-    result=this.scanner.next();
-  }
- catch (  DoNotRetryIOException e) {
-    throw e;
-  }
-catch (  IOException e) {
-    LOG.debug("recovered from " + StringUtils.stringifyException(e));
-    if (lastSuccessfulRow == null) {
-      LOG.warn("We are restarting the first next() invocation," + " if your mapper's restarted a few other times like this" + " then you should consider killing this job and investigate"+ " why it's taking so long.");
+    try {
+      result=this.scanner.next();
+      if (logScannerActivity) {
+        rowcount++;
+        if (rowcount >= logPerRowCount) {
+          long now=System.currentTimeMillis();
+          LOG.info("Mapper took " + (now - timestamp) + "ms to process "+ rowcount+ " rows");
+          timestamp=now;
+          rowcount=0;
+        }
+      }
     }
-    if (lastSuccessfulRow == null) {
-      restart(startRow);
+ catch (    DoNotRetryIOException e) {
+      throw e;
     }
+catch (    IOException e) {
+      LOG.debug("recovered from " + StringUtils.stringifyException(e));
+      if (lastSuccessfulRow == null) {
+        LOG.warn("We are restarting the first next() invocation," + " if your mapper has restarted a few other times like this" + " then you should consider killing this job and investigate"+ " why it's taking so long.");
+      }
+      if (lastSuccessfulRow == null) {
+        restart(startRow);
+      }
  else {
-      restart(lastSuccessfulRow);
-      this.scanner.next();
+        restart(lastSuccessfulRow);
+        this.scanner.next();
+      }
+      result=this.scanner.next();
     }
-    result=this.scanner.next();
+    if (result != null && result.size() > 0) {
+      key.set(result.getRow());
+      lastSuccessfulRow=key.get();
+      Writables.copyWritable(result,value);
+      return true;
+    }
+    return false;
   }
-  if (result != null && result.size() > 0) {
-    key.set(result.getRow());
-    lastSuccessfulRow=key.get();
-    Writables.copyWritable(result,value);
-    return true;
+ catch (  IOException ioe) {
+    if (logScannerActivity) {
+      long now=System.currentTimeMillis();
+      LOG.info("Mapper took " + (now - timestamp) + "ms to process "+ rowcount+ " rows");
+      LOG.info(ioe);
+      String lastRow=lastSuccessfulRow == null ? "null" : Bytes.toStringBinary(lastSuccessfulRow);
+      LOG.info("lastSuccessfulRow=" + lastRow);
+    }
+    throw ioe;
   }
-  return false;
 }
