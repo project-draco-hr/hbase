@@ -4,41 +4,24 @@ synchronized (this.updateLock) {
     if (this.closed)     return;
     tempWriter=this.writer;
   }
-  if (txid <= this.syncedTillHere) {
+  if (syncInfo.getLastSyncedTxId() >= txid) {
     return;
   }
   try {
-    long doneUpto;
     long now=System.currentTimeMillis();
-synchronized (flushLock) {
-      if (txid <= this.syncedTillHere) {
-        return;
-      }
-      doneUpto=this.unflushedEntries.get();
-      List<Entry> pending=logSyncerThread.getPendingWrites();
-      try {
-        logSyncerThread.hlogFlush(tempWriter,pending);
-      }
- catch (      IOException io) {
-synchronized (this.updateLock) {
-          tempWriter=this.writer;
-          logSyncerThread.hlogFlush(tempWriter,pending);
-        }
-      }
-    }
-    if (txid <= this.syncedTillHere) {
-      return;
-    }
+    long flushedSeqId;
     try {
+      flushedSeqId=logSyncerThread.flushWritesTo(tempWriter);
       tempWriter.sync();
     }
  catch (    IOException io) {
 synchronized (this.updateLock) {
         tempWriter=this.writer;
+        flushedSeqId=logSyncerThread.flushWritesTo(tempWriter);
         tempWriter.sync();
       }
     }
-    this.syncedTillHere=Math.max(this.syncedTillHere,doneUpto);
+    syncInfo.notifySynced(flushedSeqId);
     syncTime.inc(System.currentTimeMillis() - now);
     if (!this.logRollRunning) {
       checkLowReplication();
