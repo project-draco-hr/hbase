@@ -3,13 +3,13 @@
     if (this.closed) {
       return;
     }
-    long seqNumOfCompletionEdit;
+    long txid=0;
 synchronized (updateLock) {
-      seqNumOfCompletionEdit=obtainSeqNum();
       long now=System.currentTimeMillis();
-      WALEdit edit=completeCacheFlushLogEdit(logSeqId);
-      HLogKey key=makeKey(encodedRegionName,tableName,seqNumOfCompletionEdit,System.currentTimeMillis(),HConstants.DEFAULT_CLUSTER_ID);
+      WALEdit edit=completeCacheFlushLogEdit();
+      HLogKey key=makeKey(encodedRegionName,tableName,logSeqId,System.currentTimeMillis(),HConstants.DEFAULT_CLUSTER_ID);
       logSyncerThread.append(new Entry(key,edit));
+      txid=this.unflushedEntries.incrementAndGet();
       writeTime.inc(System.currentTimeMillis() - now);
       long len=0;
       for (      KeyValue kv : edit.getKeyValues()) {
@@ -18,7 +18,7 @@ synchronized (updateLock) {
       writeSize.inc(len);
       this.numEntries.incrementAndGet();
     }
-    this.sync(seqNumOfCompletionEdit);
+    this.sync(txid);
   }
   finally {
     this.lastSeqWritten.remove(getSnapshotName(encodedRegionName));

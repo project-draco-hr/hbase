@@ -1,22 +1,24 @@
 {
-  if (edits.isEmpty())   return this.logSeqNum.get();
+  if (edits.isEmpty())   return this.unflushedEntries.get();
+  ;
   if (this.closed) {
     throw new IOException("Cannot append; log is closed");
   }
-  long seqNum;
+  long txid=0;
 synchronized (this.updateLock) {
-    seqNum=obtainSeqNum();
+    long seqNum=obtainSeqNum();
     byte[] encodedRegionName=info.getEncodedNameAsBytes();
     this.lastSeqWritten.putIfAbsent(encodedRegionName,seqNum);
     HLogKey logKey=makeKey(encodedRegionName,tableName,seqNum,now,clusterId);
     doWrite(info,logKey,edits,htd);
     this.numEntries.incrementAndGet();
+    txid=this.unflushedEntries.incrementAndGet();
     if (htd.isDeferredLogFlush()) {
-      lastDeferredTxid=seqNum;
+      lastDeferredTxid=txid;
     }
   }
   if (doSync && (info.isMetaRegion() || !htd.isDeferredLogFlush())) {
-    this.sync(seqNum);
+    this.sync(txid);
   }
-  return seqNum;
+  return txid;
 }
