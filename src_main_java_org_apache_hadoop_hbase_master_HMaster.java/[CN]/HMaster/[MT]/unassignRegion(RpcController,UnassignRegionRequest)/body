@@ -1,0 +1,34 @@
+{
+  try {
+    final byte[] regionName=req.getRegion().getValue().toByteArray();
+    RegionSpecifierType type=req.getRegion().getType();
+    final boolean force=req.getForce();
+    UnassignRegionResponse urr=UnassignRegionResponse.newBuilder().build();
+    checkInitialized();
+    if (type != RegionSpecifierType.REGION_NAME) {
+      LOG.warn("unassignRegion specifier type: expected: " + RegionSpecifierType.REGION_NAME + " actual: "+ RegionSpecifierType.ENCODED_REGION_NAME);
+    }
+    Pair<HRegionInfo,ServerName> pair=MetaReader.getRegion(this.catalogTracker,regionName);
+    if (pair == null)     throw new UnknownRegionException(Bytes.toString(regionName));
+    HRegionInfo hri=pair.getFirst();
+    if (cpHost != null) {
+      if (cpHost.preUnassign(hri,force)) {
+        return urr;
+      }
+    }
+    if (force) {
+      this.assignmentManager.regionOffline(hri);
+      assignRegion(hri);
+    }
+ else {
+      this.assignmentManager.unassign(hri,force);
+    }
+    if (cpHost != null) {
+      cpHost.postUnassign(hri,force);
+    }
+    return urr;
+  }
+ catch (  IOException ioe) {
+    throw new ServiceException(ioe);
+  }
+}
