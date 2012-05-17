@@ -1,0 +1,29 @@
+{
+  ExecutorService executor=startupMasterExecutor("testSSHWhenDisableTableInProgress");
+  CatalogTracker ct=Mockito.mock(CatalogTracker.class);
+  LoadBalancer balancer=LoadBalancerFactory.getLoadBalancer(server.getConfiguration());
+  AssignmentManager am=new AssignmentManager(this.server,this.serverManager,ct,balancer,executor,null);
+  am.regionOnline(REGIONINFO,SERVERNAME_A);
+  am.regionsInTransition.put(REGIONINFO.getEncodedName(),new RegionState(REGIONINFO,State.PENDING_CLOSE));
+  if (state == Table.State.DISABLING) {
+    am.getZKTable().setDisablingTable(REGIONINFO.getTableNameAsString());
+  }
+ else {
+    am.getZKTable().setDisabledTable(REGIONINFO.getTableNameAsString());
+  }
+  RegionTransition data=RegionTransition.createRegionTransition(EventType.M_ZK_REGION_CLOSING,REGIONINFO.getRegionName(),SERVERNAME_A);
+  String node=ZKAssign.getNodeName(this.watcher,REGIONINFO.getEncodedName());
+  ZKUtil.createAndWatch(this.watcher,node,data.toByteArray());
+  try {
+    processServerShutdownHandler(ct,am);
+    assertTrue("The znode should be deleted.",ZKUtil.checkExists(this.watcher,node) == -1);
+    if (state == Table.State.DISABLED) {
+      assertTrue("Region state of region in pending close should be removed from rit.",am.regionsInTransition.isEmpty());
+    }
+  }
+  finally {
+    executor.shutdown();
+    am.shutdown();
+    ZKAssign.deleteAllNodes(this.watcher);
+  }
+}
