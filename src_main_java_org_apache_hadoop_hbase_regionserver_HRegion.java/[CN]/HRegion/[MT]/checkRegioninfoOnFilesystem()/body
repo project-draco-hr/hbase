@@ -1,6 +1,9 @@
 {
   Path regioninfoPath=new Path(this.regiondir,REGIONINFO_FILE);
-  if (this.fs.exists(regioninfoPath) && this.fs.getFileStatus(regioninfoPath).getLen() > 0) {
+  byte[] content=getDotRegionInfoFileContent(this.getRegionInfo());
+  boolean exists=this.fs.exists(regioninfoPath);
+  FileStatus status=exists ? this.fs.getFileStatus(regioninfoPath) : null;
+  if (status != null && status.getLen() == content.length) {
     return;
   }
   FsPermission perms=FSUtils.getFilePermissions(fs,conf,HConstants.DATA_FILE_UMASK_KEY);
@@ -10,13 +13,16 @@
   }
   FSDataOutputStream out=FSUtils.create(fs,tmpPath,perms);
   try {
-    this.regionInfo.write(out);
-    out.write('\n');
-    out.write('\n');
-    out.write(Bytes.toBytes(this.regionInfo.toString()));
+    out.write(content);
   }
   finally {
     out.close();
+  }
+  if (exists) {
+    LOG.info("Rewriting .regioninfo file at " + regioninfoPath);
+    if (!fs.delete(regioninfoPath,false)) {
+      throw new IOException("Unable to remove existing " + regioninfoPath);
+    }
   }
   if (!fs.rename(tmpPath,regioninfoPath)) {
     throw new IOException("Unable to rename " + tmpPath + " to "+ regioninfoPath);

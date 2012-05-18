@@ -1,10 +1,13 @@
 {
   Path idPath=new Path(rootdir,HConstants.CLUSTER_ID_FILE_NAME);
-  String clusterId=null;
-  if (fs.exists(idPath)) {
+  ClusterId clusterId=null;
+  FileStatus status=fs.exists(idPath) ? fs.getFileStatus(idPath) : null;
+  if (status != null) {
+    int len=Ints.checkedCast(status.getLen());
+    byte[] content=new byte[len];
     FSDataInputStream in=fs.open(idPath);
     try {
-      clusterId=in.readUTF();
+      in.readFully(content);
     }
  catch (    EOFException eof) {
       LOG.warn("Cluster ID file " + idPath.toString() + " was empty");
@@ -12,6 +15,14 @@
  finally {
       in.close();
     }
+    try {
+      clusterId=ClusterId.parseFrom(content);
+    }
+ catch (    DeserializationException e) {
+      throw new IOException("content=" + Bytes.toString(content),e);
+    }
+    if (!ProtobufUtil.isPBMagicPrefix(content))     rewriteAsPb(fs,rootdir,idPath,clusterId);
+    return clusterId;
   }
  else {
     LOG.warn("Cluster ID file does not exist at " + idPath.toString());

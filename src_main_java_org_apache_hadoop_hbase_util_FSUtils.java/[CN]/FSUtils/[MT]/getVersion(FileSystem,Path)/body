@@ -1,17 +1,33 @@
 {
   Path versionFile=new Path(rootdir,HConstants.VERSION_FILE_NAME);
+  FileStatus[] status=fs.listStatus(versionFile);
+  if (status == null || status.length == 0)   return null;
   String version=null;
-  if (fs.exists(versionFile)) {
-    FSDataInputStream s=fs.open(versionFile);
-    try {
-      version=DataInputStream.readUTF(s);
+  byte[] content=new byte[(int)status[0].getLen()];
+  FSDataInputStream s=fs.open(versionFile);
+  try {
+    IOUtils.readFully(s,content,0,content.length);
+    if (ProtobufUtil.isPBMagicPrefix(content)) {
+      version=parseVersionFrom(content);
     }
- catch (    EOFException eof) {
-      LOG.warn("Version file was empty, odd, will try to set it.");
+ else {
+      InputStream is=new ByteArrayInputStream(content);
+      DataInputStream dis=new DataInputStream(is);
+      try {
+        version=dis.readUTF();
+      }
+  finally {
+        dis.close();
+      }
+      LOG.info("Updating the hbase.version file format with version=" + version);
+      setVersion(fs,rootdir,version,0,HConstants.DEFAULT_VERSION_FILE_WRITE_ATTEMPTS);
     }
+  }
+ catch (  EOFException eof) {
+    LOG.warn("Version file was empty, odd, will try to set it.");
+  }
  finally {
-      s.close();
-    }
+    s.close();
   }
   return version;
 }
