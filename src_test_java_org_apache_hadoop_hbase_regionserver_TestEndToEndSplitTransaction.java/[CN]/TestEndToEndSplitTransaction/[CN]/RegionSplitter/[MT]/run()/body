@@ -1,0 +1,41 @@
+{
+  try {
+    Random random=new Random();
+    for (int i=0; i < 5; i++) {
+      NavigableMap<HRegionInfo,ServerName> regions=MetaScanner.allTableRegions(conf,tableName,false);
+      if (regions.size() == 0) {
+        continue;
+      }
+      int regionIndex=random.nextInt(regions.size());
+      HRegionInfo region=Iterators.get(regions.keySet().iterator(),regionIndex);
+      int start=0, end=Integer.MAX_VALUE;
+      if (region.getStartKey().length > 0) {
+        start=Bytes.toInt(region.getStartKey());
+      }
+      if (region.getEndKey().length > 0) {
+        end=Bytes.toInt(region.getEndKey());
+      }
+      int mid=start + ((end - start) / 2);
+      byte[] splitPoint=Bytes.toBytes(mid);
+      addData(start);
+      addData(mid);
+      flushAndBlockUntilDone(region.getRegionName());
+      compactAndBlockUntilDone(region.getRegionName());
+      log("Initiating region split for:" + region.getRegionNameAsString());
+      try {
+        admin.split(region.getRegionName(),splitPoint);
+        blockUntilRegionSplit(50000,region.getRegionName(),true);
+      }
+ catch (      NotServingRegionException ex) {
+      }
+    }
+  }
+ catch (  Throwable ex) {
+    this.ex=ex;
+  }
+ finally {
+    if (metaTable != null) {
+      IOUtils.closeQuietly(metaTable);
+    }
+  }
+}

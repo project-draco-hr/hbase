@@ -1,24 +1,13 @@
 {
   final Map<HRegionInfo,HServerAddress> regionMap=new TreeMap<HRegionInfo,HServerAddress>();
-  MetaScannerVisitor visitor=new MetaScannerVisitor(){
-    public boolean processRow(    Result rowResult) throws IOException {
-      HRegionInfo info=Writables.getHRegionInfo(rowResult.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER));
-      if (!(Bytes.equals(info.getTableName(),getTableName()))) {
-        return false;
-      }
-      HServerAddress server=new HServerAddress();
-      byte[] value=rowResult.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
-      if (value != null && value.length > 0) {
-        String hostAndPort=Bytes.toString(value);
-        server=new HServerAddress(Addressing.createInetSocketAddressFromHostAndPortStr(hostAndPort));
-      }
-      if (!(info.isOffline() || info.isSplit())) {
-        regionMap.put(new UnmodifyableHRegionInfo(info),server);
-      }
-      return true;
+  final Map<HRegionInfo,ServerName> regionLocations=getRegionLocations();
+  for (  Map.Entry<HRegionInfo,ServerName> entry : regionLocations.entrySet()) {
+    HServerAddress server=new HServerAddress();
+    ServerName serverName=entry.getValue();
+    if (serverName != null && serverName.getHostAndPort() != null) {
+      server=new HServerAddress(Addressing.createInetSocketAddressFromHostAndPortStr(serverName.getHostAndPort()));
     }
+    regionMap.put(entry.getKey(),server);
   }
-;
-  MetaScanner.metaScan(configuration,visitor,tableName);
   return regionMap;
 }
