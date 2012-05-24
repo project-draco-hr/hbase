@@ -1,0 +1,56 @@
+{
+  byte[] table=Bytes.toBytes(tableName);
+  byte[] family=Bytes.toBytes("family");
+  HTable ht=null;
+  try {
+    ht=TEST_UTIL.createTable(table,family);
+    loadData(ht,family,3000,flushes);
+    HRegionServer rs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(0);
+    List<HRegion> regions=rs.getOnlineRegions(table);
+    int countBefore=countStoreFiles(regions,family);
+    assertTrue(countBefore > 0);
+    HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+    if (expectedState == CompactionState.MINOR) {
+      admin.compact(tableName);
+    }
+ else {
+      admin.majorCompact(table);
+    }
+    long curt=System.currentTimeMillis();
+    long waitTime=5000;
+    long endt=curt + waitTime;
+    CompactionState state=admin.getCompactionState(table);
+    while (state == CompactionState.NONE && curt < endt) {
+      Thread.sleep(10);
+      state=admin.getCompactionState(table);
+      curt=System.currentTimeMillis();
+    }
+    if (expectedState != state) {
+      for (      HRegion region : regions) {
+        state=CompactionRequest.getCompactionState(region.getRegionId());
+        assertEquals(CompactionState.NONE,state);
+      }
+    }
+ else {
+      curt=System.currentTimeMillis();
+      waitTime=20000;
+      endt=curt + waitTime;
+      state=admin.getCompactionState(table);
+      while (state != CompactionState.NONE && curt < endt) {
+        Thread.sleep(10);
+        state=admin.getCompactionState(table);
+        curt=System.currentTimeMillis();
+      }
+      assertEquals(CompactionState.NONE,state);
+    }
+    int countAfter=countStoreFiles(regions,family);
+    assertTrue(countAfter < countBefore);
+    if (expectedState == CompactionState.MAJOR)     assertTrue(1 == countAfter);
+ else     assertTrue(1 < countAfter);
+  }
+  finally {
+    if (ht != null) {
+      TEST_UTIL.deleteTable(table);
+    }
+  }
+}

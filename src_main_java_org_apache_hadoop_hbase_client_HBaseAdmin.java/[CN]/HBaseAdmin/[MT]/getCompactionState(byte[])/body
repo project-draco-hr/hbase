@@ -1,0 +1,63 @@
+{
+  CompactionState state=CompactionState.NONE;
+  CatalogTracker ct=getCatalogTracker();
+  try {
+    if (isRegionName(tableNameOrRegionName,ct)) {
+      Pair<HRegionInfo,ServerName> pair=MetaReader.getRegion(ct,tableNameOrRegionName);
+      if (pair == null || pair.getSecond() == null) {
+        LOG.info("No server in .META. for " + Bytes.toStringBinary(tableNameOrRegionName) + "; pair="+ pair);
+      }
+ else {
+        ServerName sn=pair.getSecond();
+        AdminProtocol admin=this.connection.getAdmin(sn.getHostname(),sn.getPort());
+        GetRegionInfoRequest request=RequestConverter.buildGetRegionInfoRequest(pair.getFirst().getRegionName(),true);
+        GetRegionInfoResponse response=admin.getRegionInfo(null,request);
+        return response.getCompactionState();
+      }
+    }
+ else {
+      final String tableName=tableNameString(tableNameOrRegionName,ct);
+      List<Pair<HRegionInfo,ServerName>> pairs=MetaReader.getTableRegionsAndLocations(ct,tableName);
+      for (      Pair<HRegionInfo,ServerName> pair : pairs) {
+        if (pair.getFirst().isOffline())         continue;
+        if (pair.getSecond() == null)         continue;
+        try {
+          ServerName sn=pair.getSecond();
+          AdminProtocol admin=this.connection.getAdmin(sn.getHostname(),sn.getPort());
+          GetRegionInfoRequest request=RequestConverter.buildGetRegionInfoRequest(pair.getFirst().getRegionName(),true);
+          GetRegionInfoResponse response=admin.getRegionInfo(null,request);
+switch (response.getCompactionState()) {
+case MAJOR_AND_MINOR:
+            return CompactionState.MAJOR_AND_MINOR;
+case MAJOR:
+          if (state == CompactionState.MINOR) {
+            return CompactionState.MAJOR_AND_MINOR;
+          }
+        state=CompactionState.MAJOR;
+      break;
+case MINOR:
+    if (state == CompactionState.MAJOR) {
+      return CompactionState.MAJOR_AND_MINOR;
+    }
+  state=CompactionState.MINOR;
+break;
+case NONE:
+default :
+}
+}
+ catch (NotServingRegionException e) {
+if (LOG.isDebugEnabled()) {
+LOG.debug("Trying to get compaction state of " + pair.getFirst() + ": "+ StringUtils.stringifyException(e));
+}
+}
+}
+}
+}
+ catch (ServiceException se) {
+throw ProtobufUtil.getRemoteException(se);
+}
+ finally {
+cleanupCatalogTracker(ct);
+}
+return state;
+}
