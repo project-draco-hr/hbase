@@ -1,0 +1,33 @@
+{
+  final String tableNameStr="testSequentialEditLogSeqNum";
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
+  final Path basedir=new Path(this.hbaseRootDir,tableNameStr);
+  deleteDir(basedir);
+  final byte[] rowName=Bytes.toBytes(tableNameStr);
+  final int countPerFamily=10;
+  final HTableDescriptor htd=createBasic1FamilyHTD(tableNameStr);
+  MockHLog wal=createMockWAL(this.conf);
+  HRegion region=new HRegion(basedir,wal,this.fs,this.conf,hri,htd,null);
+  long seqid=region.initialize();
+  wal.setSequenceNumber(seqid);
+  for (  HColumnDescriptor hcd : htd.getFamilies()) {
+    addRegionEdits(rowName,hcd.getName(),countPerFamily,this.ee,region,"x");
+  }
+  long sequenceNumber=wal.getSequenceNumber();
+  region.flushcache();
+  for (  HColumnDescriptor hcd : htd.getFamilies()) {
+    addRegionEdits(rowName,hcd.getName(),5,this.ee,region,"x");
+  }
+  long lastestSeqNumber=wal.getSequenceNumber();
+  wal.doCompleteCacheFlush=true;
+  wal.completeCacheFlush(hri.getEncodedNameAsBytes(),hri.getTableName(),sequenceNumber,false);
+  wal.close();
+  FileStatus[] listStatus=this.fs.listStatus(wal.getDir());
+  HLogSplitter.splitLogFileToTemp(hbaseRootDir,hbaseRootDir + "/temp",listStatus[0],this.fs,this.conf,null);
+  FileStatus[] listStatus1=this.fs.listStatus(new Path(hbaseRootDir + "/temp/" + tableNameStr+ "/"+ hri.getEncodedName()+ "/recovered.edits"));
+  int editCount=0;
+  for (  FileStatus fileStatus : listStatus1) {
+    editCount=Integer.parseInt(fileStatus.getPath().getName());
+  }
+  assertEquals("The sequence number of the recoverd.edits and the current edit seq should be same",lastestSeqNumber,editCount);
+}
