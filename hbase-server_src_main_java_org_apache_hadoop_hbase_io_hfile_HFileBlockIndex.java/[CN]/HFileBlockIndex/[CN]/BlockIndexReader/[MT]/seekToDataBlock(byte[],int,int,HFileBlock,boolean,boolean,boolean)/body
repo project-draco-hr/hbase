@@ -1,48 +1,9 @@
 {
-  int rootLevelIndex=rootBlockContainingKey(key,keyOffset,keyLength);
-  if (rootLevelIndex < 0 || rootLevelIndex >= blockOffsets.length) {
+  BlockWithScanInfo blockWithScanInfo=loadDataBlockWithScanInfo(key,keyOffset,keyLength,currentBlock,cacheBlocks,pread,isCompaction);
+  if (blockWithScanInfo == null) {
     return null;
   }
-  long currentOffset=blockOffsets[rootLevelIndex];
-  int currentOnDiskSize=blockDataSizes[rootLevelIndex];
-  int lookupLevel=1;
-  HFileBlock block;
-  while (true) {
-    if (currentBlock != null && currentBlock.getOffset() == currentOffset) {
-      block=currentBlock;
-    }
  else {
-      boolean shouldCache=cacheBlocks || (lookupLevel < searchTreeLevel);
-      BlockType expectedBlockType;
-      if (lookupLevel < searchTreeLevel - 1) {
-        expectedBlockType=BlockType.INTERMEDIATE_INDEX;
-      }
- else       if (lookupLevel == searchTreeLevel - 1) {
-        expectedBlockType=BlockType.LEAF_INDEX;
-      }
- else {
-        expectedBlockType=BlockType.DATA;
-      }
-      block=cachingBlockReader.readBlock(currentOffset,currentOnDiskSize,shouldCache,pread,isCompaction,expectedBlockType);
-    }
-    if (block == null) {
-      throw new IOException("Failed to read block at offset " + currentOffset + ", onDiskSize="+ currentOnDiskSize);
-    }
-    if (block.getBlockType().equals(BlockType.DATA) || block.getBlockType().equals(BlockType.ENCODED_DATA)) {
-      break;
-    }
-    if (++lookupLevel > searchTreeLevel) {
-      throw new IOException("Search Tree Level overflow: lookupLevel=" + lookupLevel + ", searchTreeLevel="+ searchTreeLevel);
-    }
-    ByteBuffer buffer=block.getBufferWithoutHeader();
-    if (!locateNonRootIndexEntry(buffer,key,keyOffset,keyLength,comparator)) {
-      throw new IOException("The key " + Bytes.toStringBinary(key,keyOffset,keyLength) + " is before the"+ " first key of the non-root index block "+ block);
-    }
-    currentOffset=buffer.getLong();
-    currentOnDiskSize=buffer.getInt();
+    return blockWithScanInfo.getHFileBlock();
   }
-  if (lookupLevel != searchTreeLevel) {
-    throw new IOException("Reached a data block at level " + lookupLevel + " but the number of levels is "+ searchTreeLevel);
-  }
-  return block;
 }
