@@ -1,0 +1,27 @@
+{
+  return new Callable<Integer>(){
+    @Override public Integer call() throws Exception {
+      int failures=0;
+      Set<FullyQualifiedRow> keys=countersMap.keySet();
+      for (      FullyQualifiedRow row : keys) {
+        Long counter=countersMap.remove(row);
+        if (counter == null) {
+          continue;
+        }
+        try {
+          HTable table=handler.getTable(row.getTable());
+          if (failures > 2) {
+            throw new IOException("Auto-Fail rest of ICVs");
+          }
+          table.incrementColumnValue(row.getRowKey(),row.getFamily(),row.getQualifier(),counter);
+        }
+ catch (        IOException e) {
+          failures++;
+          LOG.error("FAILED_ICV: " + Bytes.toString(row.getTable()) + ", "+ Bytes.toStringBinary(row.getRowKey())+ ", "+ Bytes.toStringBinary(row.getFamily())+ ", "+ Bytes.toStringBinary(row.getQualifier())+ ", "+ counter);
+        }
+      }
+      return failures;
+    }
+  }
+;
+}
