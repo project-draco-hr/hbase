@@ -1,0 +1,39 @@
+{
+  Map<String,MutableInt> tableRegionsTotal=new HashMap<String,MutableInt>();
+  Map<String,MutableInt> tableRegionsOnCurrentServer=new HashMap<String,MutableInt>();
+  Map<String,Integer> tableCostSeenSoFar=new HashMap<String,Integer>();
+  for (  Entry<ServerName,List<HRegionInfo>> entry : clusterState.entrySet()) {
+    tableRegionsOnCurrentServer.clear();
+    for (    HRegionInfo region : entry.getValue()) {
+      String tableName=region.getTableNameAsString();
+      MutableInt regionsOnServerCount=tableRegionsOnCurrentServer.get(tableName);
+      if (regionsOnServerCount == null) {
+        regionsOnServerCount=new MutableInt(0);
+        tableRegionsOnCurrentServer.put(tableName,regionsOnServerCount);
+      }
+      regionsOnServerCount.increment();
+      MutableInt totalCount=tableRegionsTotal.get(tableName);
+      if (totalCount == null) {
+        totalCount=new MutableInt(0);
+        tableRegionsTotal.put(tableName,totalCount);
+      }
+      totalCount.increment();
+    }
+    for (    String tableName : tableRegionsOnCurrentServer.keySet()) {
+      Integer thisCount=tableRegionsOnCurrentServer.get(tableName).toInteger();
+      Integer maxCountSoFar=tableCostSeenSoFar.get(tableName);
+      if (maxCountSoFar == null || thisCount.compareTo(maxCountSoFar) > 0) {
+        tableCostSeenSoFar.put(tableName,thisCount);
+      }
+    }
+  }
+  double max=0;
+  double min=0;
+  double value=0;
+  for (  String tableName : tableRegionsTotal.keySet()) {
+    max+=tableRegionsTotal.get(tableName).doubleValue();
+    min+=tableRegionsTotal.get(tableName).doubleValue() / (double)clusterState.size();
+    value+=tableCostSeenSoFar.get(tableName).doubleValue();
+  }
+  return scale(min,max,value);
+}
