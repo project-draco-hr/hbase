@@ -1,0 +1,65 @@
+{
+  HTablePool pool=servlet.getTablePool();
+  HTableInterface table=null;
+  try {
+    if (model.getRows().size() != 1) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    RowModel rowModel=model.getRows().get(0);
+    byte[] key=rowModel.getKey();
+    if (key == null) {
+      key=rowspec.getRow();
+    }
+    List<CellModel> cellModels=rowModel.getCells();
+    int cellModelCount=cellModels.size();
+    if (key == null || cellModelCount <= 1) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    Put put=new Put(key);
+    CellModel valueToCheckCell=cellModels.get(cellModelCount - 1);
+    byte[] valueToCheckColumn=valueToCheckCell.getColumn();
+    byte[][] valueToPutParts=KeyValue.parseColumn(valueToCheckColumn);
+    if (valueToPutParts.length == 2 && valueToPutParts[1].length > 0) {
+      CellModel valueToPutCell=null;
+      for (int i=0, n=cellModelCount - 1; i < n; i++) {
+        if (Bytes.equals(cellModels.get(i).getColumn(),valueToCheckCell.getColumn())) {
+          valueToPutCell=cellModels.get(i);
+          break;
+        }
+      }
+      if (valueToPutCell != null) {
+        put.add(valueToPutParts[0],valueToPutParts[1],valueToPutCell.getTimestamp(),valueToPutCell.getValue());
+      }
+ else {
+        throw new WebApplicationException(Response.Status.BAD_REQUEST);
+      }
+    }
+ else {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    table=pool.getTable(this.tableResource.getName());
+    boolean retValue=table.checkAndPut(key,valueToPutParts[0],valueToPutParts[1],valueToCheckCell.getValue(),put);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("CHECK-AND-PUT " + put.toString() + ", returns "+ retValue);
+    }
+    table.flushCommits();
+    ResponseBuilder response=Response.ok();
+    if (!retValue) {
+      response=Response.status(304);
+    }
+    return response.build();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+ finally {
+    try {
+      if (table != null) {
+        pool.putTable(table);
+      }
+    }
+ catch (    Exception ioe) {
+      throw new WebApplicationException(ioe,Response.Status.SERVICE_UNAVAILABLE);
+    }
+  }
+}

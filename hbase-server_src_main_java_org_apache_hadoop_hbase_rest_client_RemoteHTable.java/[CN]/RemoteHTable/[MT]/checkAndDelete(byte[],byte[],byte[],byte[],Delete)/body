@@ -1,3 +1,35 @@
 {
-  throw new IOException("checkAndDelete not supported");
+  Put put=new Put(row);
+  put.add(new KeyValue(row,family,qualifier,value));
+  CellSetModel model=buildModelFromPut(put);
+  StringBuilder sb=new StringBuilder();
+  sb.append('/');
+  if (accessToken != null) {
+    sb.append(accessToken);
+    sb.append('/');
+  }
+  sb.append(Bytes.toStringBinary(name));
+  sb.append('/');
+  sb.append(Bytes.toStringBinary(row));
+  sb.append("?check=delete");
+  for (int i=0; i < maxRetries; i++) {
+    Response response=client.put(sb.toString(),Constants.MIMETYPE_PROTOBUF,model.createProtobufOutput());
+    int code=response.getCode();
+switch (code) {
+case 200:
+      return true;
+case 304:
+    return false;
+case 509:
+  try {
+    Thread.sleep(sleepTime);
+  }
+ catch (  final InterruptedException e) {
+  }
+break;
+default :
+throw new IOException("checkAndDelete request failed with " + code);
+}
+}
+throw new IOException("checkAndDelete request timed out");
 }

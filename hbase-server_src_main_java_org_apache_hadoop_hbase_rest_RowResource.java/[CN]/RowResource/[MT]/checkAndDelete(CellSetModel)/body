@@ -1,0 +1,58 @@
+{
+  HTablePool pool=servlet.getTablePool();
+  HTableInterface table=null;
+  Delete delete=null;
+  try {
+    if (model.getRows().size() != 1) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    RowModel rowModel=model.getRows().get(0);
+    byte[] key=rowModel.getKey();
+    if (key == null) {
+      key=rowspec.getRow();
+    }
+    if (key == null) {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    delete=new Delete(key);
+    CellModel valueToDeleteCell=rowModel.getCells().get(0);
+    byte[] valueToDeleteColumn=valueToDeleteCell.getColumn();
+    if (valueToDeleteColumn == null) {
+      try {
+        valueToDeleteColumn=rowspec.getColumns()[0];
+      }
+ catch (      final ArrayIndexOutOfBoundsException e) {
+        throw new WebApplicationException(Response.Status.BAD_REQUEST);
+      }
+    }
+    byte[][] parts=KeyValue.parseColumn(valueToDeleteColumn);
+    if (parts.length == 2 && parts[1].length > 0) {
+      delete.deleteColumns(parts[0],parts[1]);
+    }
+ else {
+      throw new WebApplicationException(Response.Status.BAD_REQUEST);
+    }
+    table=pool.getTable(tableResource.getName());
+    boolean retValue=table.checkAndDelete(key,parts[0],parts[1],valueToDeleteCell.getValue(),delete);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("CHECK-AND-DELETE " + delete.toString() + ", returns "+ retValue);
+    }
+    table.flushCommits();
+    ResponseBuilder response=Response.ok();
+    if (!retValue) {
+      response=Response.status(304);
+    }
+    return response.build();
+  }
+ catch (  IOException e) {
+    throw new WebApplicationException(e,Response.Status.SERVICE_UNAVAILABLE);
+  }
+ finally {
+    try {
+      pool.putTable(table);
+    }
+ catch (    Exception ioe) {
+      throw new WebApplicationException(ioe,Response.Status.SERVICE_UNAVAILABLE);
+    }
+  }
+}
