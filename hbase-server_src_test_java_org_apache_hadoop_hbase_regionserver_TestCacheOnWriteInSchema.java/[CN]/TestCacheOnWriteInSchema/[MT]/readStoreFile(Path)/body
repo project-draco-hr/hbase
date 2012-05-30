@@ -1,0 +1,31 @@
+{
+  CacheConfig cacheConf=store.getCacheConfig();
+  BlockCache cache=cacheConf.getBlockCache();
+  StoreFile sf=new StoreFile(fs,path,conf,cacheConf,BloomType.ROWCOL,null);
+  store.passSchemaMetricsTo(sf);
+  HFileReaderV2 reader=(HFileReaderV2)sf.createReader().getHFileReader();
+  try {
+    HFileScanner scanner=reader.getScanner(false,false);
+    assertTrue(testDescription,scanner.seekTo());
+    long offset=0;
+    HFileBlock prevBlock=null;
+    while (offset < reader.getTrailer().getLoadOnOpenDataOffset()) {
+      long onDiskSize=-1;
+      if (prevBlock != null) {
+        onDiskSize=prevBlock.getNextBlockOnDiskSizeWithHeader();
+      }
+      HFileBlock block=reader.readBlock(offset,onDiskSize,false,true,false,null);
+      BlockCacheKey blockCacheKey=new BlockCacheKey(reader.getName(),offset);
+      boolean isCached=cache.getBlock(blockCacheKey,true) != null;
+      boolean shouldBeCached=cowType.shouldBeCached(block.getBlockType());
+      if (shouldBeCached != isCached) {
+        throw new AssertionError("shouldBeCached: " + shouldBeCached + "\n"+ "isCached: "+ isCached+ "\n"+ "Test description: "+ testDescription+ "\n"+ "block: "+ block+ "\n"+ "blockCacheKey: "+ blockCacheKey);
+      }
+      prevBlock=block;
+      offset+=block.getOnDiskSizeWithHeader();
+    }
+  }
+  finally {
+    reader.close();
+  }
+}
