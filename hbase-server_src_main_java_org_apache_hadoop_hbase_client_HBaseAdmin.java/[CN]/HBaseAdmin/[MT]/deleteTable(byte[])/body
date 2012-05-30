@@ -3,9 +3,8 @@
   HRegionLocation firstMetaServer=getFirstMetaServerForTable(tableName);
   boolean tableExists=true;
   execute(new MasterCallable<Void>(){
-    @Override public Void call() throws ServiceException {
-      DeleteTableRequest req=RequestConverter.buildDeleteTableRequest(tableName);
-      master.deleteTable(null,req);
+    @Override public Void call() throws IOException {
+      master.deleteTable(tableName);
       return null;
     }
   }
@@ -26,22 +25,20 @@
       }
       if (values == null || values.length == 0) {
         tableExists=false;
-        GetTableDescriptorsResponse htds;
+        HTableDescriptor[] htds;
         MasterKeepAliveConnection master=connection.getKeepAliveMaster();
         try {
-          GetTableDescriptorsRequest req=RequestConverter.buildGetTableDescriptorsRequest(null);
-          htds=master.getTableDescriptors(null,req);
+          htds=master.getHTableDescriptors();
         }
- catch (        ServiceException se) {
-          throw ProtobufUtil.getRemoteException(se);
-        }
- finally {
+  finally {
           master.close();
         }
-        for (        TableSchema ts : htds.getTableSchemaList()) {
-          if (Bytes.equals(tableName,ts.getName().toByteArray())) {
-            tableExists=true;
-            break;
+        if (htds != null && htds.length > 0) {
+          for (          HTableDescriptor htd : htds) {
+            if (Bytes.equals(tableName,htd.getName())) {
+              tableExists=true;
+              break;
+            }
           }
         }
         if (!tableExists) {
