@@ -7,18 +7,20 @@
     return HTableDescriptor.META_TABLEDESC;
   }
   MasterKeepAliveConnection master=getKeepAliveMaster();
-  HTableDescriptor[] htds;
+  GetTableDescriptorsResponse htds;
   try {
-    htds=master.getHTableDescriptors();
+    GetTableDescriptorsRequest req=RequestConverter.buildGetTableDescriptorsRequest(null);
+    htds=master.getTableDescriptors(null,req);
   }
-  finally {
+ catch (  ServiceException se) {
+    throw ProtobufUtil.getRemoteException(se);
+  }
+ finally {
     master.close();
   }
-  if (htds != null && htds.length > 0) {
-    for (    HTableDescriptor htd : htds) {
-      if (Bytes.equals(tableName,htd.getName())) {
-        return htd;
-      }
+  for (  TableSchema ts : htds.getTableSchemaList()) {
+    if (Bytes.equals(tableName,ts.getName().toByteArray())) {
+      return HTableDescriptor.convert(ts);
     }
   }
   throw new TableNotFoundException(Bytes.toString(tableName));
