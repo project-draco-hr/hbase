@@ -7,7 +7,7 @@
   checkRegioninfoOnFilesystem();
   status.setStatus("Cleaning up temporary data from old regions");
   cleanupTmpDir();
-  long minSeqId=-1;
+  Map<byte[],Long> maxSeqIdInStores=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
   long maxSeqId=-1;
   long maxMemstoreTS=-1;
   if (this.htableDescriptor != null && !htableDescriptor.getFamilies().isEmpty()) {
@@ -28,9 +28,7 @@
         Store store=future.get();
         this.stores.put(store.getColumnFamilyName().getBytes(),store);
         long storeSeqId=store.getMaxSequenceId();
-        if (minSeqId == -1 || storeSeqId < minSeqId) {
-          minSeqId=storeSeqId;
-        }
+        maxSeqIdInStores.put(store.getColumnFamilyName().getBytes(),storeSeqId);
         if (maxSeqId == -1 || storeSeqId > maxSeqId) {
           maxSeqId=storeSeqId;
         }
@@ -51,7 +49,7 @@ catch (    ExecutionException e) {
     }
   }
   mvcc.initialize(maxMemstoreTS + 1);
-  maxSeqId=Math.max(maxSeqId,replayRecoveredEditsIfAny(this.regiondir,minSeqId,reporter,status));
+  maxSeqId=Math.max(maxSeqId,replayRecoveredEditsIfAny(this.regiondir,maxSeqIdInStores,reporter,status));
   status.setStatus("Cleaning up detritus from prior splits");
   SplitTransaction.cleanupAnySplitDetritus(this);
   FSUtils.deleteDirectory(this.fs,new Path(regiondir,MERGEDIR));

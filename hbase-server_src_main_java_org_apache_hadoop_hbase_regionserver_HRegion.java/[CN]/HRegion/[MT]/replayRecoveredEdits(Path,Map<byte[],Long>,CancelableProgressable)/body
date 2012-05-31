@@ -1,12 +1,12 @@
 {
-  String msg="Replaying edits from " + edits + "; minSequenceid="+ minSeqId+ "; path="+ edits;
+  String msg="Replaying edits from " + edits;
   LOG.info(msg);
   MonitoredTask status=TaskMonitor.get().createStatus(msg);
   status.setStatus("Opening logs");
   HLog.Reader reader=null;
   try {
     reader=HLog.getReader(this.fs,edits,conf);
-    long currentEditSeqId=minSeqId;
+    long currentEditSeqId=-1;
     long firstSeqIdInLog=-1;
     long skippedEdits=0;
     long editsCount=0;
@@ -48,11 +48,6 @@
         if (firstSeqIdInLog == -1) {
           firstSeqIdInLog=key.getLogSeqNum();
         }
-        if (key.getLogSeqNum() <= currentEditSeqId) {
-          skippedEdits++;
-          continue;
-        }
-        currentEditSeqId=key.getLogSeqNum();
         boolean flush=false;
         for (        KeyValue kv : val.getKeyValues()) {
           if (kv.matchingFamily(HLog.METAFAMILY) || !Bytes.equals(key.getEncodedRegionName(),this.regionInfo.getEncodedNameAsBytes())) {
@@ -67,6 +62,11 @@
             skippedEdits++;
             continue;
           }
+          if (key.getLogSeqNum() <= maxSeqIdInStores.get(store.getFamily().getName())) {
+            skippedEdits++;
+            continue;
+          }
+          currentEditSeqId=key.getLogSeqNum();
           flush=restoreEdit(store,kv);
           editsCount++;
         }

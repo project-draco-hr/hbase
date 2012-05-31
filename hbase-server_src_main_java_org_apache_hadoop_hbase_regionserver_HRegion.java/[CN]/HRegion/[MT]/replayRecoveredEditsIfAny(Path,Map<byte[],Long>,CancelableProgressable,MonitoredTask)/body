@@ -1,5 +1,11 @@
 {
-  long seqid=minSeqId;
+  long minSeqIdForTheRegion=-1;
+  for (  Long maxSeqIdInStore : maxSeqIdInStores.values()) {
+    if (maxSeqIdInStore < minSeqIdForTheRegion || minSeqIdForTheRegion == -1) {
+      minSeqIdForTheRegion=maxSeqIdInStore;
+    }
+  }
+  long seqid=minSeqIdForTheRegion;
   NavigableSet<Path> files=HLog.getSplitEditFilesSorted(this.fs,regiondir);
   if (files == null || files.isEmpty())   return seqid;
   for (  Path edits : files) {
@@ -11,13 +17,13 @@
     long maxSeqId=Long.MAX_VALUE;
     String fileName=edits.getName();
     maxSeqId=Math.abs(Long.parseLong(fileName));
-    if (maxSeqId <= minSeqId) {
-      String msg="Maximum sequenceid for this log is " + maxSeqId + " and minimum sequenceid for the region is "+ minSeqId+ ", skipped the whole file, path="+ edits;
+    if (maxSeqId <= minSeqIdForTheRegion) {
+      String msg="Maximum sequenceid for this log is " + maxSeqId + " and minimum sequenceid for the region is "+ minSeqIdForTheRegion+ ", skipped the whole file, path="+ edits;
       LOG.debug(msg);
       continue;
     }
     try {
-      seqid=replayRecoveredEdits(edits,seqid,reporter);
+      seqid=replayRecoveredEdits(edits,maxSeqIdInStores,reporter);
     }
  catch (    IOException e) {
       boolean skipErrors=conf.getBoolean("hbase.skip.errors",false);
@@ -33,7 +39,7 @@
       this.rsAccounting.clearRegionReplayEditsSize(this.regionInfo.getRegionName());
     }
   }
-  if (seqid > minSeqId) {
+  if (seqid > minSeqIdForTheRegion) {
     internalFlushcache(null,seqid,status);
   }
   for (  Path file : files) {
