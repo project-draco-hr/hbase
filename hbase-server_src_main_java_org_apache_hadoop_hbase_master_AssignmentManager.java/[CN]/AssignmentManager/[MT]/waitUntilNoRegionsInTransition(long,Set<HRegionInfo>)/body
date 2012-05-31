@@ -1,23 +1,16 @@
 {
-  long startTime=System.currentTimeMillis();
-  long remaining=timeout;
-  boolean stillInTransition=true;
-synchronized (regionsInTransition) {
-    while (regionsInTransition.size() > 0 && !this.master.isStopped() && remaining > 0 && stillInTransition) {
-      int count=0;
-      for (      RegionState rs : regionsInTransition.values()) {
-        if (regions.contains(rs.getRegion())) {
-          count++;
-          break;
-        }
+  final long endTime=System.currentTimeMillis() + timeout;
+  while (!regions.isEmpty() && !this.master.isStopped() && endTime > System.currentTimeMillis()) {
+    Iterator<HRegionInfo> regionInfoIterator=regions.iterator();
+    while (regionInfoIterator.hasNext()) {
+      HRegionInfo hri=regionInfoIterator.next();
+      if (!regionsInTransition.containsKey(hri.getEncodedName())) {
+        regionInfoIterator.remove();
       }
-      if (count == 0) {
-        stillInTransition=false;
-        break;
-      }
-      regionsInTransition.wait(remaining);
-      remaining=timeout - (System.currentTimeMillis() - startTime);
+    }
+    if (!regions.isEmpty()) {
+      regionsInTransition.waitForUpdate(100);
     }
   }
-  return stillInTransition;
+  return regions.isEmpty();
 }

@@ -9,7 +9,8 @@ synchronized (this.regions) {
   String encodedName=region.getEncodedName();
   RegionState state;
   int versionOfClosingNode=-1;
-synchronized (regionsInTransition) {
+  ReentrantLock lock=locker.acquireLock(encodedName);
+  try {
     state=regionsInTransition.get(encodedName);
     if (state == null) {
       try {
@@ -56,19 +57,26 @@ catch (          DeserializationException de) {
       return;
     }
   }
+  finally {
+    lock.unlock();
+  }
   ServerName server=null;
 synchronized (this.regions) {
     server=regions.get(region);
   }
   if (server == null) {
-synchronized (regionsInTransition) {
+    lock=locker.acquireLock(encodedName);
+    try {
       state=regionsInTransition.get(encodedName);
       if (state != null) {
-        State presentState=state.getState();
-        if (presentState == State.PENDING_CLOSE || presentState == State.CLOSING) {
+        RegionState.State presentState=state.getState();
+        if (presentState == RegionState.State.PENDING_CLOSE || presentState == RegionState.State.CLOSING) {
           this.regionsInTransition.remove(encodedName);
         }
       }
+    }
+  finally {
+      lock.unlock();
     }
     deleteClosingOrClosedNode(region);
     return;
@@ -87,9 +95,7 @@ synchronized (regionsInTransition) {
     if (t instanceof NotServingRegionException) {
       if (checkIfRegionBelongsToDisabling(region)) {
         LOG.info("While trying to recover the table " + region.getTableNameAsString() + " to DISABLED state the region "+ region+ " was offlined but the table was in DISABLING state");
-synchronized (this.regionsInTransition) {
-          this.regionsInTransition.remove(region.getEncodedName());
-        }
+        this.regionsInTransition.remove(region.getEncodedName());
 synchronized (this.regions) {
           this.regions.remove(region);
           Set<HRegionInfo> serverRegions=this.servers.get(server);

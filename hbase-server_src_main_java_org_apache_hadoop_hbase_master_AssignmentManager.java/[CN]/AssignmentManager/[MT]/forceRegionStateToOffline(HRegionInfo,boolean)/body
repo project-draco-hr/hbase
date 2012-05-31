@@ -1,15 +1,21 @@
 {
   String encodedName=region.getEncodedName();
-  RegionState state=this.regionsInTransition.get(encodedName);
-  if (state == null) {
-    state=new RegionState(region,RegionState.State.OFFLINE);
-    this.regionsInTransition.put(encodedName,state);
-  }
- else {
-    if (!hijack) {
-      LOG.debug("Forcing OFFLINE; was=" + state);
-      state.update(RegionState.State.OFFLINE);
+  Lock lock=locker.acquireLock(encodedName);
+  try {
+    RegionState state=this.regionsInTransition.get(encodedName);
+    if (state == null) {
+      state=new RegionState(region,RegionState.State.OFFLINE);
+      this.regionsInTransition.put(encodedName,state);
     }
+ else {
+      if (!hijack) {
+        LOG.debug("Forcing OFFLINE; was=" + state);
+        state.update(RegionState.State.OFFLINE);
+      }
+    }
+    return state;
   }
-  return state;
+  finally {
+    lock.unlock();
+  }
 }

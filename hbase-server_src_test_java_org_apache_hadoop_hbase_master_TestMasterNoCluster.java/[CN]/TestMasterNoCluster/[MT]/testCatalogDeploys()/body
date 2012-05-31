@@ -1,5 +1,7 @@
 {
   final Configuration conf=TESTUTIL.getConfiguration();
+  conf.setInt("hbase.master.wait.on.regionservers.mintostart",1);
+  conf.setInt("hbase.master.wait.on.regionservers.maxtostart",1);
   final long now=System.currentTimeMillis();
   final ServerName sn=new ServerName("0.example.org",0,now);
   final MockRegionServer rs0=new MockRegionServer(conf,sn);
@@ -20,8 +22,10 @@
   }
 ;
   master.start();
+  LOG.info("Master has started");
   try {
     while (!master.isRpcServerOpen())     Threads.sleep(10);
+    LOG.info("RpcServerOpen has started");
     RegionServerStartupRequest.Builder request=RegionServerStartupRequest.newBuilder();
     request.setPort(rs0.getServerName().getPort());
     request.setServerStartCode(rs0.getServerName().getStartcode());
@@ -34,9 +38,10 @@
       }
     }
     assertEquals(rs0.getServerName().getHostname(),rshostname);
-    Mocking.fakeRegionServerRegionOpenInZK(rs0.getZooKeeper(),rs0.getServerName(),HRegionInfo.ROOT_REGIONINFO);
+    Mocking.fakeRegionServerRegionOpenInZK(master,rs0.getZooKeeper(),rs0.getServerName(),HRegionInfo.ROOT_REGIONINFO);
+    LOG.info("fakeRegionServerRegionOpenInZK has started");
     RootRegionTracker.setRootLocation(rs0.getZooKeeper(),rs0.getServerName());
-    Mocking.fakeRegionServerRegionOpenInZK(rs0.getZooKeeper(),rs0.getServerName(),HRegionInfo.FIRST_META_REGIONINFO);
+    Mocking.fakeRegionServerRegionOpenInZK(master,rs0.getZooKeeper(),rs0.getServerName(),HRegionInfo.FIRST_META_REGIONINFO);
     byte[] rootregion=Bytes.toBytes("-ROOT-,,0");
     rs0.setGetResult(rootregion,HRegionInfo.FIRST_META_REGIONINFO.getRegionName(),Mocking.getMetaTableRowResult(HRegionInfo.FIRST_META_REGIONINFO,rs0.getServerName()));
     while (!master.isInitialized()) {
