@@ -1,19 +1,21 @@
 {
   tablesInfo.clear();
   Collection<HbckInfo> hbckInfos=regionInfoMap.values();
-  WorkItemHdfsRegionInfo[] hbis=new WorkItemHdfsRegionInfo[hbckInfos.size()];
-  int num=0;
+  List<WorkItemHdfsRegionInfo> hbis=new ArrayList<WorkItemHdfsRegionInfo>(hbckInfos.size());
+  List<Future<Void>> hbiFutures;
   for (  HbckInfo hbi : hbckInfos) {
-    hbis[num]=new WorkItemHdfsRegionInfo(hbi,this,errors);
-    executor.execute(hbis[num]);
-    num++;
+    WorkItemHdfsRegionInfo work=new WorkItemHdfsRegionInfo(hbi,this,errors);
+    hbis.add(work);
   }
-  for (int i=0; i < num; i++) {
-    WorkItemHdfsRegionInfo hbi=hbis[i];
-synchronized (hbi) {
-      while (!hbi.isDone()) {
-        hbi.wait();
-      }
+  hbiFutures=executor.invokeAll(hbis);
+  for (int i=0; i < hbiFutures.size(); i++) {
+    WorkItemHdfsRegionInfo work=hbis.get(i);
+    Future<Void> f=hbiFutures.get(i);
+    try {
+      f.get();
+    }
+ catch (    ExecutionException e) {
+      LOG.warn("Failed to read .regioninfo file for region " + work.hbi.getRegionNameAsString(),e.getCause());
     }
   }
   for (  HbckInfo hbi : hbckInfos) {

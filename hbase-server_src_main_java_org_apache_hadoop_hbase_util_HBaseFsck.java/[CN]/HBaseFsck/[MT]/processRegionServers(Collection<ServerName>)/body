@@ -1,16 +1,18 @@
 {
-  WorkItemRegion[] work=new WorkItemRegion[regionServerList.size()];
-  int num=0;
+  List<WorkItemRegion> workItems=new ArrayList<WorkItemRegion>(regionServerList.size());
+  List<Future<Void>> workFutures;
   for (  ServerName rsinfo : regionServerList) {
-    work[num]=new WorkItemRegion(this,rsinfo,errors,connection);
-    executor.execute(work[num]);
-    num++;
+    workItems.add(new WorkItemRegion(this,rsinfo,errors,connection));
   }
-  for (int i=0; i < num; i++) {
-synchronized (work[i]) {
-      while (!work[i].isDone()) {
-        work[i].wait();
-      }
+  workFutures=executor.invokeAll(workItems);
+  for (int i=0; i < workFutures.size(); i++) {
+    WorkItemRegion item=workItems.get(i);
+    Future<Void> f=workFutures.get(i);
+    try {
+      f.get();
+    }
+ catch (    ExecutionException e) {
+      LOG.warn("Could not process regionserver " + item.rsinfo.getHostAndPort(),e.getCause());
     }
   }
 }

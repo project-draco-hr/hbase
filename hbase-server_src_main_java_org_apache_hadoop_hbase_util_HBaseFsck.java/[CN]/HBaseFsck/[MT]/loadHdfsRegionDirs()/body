@@ -23,20 +23,19 @@
       FSUtils.setVersion(fs,rootDir,conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000),conf.getInt(HConstants.VERSION_FILE_WRITE_ATTEMPTS,HConstants.DEFAULT_VERSION_FILE_WRITE_ATTEMPTS));
     }
   }
-  WorkItemHdfsDir[] dirs=new WorkItemHdfsDir[tableDirs.size()];
-  int num=0;
+  List<WorkItemHdfsDir> dirs=new ArrayList<WorkItemHdfsDir>(tableDirs.size());
+  List<Future<Void>> dirsFutures;
   for (  FileStatus tableDir : tableDirs) {
     LOG.debug("Loading region dirs from " + tableDir.getPath());
-    dirs[num]=new WorkItemHdfsDir(this,fs,errors,tableDir);
-    executor.execute(dirs[num]);
-    num++;
+    dirs.add(new WorkItemHdfsDir(this,fs,errors,tableDir));
   }
-  for (int i=0; i < num; i++) {
-    WorkItemHdfsDir dir=dirs[i];
-synchronized (dir) {
-      while (!dir.isDone()) {
-        dir.wait();
-      }
+  dirsFutures=executor.invokeAll(dirs);
+  for (  Future<Void> f : dirsFutures) {
+    try {
+      f.get();
+    }
+ catch (    ExecutionException e) {
+      LOG.warn("Could not load region dir ",e.getCause());
     }
   }
 }
