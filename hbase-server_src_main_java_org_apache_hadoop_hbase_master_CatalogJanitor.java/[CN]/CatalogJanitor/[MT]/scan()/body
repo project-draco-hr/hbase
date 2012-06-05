@@ -1,26 +1,23 @@
 {
-  final AtomicInteger count=new AtomicInteger(0);
-  final Map<HRegionInfo,Result> splitParents=new TreeMap<HRegionInfo,Result>(new SplitParentFirstComparator());
-  MetaReader.Visitor visitor=new MetaReader.Visitor(){
-    @Override public boolean visit(    Result r) throws IOException {
-      if (r == null || r.isEmpty())       return true;
-      count.incrementAndGet();
-      HRegionInfo info=getHRegionInfo(r);
-      if (info == null)       return true;
-      if (info.isSplitParent())       splitParents.put(info,r);
-      return true;
+  Pair<Integer,Map<HRegionInfo,Result>> pair=getSplitParents();
+  int count=pair.getFirst();
+  Map<HRegionInfo,Result> splitParents=pair.getSecond();
+  int cleaned=0;
+  HashSet<HRegionInfo> parentNotCleaned=new HashSet<HRegionInfo>();
+  for (  Map.Entry<HRegionInfo,Result> e : splitParents.entrySet()) {
+    if (!parentNotCleaned.contains(e.getKey()) && cleanParent(e.getKey(),e.getValue())) {
+      cleaned++;
+    }
+ else {
+      parentNotCleaned.add(getDaughterRegionInfo(e.getValue(),HConstants.SPLITA_QUALIFIER));
+      parentNotCleaned.add(getDaughterRegionInfo(e.getValue(),HConstants.SPLITB_QUALIFIER));
     }
   }
-;
-  MetaReader.fullScan(this.server.getCatalogTracker(),visitor);
-  int cleaned=0;
-  for (  Map.Entry<HRegionInfo,Result> e : splitParents.entrySet()) {
-    if (cleanParent(e.getKey(),e.getValue()))     cleaned++;
-  }
   if (cleaned != 0) {
-    LOG.info("Scanned " + count.get() + " catalog row(s) and gc'd "+ cleaned+ " unreferenced parent region(s)");
+    LOG.info("Scanned " + count + " catalog row(s) and gc'd "+ cleaned+ " unreferenced parent region(s)");
   }
  else   if (LOG.isDebugEnabled()) {
-    LOG.debug("Scanned " + count.get() + " catalog row(s) and gc'd "+ cleaned+ " unreferenced parent region(s)");
+    LOG.debug("Scanned " + count + " catalog row(s) and gc'd "+ cleaned+ " unreferenced parent region(s)");
   }
+  return cleaned;
 }

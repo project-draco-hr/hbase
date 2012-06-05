@@ -1,0 +1,27 @@
+{
+  HBaseTestingUtility htu=new HBaseTestingUtility();
+  setRootDirAndCleanIt(htu,"testScanDoesNotCleanRegionsWithExistingParents");
+  Server server=new MockServer(htu);
+  MasterServices services=new MockMasterServices(server);
+  final HTableDescriptor htd=createHTableDescriptor();
+  HRegionInfo parent=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),new byte[0],true);
+  Thread.sleep(1001);
+  HRegionInfo splita=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("ccc"),true);
+  Thread.sleep(1001);
+  HRegionInfo splitaa=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("bbb"),false);
+  HRegionInfo splitab=new HRegionInfo(htd.getName(),Bytes.toBytes("bbb"),Bytes.toBytes("ccc"),false);
+  HRegionInfo splitb=new HRegionInfo(htd.getName(),Bytes.toBytes("ccc"),new byte[0]);
+  Thread.sleep(1001);
+  final Map<HRegionInfo,Result> splitParents=new TreeMap<HRegionInfo,Result>(new SplitParentFirstComparator());
+  splitParents.put(parent,makeResultFromHRegionInfo(parent,splita,splitb));
+  splitParents.put(splita,makeResultFromHRegionInfo(splita,splitaa,splitab));
+  CatalogJanitor janitor=spy(new CatalogJanitor(server,services));
+  doReturn(new Pair<Integer,Map<HRegionInfo,Result>>(10,splitParents)).when(janitor).getSplitParents();
+  Path splitaRef=createReferences(services,htd,parent,splita,Bytes.toBytes("ccc"),false);
+  assertEquals(0,janitor.scan());
+  FileSystem fs=FileSystem.get(htu.getConfiguration());
+  assertTrue(fs.delete(splitaRef,true));
+  assertEquals(2,janitor.scan());
+  services.stop("test finished");
+  janitor.join();
+}
