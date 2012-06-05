@@ -2,18 +2,22 @@
   isActiveMaster=true;
   status.setStatus("Initializing Master file system");
   this.masterActiveTime=System.currentTimeMillis();
-  this.fileSystemManager=new MasterFileSystem(this,this,metrics);
+  this.fileSystemManager=new MasterFileSystem(this,this,metrics,masterRecovery);
   this.tableDescriptors=new FSTableDescriptors(this.fileSystemManager.getFileSystem(),this.fileSystemManager.getRootDir());
   status.setStatus("Publishing Cluster ID in ZooKeeper");
   ZKClusterId.setClusterId(this.zooKeeper,fileSystemManager.getClusterId());
-  this.executorService=new ExecutorService(getServerName().toString());
-  this.serverManager=createServerManager(this,this);
+  if (!masterRecovery) {
+    this.executorService=new ExecutorService(getServerName().toString());
+    this.serverManager=createServerManager(this,this);
+  }
   status.setStatus("Initializing ZK system trackers");
   initializeZKBasedSystemTrackers();
-  status.setStatus("Initializing master coprocessors");
-  this.cpHost=new MasterCoprocessorHost(this,this.conf);
-  status.setStatus("Initializing master service threads");
-  startServiceThreads();
+  if (!masterRecovery) {
+    status.setStatus("Initializing master coprocessors");
+    this.cpHost=new MasterCoprocessorHost(this,this.conf);
+    status.setStatus("Initializing master service threads");
+    startServiceThreads();
+  }
   this.serverManager.waitForRegionServers(status);
   for (  ServerName sn : this.regionServerTracker.getOnlineServers()) {
     if (!this.serverManager.isServerOnline(sn)) {
@@ -21,7 +25,9 @@
       this.serverManager.recordNewServer(sn,ServerLoad.EMPTY_SERVERLOAD);
     }
   }
-  this.assignmentManager.startTimeOutMonitor();
+  if (!masterRecovery) {
+    this.assignmentManager.startTimeOutMonitor();
+  }
   status.setStatus("Splitting logs after master startup");
   splitLogAfterStartup(this.fileSystemManager);
   if (!assignRootAndMeta(status))   return;
@@ -34,21 +40,25 @@
   this.balancer.setClusterStatus(getClusterStatus());
   status.setStatus("Fixing up missing daughters");
   fixupDaughters(status);
-  status.setStatus("Starting balancer and catalog janitor");
-  this.balancerChore=getAndStartBalancerChore(this);
-  this.catalogJanitorChore=new CatalogJanitor(this,this);
-  startCatalogJanitorChore();
-  registerMBean();
+  if (!masterRecovery) {
+    status.setStatus("Starting balancer and catalog janitor");
+    this.balancerChore=getAndStartBalancerChore(this);
+    this.catalogJanitorChore=new CatalogJanitor(this,this);
+    startCatalogJanitorChore();
+    registerMBean();
+  }
   status.markComplete("Initialization successful");
   LOG.info("Master has completed initialization");
   initialized=true;
   this.serverManager.clearDeadServersWithSameHostNameAndPortOfOnlineServer();
-  if (this.cpHost != null) {
-    try {
-      this.cpHost.postStartMaster();
-    }
- catch (    IOException ioe) {
-      LOG.error("Coprocessor postStartMaster() hook failed",ioe);
+  if (!masterRecovery) {
+    if (this.cpHost != null) {
+      try {
+        this.cpHost.postStartMaster();
+      }
+ catch (      IOException ioe) {
+        LOG.error("Coprocessor postStartMaster() hook failed",ioe);
+      }
     }
   }
 }
