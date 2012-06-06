@@ -1,0 +1,28 @@
+{
+  ClusterStatusProtos.ClusterStatus.Builder builder=ClusterStatusProtos.ClusterStatus.newBuilder();
+  builder.setHbaseVersion(HBaseVersionFileContent.newBuilder().setVersion(getHBaseVersion()));
+  for (  Map.Entry<ServerName,ServerLoad> entry : liveServers.entrySet()) {
+    LiveServerInfo.Builder lsi=LiveServerInfo.newBuilder().setServer(ProtobufUtil.toServerName(entry.getKey()));
+    lsi.setServerLoad(entry.getValue().getServerLoadPB());
+    builder.addLiveServers(lsi.build());
+  }
+  for (  ServerName deadServer : getDeadServerNames()) {
+    builder.addDeadServers(ProtobufUtil.toServerName(deadServer));
+  }
+  for (  Map.Entry<String,RegionState> rit : getRegionsInTransition().entrySet()) {
+    ClusterStatusProtos.RegionState rs=rit.getValue().convert();
+    RegionSpecifier.Builder spec=RegionSpecifier.newBuilder().setType(RegionSpecifierType.REGION_NAME);
+    spec.setValue(ByteString.copyFrom(Bytes.toBytes(rit.getKey())));
+    RegionInTransition pbRIT=RegionInTransition.newBuilder().setSpec(spec.build()).setRegionState(rs).build();
+    builder.addRegionsInTransition(pbRIT);
+  }
+  builder.setClusterId(new ClusterId(getClusterId()).convert());
+  for (  String coprocessor : getMasterCoprocessors()) {
+    builder.addMasterCoprocessors(HBaseProtos.Coprocessor.newBuilder().setName(coprocessor));
+  }
+  builder.setMaster(ProtobufUtil.toServerName(getMaster()));
+  for (  ServerName backup : getBackupMasters()) {
+    builder.addBackupMasters(ProtobufUtil.toServerName(backup));
+  }
+  return builder.build();
+}
