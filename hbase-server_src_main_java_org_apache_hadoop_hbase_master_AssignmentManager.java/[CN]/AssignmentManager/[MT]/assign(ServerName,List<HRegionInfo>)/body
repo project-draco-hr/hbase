@@ -33,7 +33,18 @@
     long maxWaitTime=System.currentTimeMillis() + this.master.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
     while (!this.master.isStopped()) {
       try {
-        this.serverManager.sendRegionOpen(destination,regions);
+        List<RegionOpeningState> regionOpeningStateList=this.serverManager.sendRegionOpen(destination,regions);
+        if (regionOpeningStateList == null) {
+          return false;
+        }
+        for (int i=0; i < regionOpeningStateList.size(); i++) {
+          if (regionOpeningStateList.get(i) == RegionOpeningState.ALREADY_OPENED) {
+            processAlreadyOpenedRegion(regions.get(i),destination);
+          }
+ else           if (regionOpeningStateList.get(i) == RegionOpeningState.FAILED_OPENING) {
+            assign(regions.get(i),true,true);
+          }
+        }
         break;
       }
  catch (      RemoteException e) {

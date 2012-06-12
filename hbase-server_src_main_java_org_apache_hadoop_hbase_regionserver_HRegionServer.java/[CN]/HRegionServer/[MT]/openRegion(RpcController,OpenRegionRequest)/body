@@ -5,11 +5,17 @@
   }
   try {
     checkOpen();
-    requestCount.incrementAndGet();
-    OpenRegionResponse.Builder builder=OpenRegionResponse.newBuilder();
-    Map<String,HTableDescriptor> htds=new HashMap<String,HTableDescriptor>(request.getRegionList().size());
-    for (    RegionInfo regionInfo : request.getRegionList()) {
-      HRegionInfo region=HRegionInfo.convert(regionInfo);
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
+  requestCount.incrementAndGet();
+  OpenRegionResponse.Builder builder=OpenRegionResponse.newBuilder();
+  Map<String,HTableDescriptor> htds=new HashMap<String,HTableDescriptor>(request.getRegionList().size());
+  boolean isBulkAssign=request.getRegionList().size() > 1;
+  for (  RegionInfo regionInfo : request.getRegionList()) {
+    HRegionInfo region=HRegionInfo.convert(regionInfo);
+    try {
       checkIfRegionInTransition(region,OPEN);
       HRegion onlineRegion=getFromOnlineRegions(region.getEncodedName());
       if (null != onlineRegion) {
@@ -42,9 +48,24 @@
       }
       builder.addOpeningState(RegionOpeningState.OPENED);
     }
-    return builder.build();
+ catch (    RegionAlreadyInTransitionException rie) {
+      LOG.warn("Region is already in transition",rie);
+      if (isBulkAssign) {
+        builder.addOpeningState(RegionOpeningState.OPENED);
+      }
+ else {
+        throw new ServiceException(rie);
+      }
+    }
+catch (    IOException ie) {
+      LOG.warn("Failed opening region " + region.getRegionNameAsString(),ie);
+      if (isBulkAssign) {
+        builder.addOpeningState(RegionOpeningState.FAILED_OPENING);
+      }
+ else {
+        throw new ServiceException(ie);
+      }
+    }
   }
- catch (  IOException ie) {
-    throw new ServiceException(ie);
-  }
+  return builder.build();
 }
