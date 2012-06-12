@@ -1,0 +1,46 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  String method="testParallelismIncrementWithMemStoreFlush";
+  byte[] tableName=Bytes.toBytes(method);
+  byte[] family=Incrementer.family;
+  this.region=initHRegion(tableName,method,conf,family);
+  final HRegion region=this.region;
+  final AtomicBoolean incrementDone=new AtomicBoolean(false);
+  Runnable reader=new Runnable(){
+    @Override public void run(){
+      while (!incrementDone.get()) {
+        try {
+          region.flushcache();
+        }
+ catch (        Exception e) {
+          e.printStackTrace();
+        }
+      }
+    }
+  }
+;
+  int threadNum=20;
+  int incCounter=100;
+  long expected=threadNum * incCounter;
+  Thread[] incrementers=new Thread[threadNum];
+  Thread flushThread=new Thread(reader);
+  for (int i=0; i < threadNum; i++) {
+    incrementers[i]=new Thread(new Incrementer(this.region,incCounter));
+    incrementers[i].start();
+  }
+  flushThread.start();
+  for (int i=0; i < threadNum; i++) {
+    incrementers[i].join();
+  }
+  incrementDone.set(true);
+  flushThread.join();
+  Get get=new Get(Incrementer.incRow);
+  get.addColumn(Incrementer.family,Incrementer.qualifier);
+  get.setMaxVersions(1);
+  Result res=this.region.get(get,null);
+  List<KeyValue> kvs=res.getColumn(Incrementer.family,Incrementer.qualifier);
+  assertEquals(kvs.size(),1);
+  KeyValue kv=kvs.get(0);
+  assertEquals(expected,Bytes.toLong(kv.getBuffer(),kv.getValueOffset()));
+  this.region=null;
+}

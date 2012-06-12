@@ -5,8 +5,8 @@
   boolean flush=false;
   WALEdit walEdits=null;
   List<KeyValue> allKVs=new ArrayList<KeyValue>(increment.numColumns());
-  List<KeyValue> kvs=new ArrayList<KeyValue>(increment.numColumns());
-  long now=EnvironmentEdgeManager.currentTimeMillis();
+  Map<Store,List<KeyValue>> tempMemstore=new HashMap<Store,List<KeyValue>>();
+  long before=EnvironmentEdgeManager.currentTimeMillis();
   long size=0;
   long txid=0;
   startRegionOperation();
@@ -15,8 +15,10 @@
     Integer lid=getLock(lockid,row,true);
     this.updatesLock.readLock().lock();
     try {
+      long now=EnvironmentEdgeManager.currentTimeMillis();
       for (      Map.Entry<byte[],NavigableMap<byte[],Long>> family : increment.getFamilyMap().entrySet()) {
         Store store=stores.get(family.getKey());
+        List<KeyValue> kvs=new ArrayList<KeyValue>(family.getValue().size());
         Get get=new Get(row);
         for (        Map.Entry<byte[],Long> column : family.getValue().entrySet()) {
           get.addColumn(family.getKey(),column.getKey());
@@ -40,12 +42,15 @@
             walEdits.add(newKV);
           }
         }
-        size+=store.upsert(kvs);
-        allKVs.addAll(kvs);
-        kvs.clear();
+        tempMemstore.put(store,kvs);
       }
       if (writeToWAL) {
-        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,EnvironmentEdgeManager.currentTimeMillis(),this.htableDescriptor);
+      }
+      for (      Map.Entry<Store,List<KeyValue>> entry : tempMemstore.entrySet()) {
+        Store store=entry.getKey();
+        size+=store.upsert(entry.getValue());
+        allKVs.addAll(entry.getValue());
       }
       size=this.addAndGetGlobalMemstoreSize(size);
       flush=isFlushSize(size);
@@ -62,7 +67,7 @@
     closeRegionOperation();
   }
   long after=EnvironmentEdgeManager.currentTimeMillis();
-  this.opMetrics.updateIncrementMetrics(increment.getFamilyMap().keySet(),after - now);
+  this.opMetrics.updateIncrementMetrics(increment.getFamilyMap().keySet(),after - before);
   if (flush) {
     requestFlush();
   }
