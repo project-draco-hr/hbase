@@ -1,19 +1,28 @@
 {
   LOG.info("Waiting for split writer threads to finish");
+  boolean progress_failed=false;
   try {
     for (    WriterThread t : writerThreads) {
       t.finish();
     }
     for (    WriterThread t : writerThreads) {
+      if (!progress_failed && !reportProgressIfIsDistributedLogSplitting()) {
+        progress_failed=true;
+      }
       try {
         t.join();
       }
  catch (      InterruptedException ie) {
-        throw new IOException(ie);
+        IOException iie=new InterruptedIOException();
+        iie.initCause(ie);
+        throw iie;
       }
       checkForErrors();
     }
     LOG.info("Split writers finished");
+    if (progress_failed) {
+      return null;
+    }
     return closeStreams();
   }
   finally {
