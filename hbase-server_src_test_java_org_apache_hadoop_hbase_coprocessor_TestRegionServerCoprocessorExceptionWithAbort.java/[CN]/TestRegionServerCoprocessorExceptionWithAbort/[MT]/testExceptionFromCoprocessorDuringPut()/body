@@ -1,40 +1,19 @@
 {
-  byte[] TEST_TABLE=Bytes.toBytes("observed_table");
+  byte[] TEST_TABLE=Bytes.toBytes(TABLE_NAME);
   byte[] TEST_FAMILY=Bytes.toBytes("aaa");
   HTable table=TEST_UTIL.createTable(TEST_TABLE,TEST_FAMILY);
   TEST_UTIL.waitUntilAllRegionsAssigned(TEST_UTIL.createMultiRegions(table,TEST_FAMILY));
   final HRegionServer regionServer=TEST_UTIL.getRSForFirstRegionInTable(TEST_TABLE);
-  ZooKeeperWatcher zkw=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"unittest",new zkwAbortable());
-  RSTracker rsTracker=new RSTracker(zkw,"/hbase/rs/" + regionServer.getServerName(),Thread.currentThread());
-  rsTracker.start();
-  zkw.registerListener(rsTracker);
-  boolean caughtInterruption=false;
+  final byte[] ROW=Bytes.toBytes("aaa");
+  Put put=new Put(ROW);
+  put.add(TEST_FAMILY,ROW,ROW);
+  Assert.assertFalse("The region server should be available",regionServer.isAborted());
   try {
-    final byte[] ROW=Bytes.toBytes("aaa");
-    Put put=new Put(ROW);
-    put.add(TEST_FAMILY,ROW,ROW);
     table.put(put);
+    fail("The put should have failed, as the coprocessor is buggy");
   }
- catch (  IOException e) {
-    if (e.getCause().getClass().equals(InterruptedException.class)) {
-      LOG.debug("caught interruption here (during put()).");
-      caughtInterruption=true;
-    }
- else {
-      fail("put() failed: " + e);
-    }
+ catch (  IOException ignored) {
   }
-  if (caughtInterruption == false) {
-    try {
-      Thread.sleep(timeout);
-      fail("RegionServer did not abort within 30 seconds.");
-    }
- catch (    InterruptedException e) {
-      LOG.debug("caught interruption here (during sleep()).");
-      caughtInterruption=true;
-    }
-  }
-  assertTrue("Main thread caught interruption.",caughtInterruption);
-  assertTrue("RegionServer aborted on coprocessor exception, as expected.",rsTracker.regionZKNodeWasDeleted);
+  Assert.assertTrue("The region server should have aborted",regionServer.isAborted());
   table.close();
 }

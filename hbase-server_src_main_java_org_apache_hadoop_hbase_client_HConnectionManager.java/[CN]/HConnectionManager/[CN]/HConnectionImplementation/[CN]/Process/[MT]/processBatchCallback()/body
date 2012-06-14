@@ -1,0 +1,73 @@
+{
+  if (this.results.length != this.rows.size()) {
+    throw new IllegalArgumentException("argument results (size=" + results.length + ") must be the same size as "+ "argument list (size="+ this.rows.size()+ ")");
+  }
+  if (this.rows.isEmpty()) {
+    return;
+  }
+  int[] nbRetries=new int[this.results.length];
+  final List<Action<R>> listActions=new ArrayList<Action<R>>(this.rows.size());
+  for (int i=0; i < this.rows.size(); i++) {
+    Action<R> action=new Action<R>(this.rows.get(i),i);
+    listActions.add(action);
+  }
+  submit(listActions,0);
+  boolean lastRetry=false;
+  boolean noRetry=(hci.numRetries < 2);
+  while (!this.inProgress.isEmpty()) {
+    Triple<MultiAction<R>,HRegionLocation,Future<MultiResponse>> currentTask=removeFirstDone();
+    MultiResponse responses=null;
+    ExecutionException exception=null;
+    try {
+      responses=currentTask.getThird().get();
+    }
+ catch (    ExecutionException e) {
+      exception=e;
+    }
+    if (responses == null) {
+      for (      List<Action<R>> actions : currentTask.getFirst().actions.values()) {
+        for (        Action<R> action : actions) {
+          Row row=action.getAction();
+          hci.updateCachedLocations(this.tableName,row,exception);
+          if (noRetry) {
+            addToErrorsLists(exception,row,currentTask);
+          }
+ else {
+            lastRetry=addToReplay(nbRetries,action);
+          }
+        }
+      }
+    }
+ else {
+      for (      Entry<byte[],List<Pair<Integer,Object>>> resultsForRS : responses.getResults().entrySet()) {
+        for (        Pair<Integer,Object> regionResult : resultsForRS.getValue()) {
+          Action<R> correspondingAction=listActions.get(regionResult.getFirst());
+          Object result=regionResult.getSecond();
+          this.results[correspondingAction.getOriginalIndex()]=result;
+          if (result == null || result instanceof Throwable) {
+            Row row=correspondingAction.getAction();
+            hci.updateCachedLocations(this.tableName,row,result);
+            if (result instanceof DoNotRetryIOException || noRetry) {
+              addToErrorsLists((Exception)result,row,currentTask);
+            }
+ else {
+              lastRetry=addToReplay(nbRetries,correspondingAction);
+            }
+          }
+ else           if (callback != null) {
+            this.callback.update(resultsForRS.getKey(),this.rows.get(regionResult.getFirst()).getRow(),(R)result);
+          }
+        }
+      }
+    }
+    if (!noRetry && !toReplay.isEmpty()) {
+      doRetry();
+      if (lastRetry) {
+        noRetry=true;
+      }
+    }
+  }
+  if (!exceptions.isEmpty()) {
+    throw new RetriesExhaustedWithDetailsException(this.exceptions,this.failedActions,this.failedAddresses);
+  }
+}
