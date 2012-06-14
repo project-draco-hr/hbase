@@ -1,0 +1,51 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  String method="testParallelAppendWithMemStoreFlush";
+  byte[] tableName=Bytes.toBytes(method);
+  byte[] family=Appender.family;
+  this.region=initHRegion(tableName,method,conf,family);
+  final HRegion region=this.region;
+  final AtomicBoolean appendDone=new AtomicBoolean(false);
+  Runnable flusher=new Runnable(){
+    @Override public void run(){
+      while (!appendDone.get()) {
+        try {
+          region.flushcache();
+        }
+ catch (        Exception e) {
+          e.printStackTrace();
+        }
+      }
+    }
+  }
+;
+  int threadNum=20;
+  int appendCounter=100;
+  byte[] expected=new byte[threadNum * appendCounter];
+  for (int i=0; i < threadNum * appendCounter; i++) {
+    System.arraycopy(Appender.CHAR,0,expected,i,1);
+  }
+  Thread[] appenders=new Thread[threadNum];
+  Thread flushThread=new Thread(flusher);
+  for (int i=0; i < threadNum; i++) {
+    appenders[i]=new Thread(new Appender(this.region,appendCounter));
+    appenders[i].start();
+  }
+  flushThread.start();
+  for (int i=0; i < threadNum; i++) {
+    appenders[i].join();
+  }
+  appendDone.set(true);
+  flushThread.join();
+  Get get=new Get(Appender.appendRow);
+  get.addColumn(Appender.family,Appender.qualifier);
+  get.setMaxVersions(1);
+  Result res=this.region.get(get,null);
+  List<KeyValue> kvs=res.getColumn(Appender.family,Appender.qualifier);
+  assertEquals(kvs.size(),1);
+  KeyValue kv=kvs.get(0);
+  byte[] appendResult=new byte[kv.getValueLength()];
+  System.arraycopy(kv.getBuffer(),kv.getValueOffset(),appendResult,0,kv.getValueLength());
+  assertEquals(expected,appendResult);
+  this.region=null;
+}

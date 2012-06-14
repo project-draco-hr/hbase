@@ -4,8 +4,8 @@
   boolean flush=false;
   WALEdit walEdits=null;
   List<KeyValue> allKVs=new ArrayList<KeyValue>(append.size());
-  List<KeyValue> kvs=new ArrayList<KeyValue>(append.size());
-  long now=EnvironmentEdgeManager.currentTimeMillis();
+  Map<Store,List<KeyValue>> tempMemstore=new HashMap<Store,List<KeyValue>>();
+  long before=EnvironmentEdgeManager.currentTimeMillis();
   long size=0;
   long txid=0;
   startRegionOperation();
@@ -14,8 +14,10 @@
     Integer lid=getLock(lockid,row,true);
     this.updatesLock.readLock().lock();
     try {
+      long now=EnvironmentEdgeManager.currentTimeMillis();
       for (      Map.Entry<byte[],List<KeyValue>> family : append.getFamilyMap().entrySet()) {
         Store store=stores.get(family.getKey());
+        List<KeyValue> kvs=new ArrayList<KeyValue>(family.getValue().size());
         Get get=new Get(row);
         for (        KeyValue kv : family.getValue()) {
           get.addColumn(family.getKey(),kv.getQualifier());
@@ -46,12 +48,15 @@
             walEdits.add(newKV);
           }
         }
-        size+=store.upsert(kvs);
-        allKVs.addAll(kvs);
-        kvs.clear();
+        tempMemstore.put(store,kvs);
       }
       if (writeToWAL) {
-        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,now,this.htableDescriptor);
+        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,EnvironmentEdgeManager.currentTimeMillis(),this.htableDescriptor);
+      }
+      for (      Map.Entry<Store,List<KeyValue>> entry : tempMemstore.entrySet()) {
+        Store store=entry.getKey();
+        size+=store.upsert(entry.getValue());
+        allKVs.addAll(entry.getValue());
       }
       size=this.addAndGetGlobalMemstoreSize(size);
       flush=isFlushSize(size);
@@ -68,7 +73,7 @@
     closeRegionOperation();
   }
   long after=EnvironmentEdgeManager.currentTimeMillis();
-  this.opMetrics.updateAppendMetrics(append.getFamilyMap().keySet(),after - now);
+  this.opMetrics.updateAppendMetrics(append.getFamilyMap().keySet(),after - before);
   if (flush) {
     requestFlush();
   }
