@@ -1,0 +1,48 @@
+{
+  String table="testLingeringSplitParent";
+  try {
+    setupTable(table);
+    assertEquals(ROWKEYS.length,countRows());
+    TEST_UTIL.getHBaseAdmin().flush(table);
+    HRegionLocation location=tbl.getRegionLocation("B");
+    deleteRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("B"),Bytes.toBytes("C"),true,true,false);
+    HTable meta=new HTable(conf,HTableDescriptor.META_TABLEDESC.getName());
+    HRegionInfo hri=location.getRegionInfo();
+    HRegionInfo a=new HRegionInfo(tbl.getTableName(),Bytes.toBytes("B"),Bytes.toBytes("BM"));
+    HRegionInfo b=new HRegionInfo(tbl.getTableName(),Bytes.toBytes("BM"),Bytes.toBytes("C"));
+    Put p=new Put(hri.getRegionName());
+    hri.setOffline(true);
+    hri.setSplit(true);
+    p.add(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER,Writables.getBytes(hri));
+    p.add(HConstants.CATALOG_FAMILY,HConstants.SPLITA_QUALIFIER,Writables.getBytes(a));
+    p.add(HConstants.CATALOG_FAMILY,HConstants.SPLITA_QUALIFIER,Writables.getBytes(b));
+    meta.put(p);
+    meta.flushCommits();
+    TEST_UTIL.getHBaseAdmin().flush(HConstants.META_TABLE_NAME);
+    HBaseFsck hbck=doFsck(conf,false);
+    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.LINGERING_SPLIT_PARENT,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+    hbck=doFsck(conf,true);
+    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.LINGERING_SPLIT_PARENT,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+    assertFalse(hbck.shouldRerun());
+    hbck=doFsck(conf,false);
+    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.LINGERING_SPLIT_PARENT,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+    hbck=new HBaseFsck(conf);
+    hbck.connect();
+    hbck.setDisplayFullReport();
+    hbck.setTimeLag(0);
+    hbck.setFixSplitParents(true);
+    hbck.onlineHbck();
+    assertTrue(hbck.shouldRerun());
+    Get get=new Get(hri.getRegionName());
+    Result result=meta.get(get);
+    assertTrue(result.getColumn(HConstants.CATALOG_FAMILY,HConstants.SPLITA_QUALIFIER).isEmpty());
+    assertTrue(result.getColumn(HConstants.CATALOG_FAMILY,HConstants.SPLITB_QUALIFIER).isEmpty());
+    TEST_UTIL.getHBaseAdmin().flush(HConstants.META_TABLE_NAME);
+    doFsck(conf,true);
+    assertNoErrors(doFsck(conf,false));
+    assertEquals(ROWKEYS.length,countRows());
+  }
+  finally {
+    deleteTable(table);
+  }
+}
