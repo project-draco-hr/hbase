@@ -1,12 +1,14 @@
 {
   final List<Thread> threads=new ArrayList<Thread>(this.N);
+  final long[] timings=new long[this.N];
   final int perClientRows=R / N;
   for (int i=0; i < this.N; i++) {
-    Thread t=new Thread(Integer.toString(i)){
+    final int index=i;
+    Thread t=new Thread("TestClient-" + i){
       @Override public void run(){
         super.run();
         PerformanceEvaluation pe=new PerformanceEvaluation(conf);
-        int index=Integer.parseInt(getName());
+        pe.N=N;
         try {
           long elapsedTime=pe.runOneClient(cmd,index * perClientRows,perClientRows,R,flushCommits,writeToWAL,new Status(){
             public void setStatus(            final String msg) throws IOException {
@@ -14,6 +16,7 @@
             }
           }
 );
+          timings[index]=elapsedTime;
           LOG.info("Finished " + getName() + " in "+ elapsedTime+ "ms writing "+ perClientRows+ " rows");
         }
  catch (        IOException e) {
@@ -37,4 +40,12 @@
       }
     }
   }
+  final String test=cmd.getSimpleName();
+  LOG.info("[" + test + "] Summary of timings (ms): "+ Arrays.toString(timings));
+  Arrays.sort(timings);
+  long total=0;
+  for (int i=0; i < this.N; i++) {
+    total+=timings[i];
+  }
+  LOG.info("[" + test + "]"+ "\tMin: "+ timings[0]+ "ms"+ "\tMax: "+ timings[this.N - 1]+ "ms"+ "\tAvg: "+ (total / this.N)+ "ms");
 }
