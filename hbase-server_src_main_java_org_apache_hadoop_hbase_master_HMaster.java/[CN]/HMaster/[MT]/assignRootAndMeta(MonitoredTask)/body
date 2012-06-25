@@ -4,7 +4,8 @@
   status.setStatus("Assigning ROOT region");
   boolean rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.ROOT_REGIONINFO);
   ServerName currentRootServer=null;
-  if (!catalogTracker.verifyRootRegionLocation(timeout)) {
+  boolean rootRegionLocation=catalogTracker.verifyRootRegionLocation(timeout);
+  if (!rit && !rootRegionLocation) {
     currentRootServer=this.catalogTracker.getRootLocation();
     splitLogAndExpireIfOnline(currentRootServer);
     this.assignmentManager.assignRoot();
@@ -12,7 +13,12 @@
     this.assignmentManager.waitForAssignment(HRegionInfo.ROOT_REGIONINFO);
     assigned++;
   }
- else {
+ else   if (rit && !rootRegionLocation) {
+    if (!isRootLocation())     return false;
+    this.assignmentManager.waitForAssignment(HRegionInfo.ROOT_REGIONINFO);
+    assigned++;
+  }
+ else   if (rootRegionLocation) {
     this.assignmentManager.regionOnline(HRegionInfo.ROOT_REGIONINFO,this.catalogTracker.getRootLocation());
   }
   enableCatalogTables(Bytes.toString(HConstants.ROOT_TABLE_NAME));
@@ -20,15 +26,18 @@
   LOG.info("-ROOT- assigned=" + assigned + ", rit="+ rit+ ", location="+ catalogTracker.getRootLocation());
   status.setStatus("Assigning META region");
   rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
-  if (!this.catalogTracker.verifyMetaRegionLocation(timeout)) {
+  boolean metaRegionLocation=this.catalogTracker.verifyMetaRegionLocation(timeout);
+  if (!rit && !metaRegionLocation) {
     ServerName currentMetaServer=this.catalogTracker.getMetaLocationOrReadLocationFromRoot();
     if (currentMetaServer != null && !currentMetaServer.equals(currentRootServer)) {
       splitLogAndExpireIfOnline(currentMetaServer);
     }
     assignmentManager.assignMeta();
-    enableServerShutdownHandler();
-    this.catalogTracker.waitForMeta();
-    this.assignmentManager.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
+    enableSSHandWaitForMeta();
+    assigned++;
+  }
+ else   if (rit && !metaRegionLocation) {
+    enableSSHandWaitForMeta();
     assigned++;
   }
  else {
