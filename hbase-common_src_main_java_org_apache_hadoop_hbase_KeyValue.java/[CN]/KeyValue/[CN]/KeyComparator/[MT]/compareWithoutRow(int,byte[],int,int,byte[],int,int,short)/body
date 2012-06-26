@@ -1,8 +1,8 @@
 {
-  int lcolumnoffset=ROW_LENGTH_SIZE + FAMILY_LENGTH_SIZE + rowlength+ loffset;
-  int rcolumnoffset=ROW_LENGTH_SIZE + FAMILY_LENGTH_SIZE + rowlength+ roffset;
-  int lcolumnlength=llength - TIMESTAMP_TYPE_SIZE - (lcolumnoffset - loffset);
-  int rcolumnlength=rlength - TIMESTAMP_TYPE_SIZE - (rcolumnoffset - roffset);
+  int commonLength=ROW_LENGTH_SIZE + FAMILY_LENGTH_SIZE + rowlength;
+  int commonLengthWithTSAndType=TIMESTAMP_TYPE_SIZE + commonLength;
+  int lcolumnlength=llength - commonLengthWithTSAndType;
+  int rcolumnlength=rlength - commonLengthWithTSAndType;
   byte ltype=left[loffset + (llength - 1)];
   byte rtype=right[roffset + (rlength - 1)];
   if (lcolumnlength == 0 && ltype == Type.Minimum.getCode()) {
@@ -11,14 +11,27 @@
   if (rcolumnlength == 0 && rtype == Type.Minimum.getCode()) {
     return -1;
   }
+  int lfamilyoffset=commonLength + loffset;
+  int rfamilyoffset=commonLength + roffset;
+  int lfamilylength=left[lfamilyoffset - 1];
+  int rfamilylength=right[rfamilyoffset - 1];
+  boolean sameFamilySize=(lfamilylength == rfamilylength);
   int common=0;
   if (commonPrefix > 0) {
-    common=Math.max(0,commonPrefix - rowlength - ROW_LENGTH_SIZE- FAMILY_LENGTH_SIZE);
-    common=Math.min(common,Math.min(lcolumnlength,rcolumnlength));
+    common=Math.max(0,commonPrefix - commonLength);
+    if (!sameFamilySize) {
+      common=Math.min(common,Math.min(lfamilylength,rfamilylength));
+    }
+ else {
+      common=Math.min(common,Math.min(lcolumnlength,rcolumnlength));
+    }
   }
-  final int comparisonResult=Bytes.compareTo(left,lcolumnoffset + common,lcolumnlength - common,right,rcolumnoffset + common,rcolumnlength - common);
-  if (comparisonResult != 0) {
-    return comparisonResult;
+  if (!sameFamilySize) {
+    return Bytes.compareTo(left,lfamilyoffset + common,lfamilylength - common,right,rfamilyoffset + common,rfamilylength - common);
+  }
+  final int comparison=Bytes.compareTo(left,lfamilyoffset + common,lcolumnlength - common,right,rfamilyoffset + common,rcolumnlength - common);
+  if (comparison != 0) {
+    return comparison;
   }
   return compareTimestampAndType(left,loffset,llength,right,roffset,rlength,ltype,rtype);
 }
