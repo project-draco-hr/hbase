@@ -16,7 +16,7 @@
     }
  else {
       ActionResult.Builder resultBuilder=null;
-      List<Mutate> puts=new ArrayList<Mutate>();
+      List<Mutate> mutates=new ArrayList<Mutate>();
       for (      ClientProtos.MultiAction actionUnion : request.getActionList()) {
         requestCount.incrementAndGet();
         try {
@@ -32,10 +32,10 @@
  else           if (actionUnion.hasMutate()) {
             Mutate mutate=actionUnion.getMutate();
             MutateType type=mutate.getMutateType();
-            if (type != MutateType.PUT) {
-              if (!puts.isEmpty()) {
-                put(builder,region,puts);
-                puts.clear();
+            if (type != MutateType.PUT && type != MutateType.DELETE) {
+              if (!mutates.isEmpty()) {
+                doBatchOp(builder,region,mutates);
+                mutates.clear();
               }
  else               if (!region.getRegionInfo().isMetaTable()) {
                 cacheFlusher.reclaimMemStoreMemory();
@@ -50,13 +50,10 @@ case INCREMENT:
           r=increment(region,mutate);
         break;
 case PUT:
-      puts.add(mutate);
+      mutates.add(mutate);
     break;
 case DELETE:
-  Delete delete=ProtobufUtil.toDelete(mutate);
-Integer lock=getLockFromId(delete.getLockId());
-region.delete(delete,lock,delete.getWriteToWAL());
-r=new Result();
+  mutates.add(mutate);
 break;
 default :
 throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
@@ -89,8 +86,8 @@ builder.addResult(resultBuilder.build());
 builder.addResult(ResponseConverter.buildActionResult(ie));
 }
 }
-if (!puts.isEmpty()) {
-put(builder,region,puts);
+if (!mutates.isEmpty()) {
+doBatchOp(builder,region,mutates);
 }
 }
 return builder.build();

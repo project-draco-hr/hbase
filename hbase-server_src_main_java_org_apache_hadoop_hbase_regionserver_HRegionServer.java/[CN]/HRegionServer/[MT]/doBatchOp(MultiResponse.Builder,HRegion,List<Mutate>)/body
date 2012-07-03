@@ -1,22 +1,28 @@
 {
-  @SuppressWarnings("unchecked") Pair<Put,Integer>[] putsWithLocks=new Pair[puts.size()];
+  @SuppressWarnings("unchecked") Pair<Mutation,Integer>[] mutationsWithLocks=new Pair[mutates.size()];
   try {
     ActionResult.Builder resultBuilder=ActionResult.newBuilder();
     NameBytesPair value=ProtobufUtil.toParameter(new Result());
     resultBuilder.setValue(value);
     ActionResult result=resultBuilder.build();
     int i=0;
-    for (    Mutate put : puts) {
-      Put p=ProtobufUtil.toPut(put);
-      Integer lock=getLockFromId(p.getLockId());
-      putsWithLocks[i++]=new Pair<Put,Integer>(p,lock);
+    for (    Mutate m : mutates) {
+      Mutation mutation=null;
+      if (m.getMutateType() == MutateType.PUT) {
+        mutation=ProtobufUtil.toPut(m);
+      }
+ else {
+        mutation=ProtobufUtil.toDelete(m);
+      }
+      Integer lock=getLockFromId(mutation.getLockId());
+      mutationsWithLocks[i++]=new Pair<Mutation,Integer>(mutation,lock);
       builder.addResult(result);
     }
-    requestCount.addAndGet(puts.size());
+    requestCount.addAndGet(mutates.size());
     if (!region.getRegionInfo().isMetaTable()) {
       cacheFlusher.reclaimMemStoreMemory();
     }
-    OperationStatus codes[]=region.put(putsWithLocks);
+    OperationStatus codes[]=region.batchMutate(mutationsWithLocks);
     for (i=0; i < codes.length; i++) {
       if (codes[i].getOperationStatusCode() != OperationStatusCode.SUCCESS) {
         result=ResponseConverter.buildActionResult(new DoNotRetryIOException(codes[i].getExceptionMsg()));
@@ -26,7 +32,7 @@
   }
  catch (  IOException ie) {
     ActionResult result=ResponseConverter.buildActionResult(ie);
-    for (int i=0, n=puts.size(); i < n; i++) {
+    for (int i=0, n=mutates.size(); i < n; i++) {
       builder.setResult(i,result);
     }
   }
