@@ -1,0 +1,41 @@
+{
+synchronized (this.masterAndZKLock) {
+    Exception exceptionCaught=null;
+    MasterProtocol master=null;
+    int tries=0;
+    while (!this.closed && master == null) {
+      tries++;
+      try {
+        master=createMasterInterface(masterProtocolState);
+      }
+ catch (      IOException e) {
+        exceptionCaught=e;
+      }
+catch (      KeeperException e) {
+        exceptionCaught=e;
+      }
+catch (      ServiceException e) {
+        exceptionCaught=e;
+      }
+      if (exceptionCaught != null)       if (tries < numRetries) {
+        long pauseTime=ConnectionUtils.getPauseTime(this.pause,tries);
+        LOG.info("getMaster attempt " + tries + " of "+ numRetries+ " failed; retrying after sleep of "+ pauseTime,exceptionCaught);
+        try {
+          Thread.sleep(pauseTime);
+        }
+ catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException("Thread was interrupted while trying to connect to master.",e);
+        }
+      }
+ else {
+        LOG.info("getMaster attempt " + tries + " of "+ numRetries+ " failed; no more retrying.",exceptionCaught);
+        throw new MasterNotRunningException(exceptionCaught);
+      }
+    }
+    if (master == null) {
+      throw new MasterNotRunningException("Connection was closed while trying to get master");
+    }
+    return master;
+  }
+}
