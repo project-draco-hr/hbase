@@ -12,6 +12,7 @@
     return false;
   }
   if ((matcher.row == null) || !peeked.matchingRow(matcher.row)) {
+    this.countPerRow=0;
     matcher.setRow(peeked.getRow());
   }
   KeyValue kv;
@@ -32,14 +33,25 @@ case INCLUDE_AND_SEEK_NEXT_COL:
     if (f != null) {
       kv=f.transform(kv);
     }
-  results.add(kv);
+  this.countPerRow++;
+if (storeLimit > -1 && this.countPerRow > (storeLimit + storeOffset)) {
+  if (!matcher.moreRowsMayExistAfter(kv)) {
+    outResult.addAll(results);
+    return false;
+  }
+  reseek(matcher.getKeyForNextRow(kv));
+  break LOOP;
+}
+if (this.countPerRow > storeOffset) {
 if (metric != null) {
   RegionMetricsStorage.incrNumericMetric(this.metricNamePrefix + metric,kv.getLength());
 }
+results.add(kv);
+}
 if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_ROW) {
 if (!matcher.moreRowsMayExistAfter(kv)) {
-  outResult.addAll(results);
-  return false;
+outResult.addAll(results);
+return false;
 }
 reseek(matcher.getKeyForNextRow(kv));
 }
