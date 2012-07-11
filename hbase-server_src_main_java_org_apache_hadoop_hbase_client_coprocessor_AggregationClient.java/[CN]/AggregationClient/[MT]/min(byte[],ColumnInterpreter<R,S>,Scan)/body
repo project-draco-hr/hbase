@@ -9,14 +9,22 @@ class MinCallBack implements Batch.Callback<R> {
       min=(min == null || (result != null && ci.compare(result,min) < 0)) ? result : min;
     }
   }
-  HTable table=new HTable(conf,tableName);
   MinCallBack minCallBack=new MinCallBack();
-  table.coprocessorExec(AggregateProtocol.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateProtocol,R>(){
-    @Override public R call(    AggregateProtocol instance) throws IOException {
-      return instance.getMin(ci,scan);
+  HTable table=null;
+  try {
+    table=new HTable(conf,tableName);
+    table.coprocessorExec(AggregateProtocol.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateProtocol,R>(){
+      @Override public R call(      AggregateProtocol instance) throws IOException {
+        return instance.getMin(ci,scan);
+      }
+    }
+,minCallBack);
+  }
+  finally {
+    if (table != null) {
+      table.close();
     }
   }
-,minCallBack);
   log.debug("Min fom all regions is: " + minCallBack.getMinimum());
   return minCallBack.getMinimum();
 }
