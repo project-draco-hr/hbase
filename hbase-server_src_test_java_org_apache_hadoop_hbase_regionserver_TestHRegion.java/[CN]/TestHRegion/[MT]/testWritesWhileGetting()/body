@@ -1,11 +1,10 @@
 {
-  byte[] tableName=Bytes.toBytes("testWritesWhileScanning");
+  byte[] tableName=Bytes.toBytes("testWritesWhileGetting");
   int testCount=100;
   int numRows=1;
   int numFamilies=10;
   int numQualifiers=100;
-  int flushInterval=10;
-  int compactInterval=10 * flushInterval;
+  int compactInterval=100;
   byte[][] families=new byte[numFamilies][];
   for (int i=0; i < numFamilies; i++) {
     families[i]=Bytes.toBytes("family" + i);
@@ -15,24 +14,36 @@
     qualifiers[i]=Bytes.toBytes("qual" + i);
   }
   String method="testWritesWhileGetting";
-  this.region=initHRegion(tableName,method,families);
+  Configuration conf=HBaseConfiguration.create();
+  conf.setInt("hbase.hstore.compaction.min",1);
+  conf.setInt("hbase.hstore.compaction.max",1000);
+  this.region=initHRegion(tableName,method,conf,families);
+  PutThread putThread=null;
+  MultithreadedTestUtil.TestContext ctx=new MultithreadedTestUtil.TestContext(HBaseConfiguration.create());
   try {
-    PutThread putThread=new PutThread(numRows,families,qualifiers);
+    putThread=new PutThread(numRows,families,qualifiers);
     putThread.start();
     putThread.waitForFirstPut();
-    FlushThread flushThread=new FlushThread();
-    flushThread.start();
+    ctx.addThread(new RepeatingTestThread(ctx){
+      private int flushesSinceCompact=0;
+      private final int maxFlushesSinceCompact=20;
+      public void doAnAction() throws Exception {
+        if (region.flushcache()) {
+          ++flushesSinceCompact;
+        }
+        if (flushesSinceCompact == maxFlushesSinceCompact) {
+          region.compactStores(false);
+          flushesSinceCompact=0;
+        }
+      }
+    }
+);
+    ctx.startThreads();
     Get get=new Get(Bytes.toBytes("row0"));
     Result result=null;
     int expectedCount=numFamilies * numQualifiers;
     long prevTimestamp=0L;
     for (int i=0; i < testCount; i++) {
-      if (i != 0 && i % compactInterval == 0) {
-        region.compactStores(true);
-      }
-      if (i != 0 && i % flushInterval == 0) {
-        flushThread.flush();
-      }
       boolean previousEmpty=result == null || result.isEmpty();
       result=region.get(get,null);
       if (!result.isEmpty() || !previousEmpty || i > compactInterval) {
@@ -51,22 +62,22 @@
           if (previousKV != null) {
             if (Bytes.compareTo(previousKV.getValue(),thisValue) != 0) {
               LOG.warn("These two KV should have the same value." + " Previous KV:" + previousKV + "(memStoreTS:"+ previousKV.getMemstoreTS()+ ")"+ ", New KV: "+ kv+ "(memStoreTS:"+ kv.getMemstoreTS()+ ")");
-              assertEquals(previousKV.getValue(),thisValue);
+              assertEquals(0,Bytes.compareTo(previousKV.getValue(),thisValue));
             }
           }
           previousKV=kv;
         }
       }
     }
-    putThread.done();
-    region.flushcache();
-    putThread.join();
-    putThread.checkNoError();
-    flushThread.done();
-    flushThread.join();
-    flushThread.checkNoError();
   }
   finally {
+    if (putThread != null)     putThread.done();
+    region.flushcache();
+    if (putThread != null) {
+      putThread.join();
+      putThread.checkNoError();
+    }
+    ctx.stop();
     HRegion.closeHRegion(this.region);
     this.region=null;
   }
