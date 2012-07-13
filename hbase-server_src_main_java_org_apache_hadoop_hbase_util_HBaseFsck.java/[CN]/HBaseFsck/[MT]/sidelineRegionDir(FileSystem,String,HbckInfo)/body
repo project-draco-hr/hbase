@@ -1,0 +1,58 @@
+{
+  String tableName=Bytes.toString(hi.getTableName());
+  Path regionDir=hi.getHdfsRegionDir();
+  if (!fs.exists(regionDir)) {
+    LOG.warn("No previous " + regionDir + " exists.  Continuing.");
+    return null;
+  }
+  Path rootDir=getSidelineDir();
+  if (parentDir != null) {
+    rootDir=new Path(rootDir,parentDir);
+  }
+  Path sidelineTableDir=new Path(rootDir,tableName);
+  Path sidelineRegionDir=new Path(sidelineTableDir,regionDir.getName());
+  fs.mkdirs(sidelineRegionDir);
+  boolean success=false;
+  FileStatus[] cfs=fs.listStatus(regionDir);
+  if (cfs == null) {
+    LOG.info("Region dir is empty: " + regionDir);
+  }
+ else {
+    for (    FileStatus cf : cfs) {
+      Path src=cf.getPath();
+      Path dst=new Path(sidelineRegionDir,src.getName());
+      if (fs.isFile(src)) {
+        success=fs.rename(src,dst);
+        if (!success) {
+          String msg="Unable to rename file " + src + " to "+ dst;
+          LOG.error(msg);
+          throw new IOException(msg);
+        }
+        continue;
+      }
+      fs.mkdirs(dst);
+      LOG.info("Sidelining files from " + src + " into containing region "+ dst);
+      FileStatus[] hfiles=fs.listStatus(src);
+      if (hfiles != null && hfiles.length > 0) {
+        for (        FileStatus hfile : hfiles) {
+          success=fs.rename(hfile.getPath(),dst);
+          if (!success) {
+            String msg="Unable to rename file " + src + " to "+ dst;
+            LOG.error(msg);
+            throw new IOException(msg);
+          }
+        }
+      }
+      LOG.debug("Sideline directory contents:");
+      debugLsr(sidelineRegionDir);
+    }
+  }
+  LOG.info("Removing old region dir: " + regionDir);
+  success=fs.delete(regionDir,true);
+  if (!success) {
+    String msg="Unable to delete dir " + regionDir;
+    LOG.error(msg);
+    throw new IOException(msg);
+  }
+  return sidelineRegionDir;
+}
