@@ -1,0 +1,31 @@
+{
+  String prefix="someHFileThatWouldBeAUUID";
+  Configuration conf=TEST_UTIL.getConfiguration();
+  long ttl=2000;
+  conf.setLong(TimeToLiveHFileCleaner.TTL_CONF_KEY,ttl);
+  Server server=new DummyServer();
+  Path archivedHfileDir=new Path(TEST_UTIL.getDataTestDir(),HFileArchiveUtil.getConfiguredArchiveDirName(conf));
+  FileSystem fs=FileSystem.get(conf);
+  HFileCleaner cleaner=new HFileCleaner(1000,server,conf,fs,archivedHfileDir);
+  long now=System.currentTimeMillis();
+  fs.delete(archivedHfileDir,true);
+  fs.mkdirs(archivedHfileDir);
+  fs.createNewFile(new Path(archivedHfileDir,"dfd-dfd"));
+  System.out.println("Now is: " + now);
+  for (int i=1; i < 32; i++) {
+    Path fileName=new Path(archivedHfileDir,(prefix + "." + (now - i)));
+    fs.createNewFile(fileName);
+  }
+  Thread.sleep(ttl);
+  fs.createNewFile(new Path(archivedHfileDir,prefix + "." + (now + 10000)));
+  for (  FileStatus stat : fs.listStatus(archivedHfileDir)) {
+    System.out.println(stat.getPath().toString());
+  }
+  assertEquals(33,fs.listStatus(archivedHfileDir).length);
+  cleaner.chore();
+  assertEquals(1,fs.listStatus(archivedHfileDir).length);
+  for (  FileStatus file : fs.listStatus(archivedHfileDir)) {
+    System.out.println("Kept log files: " + file.getPath().getName());
+  }
+  cleaner.interrupt();
+}

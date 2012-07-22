@@ -1,0 +1,39 @@
+{
+  List<HRegion> servingRegions=UTIL.getHBaseCluster().getRegions(TABLE_NAME);
+  assertEquals(1,servingRegions.size());
+  HRegion region=servingRegions.get(0);
+  HRegionServer hrs=UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+  FileSystem fs=hrs.getFileSystem();
+  LOG.debug("-------Loading table");
+  UTIL.loadRegion(region,TEST_FAM);
+  List<HRegion> regions=hrs.getOnlineRegions(TABLE_NAME);
+  assertEquals("More that 1 region for test table.",1,regions.size());
+  region=regions.get(0);
+  region.waitForFlushesAndCompactions();
+  UTIL.getHBaseAdmin().disableTable(TABLE_NAME);
+  LOG.debug("Disabled table");
+  clearArchiveDirectory();
+  Path regionDir=region.getRegionDir();
+  List<String> storeFiles=getAllFileNames(fs,regionDir);
+  for (int i=0; i < storeFiles.size(); i++) {
+    String file=storeFiles.get(i);
+    if (file.contains(HRegion.REGIONINFO_FILE) || file.contains("hlog")) {
+      storeFiles.remove(i--);
+    }
+  }
+  storeFiles.remove(HRegion.REGIONINFO_FILE);
+  UTIL.deleteTable(TABLE_NAME);
+  Path archiveDir=HFileArchiveUtil.getArchivePath(UTIL.getConfiguration());
+  List<String> archivedFiles=getAllFileNames(fs,archiveDir);
+  Collections.sort(storeFiles);
+  Collections.sort(archivedFiles);
+  LOG.debug("Store files:");
+  for (int i=0; i < storeFiles.size(); i++) {
+    LOG.debug(i + " - " + storeFiles.get(i));
+  }
+  LOG.debug("Archive files:");
+  for (int i=0; i < archivedFiles.size(); i++) {
+    LOG.debug(i + " - " + archivedFiles.get(i));
+  }
+  assertTrue("Archived files are missing some of the store files!",archivedFiles.containsAll(storeFiles));
+}

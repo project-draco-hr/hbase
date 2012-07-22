@@ -1,0 +1,34 @@
+{
+  String table="table";
+  HBaseTestingUtility htu=new HBaseTestingUtility();
+  setRootDirAndCleanIt(htu,"testCleanParent");
+  Server server=new MockServer(htu);
+  MasterServices services=new MockMasterServices(server);
+  CatalogJanitor janitor=new CatalogJanitor(server,services);
+  HTableDescriptor htd=new HTableDescriptor(table);
+  htd.addFamily(new HColumnDescriptor("f"));
+  HRegionInfo parent=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("eee"));
+  HRegionInfo splita=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("ccc"));
+  HRegionInfo splitb=new HRegionInfo(htd.getName(),Bytes.toBytes("ccc"),Bytes.toBytes("eee"));
+  List<KeyValue> kvs=new ArrayList<KeyValue>();
+  kvs.add(new KeyValue(parent.getRegionName(),HConstants.CATALOG_FAMILY,HConstants.SPLITA_QUALIFIER,Writables.getBytes(splita)));
+  kvs.add(new KeyValue(parent.getRegionName(),HConstants.CATALOG_FAMILY,HConstants.SPLITB_QUALIFIER,Writables.getBytes(splitb)));
+  Result r=new Result(kvs);
+  FileSystem fs=FileSystem.get(htu.getConfiguration());
+  Path rootdir=services.getMasterFileSystem().getRootDir();
+  FSUtils.setRootDir(fs.getConf(),rootdir);
+  Path tabledir=HTableDescriptor.getTableDir(rootdir,htd.getName());
+  Path storedir=Store.getStoreHomedir(tabledir,parent.getEncodedName(),htd.getColumnFamilies()[0].getName());
+  Path storeArchive=HFileArchiveUtil.getStoreArchivePath(services.getConfiguration(),parent,tabledir,htd.getColumnFamilies()[0].getName());
+  addMockStoreFiles(2,services,storedir);
+  FileStatus[] storeFiles=fs.listStatus(storedir);
+  for (  FileStatus file : storeFiles) {
+    System.out.println("Have store file:" + file.getPath());
+  }
+  assertTrue(janitor.cleanParent(parent,r));
+  FileStatus[] archivedStoreFiles=fs.listStatus(storeArchive);
+  assertArchiveEqualToOriginal(storeFiles,archivedStoreFiles,fs);
+  services.stop("Test finished");
+  server.stop("shutdown");
+  janitor.join();
+}
