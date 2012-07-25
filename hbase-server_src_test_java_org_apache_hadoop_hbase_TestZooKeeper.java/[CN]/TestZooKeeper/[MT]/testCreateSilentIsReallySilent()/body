@@ -6,8 +6,42 @@
   ZooKeeper zk=new ZooKeeper(quorumServers,sessionTimeout,EmptyWatcher.instance);
   zk.addAuthInfo("digest","hbase:rox".getBytes());
   ZooKeeperWatcher zk2=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"testMasterAddressManagerFromZK",null);
-  zk.setACL("/",ZooDefs.Ids.CREATOR_ALL_ACL,-1);
-  zk.create(aclZnode,null,ZooDefs.Ids.CREATOR_ALL_ACL,CreateMode.PERSISTENT);
-  zk.close();
-  ZKUtil.createAndFailSilent(zk2,aclZnode);
+  while (true) {
+    try {
+      zk.setACL("/",ZooDefs.Ids.CREATOR_ALL_ACL,-1);
+      break;
+    }
+ catch (    KeeperException e) {
+switch (e.code()) {
+case CONNECTIONLOSS:
+case SESSIONEXPIRED:
+case OPERATIONTIMEOUT:
+        LOG.warn("Possibly transient ZooKeeper exception: " + e);
+      Threads.sleep(100);
+    break;
+default :
+  throw e;
+}
+}
+}
+while (true) {
+try {
+zk.create(aclZnode,null,ZooDefs.Ids.CREATOR_ALL_ACL,CreateMode.PERSISTENT);
+break;
+}
+ catch (KeeperException e) {
+switch (e.code()) {
+case CONNECTIONLOSS:
+case SESSIONEXPIRED:
+case OPERATIONTIMEOUT:
+LOG.warn("Possibly transient ZooKeeper exception: " + e);
+Threads.sleep(100);
+break;
+default :
+throw e;
+}
+}
+}
+zk.close();
+ZKUtil.createAndFailSilent(zk2,aclZnode);
 }
