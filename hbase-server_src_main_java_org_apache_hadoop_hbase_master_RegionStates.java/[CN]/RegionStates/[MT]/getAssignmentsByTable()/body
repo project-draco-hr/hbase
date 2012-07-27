@@ -1,0 +1,40 @@
+{
+  Map<String,Map<ServerName,List<HRegionInfo>>> result=new HashMap<String,Map<ServerName,List<HRegionInfo>>>();
+synchronized (this) {
+    if (!server.getConfiguration().getBoolean("hbase.master.loadbalance.bytable",true)) {
+      Map<ServerName,List<HRegionInfo>> svrToRegions=new HashMap<ServerName,List<HRegionInfo>>(serverHoldings.size());
+      for (      Map.Entry<ServerName,Set<HRegionInfo>> e : serverHoldings.entrySet()) {
+        svrToRegions.put(e.getKey(),new ArrayList<HRegionInfo>(e.getValue()));
+      }
+      result.put("ensemble",svrToRegions);
+    }
+ else {
+      for (      Map.Entry<ServerName,Set<HRegionInfo>> e : serverHoldings.entrySet()) {
+        for (        HRegionInfo hri : e.getValue()) {
+          if (hri.isMetaRegion() || hri.isRootRegion())           continue;
+          String tablename=hri.getTableNameAsString();
+          Map<ServerName,List<HRegionInfo>> svrToRegions=result.get(tablename);
+          if (svrToRegions == null) {
+            svrToRegions=new HashMap<ServerName,List<HRegionInfo>>(serverHoldings.size());
+            result.put(tablename,svrToRegions);
+          }
+          List<HRegionInfo> regions=svrToRegions.get(e.getKey());
+          if (regions == null) {
+            regions=new ArrayList<HRegionInfo>();
+            svrToRegions.put(e.getKey(),regions);
+          }
+          regions.add(hri);
+        }
+      }
+    }
+  }
+  Map<ServerName,ServerLoad> onlineSvrs=serverManager.getOnlineServers();
+  for (  Map<ServerName,List<HRegionInfo>> map : result.values()) {
+    for (    ServerName svr : onlineSvrs.keySet()) {
+      if (!map.containsKey(svr)) {
+        map.put(svr,new ArrayList<HRegionInfo>());
+      }
+    }
+  }
+  return result;
+}

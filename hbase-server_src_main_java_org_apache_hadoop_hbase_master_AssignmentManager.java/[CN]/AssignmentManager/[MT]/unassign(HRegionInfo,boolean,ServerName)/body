@@ -1,17 +1,14 @@
 {
   LOG.debug("Starting unassignment of region " + region.getRegionNameAsString() + " (offlining)");
-synchronized (this.regions) {
-    if (!regions.containsKey(region)) {
-      LOG.debug("Attempted to unassign region " + region.getRegionNameAsString() + " but it is not "+ "currently assigned anywhere");
-      return;
-    }
+  if (!regionStates.isRegionAssigned(region)) {
+    LOG.debug("Attempted to unassign region " + region.getRegionNameAsString() + " but it is not "+ "currently assigned anywhere");
+    return;
   }
   String encodedName=region.getEncodedName();
-  RegionState state;
   int versionOfClosingNode=-1;
   ReentrantLock lock=locker.acquireLock(encodedName);
+  RegionState state=regionStates.getRegionTransitionState(encodedName);
   try {
-    state=regionsInTransition.get(encodedName);
     if (state == null) {
       try {
         versionOfClosingNode=ZKAssign.createNodeClosing(master.getZooKeeper(),region,master.getServerName());
@@ -45,12 +42,11 @@ catch (          DeserializationException de) {
         master.abort("Unexpected ZK exception creating node CLOSING",e);
         return;
       }
-      state=new RegionState(region,RegionState.State.PENDING_CLOSE);
-      regionsInTransition.put(encodedName,state);
+      state=regionStates.updateRegionState(region,RegionState.State.PENDING_CLOSE);
     }
  else     if (force && (state.isPendingClose() || state.isClosing())) {
       LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " which is already "+ state.getState()+ " but forcing to send a CLOSE RPC again ");
-      state.update(state.getState());
+      state.updateTimestampToNow();
     }
  else {
       LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " but it is "+ "already in transition ("+ state.getState()+ ", force="+ force+ ")");
@@ -60,24 +56,8 @@ catch (          DeserializationException de) {
   finally {
     lock.unlock();
   }
-  ServerName server=null;
-synchronized (this.regions) {
-    server=regions.get(region);
-  }
+  ServerName server=state.getServerName();
   if (server == null) {
-    lock=locker.acquireLock(encodedName);
-    try {
-      state=regionsInTransition.get(encodedName);
-      if (state != null) {
-        RegionState.State presentState=state.getState();
-        if (presentState == RegionState.State.PENDING_CLOSE || presentState == RegionState.State.CLOSING) {
-          this.regionsInTransition.remove(encodedName);
-        }
-      }
-    }
-  finally {
-      lock.unlock();
-    }
     deleteClosingOrClosedNode(region);
     return;
   }
@@ -95,20 +75,13 @@ synchronized (this.regions) {
     if (t instanceof NotServingRegionException) {
       if (checkIfRegionBelongsToDisabling(region)) {
         LOG.info("While trying to recover the table " + region.getTableNameAsString() + " to DISABLED state the region "+ region+ " was offlined but the table was in DISABLING state");
-        this.regionsInTransition.remove(region.getEncodedName());
-synchronized (this.regions) {
-          this.regions.remove(region);
-          Set<HRegionInfo> serverRegions=this.servers.get(server);
-          if (!serverRegions.remove(region)) {
-            LOG.warn("No " + region + " on "+ server);
-          }
-        }
+        regionStates.regionOffline(region);
         deleteClosingOrClosedNode(region);
       }
     }
  else     if (t instanceof RegionAlreadyInTransitionException) {
       LOG.debug("update " + state + " the timestamp.");
-      state.update(state.getState());
+      state.updateTimestampToNow();
     }
     LOG.info("Server " + server + " returned "+ t+ " for "+ region.getRegionNameAsString(),t);
   }

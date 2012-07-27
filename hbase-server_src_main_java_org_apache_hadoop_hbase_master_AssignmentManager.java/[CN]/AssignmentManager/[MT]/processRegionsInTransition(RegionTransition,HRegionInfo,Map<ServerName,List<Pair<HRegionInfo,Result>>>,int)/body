@@ -5,17 +5,16 @@
   LOG.info("Processing region " + regionInfo.getRegionNameAsString() + " in state "+ et);
   Lock lock=locker.acquireLock(encodedRegionName);
   try {
-    RegionState regionState=regionsInTransition.get(encodedRegionName);
-    if (regionState != null || failoverProcessedRegions.containsKey(encodedRegionName)) {
+    if (regionStates.isRegionInTransition(encodedRegionName) || failoverProcessedRegions.containsKey(encodedRegionName)) {
       return;
     }
 switch (et) {
 case M_ZK_REGION_CLOSING:
-      if (isOnDeadServer(regionInfo,deadServers) && (sn == null || !isServerOnline(sn))) {
+      if (isOnDeadServer(regionInfo,deadServers) && !isServerOnline(sn)) {
         forceOffline(regionInfo,rt);
       }
  else {
-        regionsInTransition.put(encodedRegionName,getRegionState(regionInfo,RegionState.State.CLOSING,rt));
+        regionStates.updateRegionState(rt,RegionState.State.CLOSING);
       }
     failoverProcessedRegions.put(encodedRegionName,regionInfo);
   break;
@@ -32,13 +31,13 @@ addToRITandCallClose(regionInfo,RegionState.State.OFFLINE,rt);
 addToRITandCallClose(regionInfo,RegionState.State.OFFLINE,rt);
 }
  else {
-regionsInTransition.put(encodedRegionName,getRegionState(regionInfo,RegionState.State.PENDING_OPEN,rt));
+regionStates.updateRegionState(rt,RegionState.State.PENDING_OPEN);
 }
 failoverProcessedRegions.put(encodedRegionName,regionInfo);
 break;
 case RS_ZK_REGION_OPENING:
 if (regionInfo.isMetaTable()) {
-regionsInTransition.put(encodedRegionName,getRegionState(regionInfo,RegionState.State.OPENING,rt));
+regionStates.updateRegionState(rt,RegionState.State.OPENING);
 processOpeningState(regionInfo);
 break;
 }
@@ -46,11 +45,11 @@ break;
 processOpeningState(regionInfo);
 break;
 }
-regionsInTransition.put(encodedRegionName,getRegionState(regionInfo,RegionState.State.OPENING,rt));
+regionStates.updateRegionState(rt,RegionState.State.OPENING);
 failoverProcessedRegions.put(encodedRegionName,regionInfo);
 break;
 case RS_ZK_REGION_OPENED:
-regionsInTransition.put(encodedRegionName,getRegionState(regionInfo,RegionState.State.OPEN,rt));
+regionStates.updateRegionState(rt,RegionState.State.OPEN);
 if (sn == null) {
 LOG.warn("Region in transition " + regionInfo.getEncodedName() + " references a null server; letting RIT timeout so will be "+ "assigned elsewhere");
 }
