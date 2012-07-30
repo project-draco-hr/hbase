@@ -6,9 +6,23 @@
   if (set.size() == 0) {
     return null;
   }
-  Scan scan=new Scan();
-  scan.setMaxVersions(scanInfo.getMaxVersions());
-  InternalScanner scanner=new StoreScanner(this,scan,Collections.singletonList(new CollectionBackedScanner(set,this.comparator)),ScanType.MINOR_COMPACT,this.region.getSmallestReadPoint(),HConstants.OLDEST_TIMESTAMP);
+  InternalScanner scanner=null;
+  KeyValueScanner memstoreScanner=new CollectionBackedScanner(set,this.comparator);
+  if (getHRegion().getCoprocessorHost() != null) {
+    scanner=getHRegion().getCoprocessorHost().preFlushScannerOpen(this,memstoreScanner);
+  }
+  if (scanner == null) {
+    Scan scan=new Scan();
+    scan.setMaxVersions(scanInfo.getMaxVersions());
+    scanner=new StoreScanner(this,scanInfo,scan,Collections.singletonList(new CollectionBackedScanner(set,this.comparator)),ScanType.MINOR_COMPACT,this.region.getSmallestReadPoint(),HConstants.OLDEST_TIMESTAMP);
+  }
+  if (getHRegion().getCoprocessorHost() != null) {
+    InternalScanner cpScanner=getHRegion().getCoprocessorHost().preFlush(this,scanner);
+    if (cpScanner == null) {
+      return null;
+    }
+    scanner=cpScanner;
+  }
   try {
 synchronized (flushLock) {
       status.setStatus("Flushing " + this + ": creating writer");
