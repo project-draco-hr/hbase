@@ -4,7 +4,7 @@
   }
   touch();
   try {
-    RpcResponse response=RpcResponse.parseDelimitedFrom(in);
+    RpcResponseHeader response=RpcResponseHeader.parseDelimitedFrom(in);
     if (response == null) {
       throw new EOFException();
     }
@@ -13,23 +13,23 @@
     Call call=calls.get(id);
     Status status=response.getStatus();
     if (status == Status.SUCCESS) {
-      ByteString responseObj=response.getResponse();
-      DataInputStream dis=new DataInputStream(responseObj.newInput());
       Writable value=ReflectionUtils.newInstance(valueClass,conf);
-      value.readFields(dis);
+      value.readFields(in);
       if (call != null) {
         call.setValue(value);
       }
       calls.remove(id);
     }
  else     if (status == Status.ERROR) {
+      RpcException exceptionResponse=RpcException.parseDelimitedFrom(in);
       if (call != null) {
-        call.setException(new RemoteException(response.getException().getExceptionName(),response.getException().getStackTrace()));
+        call.setException(new RemoteException(exceptionResponse.getExceptionName(),exceptionResponse.getStackTrace()));
         calls.remove(id);
       }
     }
  else     if (status == Status.FATAL) {
-      markClosed(new RemoteException(response.getException().getExceptionName(),response.getException().getStackTrace()));
+      RpcException exceptionResponse=RpcException.parseDelimitedFrom(in);
+      markClosed(new RemoteException(exceptionResponse.getExceptionName(),exceptionResponse.getStackTrace()));
     }
   }
  catch (  IOException e) {
