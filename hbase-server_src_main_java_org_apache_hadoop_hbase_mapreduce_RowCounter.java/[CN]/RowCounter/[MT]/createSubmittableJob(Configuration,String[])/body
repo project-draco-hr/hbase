@@ -23,6 +23,7 @@
   job.setJarByClass(RowCounter.class);
   Scan scan=new Scan();
   scan.setCacheBlocks(false);
+  Set<byte[]> qualifiers=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
   if (startKey != null && !startKey.equals("")) {
     scan.setStartRow(Bytes.toBytes(startKey));
   }
@@ -37,9 +38,17 @@
         scan.addFamily(Bytes.toBytes(fields[0]));
       }
  else {
-        scan.addColumn(Bytes.toBytes(fields[0]),Bytes.toBytes(fields[1]));
+        byte[] qualifier=Bytes.toBytes(fields[1]);
+        qualifiers.add(qualifier);
+        scan.addColumn(Bytes.toBytes(fields[0]),qualifier);
       }
     }
+  }
+  if (qualifiers.size() == 0) {
+    scan.setFilter(new FirstKeyOnlyFilter());
+  }
+ else {
+    scan.setFilter(new FirstKeyValueMatchingQualifiersFilter(qualifiers));
   }
   job.setOutputFormatClass(NullOutputFormat.class);
   TableMapReduceUtil.initTableMapperJob(tableName,scan,RowCounterMapper.class,ImmutableBytesWritable.class,Result.class,job);
