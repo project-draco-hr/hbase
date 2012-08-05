@@ -1,0 +1,49 @@
+{
+  byte[] tableName=Bytes.toBytes("testtable");
+  byte[][] families={fam1,fam2,fam3};
+  Configuration hc=initSplit();
+  HRegion region=initHRegion(tableName,getName(),hc,new Class<?>[]{},families);
+  for (int i=0; i < 3; i++) {
+    addContent(region,fam3);
+    region.flushcache();
+  }
+  region.compactStores();
+  byte[] splitRow=region.checkSplit();
+  assertNotNull(splitRow);
+  HRegion[] regions=split(region,splitRow);
+  for (int i=0; i < regions.length; i++) {
+    regions[i]=reopenRegion(regions[i],CoprocessorImpl.class,CoprocessorII.class);
+  }
+  Coprocessor c=regions[0].getCoprocessorHost().findCoprocessor(CoprocessorImpl.class.getName());
+  Coprocessor c2=regions[0].getCoprocessorHost().findCoprocessor(CoprocessorII.class.getName());
+  Object o=((CoprocessorImpl)c).getSharedData().get("test1");
+  Object o2=((CoprocessorII)c2).getSharedData().get("test2");
+  assertNotNull(o);
+  assertNotNull(o2);
+  assertFalse(((CoprocessorImpl)c).getSharedData() == ((CoprocessorII)c2).getSharedData());
+  for (int i=1; i < regions.length; i++) {
+    c=regions[i].getCoprocessorHost().findCoprocessor(CoprocessorImpl.class.getName());
+    c2=regions[i].getCoprocessorHost().findCoprocessor(CoprocessorII.class.getName());
+    assertTrue(((CoprocessorImpl)c).getSharedData().get("test1") == o);
+    assertTrue(((CoprocessorII)c2).getSharedData().get("test2") == o2);
+  }
+  for (int i=0; i < regions.length; i++) {
+    try {
+      Get g=new Get(regions[i].getStartKey());
+      regions[i].get(g,null);
+      fail();
+    }
+ catch (    DoNotRetryIOException xc) {
+    }
+    assertNull(regions[i].getCoprocessorHost().findCoprocessor(CoprocessorII.class.getName()));
+  }
+  c=regions[0].getCoprocessorHost().findCoprocessor(CoprocessorImpl.class.getName());
+  assertTrue(((CoprocessorImpl)c).getSharedData().get("test1") == o);
+  c=c2=null;
+  System.gc();
+  region=reopenRegion(regions[0],CoprocessorImpl.class,CoprocessorII.class);
+  c=region.getCoprocessorHost().findCoprocessor(CoprocessorImpl.class.getName());
+  assertTrue(((CoprocessorImpl)c).getSharedData().get("test1") == o);
+  c2=region.getCoprocessorHost().findCoprocessor(CoprocessorII.class.getName());
+  assertFalse(((CoprocessorII)c2).getSharedData().get("test2") == o2);
+}
