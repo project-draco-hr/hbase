@@ -1,0 +1,21 @@
+{
+  File jarFile=buildCoprocessorJar(cpName4);
+  HTableDescriptor htd=new HTableDescriptor(cpName4);
+  htd.addFamily(new HColumnDescriptor("test"));
+  htd.setValue("COPROCESSOR$1",jarFile.toString() + "|" + cpName4+ "|"+ Coprocessor.PRIORITY_USER);
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  admin.createTable(htd);
+  TEST_UTIL.waitTableAvailable(htd.getName(),5000);
+  boolean found=false;
+  MiniHBaseCluster hbase=TEST_UTIL.getHBaseCluster();
+  for (  HRegion region : hbase.getRegionServer(0).getOnlineRegionsLocalContext()) {
+    if (region.getRegionNameAsString().startsWith(cpName4)) {
+      Coprocessor cp=region.getCoprocessorHost().findCoprocessor(cpName4);
+      if (cp != null) {
+        found=true;
+        assertEquals("Class " + cpName4 + " was not loaded by CoprocessorClassLoader",cp.getClass().getClassLoader().getClass(),CoprocessorClassLoader.class);
+      }
+    }
+  }
+  assertTrue("Class " + cpName4 + " was missing on a region",found);
+}
