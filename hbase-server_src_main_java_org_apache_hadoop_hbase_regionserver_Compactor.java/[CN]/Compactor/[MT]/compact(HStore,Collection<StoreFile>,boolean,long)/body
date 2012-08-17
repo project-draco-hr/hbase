@@ -1,0 +1,92 @@
+{
+  int maxKeyCount=0;
+  long earliestPutTs=HConstants.LATEST_TIMESTAMP;
+  for (  StoreFile file : filesToCompact) {
+    StoreFile.Reader r=file.getReader();
+    if (r == null) {
+      LOG.warn("Null reader for " + file.getPath());
+      continue;
+    }
+    long keyCount=(r.getBloomFilterType() == store.getFamily().getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
+    maxKeyCount+=keyCount;
+    if (majorCompaction) {
+      byte[] tmp=r.loadFileInfo().get(StoreFile.EARLIEST_PUT_TS);
+      if (tmp == null) {
+        earliestPutTs=HConstants.OLDEST_TIMESTAMP;
+      }
+ else {
+        earliestPutTs=Math.min(earliestPutTs,Bytes.toLong(tmp));
+      }
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getEncodingOnDisk()+ (majorCompaction ? ", earliestPutTs=" + earliestPutTs : ""));
+    }
+  }
+  this.progress=new CompactionProgress(maxKeyCount);
+  List<StoreFileScanner> scanners=StoreFileScanner.getScannersForStoreFiles(filesToCompact,false,false,true);
+  int compactionKVMax=getConf().getInt(HConstants.COMPACTION_KV_MAX,10);
+  Compression.Algorithm compression=store.getFamily().getCompression();
+  Compression.Algorithm compactionCompression=(store.getFamily().getCompactionCompression() != Compression.Algorithm.NONE) ? store.getFamily().getCompactionCompression() : compression;
+  StoreFile.Writer writer=null;
+  long smallestReadPoint=store.getHRegion().getSmallestReadPoint();
+  MultiVersionConsistencyControl.setThreadReadPoint(smallestReadPoint);
+  try {
+    InternalScanner scanner=null;
+    try {
+      if (store.getHRegion().getCoprocessorHost() != null) {
+        scanner=store.getHRegion().getCoprocessorHost().preCompactScannerOpen(store,scanners,majorCompaction ? ScanType.MAJOR_COMPACT : ScanType.MINOR_COMPACT,earliestPutTs);
+      }
+      if (scanner == null) {
+        Scan scan=new Scan();
+        scan.setMaxVersions(store.getFamily().getMaxVersions());
+        scanner=new StoreScanner(store,store.scanInfo,scan,scanners,majorCompaction ? ScanType.MAJOR_COMPACT : ScanType.MINOR_COMPACT,smallestReadPoint,earliestPutTs);
+      }
+      if (store.getHRegion().getCoprocessorHost() != null) {
+        InternalScanner cpScanner=store.getHRegion().getCoprocessorHost().preCompact(store,scanner);
+        if (cpScanner == null) {
+          return null;
+        }
+        scanner=cpScanner;
+      }
+      int bytesWritten=0;
+      List<KeyValue> kvs=new ArrayList<KeyValue>();
+      boolean hasMore;
+      do {
+        hasMore=scanner.next(kvs,compactionKVMax);
+        if (writer == null) {
+          writer=store.createWriterInTmp(maxKeyCount,compactionCompression,true);
+        }
+        if (writer != null) {
+          for (          KeyValue kv : kvs) {
+            if (kv.getMemstoreTS() <= smallestReadPoint) {
+              kv.setMemstoreTS(0);
+            }
+            writer.append(kv);
+            ++progress.currentCompactedKVs;
+            if (HStore.closeCheckInterval > 0) {
+              bytesWritten+=kv.getLength();
+              if (bytesWritten > HStore.closeCheckInterval) {
+                bytesWritten=0;
+                isInterrupted(store,writer);
+              }
+            }
+          }
+        }
+        kvs.clear();
+      }
+ while (hasMore);
+    }
+  finally {
+      if (scanner != null) {
+        scanner.close();
+      }
+    }
+  }
+  finally {
+    if (writer != null) {
+      writer.appendMetadata(maxId,majorCompaction);
+      writer.close();
+    }
+  }
+  return writer;
+}
