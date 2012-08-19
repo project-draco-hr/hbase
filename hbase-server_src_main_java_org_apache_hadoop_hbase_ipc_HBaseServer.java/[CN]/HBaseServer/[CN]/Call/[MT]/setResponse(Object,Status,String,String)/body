@@ -3,29 +3,13 @@
   if (errorClass != null) {
     this.isError=true;
   }
-  Writable result=null;
-  if (value instanceof Writable) {
-    result=(Writable)value;
+  ByteBufferOutputStream buf=null;
+  if (value != null) {
+    buf=new ByteBufferOutputStream(((Message)value).getSerializedSize());
   }
  else {
-    if (value != null) {
-      result=new HbaseObjectWritable(value);
-    }
+    buf=new ByteBufferOutputStream(BUFFER_INITIAL_SIZE);
   }
-  int size=BUFFER_INITIAL_SIZE;
-  if (result instanceof WritableWithSize) {
-    WritableWithSize ohint=(WritableWithSize)result;
-    long hint=ohint.getWritableSize() + 2 * Bytes.SIZEOF_INT;
-    if (hint > Integer.MAX_VALUE) {
-      IOException ioe=new IOException("Result buffer size too large: " + hint);
-      errorClass=ioe.getClass().getName();
-      error=StringUtils.stringifyException(ioe);
-    }
- else {
-      size=(int)hint;
-    }
-  }
-  ByteBufferOutputStream buf=new ByteBufferOutputStream(size);
   DataOutputStream out=new DataOutputStream(buf);
   try {
     RpcResponseHeader.Builder builder=RpcResponseHeader.newBuilder();
@@ -39,7 +23,9 @@
       b.build().writeDelimitedTo(out);
     }
  else {
-      result.write(out);
+      if (value != null) {
+        ((Message)value).writeDelimitedTo(out);
+      }
     }
     if (connection.useWrap) {
       wrapWithSasl(buf);

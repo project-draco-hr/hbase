@@ -1,0 +1,49 @@
+{
+  String methodName=from.getMethodName();
+  Class<? extends Message> rpcArgClass=null;
+  if (from.hasRequestClassName()) {
+    String cls=from.getRequestClassName();
+    rpcArgClass=argumentToClassMap.get(cls);
+  }
+  Integer priorityByAnnotation=annotatedQos.get(methodName);
+  if (priorityByAnnotation != null) {
+    return priorityByAnnotation;
+  }
+  if (rpcArgClass == null || from.getRequest().isEmpty()) {
+    return NORMAL_QOS;
+  }
+  Object deserializedRequestObj=null;
+  try {
+    Method parseFrom=methodMap.get("parseFrom").get(rpcArgClass);
+    deserializedRequestObj=parseFrom.invoke(null,from.getRequest());
+    Method getRegion=methodMap.get("getRegion").get(rpcArgClass);
+    RegionSpecifier regionSpecifier=(RegionSpecifier)getRegion.invoke(deserializedRequestObj,(Object[])null);
+    HRegion region=hRegionServer.getRegion(regionSpecifier);
+    if (region.getRegionInfo().isMetaRegion()) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("High priority: " + from.toString());
+      }
+      return HIGH_QOS;
+    }
+  }
+ catch (  Exception ex) {
+    throw new RuntimeException(ex);
+  }
+  if (methodName.equals("scan")) {
+    ScanRequest request=(ScanRequest)deserializedRequestObj;
+    if (!request.hasScannerId()) {
+      return NORMAL_QOS;
+    }
+    RegionScanner scanner=hRegionServer.getScanner(request.getScannerId());
+    if (scanner != null && scanner.getRegionInfo().isMetaRegion()) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("High priority scanner request: " + request.getScannerId());
+      }
+      return HIGH_QOS;
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Low priority: " + from.toString());
+  }
+  return NORMAL_QOS;
+}

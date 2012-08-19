@@ -4,14 +4,15 @@
   }
   try {
     if (LOG.isDebugEnabled())     LOG.debug(getName() + " sending #" + call.id);
-    RpcRequestHeader.Builder builder=RPCProtos.RpcRequestHeader.newBuilder();
-    builder.setCallId(call.id);
-    DataOutputBuffer d=new DataOutputBuffer();
-    builder.build().writeDelimitedTo(d);
-    call.param.write(d);
+    RpcRequestHeader.Builder headerBuilder=RPCProtos.RpcRequestHeader.newBuilder();
+    headerBuilder.setCallId(call.id);
 synchronized (this.out) {
-      this.out.writeInt(d.getLength());
-      this.out.write(d.getData(),0,d.getLength());
+      RpcRequestHeader header=headerBuilder.build();
+      int serializedHeaderSize=header.getSerializedSize();
+      int requestSerializedSize=call.param.getSerializedSize();
+      this.out.writeInt(serializedHeaderSize + CodedOutputStream.computeRawVarint32Size(serializedHeaderSize) + requestSerializedSize+ CodedOutputStream.computeRawVarint32Size(requestSerializedSize));
+      header.writeDelimitedTo(this.out);
+      call.param.writeDelimitedTo(this.out);
       this.out.flush();
     }
   }

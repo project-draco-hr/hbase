@@ -6,14 +6,29 @@
   HMaster hm=new HMaster(conf);
   ServerName sm=hm.getServerName();
   InetSocketAddress isa=new InetSocketAddress(sm.getHostname(),sm.getPort());
-  try {
-    MasterMonitorProtocol inf=(MasterMonitorProtocol)HBaseRPC.getProxy(MasterMonitorProtocol.class,MasterMonitorProtocol.VERSION,isa,conf,100);
-    fail();
+  int i=0;
+  while (i < 20) {
+    try {
+      MasterMonitorProtocol inf=(MasterMonitorProtocol)HBaseRPC.getProxy(MasterMonitorProtocol.class,MasterMonitorProtocol.VERSION,isa,conf,100);
+      inf.isMasterRunning(null,IsMasterRunningRequest.getDefaultInstance());
+      fail();
+    }
+ catch (    ServiceException ex) {
+      IOException ie=ProtobufUtil.getRemoteException(ex);
+      if (!(ie instanceof SocketTimeoutException)) {
+        if (ie.getMessage().startsWith("org.apache.hadoop.hbase.ipc.ServerNotRunningYetException: Server is not running yet")) {
+          return;
+        }
+      }
+ else {
+        System.err.println("Got SocketTimeoutException. Will retry. ");
+      }
+    }
+catch (    Throwable t) {
+      fail("Unexpected throwable: " + t);
+    }
+    Thread.sleep(100);
+    i++;
   }
- catch (  ServerNotRunningYetException ex) {
-    assertTrue(ex.getMessage().startsWith("org.apache.hadoop.hbase.ipc.ServerNotRunningYetException: Server is not running yet"));
-  }
-catch (  Throwable t) {
-    fail("Unexpected throwable: " + t);
-  }
+  fail();
 }

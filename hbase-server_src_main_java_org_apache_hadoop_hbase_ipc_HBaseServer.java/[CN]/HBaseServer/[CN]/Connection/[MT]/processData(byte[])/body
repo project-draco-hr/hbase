@@ -9,26 +9,25 @@
   if ((callSize + callQueueSize.get()) > maxQueueSize) {
     final Call callTooBig=new Call(id,null,this,responder,callSize);
     ByteArrayOutputStream responseBuffer=new ByteArrayOutputStream();
-    setupResponse(responseBuffer,callTooBig,Status.FATAL,null,IOException.class.getName(),"Call queue is full, is ipc.server.max.callqueue.size too small?");
+    setupResponse(responseBuffer,callTooBig,Status.FATAL,IOException.class.getName(),"Call queue is full, is ipc.server.max.callqueue.size too small?");
     responder.doRespond(callTooBig);
     return;
   }
-  Writable param;
+  RpcRequestBody rpcRequestBody;
   try {
-    param=ReflectionUtils.newInstance(paramClass,conf);
-    param.readFields(dis);
+    rpcRequestBody=RpcRequestBody.parseDelimitedFrom(dis);
   }
  catch (  Throwable t) {
     LOG.warn("Unable to read call parameters for client " + getHostAddress(),t);
     final Call readParamsFailedCall=new Call(id,null,this,responder,callSize);
     ByteArrayOutputStream responseBuffer=new ByteArrayOutputStream();
-    setupResponse(responseBuffer,readParamsFailedCall,Status.FATAL,null,t.getClass().getName(),"IPC server unable to read call parameters: " + t.getMessage());
+    setupResponse(responseBuffer,readParamsFailedCall,Status.FATAL,t.getClass().getName(),"IPC server unable to read call parameters: " + t.getMessage());
     responder.doRespond(readParamsFailedCall);
     return;
   }
-  Call call=new Call(id,param,this,responder,callSize);
+  Call call=new Call(id,rpcRequestBody,this,responder,callSize);
   callQueueSize.add(callSize);
-  if (priorityCallQueue != null && getQosLevel(param) > highPriorityLevel) {
+  if (priorityCallQueue != null && getQosLevel(rpcRequestBody) > highPriorityLevel) {
     priorityCallQueue.put(call);
     updateCallQueueLenMetrics(priorityCallQueue);
   }
