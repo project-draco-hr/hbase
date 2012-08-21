@@ -1,0 +1,49 @@
+{
+  LOG.debug("Starting addLocationsOrderInterceptor with class " + lrb.getClass());
+  if (!conf.getBoolean("hbase.filesystem.reorder.blocks",true)) {
+    LOG.debug("addLocationsOrderInterceptor configured to false");
+    return false;
+  }
+  FileSystem fs;
+  try {
+    fs=FileSystem.get(conf);
+  }
+ catch (  IOException e) {
+    LOG.warn("Can't get the file system from the conf.",e);
+    return false;
+  }
+  if (!(fs instanceof DistributedFileSystem)) {
+    LOG.warn("The file system is not a DistributedFileSystem." + "Not adding block location reordering");
+    return false;
+  }
+  DistributedFileSystem dfs=(DistributedFileSystem)fs;
+  DFSClient dfsc=dfs.getClient();
+  if (dfsc == null) {
+    LOG.warn("The DistributedFileSystem does not contain a DFSClient. Can't add the location " + "block reordering interceptor. Continuing, but this is unexpected.");
+    return false;
+  }
+  try {
+    Field nf=DFSClient.class.getDeclaredField("namenode");
+    nf.setAccessible(true);
+    Field modifiersField=Field.class.getDeclaredField("modifiers");
+    modifiersField.setAccessible(true);
+    modifiersField.setInt(nf,nf.getModifiers() & ~Modifier.FINAL);
+    ClientProtocol namenode=(ClientProtocol)nf.get(dfsc);
+    if (namenode == null) {
+      LOG.warn("The DFSClient is not linked to a namenode. Can't add the location block" + " reordering interceptor. Continuing, but this is unexpected.");
+      return false;
+    }
+    ClientProtocol cp1=createReorderingProxy(namenode,lrb,conf);
+    nf.set(dfsc,cp1);
+    LOG.info("Added intercepting call to namenode#getBlockLocations");
+  }
+ catch (  NoSuchFieldException e) {
+    LOG.warn("Can't modify the DFSClient#namenode field to add the location reorder.",e);
+    return false;
+  }
+catch (  IllegalAccessException e) {
+    LOG.warn("Can't modify the DFSClient#namenode field to add the location reorder.",e);
+    return false;
+  }
+  return true;
+}
