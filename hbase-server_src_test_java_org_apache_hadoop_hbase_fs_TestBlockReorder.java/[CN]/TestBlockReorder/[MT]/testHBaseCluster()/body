@@ -1,0 +1,54 @@
+{
+  byte[] sb="sb".getBytes();
+  htu.startMiniZKCluster();
+  MiniHBaseCluster hbm=htu.startMiniHBaseCluster(1,1);
+  hbm.waitForActiveAndReadyMaster();
+  hbm.getRegionServer(0).waitForServerOnline();
+  String host4=hbm.getRegionServer(0).getServerName().getHostname();
+  LOG.info("Starting a new datanode with the name=" + host4);
+  cluster.startDataNodes(conf,1,true,null,new String[]{"/r4"},new String[]{host4},null);
+  cluster.waitClusterUp();
+  final int repCount=3;
+  HRegionServer targetRs=hbm.getRegionServer(0);
+  conf=targetRs.getConfiguration();
+  HFileSystem rfs=(HFileSystem)targetRs.getFileSystem();
+  HTable h=htu.createTable("table".getBytes(),sb);
+  String rootDir=FileSystem.get(conf).makeQualified(new Path(conf.get(HConstants.HBASE_DIR) + "/" + HConstants.HREGION_LOGDIR_NAME+ "/"+ targetRs.getServerName().toString())).toUri().getPath();
+  DistributedFileSystem mdfs=(DistributedFileSystem)hbm.getMaster().getMasterFileSystem().getFileSystem();
+  int nbTest=0;
+  while (nbTest < 10) {
+    htu.getHBaseAdmin().rollHLogWriter(targetRs.getServerName().toString());
+    Thread.sleep(100);
+    Put p=new Put(sb);
+    p.add(sb,sb,sb);
+    h.put(p);
+    DirectoryListing dl=dfs.getClient().listPaths(rootDir,HdfsFileStatus.EMPTY_NAME);
+    HdfsFileStatus[] hfs=dl.getPartialListing();
+    Assert.assertTrue(hfs.length >= 1);
+    for (    HdfsFileStatus hf : hfs) {
+      LOG.info("Log file found: " + hf.getLocalName() + " in "+ rootDir);
+      String logFile=rootDir + "/" + hf.getLocalName();
+      FileStatus fsLog=rfs.getFileStatus(new Path(logFile));
+      LOG.info("Checking log file: " + logFile);
+      BlockLocation[] bls=rfs.getFileBlockLocations(fsLog,0,1);
+      if (bls.length > 0) {
+        BlockLocation bl=bls[0];
+        LOG.info(bl.getHosts().length + " replicas for block 0 in " + logFile+ " ");
+        for (int i=0; i < bl.getHosts().length - 1; i++) {
+          LOG.info(bl.getHosts()[i] + "    " + logFile);
+          Assert.assertNotSame(bl.getHosts()[i],host4);
+        }
+        String last=bl.getHosts()[bl.getHosts().length - 1];
+        LOG.info(last + "    " + logFile);
+        if (host4.equals(last)) {
+          nbTest++;
+          LOG.info(logFile + " is on the new datanode and is ok");
+          if (bl.getHosts().length == 3) {
+            testFromDFS(dfs,logFile,repCount,host4);
+            testFromDFS(mdfs,logFile,repCount,host4);
+          }
+        }
+      }
+    }
+  }
+}
