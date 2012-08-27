@@ -1,0 +1,30 @@
+{
+  if (tableNameOrRegionName == null) {
+    throw new IllegalArgumentException("Pass a table name or region name");
+  }
+  Pair<HRegionInfo,ServerName> pair=MetaReader.getRegion(ct,tableNameOrRegionName);
+  if (pair == null) {
+    final AtomicReference<Pair<HRegionInfo,ServerName>> result=new AtomicReference<Pair<HRegionInfo,ServerName>>(null);
+    final String encodedName=Bytes.toString(tableNameOrRegionName);
+    MetaScannerVisitor visitor=new MetaScannerVisitorBase(){
+      @Override public boolean processRow(      Result data) throws IOException {
+        if (data == null || data.size() <= 0) {
+          return true;
+        }
+        HRegionInfo info=MetaReader.parseHRegionInfoFromCatalogResult(data,HConstants.REGIONINFO_QUALIFIER);
+        if (info == null) {
+          LOG.warn("No serialized HRegionInfo in " + data);
+          return true;
+        }
+        if (!encodedName.equals(info.getEncodedName()))         return true;
+        ServerName sn=MetaReader.getServerNameFromCatalogResult(data);
+        result.set(new Pair<HRegionInfo,ServerName>(info,sn));
+        return false;
+      }
+    }
+;
+    MetaScanner.metaScan(conf,visitor);
+    pair=result.get();
+  }
+  return pair;
+}
