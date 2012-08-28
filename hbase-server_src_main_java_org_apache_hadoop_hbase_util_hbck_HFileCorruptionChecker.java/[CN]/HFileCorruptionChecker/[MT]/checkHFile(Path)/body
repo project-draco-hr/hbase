@@ -1,0 +1,33 @@
+{
+  HFile.Reader r=null;
+  try {
+    r=HFile.createReader(fs,p,cacheConf);
+  }
+ catch (  CorruptHFileException che) {
+    LOG.warn("Found corrupt HFile " + p,che);
+    corrupted.add(p);
+    if (inQuarantineMode) {
+      Path dest=createQuarantinePath(p);
+      LOG.warn("Quarantining corrupt HFile " + p + " into "+ dest);
+      boolean success=fs.mkdirs(dest.getParent());
+      success=success ? fs.rename(p,dest) : false;
+      if (!success) {
+        failures.add(p);
+      }
+ else {
+        quarantined.add(dest);
+      }
+    }
+    return;
+  }
+catch (  FileNotFoundException fnfe) {
+    LOG.warn("HFile " + p + " was missing.  Likely removed due to compaction/split?");
+    missing.add(p);
+  }
+ finally {
+    hfilesChecked.addAndGet(1);
+    if (r != null) {
+      r.close(true);
+    }
+  }
+}

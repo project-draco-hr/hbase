@@ -1,0 +1,27 @@
+{
+  String table=name.getMethodName();
+  try {
+    setupTable(table);
+    assertEquals(ROWKEYS.length,countRows());
+    TEST_UTIL.getHBaseAdmin().flush(table);
+    FileSystem fs=FileSystem.get(conf);
+    Path hfile=getFlushedHFile(fs,table);
+    TEST_UTIL.getHBaseAdmin().disableTable(table);
+    Path corrupt=new Path(hfile.getParent(),"deadbeef");
+    TestHFile.truncateFile(fs,hfile,corrupt);
+    LOG.info("Created corrupted file " + corrupt);
+    HBaseFsck.debugLsr(conf,FSUtils.getRootDir(conf));
+    HBaseFsck res=HbckTestingUtil.doHFileQuarantine(conf,table);
+    assertEquals(res.getRetCode(),0);
+    HFileCorruptionChecker hfcc=res.getHFilecorruptionChecker();
+    assertEquals(hfcc.getHFilesChecked(),5);
+    assertEquals(hfcc.getCorrupted().size(),1);
+    assertEquals(hfcc.getFailures().size(),0);
+    assertEquals(hfcc.getQuarantined().size(),1);
+    assertEquals(hfcc.getMissing().size(),0);
+    TEST_UTIL.getHBaseAdmin().enableTable(table);
+  }
+  finally {
+    deleteTable(table);
+  }
+}

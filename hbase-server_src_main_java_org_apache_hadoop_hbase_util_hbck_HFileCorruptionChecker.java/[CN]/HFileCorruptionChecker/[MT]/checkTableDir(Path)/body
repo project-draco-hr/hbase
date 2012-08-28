@@ -1,0 +1,45 @@
+{
+  FileStatus[] rds=fs.listStatus(tableDir,new RegionDirFilter(fs));
+  if (rds.length == 0 && !fs.exists(tableDir)) {
+    LOG.warn("Table Directory " + tableDir + " does not exist.  Likely due to concurrent delete. Skipping.");
+    missing.add(tableDir);
+    return;
+  }
+  List<RegionDirChecker> rdcs=new ArrayList<RegionDirChecker>();
+  List<Future<Void>> rdFutures;
+  for (  FileStatus rdFs : rds) {
+    Path rdDir=rdFs.getPath();
+    RegionDirChecker work=new RegionDirChecker(rdDir);
+    rdcs.add(work);
+  }
+  try {
+    rdFutures=executor.invokeAll(rdcs);
+  }
+ catch (  InterruptedException ie) {
+    Thread.currentThread().interrupt();
+    LOG.warn("Region dirs checking interrupted!",ie);
+    return;
+  }
+  for (int i=0; i < rdFutures.size(); i++) {
+    Future<Void> f=rdFutures.get(i);
+    try {
+      f.get();
+    }
+ catch (    ExecutionException e) {
+      LOG.warn("Failed to quaratine an HFile in regiondir " + rdcs.get(i).regionDir,e.getCause());
+      if (e.getCause() instanceof IOException) {
+        throw (IOException)e.getCause();
+      }
+      if (e.getCause() instanceof RuntimeException) {
+        throw (RuntimeException)e.getCause();
+      }
+      LOG.error("Unexpected exception encountered",e);
+      return;
+    }
+catch (    InterruptedException ie) {
+      Thread.currentThread().interrupt();
+      LOG.warn("Region dirs check interrupted!",ie);
+      return;
+    }
+  }
+}

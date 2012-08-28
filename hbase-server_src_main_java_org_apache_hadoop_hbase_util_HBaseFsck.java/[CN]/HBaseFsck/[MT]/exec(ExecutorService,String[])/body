@@ -1,0 +1,201 @@
+{
+  long sleepBeforeRerun=DEFAULT_SLEEP_BEFORE_RERUN;
+  boolean checkCorruptHFiles=false;
+  boolean sidelineCorruptHFiles=false;
+  for (int i=0; i < args.length; i++) {
+    String cmd=args[i];
+    if (cmd.equals("-help") || cmd.equals("-h")) {
+      return printUsageAndExit();
+    }
+ else     if (cmd.equals("-details")) {
+      setDisplayFullReport();
+    }
+ else     if (cmd.equals("-timelag")) {
+      if (i == args.length - 1) {
+        System.err.println("HBaseFsck: -timelag needs a value.");
+        return printUsageAndExit();
+      }
+      try {
+        long timelag=Long.parseLong(args[i + 1]);
+        setTimeLag(timelag);
+      }
+ catch (      NumberFormatException e) {
+        System.err.println("-timelag needs a numeric value.");
+        return printUsageAndExit();
+      }
+      i++;
+    }
+ else     if (cmd.equals("-sleepBeforeRerun")) {
+      if (i == args.length - 1) {
+        System.err.println("HBaseFsck: -sleepBeforeRerun needs a value.");
+        return printUsageAndExit();
+      }
+      try {
+        sleepBeforeRerun=Long.parseLong(args[i + 1]);
+      }
+ catch (      NumberFormatException e) {
+        System.err.println("-sleepBeforeRerun needs a numeric value.");
+        return printUsageAndExit();
+      }
+      i++;
+    }
+ else     if (cmd.equals("-sidelineDir")) {
+      if (i == args.length - 1) {
+        System.err.println("HBaseFsck: -sidelineDir needs a value.");
+        return printUsageAndExit();
+      }
+      i++;
+      setSidelineDir(args[i]);
+    }
+ else     if (cmd.equals("-fix")) {
+      System.err.println("This option is deprecated, please use " + "-fixAssignments instead.");
+      setFixAssignments(true);
+    }
+ else     if (cmd.equals("-fixAssignments")) {
+      setFixAssignments(true);
+    }
+ else     if (cmd.equals("-fixMeta")) {
+      setFixMeta(true);
+    }
+ else     if (cmd.equals("-fixHdfsHoles")) {
+      setFixHdfsHoles(true);
+    }
+ else     if (cmd.equals("-fixHdfsOrphans")) {
+      setFixHdfsOrphans(true);
+    }
+ else     if (cmd.equals("-fixHdfsOverlaps")) {
+      setFixHdfsOverlaps(true);
+    }
+ else     if (cmd.equals("-fixVersionFile")) {
+      setFixVersionFile(true);
+    }
+ else     if (cmd.equals("-sidelineBigOverlaps")) {
+      setSidelineBigOverlaps(true);
+    }
+ else     if (cmd.equals("-fixSplitParents")) {
+      setFixSplitParents(true);
+    }
+ else     if (cmd.equals("-ignorePreCheckPermission")) {
+      setIgnorePreCheckPermission(true);
+    }
+ else     if (cmd.equals("-checkCorruptHFiles")) {
+      checkCorruptHFiles=true;
+    }
+ else     if (cmd.equals("-sidelineCorruptHFiles")) {
+      sidelineCorruptHFiles=true;
+    }
+ else     if (cmd.equals("-repair")) {
+      setFixHdfsHoles(true);
+      setFixHdfsOrphans(true);
+      setFixMeta(true);
+      setFixAssignments(true);
+      setFixHdfsOverlaps(true);
+      setFixVersionFile(true);
+      setSidelineBigOverlaps(true);
+      setFixSplitParents(false);
+    }
+ else     if (cmd.equals("-repairHoles")) {
+      setFixHdfsHoles(true);
+      setFixHdfsOrphans(false);
+      setFixMeta(true);
+      setFixAssignments(true);
+      setFixHdfsOverlaps(false);
+      setSidelineBigOverlaps(false);
+      setFixSplitParents(false);
+    }
+ else     if (cmd.equals("-maxOverlapsToSideline")) {
+      if (i == args.length - 1) {
+        System.err.println("-maxOverlapsToSideline needs a numeric value argument.");
+        return printUsageAndExit();
+      }
+      try {
+        int maxOverlapsToSideline=Integer.parseInt(args[i + 1]);
+        setMaxOverlapsToSideline(maxOverlapsToSideline);
+      }
+ catch (      NumberFormatException e) {
+        System.err.println("-maxOverlapsToSideline needs a numeric value argument.");
+        return printUsageAndExit();
+      }
+      i++;
+    }
+ else     if (cmd.equals("-maxMerge")) {
+      if (i == args.length - 1) {
+        System.err.println("-maxMerge needs a numeric value argument.");
+        return printUsageAndExit();
+      }
+      try {
+        int maxMerge=Integer.parseInt(args[i + 1]);
+        setMaxMerge(maxMerge);
+      }
+ catch (      NumberFormatException e) {
+        System.err.println("-maxMerge needs a numeric value argument.");
+        return printUsageAndExit();
+      }
+      i++;
+    }
+ else     if (cmd.equals("-summary")) {
+      setSummary();
+    }
+ else     if (cmd.equals("-metaonly")) {
+      setCheckMetaOnly();
+    }
+ else     if (cmd.startsWith("-")) {
+      System.err.println("Unrecognized option:" + cmd);
+      return printUsageAndExit();
+    }
+ else {
+      includeTable(cmd);
+      System.out.println("Allow checking/fixes for table: " + cmd);
+    }
+  }
+  try {
+    preCheckPermission();
+  }
+ catch (  AccessControlException ace) {
+    Runtime.getRuntime().exit(-1);
+  }
+catch (  IOException ioe) {
+    Runtime.getRuntime().exit(-1);
+  }
+  connect();
+  if (checkCorruptHFiles || sidelineCorruptHFiles) {
+    LOG.info("Checking all hfiles for corruption");
+    HFileCorruptionChecker hfcc=createHFileCorruptionChecker(sidelineCorruptHFiles);
+    setHFileCorruptionChecker(hfcc);
+    Collection<String> tables=getIncludedTables();
+    Collection<Path> tableDirs=new ArrayList<Path>();
+    Path rootdir=FSUtils.getRootDir(conf);
+    if (tables.size() > 0) {
+      for (      String t : tables) {
+        tableDirs.add(FSUtils.getTablePath(rootdir,t));
+      }
+    }
+ else {
+      tableDirs=FSUtils.getTableDirs(FSUtils.getCurrentFileSystem(conf),rootdir);
+    }
+    hfcc.checkTables(tableDirs);
+    PrintWriter out=new PrintWriter(System.out);
+    hfcc.report(out);
+    out.flush();
+  }
+  int code=onlineHbck();
+  setRetCode(code);
+  if (shouldRerun()) {
+    try {
+      LOG.info("Sleeping " + sleepBeforeRerun + "ms before re-checking after fix...");
+      Thread.sleep(sleepBeforeRerun);
+    }
+ catch (    InterruptedException ie) {
+      return this;
+    }
+    setFixAssignments(false);
+    setFixMeta(false);
+    setFixHdfsHoles(false);
+    setFixHdfsOverlaps(false);
+    setFixVersionFile(false);
+    errors.resetErrors();
+    code=onlineHbck();
+    setRetCode(code);
+  }
+  return this;
+}
