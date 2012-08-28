@@ -36,11 +36,10 @@ synchronized (regionLockObject) {
       if (regionInfoRow == null) {
         throw new TableNotFoundException(Bytes.toString(tableName));
       }
-      byte[] value=regionInfoRow.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-      if (value == null || value.length == 0) {
+      HRegionInfo regionInfo=MetaScanner.getHRegionInfo(regionInfoRow);
+      if (regionInfo == null) {
         throw new IOException("HRegionInfo was null or empty in " + Bytes.toString(parentTable) + ", row="+ regionInfoRow);
       }
-      HRegionInfo regionInfo=(HRegionInfo)Writables.getWritable(value,new HRegionInfo());
       if (!Bytes.equals(regionInfo.getTableName(),tableName)) {
         throw new TableNotFoundException("Table '" + Bytes.toString(tableName) + "' was not found, got: "+ Bytes.toString(regionInfo.getTableName())+ ".");
       }
@@ -50,17 +49,11 @@ synchronized (regionLockObject) {
       if (regionInfo.isOffline()) {
         throw new RegionOfflineException("the region is offline, could" + " be caused by a disable table call: " + regionInfo.getRegionNameAsString());
       }
-      value=regionInfoRow.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
-      String hostAndPort="";
-      if (value != null) {
-        hostAndPort=Bytes.toString(value);
-      }
-      if (hostAndPort.equals("")) {
+      ServerName serverName=HRegionInfo.getServerName(regionInfoRow);
+      if (serverName == null) {
         throw new NoServerForRegionException("No server address listed " + "in " + Bytes.toString(parentTable) + " for region "+ regionInfo.getRegionNameAsString()+ " containing row "+ Bytes.toStringBinary(row));
       }
-      String hostname=Addressing.parseHostname(hostAndPort);
-      int port=Addressing.parsePort(hostAndPort);
-      location=new HRegionLocation(regionInfo,hostname,port);
+      location=new HRegionLocation(regionInfo,serverName.getHostname(),serverName.getPort());
       cacheLocation(tableName,location);
       return location;
     }

@@ -2,27 +2,22 @@
   MetaScannerVisitor visitor=new MetaScannerVisitorBase(){
     public boolean processRow(    Result result) throws IOException {
       try {
-        byte[] value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-        HRegionInfo regionInfo=null;
-        if (value != null) {
-          regionInfo=Writables.getHRegionInfo(value);
-          if (!Bytes.equals(regionInfo.getTableName(),tableName)) {
-            return false;
-          }
-          if (regionInfo.isOffline()) {
-            return true;
-          }
-          value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
-          if (value == null) {
-            return true;
-          }
-          final String hostAndPort=Bytes.toString(value);
-          String hostname=Addressing.parseHostname(hostAndPort);
-          int port=Addressing.parsePort(hostAndPort);
-          value=result.getValue(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
-          HRegionLocation loc=new HRegionLocation(regionInfo,hostname,port);
-          cacheLocation(tableName,loc);
+        HRegionInfo regionInfo=MetaScanner.getHRegionInfo(result);
+        if (regionInfo == null) {
+          return true;
         }
+        if (!Bytes.equals(regionInfo.getTableName(),tableName)) {
+          return false;
+        }
+        if (regionInfo.isOffline()) {
+          return true;
+        }
+        ServerName serverName=HRegionInfo.getServerName(result);
+        if (serverName == null) {
+          return true;
+        }
+        HRegionLocation loc=new HRegionLocation(regionInfo,serverName.getHostname(),serverName.getPort());
+        cacheLocation(tableName,loc);
         return true;
       }
  catch (      RuntimeException e) {

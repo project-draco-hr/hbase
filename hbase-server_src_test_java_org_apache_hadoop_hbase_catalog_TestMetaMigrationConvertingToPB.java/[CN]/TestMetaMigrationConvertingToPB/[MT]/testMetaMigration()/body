@@ -1,0 +1,20 @@
+{
+  LOG.info("Starting testMetaMigration");
+  final byte[] FAMILY=Bytes.toBytes("family");
+  HTableDescriptor htd=new HTableDescriptor("testMetaMigration");
+  HColumnDescriptor hcd=new HColumnDescriptor(FAMILY);
+  htd.addFamily(hcd);
+  Configuration conf=TEST_UTIL.getConfiguration();
+  byte[][] regionNames=new byte[][]{HConstants.EMPTY_START_ROW,Bytes.toBytes("region_a"),Bytes.toBytes("region_b")};
+  createMultiRegionsWithWritableSerialization(conf,htd.getName(),regionNames);
+  CatalogTracker ct=TEST_UTIL.getMiniHBaseCluster().getMaster().getCatalogTracker();
+  undoVersionInRoot(ct);
+  MetaReader.fullScanMetaAndPrint(ct);
+  LOG.info("Meta Print completed.testMetaMigration");
+  long numMigratedRows=MetaMigrationConvertingToPB.updateMeta(TEST_UTIL.getHBaseCluster().getMaster());
+  MetaReader.fullScanMetaAndPrint(ct);
+  assertEquals(regionNames.length,numMigratedRows);
+  boolean metaUpdated=MetaMigrationConvertingToPB.isMetaHRIUpdated(TEST_UTIL.getMiniHBaseCluster().getMaster().getCatalogTracker());
+  assertEquals(true,metaUpdated);
+  verifyMetaRowsAreUpdated(ct);
+}
