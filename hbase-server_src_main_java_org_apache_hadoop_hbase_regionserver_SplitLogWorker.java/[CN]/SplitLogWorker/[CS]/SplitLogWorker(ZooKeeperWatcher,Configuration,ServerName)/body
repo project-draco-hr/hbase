@@ -1,0 +1,36 @@
+{
+  this(watcher,conf,serverName,new TaskExecutor(){
+    @Override public Status exec(    String filename,    CancelableProgressable p){
+      Path rootdir;
+      FileSystem fs;
+      try {
+        rootdir=FSUtils.getRootDir(conf);
+        fs=rootdir.getFileSystem(conf);
+      }
+ catch (      IOException e) {
+        LOG.warn("could not find root dir or fs",e);
+        return Status.RESIGNED;
+      }
+      try {
+        if (HLogSplitter.splitLogFile(rootdir,fs.getFileStatus(new Path(filename)),fs,conf,p) == false) {
+          return Status.PREEMPTED;
+        }
+      }
+ catch (      InterruptedIOException iioe) {
+        LOG.warn("log splitting of " + filename + " interrupted, resigning",iioe);
+        return Status.RESIGNED;
+      }
+catch (      IOException e) {
+        Throwable cause=e.getCause();
+        if (cause instanceof InterruptedException) {
+          LOG.warn("log splitting of " + filename + " interrupted, resigning",e);
+          return Status.RESIGNED;
+        }
+        LOG.warn("log splitting of " + filename + " failed, returning error",e);
+        return Status.ERR;
+      }
+      return Status.DONE;
+    }
+  }
+);
+}
