@@ -8,20 +8,20 @@
     LOG.debug("Started memstore flush for " + this + ", current region memstore size "+ StringUtils.humanReadableInt(this.memstoreSize.get())+ ((wal != null) ? "" : "; wal is null, using passed sequenceid=" + myseqid));
   }
   long sequenceId=-1L;
-  long completeSequenceId=-1L;
   MultiVersionConsistencyControl.WriteEntry w=null;
   status.setStatus("Obtaining lock to block concurrent updates");
   this.updatesLock.writeLock().lock();
   long flushsize=this.memstoreSize.get();
   status.setStatus("Preparing to flush by snapshotting stores");
   List<StoreFlusher> storeFlushers=new ArrayList<StoreFlusher>(stores.size());
+  long completeSeqId=-1L;
   try {
     w=mvcc.beginMemstoreInsert();
     mvcc.advanceMemstore(w);
     sequenceId=(wal == null) ? myseqid : wal.startCacheFlush(this.regionInfo.getEncodedNameAsBytes());
-    completeSequenceId=this.getCompleteCacheFlushSequenceId(sequenceId);
+    completeSeqId=this.getCompleteCacheFlushSequenceId(sequenceId);
     for (    Store s : stores.values()) {
-      storeFlushers.add(s.getStoreFlusher(completeSequenceId));
+      storeFlushers.add(s.getStoreFlusher(completeSeqId));
     }
     for (    StoreFlusher flusher : storeFlushers) {
       flusher.prepare();
@@ -60,7 +60,10 @@
     throw dse;
   }
   if (wal != null) {
-    wal.completeCacheFlush(this.regionInfo.getEncodedNameAsBytes(),regionInfo.getTableName(),completeSequenceId,this.getRegionInfo().isMetaRegion());
+    wal.completeCacheFlush(this.regionInfo.getEncodedNameAsBytes(),regionInfo.getTableName(),completeSeqId,this.getRegionInfo().isMetaRegion());
+  }
+  if (this.rsServices != null) {
+    completeSequenceId=completeSeqId;
   }
 synchronized (this) {
     notifyAll();

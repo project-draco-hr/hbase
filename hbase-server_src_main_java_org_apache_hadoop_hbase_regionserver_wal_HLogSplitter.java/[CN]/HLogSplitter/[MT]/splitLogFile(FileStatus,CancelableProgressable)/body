@@ -30,15 +30,37 @@
   int numOpenedFilesBeforeReporting=conf.getInt("hbase.splitlog.report.openedfiles",3);
   int numOpenedFilesLastCheck=0;
   outputSink.startWriterThreads();
-  int editsCount=0;
+  Map<byte[],Long> lastFlushedSequenceIds=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
   Entry entry;
+  int editsCount=0;
+  int editsSkipped=0;
   try {
     while ((entry=getNextLogLine(in,logPath,skipErrors)) != null) {
+      byte[] region=entry.getKey().getEncodedRegionName();
+      Long lastFlushedSequenceId=-1l;
+      if (master != null) {
+        lastFlushedSequenceId=lastFlushedSequenceIds.get(region);
+        if (lastFlushedSequenceId == null) {
+          try {
+            GetLastFlushedSequenceIdRequest req=RequestConverter.buildGetLastFlushedSequenceIdRequest(region);
+            lastFlushedSequenceId=master.getLastFlushedSequenceId(null,req).getLastFlushedSequenceId();
+            lastFlushedSequenceIds.put(region,lastFlushedSequenceId);
+          }
+ catch (          ServiceException e) {
+            lastFlushedSequenceId=-1l;
+            LOG.warn("Unable to connect to the master to check " + "the last flushed sequence id",e);
+          }
+        }
+      }
+      if (lastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
+        editsSkipped++;
+        continue;
+      }
       entryBuffers.appendEntry(entry);
       editsCount++;
       if (editsCount % interval == 0 || (outputSink.logWriters.size() - numOpenedFilesLastCheck) > numOpenedFilesBeforeReporting) {
         numOpenedFilesLastCheck=outputSink.logWriters.size();
-        String countsStr="edits=" + editsCount;
+        String countsStr=(editsCount - editsSkipped) + " edits, skipped " + editsSkipped+ " edits.";
         status.setStatus("Split " + countsStr);
         if (!reportProgressIfIsDistributedLogSplitting()) {
           return false;
