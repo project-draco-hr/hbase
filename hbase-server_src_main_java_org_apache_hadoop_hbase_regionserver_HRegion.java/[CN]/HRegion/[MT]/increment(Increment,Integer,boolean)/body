@@ -30,7 +30,12 @@
           long amount=column.getValue();
           if (idx < results.size() && results.get(idx).matchingQualifier(column.getKey())) {
             KeyValue kv=results.get(idx);
-            amount+=Bytes.toLong(kv.getBuffer(),kv.getValueOffset(),kv.getValueLength());
+            if (kv.getValueLength() == Bytes.SIZEOF_LONG) {
+              amount+=Bytes.toLong(kv.getBuffer(),kv.getValueOffset(),Bytes.SIZEOF_LONG);
+            }
+ else {
+              throw new DoNotRetryIOException("Attempted to increment field that isn't 64 bits wide");
+            }
             idx++;
           }
           KeyValue newKV=new KeyValue(row,family.getKey(),column.getKey(),now,Bytes.toBytes(amount));
@@ -65,9 +70,9 @@
   }
   finally {
     closeRegionOperation();
+    long after=EnvironmentEdgeManager.currentTimeMillis();
+    this.opMetrics.updateIncrementMetrics(increment.getFamilyMap().keySet(),after - before);
   }
-  long after=EnvironmentEdgeManager.currentTimeMillis();
-  this.opMetrics.updateIncrementMetrics(increment.getFamilyMap().keySet(),after - before);
   if (flush) {
     requestFlush();
   }
