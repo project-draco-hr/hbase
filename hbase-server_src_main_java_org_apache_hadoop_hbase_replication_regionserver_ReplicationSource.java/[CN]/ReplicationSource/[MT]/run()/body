@@ -4,12 +4,16 @@
     metrics.clear();
     return;
   }
-  try {
-    this.peerClusterId=UUID.fromString(ZKClusterId.readClusterIdZNode(zkHelper.getPeerClusters().get(peerId).getZkw()));
+  int sleepMultiplier=1;
+  while (this.peerClusterId == null) {
+    this.peerClusterId=zkHelper.getPeerUUID(this.peerId);
+    if (this.peerClusterId == null) {
+      if (sleepForRetries("Cannot contact the peer's zk ensemble",sleepMultiplier)) {
+        sleepMultiplier++;
+      }
+    }
   }
- catch (  KeeperException ke) {
-    this.terminate("Could not read peer's cluster id",ke);
-  }
+  sleepMultiplier=1;
   LOG.info("Replicating " + clusterId + " -> "+ peerClusterId);
   if (this.queueRecovered) {
     try {
@@ -19,7 +23,6 @@
       this.terminate("Couldn't get the position of this recovered queue " + peerClusterZnode,e);
     }
   }
-  int sleepMultiplier=1;
   while (isActive()) {
     if (!isPeerEnabled()) {
       if (sleepForRetries("Replication is disabled",sleepMultiplier)) {
