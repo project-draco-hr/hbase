@@ -10,22 +10,32 @@
   HRegionInfo parent=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("eee"));
   HRegionInfo splita=new HRegionInfo(htd.getName(),Bytes.toBytes("aaa"),Bytes.toBytes("ccc"));
   HRegionInfo splitb=new HRegionInfo(htd.getName(),Bytes.toBytes("ccc"),Bytes.toBytes("eee"));
-  Result r=createResult(parent,splita,splitb);
+  Result parentMetaRow=createResult(parent,splita,splitb);
   FileSystem fs=FileSystem.get(htu.getConfiguration());
   Path rootdir=services.getMasterFileSystem().getRootDir();
   FSUtils.setRootDir(fs.getConf(),rootdir);
   Path tabledir=HTableDescriptor.getTableDir(rootdir,htd.getName());
   Path storedir=HStore.getStoreHomedir(tabledir,parent.getEncodedName(),htd.getColumnFamilies()[0].getName());
   Path storeArchive=HFileArchiveUtil.getStoreArchivePath(services.getConfiguration(),parent,tabledir,htd.getColumnFamilies()[0].getName());
-  addMockStoreFiles(2,services,storedir);
+  LOG.debug("Table dir:" + tabledir);
+  LOG.debug("Store dir:" + storedir);
+  LOG.debug("Store archive dir:" + storeArchive);
+  FileStatus[] mockFiles=addMockStoreFiles(2,services,storedir);
   FileStatus[] storeFiles=fs.listStatus(storedir);
+  int index=0;
   for (  FileStatus file : storeFiles) {
-    System.out.println("Have store file:" + file.getPath());
+    LOG.debug("Have store file:" + file.getPath());
+    assertEquals("Got unexpected store file",mockFiles[index].getPath(),storeFiles[index].getPath());
+    index++;
   }
-  assertTrue(janitor.cleanParent(parent,r));
+  assertTrue(janitor.cleanParent(parent,parentMetaRow));
+  LOG.debug("Finished cleanup of parent region");
   FileStatus[] archivedStoreFiles=fs.listStatus(storeArchive);
+  logFiles("archived files",storeFiles);
+  logFiles("archived files",archivedStoreFiles);
   assertArchiveEqualToOriginal(storeFiles,archivedStoreFiles,fs);
+  FSUtils.delete(fs,rootdir,true);
   services.stop("Test finished");
-  server.stop("shutdown");
+  server.stop("Test finished");
   janitor.join();
 }
