@@ -1,29 +1,13 @@
 {
-  archivingClient.enableHFileBackupAsync(TABLE_NAME);
-  assertTrue("Archving didn't get turned on",archivingClient.getArchivingEnabled(TABLE_NAME));
   String otherTable="otherTable";
   UTIL.createTable(Bytes.toBytes(otherTable),TEST_FAM);
-  FileSystem fs=FileSystem.get(UTIL.getConfiguration());
-  LOG.debug("Loading data into:" + STRING_TABLE_NAME);
-  loadAndCompact(STRING_TABLE_NAME);
-  LOG.debug("Loading data into:" + otherTable);
-  loadAndCompact(otherTable);
-  ensureHFileCleanersRun();
-  Path primaryStoreArchive=HFileArchiveTestingUtil.getStoreArchivePath(UTIL,STRING_TABLE_NAME,TEST_FAM);
+  enableArchiving(STRING_TABLE_NAME);
+  FileSystem fs=FSUtils.getCurrentFileSystem(UTIL.getConfiguration());
+  int primaryArchived=loadAndCompact(STRING_TABLE_NAME,TEST_FAM);
+  loadAndCompact(otherTable,TEST_FAM);
   Path otherStoreArchive=HFileArchiveTestingUtil.getStoreArchivePath(UTIL,otherTable,TEST_FAM);
-  assertTrue("Store archive got deleted",fs.exists(primaryStoreArchive));
-  assertTrue("Archived HFiles got deleted",FSUtils.listStatus(fs,primaryStoreArchive,null).length > 0);
-  FileStatus[] otherArchiveFiles=FSUtils.listStatus(fs,otherStoreArchive,null);
-  assertNull("Archived HFiles (" + otherStoreArchive + ") should have gotten deleted, but didn't, remaining files:"+ getPaths(otherArchiveFiles),otherArchiveFiles);
-  ensureHFileCleanersRun();
-  assertFalse(fs.exists(otherStoreArchive));
-  ensureHFileCleanersRun();
-  Path parent=otherStoreArchive.getParent();
-  assertFalse(fs.exists(parent));
-  ensureHFileCleanersRun();
-  parent=otherStoreArchive.getParent();
-  assertFalse(fs.exists(parent));
-  assertTrue(fs.exists(HFileArchiveUtil.getArchivePath(UTIL.getConfiguration())));
-  FSUtils.logFileSystemState(fs,HFileArchiveUtil.getArchivePath(UTIL.getConfiguration()),LOG);
-  UTIL.deleteTable(Bytes.toBytes(otherTable));
+  ensureAllTableFilesinArchive(STRING_TABLE_NAME,TEST_FAM,fs,primaryArchived);
+  waitForFilesToExpire();
+  assertThat(0,new HasExactFiles(fs,otherStoreArchive));
+  ensureAllTableFilesinArchive(STRING_TABLE_NAME,TEST_FAM,fs,primaryArchived);
 }
