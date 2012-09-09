@@ -1,0 +1,45 @@
+{
+  if (shouldFixTableOrphans() && !orphanTableDirs.isEmpty()) {
+    Path hbaseRoot=FSUtils.getRootDir(conf);
+    List<String> tmpList=new ArrayList<String>();
+    tmpList.addAll(orphanTableDirs.keySet());
+    HTableDescriptor[] htds=getHTableDescriptors(tmpList);
+    Iterator iter=orphanTableDirs.entrySet().iterator();
+    int j=0;
+    int numFailedCase=0;
+    while (iter.hasNext()) {
+      Entry<String,Set<String>> entry=(Entry<String,Set<String>>)iter.next();
+      String tableName=entry.getKey();
+      LOG.info("Trying to fix orphan table error: " + tableName);
+      if (j < htds.length) {
+        if (tableName.equals(Bytes.toString(htds[j].getName()))) {
+          HTableDescriptor htd=htds[j];
+          LOG.info("fixing orphan table: " + tableName + " from cache");
+          FSTableDescriptors.createTableDescriptor(hbaseRoot.getFileSystem(conf),hbaseRoot,htd,true);
+          j++;
+          iter.remove();
+        }
+      }
+ else {
+        if (fabricateTableInfo(tableName,entry.getValue())) {
+          LOG.warn("fixing orphan table: " + tableName + " with a default .tableinfo file");
+          LOG.warn("Strongly recommend to modify the HTableDescriptor if necessary for: " + tableName);
+          iter.remove();
+        }
+ else {
+          LOG.error("Unable to create default .tableinfo for " + tableName + " while missing column family information");
+          numFailedCase++;
+        }
+      }
+      fixes++;
+    }
+    if (orphanTableDirs.isEmpty()) {
+      setShouldRerun();
+      LOG.warn("Strongly recommend to re-run manually hfsck after all orphanTableDirs being fixed");
+    }
+ else     if (numFailedCase > 0) {
+      LOG.error("Failed to fix " + numFailedCase + " OrphanTables with default .tableinfo files");
+    }
+  }
+  orphanTableDirs.clear();
+}

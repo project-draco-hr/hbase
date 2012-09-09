@@ -30,15 +30,19 @@
     TableInfo modTInfo=tablesInfo.get(tableName);
     if (modTInfo == null) {
       modTInfo=new TableInfo(tableName);
-      Path hbaseRoot=new Path(conf.get(HConstants.HBASE_DIR));
+      Path hbaseRoot=FSUtils.getRootDir(conf);
       tablesInfo.put(tableName,modTInfo);
       try {
         HTableDescriptor htd=FSTableDescriptors.getTableDescriptor(hbaseRoot.getFileSystem(conf),hbaseRoot,tableName);
         modTInfo.htds.add(htd);
       }
  catch (      IOException ioe) {
-        LOG.warn("Unable to read .tableinfo from " + hbaseRoot,ioe);
-        errors.reportError(ERROR_CODE.NO_TABLEINFO_FILE,"Unable to read .tableinfo from " + hbaseRoot);
+        if (!orphanTableDirs.containsKey(tableName)) {
+          LOG.warn("Unable to read .tableinfo from " + hbaseRoot,ioe);
+          errors.reportError(ERROR_CODE.NO_TABLEINFO_FILE,"Unable to read .tableinfo from " + hbaseRoot + "/"+ tableName);
+          Set<String> columns=new HashSet<String>();
+          orphanTableDirs.put(tableName,getColumnFamilyList(columns,hbi));
+        }
       }
     }
     modTInfo.addRegionInfo(hbi);
