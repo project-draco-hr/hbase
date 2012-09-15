@@ -1,0 +1,52 @@
+{
+  ClusterStatus current=getClusterStatus();
+  if (!ServerName.isSameHostnameAndPort(initial.getMaster(),current.getMaster())) {
+    boolean foundOldMaster=false;
+    for (    ServerName currentBackup : current.getBackupMasters()) {
+      if (!ServerName.isSameHostnameAndPort(currentBackup,initial.getMaster())) {
+        stopMaster(currentBackup);
+      }
+ else {
+        foundOldMaster=true;
+      }
+    }
+    stopMaster(current.getMaster());
+    if (foundOldMaster) {
+      startMaster(initial.getMaster().getHostname());
+    }
+    waitForActiveAndReadyMaster();
+    for (    ServerName backup : initial.getBackupMasters()) {
+      startMaster(backup.getHostname());
+    }
+  }
+ else {
+    HashMap<String,ServerName> initialBackups=new HashMap<String,ServerName>();
+    HashMap<String,ServerName> currentBackups=new HashMap<String,ServerName>();
+    for (    ServerName server : initial.getBackupMasters()) {
+      initialBackups.put(server.getHostname(),server);
+    }
+    for (    ServerName server : current.getBackupMasters()) {
+      currentBackups.put(server.getHostname(),server);
+    }
+    for (    String hostname : Sets.difference(initialBackups.keySet(),currentBackups.keySet())) {
+      startMaster(hostname);
+    }
+    for (    String hostname : Sets.difference(currentBackups.keySet(),initialBackups.keySet())) {
+      stopMaster(currentBackups.get(hostname));
+    }
+  }
+  HashMap<String,ServerName> initialServers=new HashMap<String,ServerName>();
+  HashMap<String,ServerName> currentServers=new HashMap<String,ServerName>();
+  for (  ServerName server : initial.getServers()) {
+    initialServers.put(server.getHostname(),server);
+  }
+  for (  ServerName server : current.getServers()) {
+    currentServers.put(server.getHostname(),server);
+  }
+  for (  String hostname : Sets.difference(initialServers.keySet(),currentServers.keySet())) {
+    startRegionServer(hostname);
+  }
+  for (  String hostname : Sets.difference(currentServers.keySet(),initialServers.keySet())) {
+    stopRegionServer(currentServers.get(hostname));
+  }
+}
