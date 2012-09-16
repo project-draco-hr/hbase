@@ -1,8 +1,9 @@
 {
+  boolean regionAlreadyInTransitionException=false;
   for (int i=0; i < this.maximumAssignmentAttempts; i++) {
     int versionOfOfflineNode=-1;
     if (setOfflineInZK) {
-      versionOfOfflineNode=setOfflineInZooKeeper(state,hijack);
+      versionOfOfflineNode=setOfflineInZooKeeper(state,hijack,regionAlreadyInTransitionException);
       if (versionOfOfflineNode != -1) {
         if (isDisabledorDisablingRegionInRIT(region)) {
           return;
@@ -43,14 +44,19 @@
       if (t instanceof RemoteException) {
         t=((RemoteException)t).unwrapRemoteException();
         if (t instanceof RegionAlreadyInTransitionException) {
-          String errorMsg="Failed assignment in: " + plan.getDestination() + " due to "+ t.getMessage();
-          LOG.error(errorMsg,t);
-          return;
+          regionAlreadyInTransitionException=true;
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Failed assignment in: " + plan.getDestination() + " due to "+ t.getMessage());
+          }
         }
       }
-      LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign elsewhere instead; "+ "retry="+ i,t);
+      LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign "+ (regionAlreadyInTransitionException ? "to the same region server" + " because of RegionAlreadyInTransitionException;" : "elsewhere instead; ")+ "retry="+ i,t);
       regionStates.updateRegionState(state.getRegion(),RegionState.State.OFFLINE);
-      if (getRegionPlan(state,plan.getDestination(),true) == null) {
+      RegionPlan newPlan=plan;
+      if (!regionAlreadyInTransitionException) {
+        newPlan=getRegionPlan(state,plan.getDestination(),true);
+      }
+      if (newPlan == null) {
         this.timeoutMonitor.setAllRegionServersOffline(true);
         LOG.warn("Unable to find a viable location to assign region " + state.getRegion().getRegionNameAsString());
         return;
