@@ -1,6 +1,7 @@
 {
   final HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
-  final AccessControllerProtocol protocol=acl.coprocessorProxy(AccessControllerProtocol.class,TEST_TABLE);
+  BlockingRpcChannel channel=acl.coprocessorService(new byte[0]);
+  AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(channel);
   PrivilegedExceptionAction<Void> globalAdmin=new PrivilegedExceptionAction<Void>(){
     @Override public Void run() throws Exception {
       checkGlobalPerms(Permission.Action.ADMIN);
@@ -87,9 +88,10 @@
   verifyAllowed(familyReadWrite,SUPERUSER,USER_OWNER,USER_RW);
   verifyDenied(familyReadWrite,USER_NONE,USER_CREATE,USER_RO);
   try {
-    protocol.checkPermissions(new Permission[]{(Permission)new TablePermission(TEST_TABLE,null,(byte[])null,Permission.Action.CREATE)});
+    CheckPermissionsRequest checkRequest=CheckPermissionsRequest.newBuilder().addPermission(AccessControlProtos.Permission.newBuilder().setTable(ByteString.copyFrom(TEST_TABLE)).addAction(AccessControlProtos.Permission.Action.CREATE)).build();
+    protocol.checkPermissions(null,checkRequest);
     fail("this should have thrown CoprocessorException");
   }
- catch (  CoprocessorException ex) {
+ catch (  ServiceException ex) {
   }
 }

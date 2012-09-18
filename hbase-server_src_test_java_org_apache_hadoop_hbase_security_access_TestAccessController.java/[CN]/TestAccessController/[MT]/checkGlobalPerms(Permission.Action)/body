@@ -1,9 +1,19 @@
 {
   HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
-  AccessControllerProtocol protocol=acl.coprocessorProxy(AccessControllerProtocol.class,new byte[0]);
+  BlockingRpcChannel channel=acl.coprocessorService(new byte[0]);
+  AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(channel);
   Permission[] perms=new Permission[actions.length];
   for (int i=0; i < actions.length; i++) {
     perms[i]=new Permission(actions[i]);
   }
-  protocol.checkPermissions(perms);
+  CheckPermissionsRequest.Builder request=CheckPermissionsRequest.newBuilder();
+  for (  Action a : actions) {
+    request.addPermission(AccessControlProtos.Permission.newBuilder().addAction(ProtobufUtil.toPermissionAction(a)).build());
+  }
+  try {
+    protocol.checkPermissions(null,request.build());
+  }
+ catch (  ServiceException se) {
+    ProtobufUtil.toIOException(se);
+  }
 }

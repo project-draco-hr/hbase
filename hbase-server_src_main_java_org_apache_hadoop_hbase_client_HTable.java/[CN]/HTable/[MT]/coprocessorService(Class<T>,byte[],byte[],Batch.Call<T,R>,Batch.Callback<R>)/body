@@ -1,0 +1,33 @@
+{
+  List<byte[]> keys=getStartKeysInRange(startKey,endKey);
+  Map<byte[],Future<R>> futures=new TreeMap<byte[],Future<R>>(Bytes.BYTES_COMPARATOR);
+  for (  final byte[] r : keys) {
+    final CoprocessorRpcChannel channel=new CoprocessorRpcChannel(connection,tableName,r);
+    Future<R> future=pool.submit(new Callable<R>(){
+      public R call() throws Exception {
+        T instance=ProtobufUtil.newServiceStub(service,channel);
+        R result=callable.call(instance);
+        byte[] region=channel.getLastRegion();
+        if (callback != null) {
+          callback.update(region,r,result);
+        }
+        return result;
+      }
+    }
+);
+    futures.put(r,future);
+  }
+  for (  Map.Entry<byte[],Future<R>> e : futures.entrySet()) {
+    try {
+      e.getValue().get();
+    }
+ catch (    ExecutionException ee) {
+      LOG.warn("Error calling coprocessor service " + service.getName() + " for row "+ Bytes.toStringBinary(e.getKey()),ee);
+      throw ee.getCause();
+    }
+catch (    InterruptedException ie) {
+      Thread.currentThread().interrupt();
+      throw new InterruptedIOException("Interrupted calling coprocessor service " + service.getName() + " for row "+ Bytes.toStringBinary(e.getKey())).initCause(ie);
+    }
+  }
+}
