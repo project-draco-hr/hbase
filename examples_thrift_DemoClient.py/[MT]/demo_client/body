@@ -1,0 +1,100 @@
+def demo_client(host, port, is_framed_transport):
+    socket = TSocket.TSocket(host, port)
+    if is_framed_transport:
+        transport = TTransport.TFramedTransport(socket)
+    else:
+        transport = TTransport.TBufferedTransport(socket)
+    protocol = TBinaryProtocol.TBinaryProtocol(transport)
+    client = Client(protocol)
+    transport.open()
+    t = 'demo_table'
+    print 'scanning tables...'
+    for table in client.getTableNames():
+        print ('  found: %s' % table)
+        if (table == t):
+            if client.isTableEnabled(table):
+                print ('    disabling table: %s' % t)
+                client.disableTable(table)
+            print ('    deleting table: %s' % t)
+            client.deleteTable(table)
+    columns = []
+    col = ColumnDescriptor()
+    col.name = 'entry:'
+    col.maxVersions = 10
+    columns.append(col)
+    col = ColumnDescriptor()
+    col.name = 'unused:'
+    columns.append(col)
+    try:
+        print ('creating table: %s' % t)
+        client.createTable(t, columns)
+    except AlreadyExists as ae:
+        print ('WARN: ' + ae.message)
+    cols = client.getColumnDescriptors(t)
+    print ('column families in %s' % t)
+    for col_name in cols.keys():
+        col = cols[col_name]
+        print ('  column: %s, maxVer: %d' % (col.name, col.maxVersions))
+    dummy_attributes = {}
+    invalid = 'foo-\xfc\xa1\xa1\xa1\xa1\xa1'
+    valid = 'foo-\xe7\x94\x9f\xe3\x83\x93\xe3\x83\xbc\xe3\x83\xab'
+    mutations = [Mutation(column='entry:foo', value=invalid)]
+    print str(mutations)
+    client.mutateRow(t, 'foo', mutations, dummy_attributes)
+    mutations = [Mutation(column='entry:', value='')]
+    client.mutateRow(t, '', mutations, dummy_attributes)
+    mutations = [Mutation(column='entry:foo', value=valid)]
+    client.mutateRow(t, valid, mutations, dummy_attributes)
+    try:
+        mutations = [Mutation(column='entry:foo', value=invalid)]
+        client.mutateRow(t, invalid, mutations, dummy_attributes)
+    except ttypes.IOError as e:
+        print ('expected exception: %s' % e.message)
+    print 'Starting scanner...'
+    scanner = client.scannerOpen(t, '', ['entry:'], dummy_attributes)
+    r = client.scannerGet(scanner)
+    while r:
+        printRow(r[0])
+        r = client.scannerGet(scanner)
+    print 'Scanner finished'
+    for e in range(100, 0, (-1)):
+        row = ('%0.5d' % e)
+        mutations = [Mutation(column='unused:', value='DELETE_ME')]
+        client.mutateRow(t, row, mutations, dummy_attributes)
+        printRow(client.getRow(t, row, dummy_attributes)[0])
+        client.deleteAllRow(t, row, dummy_attributes)
+        mutations = [Mutation(column='entry:num', value='0'), Mutation(column='entry:foo', value='FOO')]
+        client.mutateRow(t, row, mutations, dummy_attributes)
+        printRow(client.getRow(t, row, dummy_attributes)[0])
+        mutations = [Mutation(column='entry:foo', isDelete=True), Mutation(column='entry:num', value='-1')]
+        client.mutateRow(t, row, mutations, dummy_attributes)
+        printRow(client.getRow(t, row, dummy_attributes)[0])
+        mutations = [Mutation(column='entry:num', value=str(e)), Mutation(column='entry:sqr', value=str((e * e)))]
+        client.mutateRow(t, row, mutations, dummy_attributes)
+        printRow(client.getRow(t, row, dummy_attributes)[0])
+        time.sleep(0.05)
+        mutations = [Mutation(column='entry:num', value='-999'), Mutation(column='entry:sqr', isDelete=True)]
+        client.mutateRowTs(t, row, mutations, 1, dummy_attributes)
+        printRow(client.getRow(t, row, dummy_attributes)[0])
+        versions = client.getVer(t, row, 'entry:num', 10, dummy_attributes)
+        printVersions(row, versions)
+        if (len(versions) != 3):
+            print 'FATAL: wrong # of versions'
+            sys.exit((-1))
+        r = client.get(t, row, 'entry:foo', dummy_attributes)
+        if (len(r) > 0):
+            raise "shouldn't get here!"
+    columnNames = []
+    for (col, desc) in client.getColumnDescriptors(t).items():
+        print ('column with name: ' + desc.name)
+        print desc
+        columnNames.append((desc.name + ':'))
+    print 'Starting scanner...'
+    scanner = client.scannerOpenWithStop(t, '00020', '00040', columnNames, dummy_attributes)
+    r = client.scannerGet(scanner)
+    while r:
+        printRow(r[0])
+        r = client.scannerGet(scanner)
+    client.scannerClose(scanner)
+    print 'Scanner finished'
+    transport.close()
