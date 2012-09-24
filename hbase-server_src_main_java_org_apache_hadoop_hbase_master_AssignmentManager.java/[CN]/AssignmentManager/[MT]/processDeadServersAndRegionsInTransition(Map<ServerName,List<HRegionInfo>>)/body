@@ -1,0 +1,32 @@
+{
+  List<String> nodes=ZKUtil.listChildrenNoWatch(watcher,watcher.assignmentZNode);
+  if (nodes == null) {
+    String errorMessage="Failed to get the children from ZK";
+    server.abort(errorMessage,new IOException(errorMessage));
+    return;
+  }
+  boolean failover=!serverManager.getDeadServers().isEmpty();
+  if (!failover) {
+    Map<HRegionInfo,ServerName> regions=regionStates.getRegionAssignments();
+    for (    Map.Entry<HRegionInfo,ServerName> e : regions.entrySet()) {
+      if (!e.getKey().isMetaTable() && e.getValue() != null) {
+        LOG.debug("Found " + e + " out on cluster");
+        failover=true;
+        break;
+      }
+      if (nodes.contains(e.getKey().getEncodedName())) {
+        LOG.debug("Found " + e.getKey().getRegionNameAsString() + " in RITs");
+        failover=true;
+        break;
+      }
+    }
+  }
+  if (failover) {
+    LOG.info("Found regions out on cluster or in RIT; failover");
+    processDeadServersAndRecoverLostRegions(deadServers,nodes);
+  }
+ else {
+    LOG.info("Clean cluster startup. Assigning userregions");
+    assignAllUserRegions();
+  }
+}

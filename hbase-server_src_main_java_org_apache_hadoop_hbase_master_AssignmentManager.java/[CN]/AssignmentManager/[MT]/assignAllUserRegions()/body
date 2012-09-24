@@ -1,27 +1,28 @@
 {
-  Set<String> disablingAndDisabledTables=new HashSet<String>(this.disablingTables);
-  disablingAndDisabledTables.addAll(this.zkTable.getDisabledTables());
-  Map<HRegionInfo,ServerName> allRegions=MetaReader.fullScan(catalogTracker,disablingAndDisabledTables,true);
+  ZKAssign.deleteAllNodes(watcher);
+  ZKUtil.listChildrenAndWatchForNewChildren(this.watcher,this.watcher.assignmentZNode);
+  failoverCleanupDone();
+  Set<String> disabledOrDisablingOrEnabling=ZKTable.getDisabledOrDisablingTables(watcher);
+  disabledOrDisablingOrEnabling.addAll(ZKTable.getEnablingTables(watcher));
+  Map<HRegionInfo,ServerName> allRegions=MetaReader.fullScan(catalogTracker,disabledOrDisablingOrEnabling,true);
   if (allRegions == null || allRegions.isEmpty())   return;
-  List<ServerName> destServers=serverManager.createDestinationServersList();
-  if (destServers.isEmpty())   return;
-  boolean retainAssignment=master.getConfiguration().getBoolean("hbase.master.startup.retainassign",true);
-  Map<ServerName,List<HRegionInfo>> bulkPlan=null;
+  boolean retainAssignment=server.getConfiguration().getBoolean("hbase.master.startup.retainassign",true);
   if (retainAssignment) {
-    bulkPlan=balancer.retainAssignment(allRegions,destServers);
+    List<ServerName> servers=serverManager.createDestinationServersList();
+    if (servers == null || servers.isEmpty()) {
+      throw new IOException("Found no destination server to assign region(s)");
+    }
+    Map<ServerName,List<HRegionInfo>> bulkPlan=balancer.retainAssignment(allRegions,servers);
+    LOG.info("Bulk assigning " + allRegions.size() + " region(s) across "+ servers.size()+ " server(s), retainAssignment=true");
+    BulkAssigner ba=new GeneralBulkAssigner(this.server,bulkPlan,this);
+    ba.bulkAssign();
+    LOG.info("Bulk assigning done");
   }
  else {
-    assignUserRegions(new ArrayList<HRegionInfo>(allRegions.keySet()),destServers);
-    for (    HRegionInfo hri : allRegions.keySet()) {
-      setEnabledTable(hri);
-    }
-    return;
+    List<HRegionInfo> regions=new ArrayList<HRegionInfo>(allRegions.keySet());
+    assign(regions);
   }
-  LOG.info("Bulk assigning " + allRegions.size() + " region(s) across "+ destServers.size()+ " server(s), retainAssignment="+ retainAssignment);
-  BulkAssigner ba=new StartupBulkAssigner(this.master,bulkPlan,this);
-  ba.bulkAssign();
   for (  HRegionInfo hri : allRegions.keySet()) {
     setEnabledTable(hri);
   }
-  LOG.info("Bulk assigning done");
 }

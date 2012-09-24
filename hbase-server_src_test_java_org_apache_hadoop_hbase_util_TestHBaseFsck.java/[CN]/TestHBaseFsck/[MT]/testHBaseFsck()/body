@@ -5,6 +5,7 @@
   assertNoErrors(doFsck(conf,false));
   HTable meta=new HTable(conf,HTableDescriptor.META_TABLEDESC.getName());
   ResultScanner scanner=meta.getScanner(new Scan());
+  HRegionInfo hri=null;
   resforloop:   for (  Result res : scanner) {
     long startCode=Bytes.toLong(res.getValue(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER));
     for (    JVMClusterUtil.RegionServerThread rs : TEST_UTIL.getHBaseCluster().getRegionServerThreads()) {
@@ -15,12 +16,13 @@
         put.add(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(sn.getHostAndPort()));
         put.add(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(sn.getStartcode()));
         meta.put(put);
+        hri=HRegionInfo.getHRegionInfo(res);
         break resforloop;
       }
     }
   }
   assertErrors(doFsck(conf,true),new ERROR_CODE[]{ERROR_CODE.SERVER_DOES_NOT_MATCH_META});
-  Thread.sleep(1000);
+  TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(hri);
   assertNoErrors(doFsck(conf,false));
   HTable t=new HTable(conf,Bytes.toBytes(table));
   ResultScanner s=t.getScanner(new Scan());

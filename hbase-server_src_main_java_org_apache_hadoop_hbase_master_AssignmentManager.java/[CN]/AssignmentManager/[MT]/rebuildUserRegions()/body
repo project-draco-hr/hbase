@@ -1,10 +1,13 @@
 {
+  Set<String> enablingTables=ZKTable.getEnablingTables(watcher);
+  Set<String> disabledOrEnablingTables=ZKTable.getDisabledTables(watcher);
+  disabledOrEnablingTables.addAll(enablingTables);
+  Set<String> disabledOrDisablingOrEnabling=ZKTable.getDisablingTables(watcher);
+  disabledOrDisablingOrEnabling.addAll(disabledOrEnablingTables);
   List<Result> results=MetaReader.fullScan(this.catalogTracker);
   Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
-  Map<ServerName,List<Pair<HRegionInfo,Result>>> offlineServers=new TreeMap<ServerName,List<Pair<HRegionInfo,Result>>>();
+  Map<ServerName,List<HRegionInfo>> offlineServers=new TreeMap<ServerName,List<HRegionInfo>>();
   for (  Result result : results) {
-    boolean disabled=false;
-    boolean disablingOrEnabling=false;
     Pair<HRegionInfo,ServerName> region=HRegionInfo.getHRegionInfoAndServerName(result);
     if (region == null)     continue;
     HRegionInfo regionInfo=region.getFirst();
@@ -13,21 +16,20 @@
     regionStates.createRegionState(regionInfo);
     String tableName=regionInfo.getTableNameAsString();
     if (regionLocation == null) {
-      if (false == checkIfRegionsBelongsToEnabling(regionInfo)) {
+      if (!enablingTables.contains(tableName)) {
         LOG.warn("Region " + regionInfo.getEncodedName() + " has null regionLocation."+ " But its table "+ tableName+ " isn't in ENABLING state.");
       }
-      addTheTablesInPartialState(this.disablingTables,this.enablingTables,regionInfo,tableName);
     }
  else     if (!onlineServers.contains(regionLocation)) {
-      List<Pair<HRegionInfo,Result>> offlineRegions=offlineServers.get(regionLocation);
+      List<HRegionInfo> offlineRegions=offlineServers.get(regionLocation);
       if (offlineRegions == null) {
-        offlineRegions=new ArrayList<Pair<HRegionInfo,Result>>(1);
+        offlineRegions=new ArrayList<HRegionInfo>(1);
         offlineServers.put(regionLocation,offlineRegions);
       }
-      offlineRegions.add(new Pair<HRegionInfo,Result>(regionInfo,result));
-      disabled=checkIfRegionBelongsToDisabled(regionInfo);
-      disablingOrEnabling=addTheTablesInPartialState(this.disablingTables,this.enablingTables,regionInfo,tableName);
-      enableTableIfNotDisabledOrDisablingOrEnabling(disabled,disablingOrEnabling,tableName);
+      offlineRegions.add(regionInfo);
+      if (!disabledOrDisablingOrEnabling.contains(tableName) && !getZKTable().isEnabledTable(tableName)) {
+        setEnabledTable(tableName);
+      }
     }
  else {
       if (regionInfo.isOffline() && regionInfo.isSplit()) {
@@ -39,12 +41,12 @@
           continue;
         }
       }
-      if (!checkIfRegionBelongsToDisabled(regionInfo) && !checkIfRegionsBelongsToEnabling(regionInfo)) {
+      if (!disabledOrEnablingTables.contains(tableName)) {
         regionStates.regionOnline(regionInfo,regionLocation);
       }
-      disablingOrEnabling=addTheTablesInPartialState(this.disablingTables,this.enablingTables,regionInfo,tableName);
-      disabled=checkIfRegionBelongsToDisabled(regionInfo);
-      enableTableIfNotDisabledOrDisablingOrEnabling(disabled,disablingOrEnabling,tableName);
+      if (!disabledOrDisablingOrEnabling.contains(tableName) && !getZKTable().isEnabledTable(tableName)) {
+        setEnabledTable(tableName);
+      }
     }
   }
   return offlineServers;

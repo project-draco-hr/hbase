@@ -1,0 +1,57 @@
+{
+  Set<HRegionInfo> regionSet=new HashSet<HRegionInfo>();
+  for (  List<HRegionInfo> regionList : bulkPlan.values()) {
+    regionSet.addAll(regionList);
+  }
+  pool.shutdown();
+  int serverCount=bulkPlan.size();
+  int regionCount=regionSet.size();
+  long startTime=System.currentTimeMillis();
+  long rpcWaitTime=startTime + timeout;
+  while (!server.isStopped() && !pool.isTerminated() && rpcWaitTime > System.currentTimeMillis()) {
+    if (failedPlans.isEmpty()) {
+      pool.awaitTermination(100,TimeUnit.MILLISECONDS);
+    }
+ else {
+      reassignFailedPlans();
+    }
+  }
+  if (!pool.isTerminated()) {
+    LOG.warn("bulk assigner is still running after " + (System.currentTimeMillis() - startTime) + "ms, shut it down now");
+    List<Runnable> notStarted=pool.shutdownNow();
+    if (notStarted != null && !notStarted.isEmpty()) {
+      server.abort("some single server assigner hasn't started yet" + " when the bulk assigner timed out",null);
+      return false;
+    }
+  }
+  int reassigningRegions=0;
+  if (!failedPlans.isEmpty() && !server.isStopped()) {
+    reassigningRegions=reassignFailedPlans();
+  }
+  Configuration conf=server.getConfiguration();
+  long perRegionOpenTimeGuesstimate=conf.getLong("hbase.bulk.assignment.perregion.open.time",1000);
+  long endTime=Math.max(System.currentTimeMillis(),rpcWaitTime) + perRegionOpenTimeGuesstimate * (reassigningRegions + 1);
+  RegionStates regionStates=assignmentManager.getRegionStates();
+  while (!regionSet.isEmpty() && !server.isStopped() && endTime > System.currentTimeMillis()) {
+    Iterator<HRegionInfo> regionInfoIterator=regionSet.iterator();
+    while (regionInfoIterator.hasNext()) {
+      HRegionInfo hri=regionInfoIterator.next();
+      RegionState state=regionStates.getRegionState(hri);
+      if ((!regionStates.isRegionInTransition(hri) && regionStates.isRegionAssigned(hri)) || state.isSplit() || state.isSplitting()) {
+        regionInfoIterator.remove();
+      }
+    }
+    if (!regionSet.isEmpty()) {
+      regionStates.waitForUpdate(100);
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    long elapsedTime=System.currentTimeMillis() - startTime;
+    String status="successfully";
+    if (!regionSet.isEmpty()) {
+      status="with " + regionSet.size() + " regions still not assigned yet";
+    }
+    LOG.debug("bulk assigning total " + regionCount + " regions to "+ serverCount+ " servers, took "+ elapsedTime+ "ms, "+ status);
+  }
+  return regionSet.isEmpty();
+}
