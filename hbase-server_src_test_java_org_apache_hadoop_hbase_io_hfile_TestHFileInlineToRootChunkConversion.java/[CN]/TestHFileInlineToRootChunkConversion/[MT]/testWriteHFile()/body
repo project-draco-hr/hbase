@@ -1,0 +1,31 @@
+{
+  Path hfPath=new Path(testUtil.getDataTestDir(),TestHFileInlineToRootChunkConversion.class.getSimpleName() + ".hfile");
+  int maxChunkSize=1024;
+  FileSystem fs=FileSystem.get(conf);
+  CacheConfig cacheConf=new CacheConfig(conf);
+  conf.setInt(HFileBlockIndex.MAX_CHUNK_SIZE_KEY,maxChunkSize);
+  HFileWriterV2 hfw=(HFileWriterV2)new HFileWriterV2.WriterFactoryV2(conf,cacheConf).withBlockSize(16).withPath(fs,hfPath).create();
+  List<byte[]> keys=new ArrayList<byte[]>();
+  StringBuilder sb=new StringBuilder();
+  for (int i=0; i < 4; ++i) {
+    sb.append("key" + String.format("%05d",i));
+    sb.append("_");
+    for (int j=0; j < 100; ++j) {
+      sb.append('0' + j);
+    }
+    String keyStr=sb.toString();
+    sb.setLength(0);
+    byte[] k=Bytes.toBytes(keyStr);
+    System.out.println("Key: " + Bytes.toString(k));
+    keys.add(k);
+    byte[] v=Bytes.toBytes("value" + i);
+    hfw.append(k,v);
+  }
+  hfw.close();
+  HFileReaderV2 reader=(HFileReaderV2)HFile.createReader(fs,hfPath,cacheConf);
+  HFileScanner scanner=reader.getScanner(true,true);
+  for (int i=0; i < keys.size(); ++i) {
+    scanner.seekTo(keys.get(i));
+  }
+  reader.close();
+}
