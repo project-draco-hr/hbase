@@ -1,7 +1,6 @@
 {
   Configuration conf=util.getConfiguration();
   conf.setInt("hbase.hstore.compaction.min",2);
-  Path testDir=util.getDataTestDir("testExcludeMinorCompaction");
   generateRandomStartKeys(5);
   try {
     util.startMiniCluster();
@@ -11,23 +10,15 @@
     assertEquals("Should start with empty table",0,util.countRows(table));
     final Path storePath=HStore.getStoreHomedir(HTableDescriptor.getTableDir(FSUtils.getRootDir(conf),TABLE_NAME),admin.getTableRegions(TABLE_NAME).get(0).getEncodedName(),FAMILIES[0]);
     assertEquals(0,fs.listStatus(storePath).length);
-    Put p=new Put(Bytes.toBytes("test"));
-    p.add(FAMILIES[0],Bytes.toBytes("1"),Bytes.toBytes("1"));
-    table.put(p);
-    admin.flush(TABLE_NAME);
-    assertEquals(1,util.countRows(table));
-    quickPoll(new Callable<Boolean>(){
-      public Boolean call() throws Exception {
-        return fs.listStatus(storePath).length == 1;
-      }
-    }
-,5000);
     conf.setBoolean("hbase.mapreduce.hfileoutputformat.compaction.exclude",true);
     util.startMiniMapReduceCluster();
-    runIncrementalPELoad(conf,table,testDir);
-    new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
-    int expectedRows=NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
-    assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows + 1,util.countRows(table));
+    for (int i=0; i < 2; i++) {
+      Path testDir=util.getDataTestDir("testExcludeAllFromMinorCompaction_" + i);
+      runIncrementalPELoad(conf,table,testDir);
+      new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
+    }
+    int expectedRows=2 * NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
+    assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
     assertEquals(2,fs.listStatus(storePath).length);
     admin.compact(TABLE_NAME);
     try {
