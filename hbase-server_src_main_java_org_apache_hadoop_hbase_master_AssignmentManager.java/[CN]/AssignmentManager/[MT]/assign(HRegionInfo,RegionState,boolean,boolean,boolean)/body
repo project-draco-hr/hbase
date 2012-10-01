@@ -1,9 +1,12 @@
 {
   boolean regionAlreadyInTransitionException=false;
+  boolean serverNotRunningYet=false;
+  RegionState currentState=state;
+  long maxRegionServerStartupWaitTime=-1;
   for (int i=0; i < this.maximumAssignmentAttempts; i++) {
     int versionOfOfflineNode=-1;
     if (setOfflineInZK) {
-      versionOfOfflineNode=setOfflineInZooKeeper(state,hijack,regionAlreadyInTransitionException);
+      versionOfOfflineNode=setOfflineInZooKeeper(currentState,hijack);
       if (versionOfOfflineNode != -1) {
         if (isDisabledorDisablingRegionInRIT(region)) {
           return;
@@ -22,7 +25,7 @@
       LOG.debug("Server stopped; skipping assign of " + state);
       return;
     }
-    RegionPlan plan=getRegionPlan(state,!regionAlreadyInTransitionException && forceNewPlan);
+    RegionPlan plan=getRegionPlan(state,!regionAlreadyInTransitionException && !serverNotRunningYet && forceNewPlan);
     if (plan == null) {
       LOG.debug("Unable to determine a plan to assign " + state);
       this.timeoutMonitor.setAllRegionServersOffline(true);
@@ -30,7 +33,7 @@
     }
     try {
       LOG.info("Assigning region " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination().toString());
-      regionStates.updateRegionState(state.getRegion(),RegionState.State.PENDING_OPEN,System.currentTimeMillis(),plan.getDestination());
+      currentState=regionStates.updateRegionState(state.getRegion(),RegionState.State.PENDING_OPEN,System.currentTimeMillis(),plan.getDestination());
       RegionOpeningState regionOpenState=serverManager.sendRegionOpen(plan.getDestination(),state.getRegion(),versionOfOfflineNode);
       if (regionOpenState == RegionOpeningState.ALREADY_OPENED) {
         processAlreadyOpenedRegion(state.getRegion(),plan.getDestination());
@@ -43,18 +46,42 @@
  catch (    Throwable t) {
       if (t instanceof RemoteException) {
         t=((RemoteException)t).unwrapRemoteException();
-        if (t instanceof RegionAlreadyInTransitionException) {
-          regionAlreadyInTransitionException=true;
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Failed assignment in: " + plan.getDestination() + " due to "+ t.getMessage());
-          }
+      }
+      regionAlreadyInTransitionException=false;
+      serverNotRunningYet=false;
+      if (t instanceof RegionAlreadyInTransitionException) {
+        regionAlreadyInTransitionException=true;
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Failed assignment in: " + plan.getDestination() + " due to "+ t.getMessage());
         }
       }
-      LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign "+ (regionAlreadyInTransitionException ? "to the same region server" + " because of RegionAlreadyInTransitionException;" : "elsewhere instead; ")+ "retry="+ i,t);
-      regionStates.updateRegionState(state.getRegion(),RegionState.State.OFFLINE);
+ else       if (t instanceof ServerNotRunningYetException) {
+        if (maxRegionServerStartupWaitTime < 0) {
+          maxRegionServerStartupWaitTime=System.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
+        }
+        try {
+          long now=System.currentTimeMillis();
+          if (now < maxRegionServerStartupWaitTime) {
+            LOG.debug("Server is not yet up; waiting up to " + (maxRegionServerStartupWaitTime - now) + "ms",t);
+            serverNotRunningYet=true;
+            Thread.sleep(100);
+            i--;
+          }
+ else {
+            LOG.debug("Server is not up for a while; try a new one",t);
+          }
+        }
+ catch (        InterruptedException ie) {
+          LOG.warn("Failed to assign " + state.getRegion().getRegionNameAsString() + " since interrupted",ie);
+          Thread.currentThread().interrupt();
+          return;
+        }
+      }
+      LOG.warn("Failed assignment of " + state.getRegion().getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign "+ (regionAlreadyInTransitionException || serverNotRunningYet ? "to the same region server because of " + "RegionAlreadyInTransitionException/ServerNotRunningYetException;" : "elsewhere instead; ")+ "retry="+ i,t);
+      currentState=regionStates.updateRegionState(state.getRegion(),RegionState.State.OFFLINE);
       RegionPlan newPlan=plan;
-      if (!regionAlreadyInTransitionException) {
-        newPlan=getRegionPlan(state,plan.getDestination(),true);
+      if (!regionAlreadyInTransitionException && !serverNotRunningYet) {
+        newPlan=getRegionPlan(state,true);
       }
       if (newPlan == null) {
         this.timeoutMonitor.setAllRegionServersOffline(true);
