@@ -11,7 +11,7 @@
   assertTrue(table.isAutoFlush());
   server=TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
   this.log=server.getWAL();
-  assertTrue("Need HDFS-826 for this test",log.canGetCurReplicas());
+  assertTrue("Need HDFS-826 for this test",((FSHLog)log).canGetCurReplicas());
   assertTrue("Need append support for this test",FSUtils.isAppendSupported(TEST_UTIL.getConfiguration()));
   List<DataNode> existingNodes=dfsCluster.getDataNodes();
   int numDataNodes=3;
@@ -25,23 +25,23 @@
   assertTrue("DataNodes " + dfsCluster.getDataNodes().size() + " default replication "+ fs.getDefaultReplication(),dfsCluster.getDataNodes().size() >= fs.getDefaultReplication() + 1);
   writeData(table,2);
   long curTime=System.currentTimeMillis();
-  long oldFilenum=log.getFilenum();
+  long oldFilenum=((FSHLog)log).getFilenum();
   assertTrue("Log should have a timestamp older than now",curTime > oldFilenum && oldFilenum != -1);
-  assertTrue("The log shouldn't have rolled yet",oldFilenum == log.getFilenum());
+  assertTrue("The log shouldn't have rolled yet",oldFilenum == ((FSHLog)log).getFilenum());
   final DatanodeInfo[] pipeline=getPipeline(log);
   assertTrue(pipeline.length == fs.getDefaultReplication());
   assertTrue(dfsCluster.stopDataNode(pipeline[0].getName()) != null);
   writeData(table,2);
-  long newFilenum=log.getFilenum();
+  long newFilenum=((FSHLog)log).getFilenum();
   assertTrue("Missing datanode should've triggered a log roll",newFilenum > oldFilenum && newFilenum > curTime);
   writeData(table,3);
-  assertTrue("The log should not roll again.",log.getFilenum() == newFilenum);
+  assertTrue("The log should not roll again.",((FSHLog)log).getFilenum() == newFilenum);
   assertTrue(dfsCluster.stopDataNode(pipeline[1].getName()) != null);
   batchWriteAndWait(table,3,false,10000);
   assertTrue("LowReplication Roller should've been disabled",!log.isLowReplicationRollEnabled());
   dfsCluster.startDataNodes(TEST_UTIL.getConfiguration(),1,true,null,null);
   log.rollWriter(true);
   batchWriteAndWait(table,13,true,10000);
-  assertTrue("New log file should have the default replication instead of " + log.getLogReplication(),log.getLogReplication() == fs.getDefaultReplication());
+  assertTrue("New log file should have the default replication instead of " + ((FSHLog)log).getLogReplication(),((FSHLog)log).getLogReplication() == fs.getDefaultReplication());
   assertTrue("LowReplication Roller should've been enabled",log.isLowReplicationRollEnabled());
 }

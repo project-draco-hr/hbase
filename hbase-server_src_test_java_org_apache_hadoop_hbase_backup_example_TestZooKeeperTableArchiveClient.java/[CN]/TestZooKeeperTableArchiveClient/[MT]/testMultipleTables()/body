@@ -1,29 +1,49 @@
 {
-  archivingClient.enableHFileBackupAsync(TABLE_NAME);
-  assertTrue("Archving didn't get turned on",archivingClient.getArchivingEnabled(TABLE_NAME));
+  createArchiveDirectory();
   String otherTable="otherTable";
-  UTIL.createTable(Bytes.toBytes(otherTable),TEST_FAM);
-  FileSystem fs=FileSystem.get(UTIL.getConfiguration());
-  LOG.debug("Loading data into:" + STRING_TABLE_NAME);
-  loadAndCompact(STRING_TABLE_NAME);
-  LOG.debug("Loading data into:" + otherTable);
-  loadAndCompact(otherTable);
-  ensureHFileCleanersRun();
-  Path primaryStoreArchive=HFileArchiveTestingUtil.getStoreArchivePath(UTIL,STRING_TABLE_NAME,TEST_FAM);
-  Path otherStoreArchive=HFileArchiveTestingUtil.getStoreArchivePath(UTIL,otherTable,TEST_FAM);
-  assertTrue("Store archive got deleted",fs.exists(primaryStoreArchive));
-  assertTrue("Archived HFiles got deleted",FSUtils.listStatus(fs,primaryStoreArchive,null).length > 0);
-  FileStatus[] otherArchiveFiles=FSUtils.listStatus(fs,otherStoreArchive,null);
-  assertNull("Archived HFiles (" + otherStoreArchive + ") should have gotten deleted, but didn't, remaining files:"+ getPaths(otherArchiveFiles),otherArchiveFiles);
-  ensureHFileCleanersRun();
-  assertFalse(fs.exists(otherStoreArchive));
-  ensureHFileCleanersRun();
-  Path parent=otherStoreArchive.getParent();
-  assertFalse(fs.exists(parent));
-  ensureHFileCleanersRun();
-  parent=otherStoreArchive.getParent();
-  assertFalse(fs.exists(parent));
-  assertTrue(fs.exists(HFileArchiveUtil.getArchivePath(UTIL.getConfiguration())));
-  FSUtils.logFileSystemState(fs,HFileArchiveUtil.getArchivePath(UTIL.getConfiguration()),LOG);
-  UTIL.deleteTable(Bytes.toBytes(otherTable));
+  FileSystem fs=UTIL.getTestFileSystem();
+  Path archiveDir=getArchiveDir();
+  Path tableDir=getTableDir(STRING_TABLE_NAME);
+  Path otherTableDir=getTableDir(otherTable);
+  toCleanup.add(archiveDir);
+  toCleanup.add(tableDir);
+  toCleanup.add(otherTableDir);
+  Configuration conf=UTIL.getConfiguration();
+  Stoppable stop=new StoppableImplementation();
+  HFileCleaner cleaner=setupAndCreateCleaner(conf,fs,archiveDir,stop);
+  List<BaseHFileCleanerDelegate> cleaners=turnOnArchiving(STRING_TABLE_NAME,cleaner);
+  final LongTermArchivingHFileCleaner delegate=(LongTermArchivingHFileCleaner)cleaners.get(0);
+  HColumnDescriptor hcd=new HColumnDescriptor(TEST_FAM);
+  HRegion region=UTIL.createTestRegion(STRING_TABLE_NAME,hcd);
+  loadFlushAndCompact(region,TEST_FAM);
+  hcd=new HColumnDescriptor(TEST_FAM);
+  HRegion otherRegion=UTIL.createTestRegion(otherTable,hcd);
+  loadFlushAndCompact(otherRegion,TEST_FAM);
+  List<Path> files=getAllFiles(fs,archiveDir);
+  if (files == null) {
+    FSUtils.logFileSystemState(fs,archiveDir,LOG);
+    throw new RuntimeException("Didn't load archive any files!");
+  }
+  int initialCountForPrimary=0;
+  int initialCountForOtherTable=0;
+  for (  Path file : files) {
+    String tableName=file.getParent().getParent().getParent().getName();
+    if (tableName.equals(otherTable))     initialCountForOtherTable++;
+ else     if (tableName.equals(STRING_TABLE_NAME))     initialCountForPrimary++;
+  }
+  assertTrue("Didn't archive files for:" + STRING_TABLE_NAME,initialCountForPrimary > 0);
+  assertTrue("Didn't archive files for:" + otherTable,initialCountForOtherTable > 0);
+  CountDownLatch finished=setupCleanerWatching(delegate,cleaners,files.size());
+  cleaner.start();
+  finished.await();
+  stop.stop("");
+  List<Path> archivedFiles=getAllFiles(fs,archiveDir);
+  int archivedForPrimary=0;
+  for (  Path file : archivedFiles) {
+    String tableName=file.getParent().getParent().getParent().getName();
+    assertFalse("Have a file from the non-archived table: " + file,tableName.equals(otherTable));
+    if (tableName.equals(STRING_TABLE_NAME))     archivedForPrimary++;
+  }
+  assertEquals("Not all archived files for the primary table were retained.",initialCountForPrimary,archivedForPrimary);
+  assertTrue("Archive directory was deleted via archiver",fs.exists(archiveDir));
 }

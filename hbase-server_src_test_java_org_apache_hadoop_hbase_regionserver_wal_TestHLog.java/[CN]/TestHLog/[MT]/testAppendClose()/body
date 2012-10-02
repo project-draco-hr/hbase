@@ -1,9 +1,7 @@
 {
   byte[] tableName=Bytes.toBytes(getName());
   HRegionInfo regioninfo=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,false);
-  Path subdir=new Path(dir,"hlogdir");
-  Path archdir=new Path(dir,"hlogdir_archive");
-  HLog wal=new HLog(fs,subdir,archdir,conf);
+  HLog wal=HLogFactory.createHLog(fs,dir,"hlogdir","hlogdir_archive",conf);
   final int total=20;
   HTableDescriptor htd=new HTableDescriptor();
   htd.addFamily(new HColumnDescriptor(tableName));
@@ -14,7 +12,7 @@
   }
   wal.sync();
   int namenodePort=cluster.getNameNodePort();
-  final Path walPath=wal.computeFilename();
+  final Path walPath=((FSHLog)wal).computeFilename();
   try {
     DistributedFileSystem dfs=(DistributedFileSystem)cluster.getFileSystem();
     dfs.setSafeMode(FSConstants.SafeModeAction.SAFEMODE_ENTER);
@@ -74,7 +72,7 @@ class RecoverLogThread extends Thread {
   if (t.exception != null)   throw t.exception;
   SequenceFile.Reader reader=new SequenceFile.Reader(this.fs,walPath,this.conf);
   int count=0;
-  HLogKey key=HLog.newKey(conf);
+  HLogKey key=HLogUtil.newKey(conf);
   WALEdit val=new WALEdit();
   while (reader.next(key,val)) {
     count++;

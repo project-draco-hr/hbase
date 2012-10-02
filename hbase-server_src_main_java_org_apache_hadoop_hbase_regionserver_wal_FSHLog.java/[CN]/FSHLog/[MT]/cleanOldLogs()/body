@@ -1,0 +1,28 @@
+{
+  Long oldestOutstandingSeqNum=getOldestOutstandingSeqNum();
+  TreeSet<Long> sequenceNumbers=new TreeSet<Long>(this.outputfiles.headMap(oldestOutstandingSeqNum).keySet());
+  int logsToRemove=sequenceNumbers.size();
+  if (logsToRemove > 0) {
+    if (LOG.isDebugEnabled()) {
+      byte[] oldestRegion=getOldestRegion(oldestOutstandingSeqNum);
+      LOG.debug("Found " + logsToRemove + " hlogs to remove"+ " out of total "+ this.outputfiles.size()+ ";"+ " oldest outstanding sequenceid is "+ oldestOutstandingSeqNum+ " from region "+ Bytes.toStringBinary(oldestRegion));
+    }
+    for (    Long seq : sequenceNumbers) {
+      archiveLogFile(this.outputfiles.remove(seq),seq);
+    }
+  }
+  byte[][] regions=null;
+  int logCount=this.outputfiles.size();
+  if (logCount > this.maxLogs && logCount > 0) {
+    regions=HLogUtil.findMemstoresWithEditsEqualOrOlderThan(this.outputfiles.firstKey(),this.lastSeqWritten);
+    if (regions != null) {
+      StringBuilder sb=new StringBuilder();
+      for (int i=0; i < regions.length; i++) {
+        if (i > 0)         sb.append(", ");
+        sb.append(Bytes.toStringBinary(regions[i]));
+      }
+      LOG.info("Too many hlogs: logs=" + logCount + ", maxlogs="+ this.maxLogs+ "; forcing flush of "+ regions.length+ " regions(s): "+ sb.toString());
+    }
+  }
+  return regions;
+}
