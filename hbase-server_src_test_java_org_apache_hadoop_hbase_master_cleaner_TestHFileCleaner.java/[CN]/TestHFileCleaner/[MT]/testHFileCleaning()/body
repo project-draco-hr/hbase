@@ -1,31 +1,44 @@
 {
+  final EnvironmentEdge originalEdge=EnvironmentEdgeManager.getDelegate();
   String prefix="someHFileThatWouldBeAUUID";
-  Configuration conf=TEST_UTIL.getConfiguration();
+  Configuration conf=UTIL.getConfiguration();
   long ttl=2000;
   conf.setLong(TimeToLiveHFileCleaner.TTL_CONF_KEY,ttl);
   Server server=new DummyServer();
-  Path archivedHfileDir=new Path(TEST_UTIL.getDataTestDir(),HConstants.HFILE_ARCHIVE_DIRECTORY);
+  Path archivedHfileDir=new Path(UTIL.getDataTestDir(),HConstants.HFILE_ARCHIVE_DIRECTORY);
   FileSystem fs=FileSystem.get(conf);
   HFileCleaner cleaner=new HFileCleaner(1000,server,conf,fs,archivedHfileDir);
-  long now=System.currentTimeMillis();
+  final long createTime=System.currentTimeMillis();
   fs.delete(archivedHfileDir,true);
   fs.mkdirs(archivedHfileDir);
   fs.createNewFile(new Path(archivedHfileDir,"dfd-dfd"));
-  System.out.println("Now is: " + now);
+  LOG.debug("Now is: " + createTime);
   for (int i=1; i < 32; i++) {
-    Path fileName=new Path(archivedHfileDir,(prefix + "." + (now - i)));
+    Path fileName=new Path(archivedHfileDir,(prefix + "." + (createTime + i)));
     fs.createNewFile(fileName);
+    fs.setTimes(fileName,createTime - ttl - 1,-1);
+    LOG.debug("Creating " + getFileStats(fileName,fs));
   }
-  Thread.sleep(ttl);
-  fs.createNewFile(new Path(archivedHfileDir,prefix + "." + (now + 10000)));
+  Path saved=new Path(archivedHfileDir,prefix + ".00000000000");
+  fs.createNewFile(saved);
+  fs.setTimes(saved,createTime - ttl / 2,-1);
+  LOG.debug("Creating " + getFileStats(saved,fs));
   for (  FileStatus stat : fs.listStatus(archivedHfileDir)) {
-    System.out.println(stat.getPath().toString());
+    LOG.debug(stat.getPath().toString());
   }
   assertEquals(33,fs.listStatus(archivedHfileDir).length);
+  EnvironmentEdge setTime=new EnvironmentEdge(){
+    @Override public long currentTimeMillis(){
+      return createTime;
+    }
+  }
+;
+  EnvironmentEdgeManager.injectEdge(setTime);
   cleaner.chore();
   assertEquals(1,fs.listStatus(archivedHfileDir).length);
   for (  FileStatus file : fs.listStatus(archivedHfileDir)) {
-    System.out.println("Kept log files: " + file.getPath().getName());
+    LOG.debug("Kept hfiles: " + file.getPath().getName());
   }
   cleaner.interrupt();
+  EnvironmentEdgeManager.injectEdge(originalEdge);
 }
