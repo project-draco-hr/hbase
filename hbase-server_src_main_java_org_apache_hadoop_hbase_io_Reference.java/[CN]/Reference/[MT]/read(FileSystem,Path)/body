@@ -1,7 +1,19 @@
 {
-  FSDataInputStream in=fs.open(p);
+  InputStream in=fs.open(p);
   try {
-    return parseFrom(in);
+    in=in.markSupported() ? in : new BufferedInputStream(in);
+    int pblen=ProtobufUtil.lengthOfPBMagic();
+    in.mark(pblen);
+    byte[] pbuf=new byte[pblen];
+    int read=in.read(pbuf);
+    if (read != pblen)     throw new IOException("read=" + read + ", wanted="+ pblen);
+    if (ProtobufUtil.isPBMagicPrefix(pbuf))     return convert(FSProtos.Reference.parseFrom(in));
+    in.reset();
+    Reference r=new Reference();
+    DataInputStream dis=new DataInputStream(in);
+    in=dis;
+    r.readFields(dis);
+    return r;
   }
   finally {
     in.close();
