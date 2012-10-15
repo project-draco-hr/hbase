@@ -1,5 +1,5 @@
 {
-  validateParameters(scan);
+  final AggregateArgument requestArg=validateArgAndGetPB(scan,ci);
   final NavigableMap<byte[],List<S>> map=new TreeMap<byte[],List<S>>(Bytes.BYTES_COMPARATOR);
 class StdCallback implements Batch.Callback<List<S>> {
     S sumVal=null, sumWeights=null;
@@ -20,9 +20,20 @@ class StdCallback implements Batch.Callback<List<S>> {
   HTable table=null;
   try {
     table=new HTable(conf,tableName);
-    table.coprocessorExec(AggregateProtocol.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateProtocol,List<S>>(){
-      @Override public List<S> call(      AggregateProtocol instance) throws IOException {
-        return instance.getMedian(ci,scan);
+    table.coprocessorService(AggregateService.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateService,List<S>>(){
+      @Override public List<S> call(      AggregateService instance) throws IOException {
+        ServerRpcController controller=new ServerRpcController();
+        BlockingRpcCallback<AggregateResponse> rpcCallback=new BlockingRpcCallback<AggregateResponse>();
+        instance.getMedian(controller,requestArg,rpcCallback);
+        AggregateResponse response=rpcCallback.get();
+        if (controller.failedOnException()) {
+          throw controller.getFailedOn();
+        }
+        List<S> list=new ArrayList<S>();
+        for (int i=0; i < response.getFirstPartCount(); i++) {
+          list.add(ci.parseResponseAsPromotedType(getBytesFromResponse(response.getFirstPart(i))));
+        }
+        return list;
       }
     }
 ,stdCallback);

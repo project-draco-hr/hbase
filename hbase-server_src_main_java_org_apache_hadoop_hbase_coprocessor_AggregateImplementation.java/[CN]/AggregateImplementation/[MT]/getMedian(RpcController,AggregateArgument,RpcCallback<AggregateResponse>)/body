@@ -1,0 +1,51 @@
+{
+  AggregateResponse response=null;
+  InternalScanner scanner=null;
+  try {
+    ColumnInterpreter<T,S> ci=constructColumnInterpreterFromRequest(request);
+    S sumVal=null, sumWeights=null, tempVal=null, tempWeight=null;
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    scanner=env.getRegion().getScanner(scan);
+    byte[] colFamily=scan.getFamilies()[0];
+    NavigableSet<byte[]> quals=scan.getFamilyMap().get(colFamily);
+    byte[] valQualifier=quals.pollFirst();
+    byte[] weightQualifier=quals.size() > 1 ? quals.pollLast() : null;
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    boolean hasMoreRows=false;
+    do {
+      tempVal=null;
+      tempWeight=null;
+      hasMoreRows=scanner.next(results);
+      for (      KeyValue kv : results) {
+        tempVal=ci.add(tempVal,ci.castToReturnType(ci.getValue(colFamily,valQualifier,kv)));
+        if (weightQualifier != null) {
+          tempWeight=ci.add(tempWeight,ci.castToReturnType(ci.getValue(colFamily,weightQualifier,kv)));
+        }
+      }
+      results.clear();
+      sumVal=ci.add(sumVal,tempVal);
+      sumWeights=ci.add(sumWeights,tempWeight);
+    }
+ while (hasMoreRows);
+    ByteString first_sumVal=ci.getProtoForPromotedType(sumVal);
+    S s=sumWeights == null ? ci.castToReturnType(ci.getMinValue()) : sumWeights;
+    ByteString first_sumWeights=ci.getProtoForPromotedType(s);
+    AggregateResponse.Builder pair=AggregateResponse.newBuilder();
+    pair.addFirstPart(first_sumVal);
+    pair.addFirstPart(first_sumWeights);
+    response=pair.build();
+  }
+ catch (  IOException e) {
+    ResponseConverter.setControllerException(controller,e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ignored) {
+      }
+    }
+  }
+  done.run(response);
+}

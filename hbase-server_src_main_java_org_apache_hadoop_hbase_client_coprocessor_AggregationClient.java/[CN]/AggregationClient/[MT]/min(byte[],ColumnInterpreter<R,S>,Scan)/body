@@ -1,5 +1,5 @@
 {
-  validateParameters(scan);
+  final AggregateArgument requestArg=validateArgAndGetPB(scan,ci);
 class MinCallBack implements Batch.Callback<R> {
     private R min=null;
     public R getMinimum(){
@@ -13,9 +13,19 @@ class MinCallBack implements Batch.Callback<R> {
   HTable table=null;
   try {
     table=new HTable(conf,tableName);
-    table.coprocessorExec(AggregateProtocol.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateProtocol,R>(){
-      @Override public R call(      AggregateProtocol instance) throws IOException {
-        return instance.getMin(ci,scan);
+    table.coprocessorService(AggregateService.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateService,R>(){
+      @Override public R call(      AggregateService instance) throws IOException {
+        ServerRpcController controller=new ServerRpcController();
+        BlockingRpcCallback<AggregateResponse> rpcCallback=new BlockingRpcCallback<AggregateResponse>();
+        instance.getMin(controller,requestArg,rpcCallback);
+        AggregateResponse response=rpcCallback.get();
+        if (controller.failedOnException()) {
+          throw controller.getFailedOn();
+        }
+        if (response.getFirstPartCount() > 0) {
+          return ci.castToCellType(ci.parseResponseAsPromotedType(getBytesFromResponse(response.getFirstPart(0))));
+        }
+        return null;
       }
     }
 ,minCallBack);

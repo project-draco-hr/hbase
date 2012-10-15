@@ -1,5 +1,5 @@
 {
-  validateParameters(scan);
+  final AggregateArgument requestArg=validateArgAndGetPB(scan,ci);
 class StdCallback implements Batch.Callback<Pair<List<S>,Long>> {
     long rowCountVal=0l;
     S sumVal=null, sumSqVal=null;
@@ -11,18 +11,39 @@ class StdCallback implements Batch.Callback<Pair<List<S>,Long>> {
       return p;
     }
     @Override public synchronized void update(    byte[] region,    byte[] row,    Pair<List<S>,Long> result){
-      sumVal=ci.add(sumVal,result.getFirst().get(0));
-      sumSqVal=ci.add(sumSqVal,result.getFirst().get(1));
-      rowCountVal+=result.getSecond();
+      if (result.getFirst().size() > 0) {
+        sumVal=ci.add(sumVal,result.getFirst().get(0));
+        sumSqVal=ci.add(sumSqVal,result.getFirst().get(1));
+        rowCountVal+=result.getSecond();
+      }
     }
   }
   StdCallback stdCallback=new StdCallback();
   HTable table=null;
   try {
     table=new HTable(conf,tableName);
-    table.coprocessorExec(AggregateProtocol.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateProtocol,Pair<List<S>,Long>>(){
-      @Override public Pair<List<S>,Long> call(      AggregateProtocol instance) throws IOException {
-        return instance.getStd(ci,scan);
+    table.coprocessorService(AggregateService.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateService,Pair<List<S>,Long>>(){
+      @Override public Pair<List<S>,Long> call(      AggregateService instance) throws IOException {
+        ServerRpcController controller=new ServerRpcController();
+        BlockingRpcCallback<AggregateResponse> rpcCallback=new BlockingRpcCallback<AggregateResponse>();
+        instance.getStd(controller,requestArg,rpcCallback);
+        AggregateResponse response=rpcCallback.get();
+        if (controller.failedOnException()) {
+          throw controller.getFailedOn();
+        }
+        Pair<List<S>,Long> pair=new Pair<List<S>,Long>(new ArrayList<S>(),0L);
+        if (response.getFirstPartCount() == 0) {
+          return pair;
+        }
+        List<S> list=new ArrayList<S>();
+        for (int i=0; i < response.getFirstPartCount(); i++) {
+          list.add(ci.parseResponseAsPromotedType(getBytesFromResponse(response.getFirstPart(i))));
+        }
+        pair.setFirst(list);
+        ByteBuffer bb=ByteBuffer.allocate(8).put(getBytesFromResponse(response.getSecondPart()));
+        bb.rewind();
+        pair.setSecond(bb.getLong());
+        return pair;
       }
     }
 ,stdCallback);

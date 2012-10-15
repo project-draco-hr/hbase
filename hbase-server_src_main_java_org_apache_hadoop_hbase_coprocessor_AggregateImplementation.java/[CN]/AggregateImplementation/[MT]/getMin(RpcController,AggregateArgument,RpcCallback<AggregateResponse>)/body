@@ -1,0 +1,41 @@
+{
+  AggregateResponse response=null;
+  InternalScanner scanner=null;
+  T min=null;
+  try {
+    ColumnInterpreter<T,S> ci=constructColumnInterpreterFromRequest(request);
+    T temp;
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    scanner=env.getRegion().getScanner(scan);
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    byte[] colFamily=scan.getFamilies()[0];
+    byte[] qualifier=scan.getFamilyMap().get(colFamily).pollFirst();
+    boolean hasMoreRows=false;
+    do {
+      hasMoreRows=scanner.next(results);
+      for (      KeyValue kv : results) {
+        temp=ci.getValue(colFamily,qualifier,kv);
+        min=(min == null || (temp != null && ci.compare(temp,min) < 0)) ? temp : min;
+      }
+      results.clear();
+    }
+ while (hasMoreRows);
+    if (min != null) {
+      response=AggregateResponse.newBuilder().addFirstPart(ci.getProtoForCellType(min)).build();
+    }
+  }
+ catch (  IOException e) {
+    ResponseConverter.setControllerException(controller,e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ignored) {
+      }
+    }
+  }
+  log.info("Minimum from this region is " + env.getRegion().getRegionNameAsString() + ": "+ min);
+  done.run(response);
+}

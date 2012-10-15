@@ -1,0 +1,39 @@
+{
+  AggregateResponse response=null;
+  long counter=0l;
+  List<KeyValue> results=new ArrayList<KeyValue>();
+  InternalScanner scanner=null;
+  try {
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    byte[] colFamily=scan.getFamilies()[0];
+    byte[] qualifier=scan.getFamilyMap().get(colFamily).pollFirst();
+    if (scan.getFilter() == null && qualifier == null)     scan.setFilter(new FirstKeyOnlyFilter());
+    scanner=env.getRegion().getScanner(scan);
+    boolean hasMoreRows=false;
+    do {
+      hasMoreRows=scanner.next(results);
+      if (results.size() > 0) {
+        counter++;
+      }
+      results.clear();
+    }
+ while (hasMoreRows);
+    ByteBuffer bb=ByteBuffer.allocate(8).putLong(counter);
+    bb.rewind();
+    response=AggregateResponse.newBuilder().addFirstPart(ByteString.copyFrom(bb)).build();
+  }
+ catch (  IOException e) {
+    ResponseConverter.setControllerException(controller,e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ignored) {
+      }
+    }
+  }
+  log.info("Row counter from this region is " + env.getRegion().getRegionNameAsString() + ": "+ counter);
+  done.run(response);
+}

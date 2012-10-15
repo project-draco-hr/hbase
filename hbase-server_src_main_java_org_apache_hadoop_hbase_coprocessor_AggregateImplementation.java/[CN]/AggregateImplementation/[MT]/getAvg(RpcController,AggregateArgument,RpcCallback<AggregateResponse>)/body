@@ -1,0 +1,46 @@
+{
+  AggregateResponse response=null;
+  InternalScanner scanner=null;
+  try {
+    ColumnInterpreter<T,S> ci=constructColumnInterpreterFromRequest(request);
+    S sumVal=null;
+    Long rowCountVal=0l;
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    scanner=env.getRegion().getScanner(scan);
+    byte[] colFamily=scan.getFamilies()[0];
+    byte[] qualifier=scan.getFamilyMap().get(colFamily).pollFirst();
+    List<KeyValue> results=new ArrayList<KeyValue>();
+    boolean hasMoreRows=false;
+    do {
+      results.clear();
+      hasMoreRows=scanner.next(results);
+      for (      KeyValue kv : results) {
+        sumVal=ci.add(sumVal,ci.castToReturnType(ci.getValue(colFamily,qualifier,kv)));
+      }
+      rowCountVal++;
+    }
+ while (hasMoreRows);
+    if (sumVal != null) {
+      ByteString first=ci.getProtoForPromotedType(sumVal);
+      AggregateResponse.Builder pair=AggregateResponse.newBuilder();
+      pair.addFirstPart(first);
+      ByteBuffer bb=ByteBuffer.allocate(8).putLong(rowCountVal);
+      bb.rewind();
+      pair.setSecondPart(ByteString.copyFrom(bb));
+      response=pair.build();
+    }
+  }
+ catch (  IOException e) {
+    ResponseConverter.setControllerException(controller,e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ignored) {
+      }
+    }
+  }
+  done.run(response);
+}
