@@ -1,0 +1,29 @@
+{
+  MultiMutateResponse response=MultiMutateResponse.getDefaultInstance();
+  try {
+    SortedSet<byte[]> rowsToLock=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+    List<Mutate> mutateRequestList=request.getMutatationRequestList();
+    List<Mutation> mutations=new ArrayList<Mutation>(mutateRequestList.size());
+    for (    Mutate m : mutateRequestList) {
+      mutations.add(ProtobufUtil.toMutation(m));
+    }
+    HRegionInfo regionInfo=env.getRegion().getRegionInfo();
+    for (    Mutation m : mutations) {
+      if (!HRegion.rowIsInRange(regionInfo,m.getRow())) {
+        String msg="Requested row out of range '" + Bytes.toStringBinary(m.getRow()) + "'";
+        if (rowsToLock.isEmpty()) {
+          throw new WrongRegionException(msg);
+        }
+ else {
+          throw new DoNotRetryIOException(msg);
+        }
+      }
+      rowsToLock.add(m.getRow());
+    }
+    env.getRegion().mutateRowsWithLocks(mutations,rowsToLock);
+  }
+ catch (  IOException e) {
+    ResponseConverter.setControllerException(controller,e);
+  }
+  done.run(response);
+}
