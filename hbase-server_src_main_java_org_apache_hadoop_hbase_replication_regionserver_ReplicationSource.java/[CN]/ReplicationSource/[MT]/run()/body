@@ -41,6 +41,10 @@
       }
       continue;
     }
+    boolean currentWALisBeingWrittenTo=false;
+    if (!this.queueRecovered && queue.size() == 0) {
+      currentWALisBeingWrittenTo=true;
+    }
     if (!openReader(sleepMultiplier)) {
       sleepMultiplier=1;
       continue;
@@ -54,7 +58,7 @@
     boolean gotIOE=false;
     currentNbEntries=0;
     try {
-      if (readAllEntriesToReplicateOrNextFile()) {
+      if (readAllEntriesToReplicateOrNextFile(currentWALisBeingWrittenTo)) {
         continue;
       }
     }
@@ -98,7 +102,7 @@
     }
     if (this.isActive() && (gotIOE || currentNbEntries == 0)) {
       if (this.lastLoggedPosition != this.position) {
-        this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.position,queueRecovered);
+        this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.position,queueRecovered,currentWALisBeingWrittenTo);
         this.lastLoggedPosition=this.position;
       }
       if (sleepForRetries("Nothing to replicate",sleepMultiplier)) {
@@ -107,7 +111,7 @@
       continue;
     }
     sleepMultiplier=1;
-    shipEdits();
+    shipEdits(currentWALisBeingWrittenTo);
   }
   if (this.conn != null) {
     try {
