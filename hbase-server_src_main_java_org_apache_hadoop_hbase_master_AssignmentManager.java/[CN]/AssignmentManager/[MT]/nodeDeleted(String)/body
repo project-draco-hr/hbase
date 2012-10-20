@@ -1,25 +1,31 @@
 {
   if (path.startsWith(this.watcher.assignmentZNode)) {
     String regionName=ZKAssign.getRegionName(this.watcher,path);
-    RegionState rs=regionStates.getRegionTransitionState(regionName);
-    if (rs != null) {
-      HRegionInfo regionInfo=rs.getRegion();
-      if (rs.isSplit()) {
-        LOG.debug("Ephemeral node deleted, regionserver crashed?, " + "clearing from RIT; rs=" + rs);
-        regionOffline(rs.getRegion());
-      }
+    Lock lock=locker.acquireLock(regionName);
+    try {
+      RegionState rs=regionStates.getRegionTransitionState(regionName);
+      if (rs != null) {
+        HRegionInfo regionInfo=rs.getRegion();
+        if (rs.isSplit()) {
+          LOG.debug("Ephemeral node deleted, regionserver crashed?, " + "clearing from RIT; rs=" + rs);
+          regionOffline(rs.getRegion());
+        }
  else {
-        LOG.debug("The znode of region " + regionInfo.getRegionNameAsString() + " has been deleted.");
-        if (rs.isOpened()) {
-          ServerName serverName=rs.getServerName();
-          regionOnline(regionInfo,serverName);
-          LOG.info("The master has opened the region " + regionInfo.getRegionNameAsString() + " that was online on "+ serverName);
-          if (this.getZKTable().isDisablingOrDisabledTable(regionInfo.getTableNameAsString())) {
-            LOG.debug("Opened region " + regionInfo.getRegionNameAsString() + " but "+ "this table is disabled, triggering close of region");
-            unassign(regionInfo);
+          LOG.debug("The znode of region " + regionInfo.getRegionNameAsString() + " has been deleted.");
+          if (rs.isOpened()) {
+            ServerName serverName=rs.getServerName();
+            regionOnline(regionInfo,serverName);
+            LOG.info("The master has opened the region " + regionInfo.getRegionNameAsString() + " that was online on "+ serverName);
+            if (this.getZKTable().isDisablingOrDisabledTable(regionInfo.getTableNameAsString())) {
+              LOG.debug("Opened region " + regionInfo.getRegionNameAsString() + " but "+ "this table is disabled, triggering close of region");
+              unassign(regionInfo);
+            }
           }
         }
       }
+    }
+  finally {
+      lock.unlock();
     }
   }
 }

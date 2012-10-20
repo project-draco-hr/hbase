@@ -8,13 +8,21 @@
   try {
     checkOpen();
     requestCount.incrementAndGet();
-    HRegion region=getRegion(request.getRegion());
-    CloseRegionResponse.Builder builder=CloseRegionResponse.newBuilder();
+    String encodedRegionName=ProtobufUtil.getRegionEncodedName(request.getRegion());
+    byte[] encodedName=Bytes.toBytes(encodedRegionName);
+    Boolean openAction=regionsInTransitionInRS.get(encodedName);
+    if (openAction != null) {
+      if (openAction.booleanValue()) {
+        regionsInTransitionInRS.replace(encodedName,openAction,Boolean.FALSE);
+      }
+      checkIfRegionInTransition(encodedName,CLOSE);
+    }
+    HRegion region=getRegionByEncodedName(encodedRegionName);
     LOG.info("Received close region: " + region.getRegionNameAsString() + ". Version of ZK closing node:"+ versionOfClosingNode+ ". Destination server:"+ sn);
     HRegionInfo regionInfo=region.getRegionInfo();
-    checkIfRegionInTransition(regionInfo,CLOSE);
+    checkIfRegionInTransition(encodedName,CLOSE);
     boolean closed=closeRegion(regionInfo,false,zk,versionOfClosingNode,sn);
-    builder.setClosed(closed);
+    CloseRegionResponse.Builder builder=CloseRegionResponse.newBuilder().setClosed(closed);
     return builder.build();
   }
  catch (  IOException ie) {

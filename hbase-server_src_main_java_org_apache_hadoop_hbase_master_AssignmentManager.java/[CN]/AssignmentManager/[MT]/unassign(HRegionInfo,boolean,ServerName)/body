@@ -1,9 +1,5 @@
 {
   LOG.debug("Starting unassignment of region " + region.getRegionNameAsString() + " (offlining)");
-  if (!regionStates.isRegionAssigned(region)) {
-    LOG.debug("Attempted to unassign region " + region.getRegionNameAsString() + " but it is not "+ "currently assigned anywhere");
-    return;
-  }
   String encodedName=region.getEncodedName();
   int versionOfClosingNode=-1;
   ReentrantLock lock=locker.acquireLock(encodedName);
@@ -11,7 +7,12 @@
   try {
     if (state == null) {
       try {
-        versionOfClosingNode=ZKAssign.createNodeClosing(watcher,region,server.getServerName());
+        state=regionStates.getRegionState(region);
+        if (state == null || state.getServerName() == null) {
+          regionOffline(region);
+          return;
+        }
+        versionOfClosingNode=ZKAssign.createNodeClosing(watcher,region,state.getServerName());
         if (versionOfClosingNode == -1) {
           LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " but ZK closing node "+ "can't be created.");
           return;
@@ -52,37 +53,9 @@ catch (          DeserializationException de) {
       LOG.debug("Attempting to unassign region " + region.getRegionNameAsString() + " but it is "+ "already in transition ("+ state.getState()+ ", force="+ force+ ")");
       return;
     }
+    unassign(region,state,versionOfClosingNode,dest,true);
   }
   finally {
     lock.unlock();
-  }
-  ServerName server=state.getServerName();
-  if (server == null) {
-    deleteClosingOrClosedNode(region);
-    return;
-  }
-  try {
-    if (serverManager.sendRegionClose(server,state.getRegion(),versionOfClosingNode,dest)) {
-      LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
-      return;
-    }
-    LOG.warn("Server " + server + " region CLOSE RPC returned false for "+ region.getRegionNameAsString());
-  }
- catch (  Throwable t) {
-    if (t instanceof RemoteException) {
-      t=((RemoteException)t).unwrapRemoteException();
-    }
-    if (t instanceof NotServingRegionException) {
-      if (getZKTable().isDisablingTable(region.getTableNameAsString())) {
-        LOG.info("While trying to recover the table " + region.getTableNameAsString() + " to DISABLED state the region "+ region+ " was offlined but the table was in DISABLING state");
-        regionStates.regionOffline(region);
-        deleteClosingOrClosedNode(region);
-      }
-    }
- else     if (t instanceof RegionAlreadyInTransitionException) {
-      LOG.debug("update " + state + " the timestamp.");
-      state.updateTimestampToNow();
-    }
-    LOG.info("Server " + server + " returned "+ t+ " for "+ region.getRegionNameAsString(),t);
   }
 }

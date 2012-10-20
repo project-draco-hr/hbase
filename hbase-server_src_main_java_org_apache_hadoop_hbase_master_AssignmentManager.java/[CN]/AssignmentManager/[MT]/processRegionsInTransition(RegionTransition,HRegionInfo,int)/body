@@ -1,0 +1,57 @@
+{
+  EventType et=rt.getEventType();
+  ServerName sn=rt.getServerName();
+  String encodedRegionName=regionInfo.getEncodedName();
+  LOG.info("Processing region " + regionInfo.getRegionNameAsString() + " in state "+ et);
+  if (regionStates.isRegionInTransition(encodedRegionName)) {
+    return;
+  }
+switch (et) {
+case M_ZK_REGION_CLOSING:
+    if (!serverManager.isServerOnline(sn)) {
+      forceOffline(regionInfo,rt);
+    }
+ else {
+      regionStates.updateRegionState(rt,RegionState.State.CLOSING);
+    }
+  break;
+case RS_ZK_REGION_CLOSED:
+case RS_ZK_REGION_FAILED_OPEN:
+addToRITandCallClose(regionInfo,RegionState.State.CLOSED,rt);
+break;
+case M_ZK_REGION_OFFLINE:
+if (!serverManager.isServerOnline(sn)) {
+addToRITandCallClose(regionInfo,RegionState.State.OFFLINE,rt);
+}
+ else {
+regionStates.updateRegionState(rt,RegionState.State.PENDING_OPEN);
+}
+break;
+case RS_ZK_REGION_OPENING:
+if (regionInfo.isMetaTable() || !serverManager.isServerOnline(sn)) {
+regionStates.updateRegionState(rt,RegionState.State.OPENING);
+processOpeningState(regionInfo);
+}
+ else {
+regionStates.updateRegionState(rt,RegionState.State.OPENING);
+}
+break;
+case RS_ZK_REGION_OPENED:
+if (!serverManager.isServerOnline(sn)) {
+forceOffline(regionInfo,rt);
+}
+ else {
+regionStates.updateRegionState(rt,RegionState.State.OPEN);
+new OpenedRegionHandler(server,this,regionInfo,sn,expectedVersion).process();
+}
+break;
+case RS_ZK_REGION_SPLITTING:
+LOG.debug("Processed region in state : " + et);
+break;
+case RS_ZK_REGION_SPLIT:
+LOG.debug("Processed region in state : " + et);
+break;
+default :
+throw new IllegalStateException("Received region in state :" + et + " is not valid");
+}
+}

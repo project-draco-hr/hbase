@@ -1,0 +1,32 @@
+{
+  ServerName server=state.getServerName();
+  if (!serverManager.isServerOnline(server)) {
+    deleteClosingOrClosedNode(region);
+    regionOffline(region);
+    return;
+  }
+  for (int i=1; i <= this.maximumAttempts; i++) {
+    try {
+      if (serverManager.sendRegionClose(server,region,versionOfClosingNode,dest,transitionInZK)) {
+        LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
+        return;
+      }
+      LOG.warn("Server " + server + " region CLOSE RPC returned false for "+ region.getRegionNameAsString());
+    }
+ catch (    Throwable t) {
+      if (t instanceof RemoteException) {
+        t=((RemoteException)t).unwrapRemoteException();
+      }
+      if (t instanceof NotServingRegionException) {
+        deleteClosingOrClosedNode(region);
+        regionOffline(region);
+        return;
+      }
+ else       if (t instanceof RegionAlreadyInTransitionException) {
+        LOG.debug("update " + state + " the timestamp.");
+        state.updateTimestampToNow();
+      }
+      LOG.info("Server " + server + " returned "+ t+ " for "+ region.getRegionNameAsString()+ ", try="+ i+ " of "+ this.maximumAttempts,t);
+    }
+  }
+}
