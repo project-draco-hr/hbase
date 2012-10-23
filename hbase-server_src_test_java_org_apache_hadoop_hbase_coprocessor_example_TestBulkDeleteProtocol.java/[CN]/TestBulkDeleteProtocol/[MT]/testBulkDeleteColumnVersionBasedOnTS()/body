@@ -1,0 +1,40 @@
+{
+  byte[] tableName=Bytes.toBytes("testBulkDeleteColumnVersionBasedOnTS");
+  HTable ht=createTable(tableName);
+  List<Put> puts=new ArrayList<Put>(100);
+  for (int j=0; j < 100; j++) {
+    Put put=new Put(Bytes.toBytes(j));
+    byte[] value="v1".getBytes();
+    put.add(FAMILY1,QUALIFIER1,1000L,value);
+    put.add(FAMILY1,QUALIFIER2,1000L,value);
+    put.add(FAMILY1,QUALIFIER3,1000L,value);
+    value="v2".getBytes();
+    put.add(FAMILY1,QUALIFIER1,1234L,value);
+    put.add(FAMILY1,QUALIFIER2,1234L,value);
+    put.add(FAMILY1,QUALIFIER3,1234L,value);
+    value="v3".getBytes();
+    put.add(FAMILY1,QUALIFIER1,value);
+    put.add(FAMILY1,QUALIFIER2,value);
+    put.add(FAMILY1,QUALIFIER3,value);
+    puts.add(put);
+  }
+  ht.put(puts);
+  Scan scan=new Scan();
+  scan.addColumn(FAMILY1,QUALIFIER3);
+  long noOfRowsDeleted=invokeBulkDeleteProtocol(tableName,scan,500,DeleteType.VERSION,1234L);
+  assertEquals(100,noOfRowsDeleted);
+  int rows=0;
+  scan=new Scan();
+  scan.setMaxVersions();
+  for (  Result result : ht.getScanner(scan)) {
+    assertEquals(3,result.getFamilyMap(FAMILY1).size());
+    assertEquals(3,result.getColumn(FAMILY1,QUALIFIER1).size());
+    assertEquals(3,result.getColumn(FAMILY1,QUALIFIER2).size());
+    List<KeyValue> column=result.getColumn(FAMILY1,QUALIFIER3);
+    assertEquals(2,column.size());
+    assertTrue(Bytes.equals("v3".getBytes(),column.get(0).getValue()));
+    assertTrue(Bytes.equals("v1".getBytes(),column.get(1).getValue()));
+    rows++;
+  }
+  assertEquals(100,rows);
+}

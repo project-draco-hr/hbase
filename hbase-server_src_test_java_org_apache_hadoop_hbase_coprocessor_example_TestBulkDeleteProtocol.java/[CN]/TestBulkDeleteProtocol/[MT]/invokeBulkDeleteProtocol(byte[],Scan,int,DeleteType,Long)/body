@@ -1,0 +1,25 @@
+{
+  HTable ht=new HTable(TEST_UTIL.getConfiguration(),tableName);
+  long noOfDeletedRows=0L;
+  Batch.Call<BulkDeleteService,BulkDeleteResponse> callable=new Batch.Call<BulkDeleteService,BulkDeleteResponse>(){
+    ServerRpcController controller=new ServerRpcController();
+    BlockingRpcCallback<BulkDeleteResponse> rpcCallback=new BlockingRpcCallback<BulkDeleteResponse>();
+    public BulkDeleteResponse call(    BulkDeleteService service) throws IOException {
+      Builder builder=BulkDeleteRequest.newBuilder();
+      builder.setScan(ProtobufUtil.toScan(scan));
+      builder.setDeleteType(deleteType);
+      builder.setRowBatchSize(rowBatchSize);
+      if (timeStamp != null) {
+        builder.setTimestamp(timeStamp);
+      }
+      service.delete(controller,builder.build(),rpcCallback);
+      return rpcCallback.get();
+    }
+  }
+;
+  Map<byte[],BulkDeleteResponse> result=ht.coprocessorService(BulkDeleteService.class,scan.getStartRow(),scan.getStopRow(),callable);
+  for (  BulkDeleteResponse response : result.values()) {
+    noOfDeletedRows+=response.getRowsDeleted();
+  }
+  return noOfDeletedRows;
+}

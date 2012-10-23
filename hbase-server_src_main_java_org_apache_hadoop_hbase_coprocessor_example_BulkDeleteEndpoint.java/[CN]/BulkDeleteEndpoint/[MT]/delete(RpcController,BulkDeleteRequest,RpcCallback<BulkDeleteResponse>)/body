@@ -1,0 +1,75 @@
+{
+  long totalRowsDeleted=0L;
+  long totalVersionsDeleted=0L;
+  HRegion region=env.getRegion();
+  int rowBatchSize=request.getRowBatchSize();
+  Long timestamp=null;
+  if (request.hasTimestamp()) {
+    timestamp=request.getTimestamp();
+  }
+  DeleteType deleteType=request.getDeleteType();
+  boolean hasMore=true;
+  RegionScanner scanner=null;
+  try {
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    if (scan.getFilter() == null && deleteType == DeleteType.ROW) {
+      scan.setFilter(new FirstKeyOnlyFilter());
+    }
+    scanner=region.getScanner(scan);
+    while (hasMore) {
+      List<List<KeyValue>> deleteRows=new ArrayList<List<KeyValue>>(rowBatchSize);
+      for (int i=0; i < rowBatchSize; i++) {
+        List<KeyValue> results=new ArrayList<KeyValue>();
+        hasMore=scanner.next(results);
+        if (results.size() > 0) {
+          deleteRows.add(results);
+        }
+        if (!hasMore) {
+          break;
+        }
+      }
+      if (deleteRows.size() > 0) {
+        Pair<Mutation,Integer>[] deleteWithLockArr=new Pair[deleteRows.size()];
+        int i=0;
+        for (        List<KeyValue> deleteRow : deleteRows) {
+          Delete delete=createDeleteMutation(deleteRow,deleteType,timestamp);
+          deleteWithLockArr[i++]=new Pair<Mutation,Integer>(delete,null);
+        }
+        OperationStatus[] opStatus=region.batchMutate(deleteWithLockArr);
+        for (i=0; i < opStatus.length; i++) {
+          if (opStatus[i].getOperationStatusCode() != OperationStatusCode.SUCCESS) {
+            break;
+          }
+          totalRowsDeleted++;
+          if (deleteType == DeleteType.VERSION) {
+            byte[] versionsDeleted=deleteWithLockArr[i].getFirst().getAttribute(NO_OF_VERSIONS_TO_DELETE);
+            if (versionsDeleted != null) {
+              totalVersionsDeleted+=Bytes.toInt(versionsDeleted);
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  IOException ioe) {
+    LOG.error(ioe);
+    ResponseConverter.setControllerException(controller,ioe);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ioe) {
+        LOG.error(ioe);
+      }
+    }
+  }
+  Builder responseBuilder=BulkDeleteResponse.newBuilder();
+  responseBuilder.setRowsDeleted(totalRowsDeleted);
+  if (deleteType == DeleteType.VERSION) {
+    responseBuilder.setVersionsDeleted(totalVersionsDeleted);
+  }
+  BulkDeleteResponse result=responseBuilder.build();
+  done.run(result);
+}

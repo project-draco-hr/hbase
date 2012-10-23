@@ -1,0 +1,70 @@
+{
+  byte[] tableName=Bytes.toBytes("testBulkDeleteWithNumberOfVersions");
+  HTable ht=createTable(tableName);
+  List<Put> puts=new ArrayList<Put>(100);
+  for (int j=0; j < 100; j++) {
+    Put put=new Put(Bytes.toBytes(j));
+    byte[] value="v1".getBytes();
+    put.add(FAMILY1,QUALIFIER1,1000L,value);
+    put.add(FAMILY1,QUALIFIER2,1000L,value);
+    put.add(FAMILY1,QUALIFIER3,1000L,value);
+    value="v2".getBytes();
+    put.add(FAMILY1,QUALIFIER1,1234L,value);
+    put.add(FAMILY1,QUALIFIER2,1234L,value);
+    put.add(FAMILY1,QUALIFIER3,1234L,value);
+    value="v3".getBytes();
+    put.add(FAMILY1,QUALIFIER1,2000L,value);
+    put.add(FAMILY1,QUALIFIER2,2000L,value);
+    put.add(FAMILY1,QUALIFIER3,2000L,value);
+    value="v4".getBytes();
+    put.add(FAMILY1,QUALIFIER1,value);
+    put.add(FAMILY1,QUALIFIER2,value);
+    put.add(FAMILY1,QUALIFIER3,value);
+    puts.add(put);
+  }
+  ht.put(puts);
+  final Scan scan=new Scan();
+  scan.addColumn(FAMILY1,QUALIFIER1);
+  scan.addColumn(FAMILY1,QUALIFIER2);
+  scan.setTimeRange(1000L,2000L);
+  scan.setMaxVersions();
+  long noOfDeletedRows=0L;
+  long noOfVersionsDeleted=0L;
+  Batch.Call<BulkDeleteService,BulkDeleteResponse> callable=new Batch.Call<BulkDeleteService,BulkDeleteResponse>(){
+    ServerRpcController controller=new ServerRpcController();
+    BlockingRpcCallback<BulkDeleteResponse> rpcCallback=new BlockingRpcCallback<BulkDeleteResponse>();
+    public BulkDeleteResponse call(    BulkDeleteService service) throws IOException {
+      Builder builder=BulkDeleteRequest.newBuilder();
+      builder.setScan(ProtobufUtil.toScan(scan));
+      builder.setDeleteType(DeleteType.VERSION);
+      builder.setRowBatchSize(500);
+      service.delete(controller,builder.build(),rpcCallback);
+      return rpcCallback.get();
+    }
+  }
+;
+  Map<byte[],BulkDeleteResponse> result=ht.coprocessorService(BulkDeleteService.class,scan.getStartRow(),scan.getStopRow(),callable);
+  for (  BulkDeleteResponse response : result.values()) {
+    noOfDeletedRows+=response.getRowsDeleted();
+    noOfVersionsDeleted+=response.getVersionsDeleted();
+  }
+  assertEquals(100,noOfDeletedRows);
+  assertEquals(400,noOfVersionsDeleted);
+  int rows=0;
+  Scan scan1=new Scan();
+  scan1.setMaxVersions();
+  for (  Result res : ht.getScanner(scan1)) {
+    assertEquals(3,res.getFamilyMap(FAMILY1).size());
+    List<KeyValue> column=res.getColumn(FAMILY1,QUALIFIER1);
+    assertEquals(2,column.size());
+    assertTrue(Bytes.equals("v4".getBytes(),column.get(0).getValue()));
+    assertTrue(Bytes.equals("v3".getBytes(),column.get(1).getValue()));
+    column=res.getColumn(FAMILY1,QUALIFIER2);
+    assertEquals(2,column.size());
+    assertTrue(Bytes.equals("v4".getBytes(),column.get(0).getValue()));
+    assertTrue(Bytes.equals("v3".getBytes(),column.get(1).getValue()));
+    assertEquals(4,res.getColumn(FAMILY1,QUALIFIER3).size());
+    rows++;
+  }
+  assertEquals(100,rows);
+}
