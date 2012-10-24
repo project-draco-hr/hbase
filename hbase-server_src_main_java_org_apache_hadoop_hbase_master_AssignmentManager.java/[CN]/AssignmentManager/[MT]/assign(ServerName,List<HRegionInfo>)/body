@@ -70,16 +70,16 @@
     }
     try {
       long maxWaitTime=System.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
-      while (!this.server.isStopped()) {
+      for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
         try {
           List<RegionOpeningState> regionOpeningStateList=serverManager.sendRegionOpen(destination,regionOpenInfos);
           if (regionOpeningStateList == null) {
             return false;
           }
-          for (int i=0, n=regionOpeningStateList.size(); i < n; i++) {
-            RegionOpeningState openingState=regionOpeningStateList.get(i);
+          for (int k=0, n=regionOpeningStateList.size(); k < n; k++) {
+            RegionOpeningState openingState=regionOpeningStateList.get(k);
             if (openingState != RegionOpeningState.OPENED) {
-              HRegionInfo region=regionOpenInfos.get(i).getFirst();
+              HRegionInfo region=regionOpenInfos.get(k).getFirst();
               if (openingState == RegionOpeningState.ALREADY_OPENED) {
                 processAlreadyOpenedRegion(region,destination);
               }
@@ -106,8 +106,15 @@
             if (now < maxWaitTime) {
               LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",e);
               Thread.sleep(100);
+              i--;
               continue;
             }
+          }
+ else           if (e instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(destination)) {
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("Bulk assigner openRegion() to " + destination + " has timed out, but the regions might"+ " already be opened on it.",e);
+            }
+            continue;
           }
           throw e;
         }
