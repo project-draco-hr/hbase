@@ -1,0 +1,27 @@
+{
+  if (tableDir == null)   throw new NullPointerException();
+  FileStatus status=getTableInfoPath(fs,tableDir);
+  if (status == null) {
+    throw new TableInfoMissingException("No .tableinfo file under " + tableDir.toUri());
+  }
+  int len=Ints.checkedCast(status.getLen());
+  byte[] content=new byte[len];
+  FSDataInputStream fsDataInputStream=fs.open(status.getPath());
+  try {
+    fsDataInputStream.readFully(content);
+  }
+  finally {
+    fsDataInputStream.close();
+  }
+  HTableDescriptor htd=null;
+  try {
+    htd=HTableDescriptor.parseFrom(content);
+  }
+ catch (  DeserializationException e) {
+    throw new IOException("content=" + Bytes.toShort(content),e);
+  }
+  if (!ProtobufUtil.isPBMagicPrefix(content)) {
+    createTableDescriptor(fs,tableDir.getParent(),htd,true);
+  }
+  return new TableDescriptorModtime(status.getModificationTime(),htd);
+}

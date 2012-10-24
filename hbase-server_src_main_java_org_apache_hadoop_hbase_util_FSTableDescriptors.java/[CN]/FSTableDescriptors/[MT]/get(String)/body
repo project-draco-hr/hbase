@@ -11,17 +11,16 @@
   if (HConstants.HBASE_NON_USER_TABLE_DIRS.contains(tablename)) {
     throw new IOException("No descriptor found for table = " + tablename);
   }
-  TableDescriptorModtime tdm=this.cache.get(tablename);
-  long modtime=getTableInfoModtime(this.fs,this.rootdir,tablename);
-  if (tdm != null) {
-    if (modtime <= tdm.getModtime()) {
+  TableDescriptorModtime cachedtdm=this.cache.get(tablename);
+  if (cachedtdm != null) {
+    if (getTableInfoModtime(this.fs,this.rootdir,tablename) <= cachedtdm.getModtime()) {
       cachehits++;
-      return tdm.getTableDescriptor();
+      return cachedtdm.getTableDescriptor();
     }
   }
-  HTableDescriptor htd=null;
+  TableDescriptorModtime tdmt=null;
   try {
-    htd=getTableDescriptor(this.fs,this.rootdir,tablename);
+    tdmt=getTableDescriptorModtime(this.fs,this.rootdir,tablename);
   }
  catch (  NullPointerException e) {
     LOG.debug("Exception during readTableDecriptor. Current table name = " + tablename,e);
@@ -29,11 +28,11 @@
 catch (  IOException ioe) {
     LOG.debug("Exception during readTableDecriptor. Current table name = " + tablename,ioe);
   }
-  if (htd == null) {
+  if (tdmt == null) {
     LOG.warn("The following folder is in HBase's root directory and " + "doesn't contain a table descriptor, " + "do consider deleting it: "+ tablename);
   }
  else {
-    this.cache.put(tablename,new TableDescriptorModtime(modtime,htd));
+    this.cache.put(tablename,tdmt);
   }
-  return htd;
+  return tdmt == null ? null : tdmt.getTableDescriptor();
 }
