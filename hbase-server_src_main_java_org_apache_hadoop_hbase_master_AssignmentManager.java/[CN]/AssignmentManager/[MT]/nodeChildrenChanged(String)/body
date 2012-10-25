@@ -1,10 +1,23 @@
 {
   if (path.equals(watcher.assignmentZNode)) {
-    try {
-      ZKUtil.listChildrenAndWatchThem(watcher,watcher.assignmentZNode);
+    int wi=Math.abs(path.hashCode() % zkEventWorkers.length);
+    zkEventWorkers[wi].submit(new Runnable(){
+      @Override public void run(){
+        try {
+          List<String> children=ZKUtil.listChildrenAndWatchForNewChildren(watcher,watcher.assignmentZNode);
+          if (children != null) {
+            for (            String child : children) {
+              if (!regionStates.isRegionInTransition(child)) {
+                ZKUtil.watchAndCheckExists(watcher,ZKUtil.joinZNode(watcher.assignmentZNode,child));
+              }
+            }
+          }
+        }
+ catch (        KeeperException e) {
+          server.abort("Unexpected ZK exception reading unassigned children",e);
+        }
+      }
     }
- catch (    KeeperException e) {
-      server.abort("Unexpected ZK exception reading unassigned children",e);
-    }
+);
   }
 }

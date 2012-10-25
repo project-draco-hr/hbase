@@ -12,8 +12,14 @@
   this.zkTable=new ZKTable(this.watcher);
   this.maximumAttempts=this.server.getConfiguration().getInt("hbase.assignment.maximum.attempts",10);
   this.balancer=balancer;
-  this.threadPoolExecutorService=Executors.newCachedThreadPool();
+  int maxThreads=conf.getInt("hbase.assignment.threads.max",30);
+  this.threadPoolExecutorService=Threads.getBoundedCachedThreadPool(maxThreads,60L,TimeUnit.SECONDS,Threads.newDaemonThreadFactory("hbase-am"));
   this.masterMetrics=metrics;
   this.regionStates=new RegionStates(server,serverManager);
-  asyncOfflineZKWatcher=new ZooKeeperWatcher(conf,"async offline ZK watcher",server);
+  int workers=conf.getInt("hbase.assignment.zkevent.workers",5);
+  zkEventWorkers=new java.util.concurrent.ExecutorService[workers];
+  ThreadFactory threadFactory=Threads.newDaemonThreadFactory("am-zkevent-worker");
+  for (int i=0; i < workers; i++) {
+    zkEventWorkers[i]=Threads.getBoundedCachedThreadPool(1,60L,TimeUnit.SECONDS,threadFactory);
+  }
 }
