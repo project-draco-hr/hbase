@@ -10,13 +10,18 @@
   this.blocksize=family.getBlocksize();
   this.dataBlockEncoder=new HFileDataBlockEncoderImpl(family.getDataBlockEncodingOnDisk(),family.getDataBlockEncoding());
   this.comparator=info.getComparator();
-  this.ttl=determineTTLFromFamily(family);
+  this.ttl=getTTL(family);
   long timeToPurgeDeletes=Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes",0),0);
   LOG.trace("Time to purge deletes set to " + timeToPurgeDeletes + "ms in store "+ this);
   scanInfo=new ScanInfo(family,ttl,timeToPurgeDeletes,this.comparator);
   this.memstore=new MemStore(conf,this.comparator);
+  this.minFilesToCompact=Math.max(2,conf.getInt("hbase.hstore.compaction.min",conf.getInt("hbase.hstore.compactionThreshold",3)));
+  LOG.info("hbase.hstore.compaction.min = " + this.minFilesToCompact);
   this.cacheConf=new CacheConfig(conf,family);
   this.blockingStoreFileCount=conf.getInt("hbase.hstore.blockingStoreFiles",7);
+  this.maxFilesToCompact=conf.getInt("hbase.hstore.compaction.max",10);
+  this.minCompactSize=conf.getLong("hbase.hstore.compaction.min.size",this.region.memstoreFlushSize);
+  this.maxCompactSize=conf.getLong("hbase.hstore.compaction.max.size",Long.MAX_VALUE);
   this.verifyBulkLoads=conf.getBoolean("hbase.hstore.bulkload.verify",false);
   if (HStore.closeCheckInterval == 0) {
     HStore.closeCheckInterval=conf.getInt("hbase.hstore.close.check.interval",10 * 1000 * 1000);
@@ -25,5 +30,4 @@
   this.checksumType=getChecksumType(conf);
   this.bytesPerChecksum=getBytesPerChecksum(conf);
   this.compactor=new Compactor(this.conf);
-  setCompactionPolicy(conf.get(COMPACTION_MANAGER_CLASS,DEFAULT_COMPACTION_MANAGER_CLASS));
 }
