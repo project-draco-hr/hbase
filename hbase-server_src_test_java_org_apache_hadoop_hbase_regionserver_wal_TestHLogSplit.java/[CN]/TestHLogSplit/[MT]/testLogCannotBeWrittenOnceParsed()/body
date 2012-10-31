@@ -1,0 +1,22 @@
+{
+  AtomicLong counter=new AtomicLong(0);
+  AtomicBoolean stop=new AtomicBoolean(false);
+  int walToKeepOpen=9;
+  generateHLogs(walToKeepOpen);
+  fs.initialize(fs.getUri(),conf);
+  String julietRegion=regions.get(0);
+  HLog.Writer stillOpenWAL=writer[walToKeepOpen];
+  counter.addAndGet(ENTRIES * NUM_WRITERS);
+  Thread zombie=new ZombieLastLogWriterRegionServer(stillOpenWAL,counter,stop,TABLE_NAME,julietRegion);
+  try {
+    zombie.start();
+    HLogSplitter logSplitter=HLogSplitter.createLogSplitter(conf,hbaseDir,hlogDir,oldLogDir,fs);
+    logSplitter.splitLog();
+    Path logfile=getLogForRegion(hbaseDir,TABLE_NAME,julietRegion);
+    long numberOfEditsInRegion=countHLog(logfile,fs,conf);
+    assertTrue("The log file could have at most 1 extra log entry, but can't have less. Zombie could write " + counter.get() + " and logfile had only "+ numberOfEditsInRegion+ " in logfile="+ logfile,counter.get() == numberOfEditsInRegion || counter.get() + 1 == numberOfEditsInRegion);
+  }
+  finally {
+    stop.set(true);
+  }
+}
