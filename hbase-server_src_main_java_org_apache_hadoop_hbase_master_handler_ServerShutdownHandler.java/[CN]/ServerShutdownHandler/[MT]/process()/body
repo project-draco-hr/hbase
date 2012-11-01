@@ -1,2 +1,107 @@
 {
+  final ServerName serverName=this.serverName;
+  try {
+    try {
+      if (this.shouldSplitHlog) {
+        LOG.info("Splitting logs for " + serverName);
+        this.services.getMasterFileSystem().splitLog(serverName);
+      }
+ else {
+        LOG.info("Skipping log splitting for " + serverName);
+      }
+    }
+ catch (    IOException ioe) {
+      this.services.getExecutorService().submit(this);
+      this.deadServers.add(serverName);
+      throw new IOException("failed log splitting for " + serverName + ", will retry",ioe);
+    }
+    if (isCarryingRoot()) {
+      LOG.info("Server " + serverName + " was carrying ROOT. Trying to assign.");
+      this.services.getAssignmentManager().regionOffline(HRegionInfo.ROOT_REGIONINFO);
+      verifyAndAssignRootWithRetries();
+    }
+    if (isCarryingMeta()) {
+      LOG.info("Server " + serverName + " was carrying META. Trying to assign.");
+      this.services.getAssignmentManager().regionOffline(HRegionInfo.FIRST_META_REGIONINFO);
+      this.services.getAssignmentManager().assignMeta();
+    }
+    if (isCarryingRoot() || isCarryingMeta() || !services.getAssignmentManager().isFailoverCleanupDone()) {
+      this.services.getServerManager().processDeadServer(serverName);
+      return;
+    }
+    NavigableMap<HRegionInfo,Result> hris=null;
+    while (!this.server.isStopped()) {
+      try {
+        this.server.getCatalogTracker().waitForMeta();
+        hris=MetaReader.getServerUserRegions(this.server.getCatalogTracker(),this.serverName);
+        break;
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException("Interrupted",e);
+      }
+catch (      IOException ioe) {
+        LOG.info("Received exception accessing META during server shutdown of " + serverName + ", retrying META read",ioe);
+      }
+    }
+    if (this.server.isStopped()) {
+      throw new IOException("Server is stopped");
+    }
+    AssignmentManager am=services.getAssignmentManager();
+    List<RegionState> regionsInTransition=am.processServerShutdown(serverName);
+    LOG.info("Reassigning " + ((hris == null) ? 0 : hris.size()) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (skipping "+ regionsInTransition.size()+ " regions(s) that are already in transition)");
+    if (hris != null) {
+      RegionStates regionStates=am.getRegionStates();
+      List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
+      for (      Map.Entry<HRegionInfo,Result> e : hris.entrySet()) {
+        HRegionInfo hri=e.getKey();
+        RegionState rit=regionStates.getRegionTransitionState(hri);
+        if (processDeadRegion(hri,e.getValue(),am,server.getCatalogTracker())) {
+          ServerName addressFromAM=regionStates.getRegionServerOfRegion(hri);
+          if (addressFromAM != null && !addressFromAM.equals(this.serverName)) {
+            LOG.debug("Skip assigning region " + hri.getRegionNameAsString() + " because it has been opened in "+ addressFromAM.getServerName());
+            continue;
+          }
+          if (rit != null) {
+            if (!rit.isOnServer(serverName) || rit.isClosed() || rit.isOpened()|| rit.isSplit()) {
+              LOG.info("Skip assigning region " + rit);
+              continue;
+            }
+            try {
+              LOG.info("Reassigning region with rs = " + rit + " and deleting zk node if exists");
+              ZKAssign.deleteNodeFailSilent(services.getZooKeeper(),hri);
+            }
+ catch (            KeeperException ke) {
+              this.server.abort("Unexpected ZK exception deleting unassigned node " + hri,ke);
+              return;
+            }
+          }
+          toAssignRegions.add(hri);
+        }
+ else         if (rit != null) {
+          if (rit.isSplitting() || rit.isSplit()) {
+            am.regionOffline(hri);
+          }
+ else           if ((rit.isClosing() || rit.isPendingClose()) && am.getZKTable().isDisablingOrDisabledTable(hri.getTableNameAsString())) {
+            am.deleteClosingOrClosedNode(hri);
+            am.regionOffline(hri);
+          }
+ else {
+            LOG.warn("THIS SHOULD NOT HAPPEN: unexpected region in transition " + rit + " not to be assigned by SSH of server "+ serverName);
+          }
+        }
+      }
+      try {
+        am.assign(toAssignRegions);
+      }
+ catch (      InterruptedException ie) {
+        LOG.error("Caught " + ie + " during round-robin assignment");
+        throw new IOException(ie);
+      }
+    }
+  }
+  finally {
+    this.deadServers.finish(serverName);
+  }
+  LOG.info("Finished processing of shutdown of " + serverName);
 }
