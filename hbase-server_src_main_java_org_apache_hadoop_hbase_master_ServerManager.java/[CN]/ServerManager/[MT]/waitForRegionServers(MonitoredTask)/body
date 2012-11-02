@@ -1,8 +1,16 @@
 {
-  final long interval=this.master.getConfiguration().getLong("hbase.master.wait.on.regionservers.interval",1500);
-  final long timeout=this.master.getConfiguration().getLong("hbase.master.wait.on.regionservers.timeout",4500);
-  final int minToStart=this.master.getConfiguration().getInt("hbase.master.wait.on.regionservers.mintostart",1);
-  final int maxToStart=this.master.getConfiguration().getInt("hbase.master.wait.on.regionservers.maxtostart",Integer.MAX_VALUE);
+  final long interval=this.master.getConfiguration().getLong(WAIT_ON_REGIONSERVERS_INTERVAL,1500);
+  final long timeout=this.master.getConfiguration().getLong(WAIT_ON_REGIONSERVERS_TIMEOUT,4500);
+  int minToStart=this.master.getConfiguration().getInt(WAIT_ON_REGIONSERVERS_MINTOSTART,1);
+  if (minToStart < 1) {
+    LOG.warn(String.format("The value of '%s' (%d) can not be less than 1, ignoring.",WAIT_ON_REGIONSERVERS_MINTOSTART,minToStart));
+    minToStart=1;
+  }
+  int maxToStart=this.master.getConfiguration().getInt(WAIT_ON_REGIONSERVERS_MAXTOSTART,Integer.MAX_VALUE);
+  if (maxToStart < minToStart) {
+    LOG.warn(String.format("The value of '%s' (%d) is set less than '%s' (%d), ignoring.",WAIT_ON_REGIONSERVERS_MAXTOSTART,maxToStart,WAIT_ON_REGIONSERVERS_MINTOSTART,minToStart));
+    maxToStart=Integer.MAX_VALUE;
+  }
   long now=System.currentTimeMillis();
   final long startTime=now;
   long slept=0;
@@ -10,7 +18,7 @@
   long lastCountChange=startTime;
   int count=countOfRegionServers();
   int oldCount=0;
-  while (!this.master.isStopped() && slept < timeout && count < maxToStart && (lastCountChange + interval > now || count < minToStart)) {
+  while (!this.master.isStopped() && count < maxToStart && (lastCountChange + interval > now || timeout > slept || count < minToStart)) {
     if (oldCount != count || lastLogTime + interval < now) {
       lastLogTime=now;
       String msg="Waiting for region servers count to settle; currently" + " checked in " + count + ", slept for "+ slept+ " ms,"+ " expecting minimum of "+ minToStart+ ", maximum of "+ maxToStart+ ", timeout of "+ timeout+ " ms, interval of "+ interval+ " ms.";
