@@ -8,6 +8,7 @@
     int countdown=this.caching;
     callable.setCaching(this.caching);
     boolean skipFirst=false;
+    boolean retryAfterOutOfOrderException=true;
     do {
       try {
         if (skipFirst) {
@@ -17,6 +18,7 @@
           skipFirst=false;
         }
         values=callable.withRetries();
+        retryAfterOutOfOrderException=true;
       }
  catch (      DoNotRetryIOException e) {
         if (e instanceof UnknownScannerException) {
@@ -37,6 +39,14 @@
         if (this.lastResult != null) {
           this.scan.setStartRow(this.lastResult.getRow());
           skipFirst=true;
+        }
+        if (e instanceof OutOfOrderScannerNextException) {
+          if (retryAfterOutOfOrderException) {
+            retryAfterOutOfOrderException=false;
+          }
+ else {
+            throw new DoNotRetryIOException("Failed after retry" + ", it could be cause by rpc timeout",e);
+          }
         }
         this.currentRegion=null;
         callable=null;
