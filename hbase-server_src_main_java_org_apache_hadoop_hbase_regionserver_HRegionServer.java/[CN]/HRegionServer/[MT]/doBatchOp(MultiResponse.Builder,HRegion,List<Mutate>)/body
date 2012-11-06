@@ -1,5 +1,7 @@
 {
   @SuppressWarnings("unchecked") Pair<Mutation,Integer>[] mutationsWithLocks=new Pair[mutates.size()];
+  long before=EnvironmentEdgeManager.currentTimeMillis();
+  boolean batchContainsPuts=false, batchContainsDelete=false;
   try {
     ActionResult.Builder resultBuilder=ActionResult.newBuilder();
     NameBytesPair value=ProtobufUtil.toParameter(new Result());
@@ -10,15 +12,17 @@
       Mutation mutation=null;
       if (m.getMutateType() == MutateType.PUT) {
         mutation=ProtobufUtil.toPut(m);
+        batchContainsPuts=true;
       }
  else {
         mutation=ProtobufUtil.toDelete(m);
+        batchContainsDelete=true;
       }
       Integer lock=getLockFromId(mutation.getLockId());
       mutationsWithLocks[i++]=new Pair<Mutation,Integer>(mutation,lock);
       builder.addResult(result);
     }
-    requestCount.addAndGet(mutates.size());
+    requestCount.add(mutates.size());
     if (!region.getRegionInfo().isMetaTable()) {
       cacheFlusher.reclaimMemStoreMemory();
     }
@@ -47,5 +51,12 @@ ActionResult result=ResponseConverter.buildActionResult(ie);
 for (int i=0, n=mutates.size(); i < n; i++) {
 builder.setResult(i,result);
 }
+}
+long after=EnvironmentEdgeManager.currentTimeMillis();
+if (batchContainsPuts) {
+metricsRegionServer.updatePut(after - before);
+}
+if (batchContainsDelete) {
+metricsRegionServer.updateDelete(after - before);
 }
 }

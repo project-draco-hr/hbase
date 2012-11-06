@@ -13,7 +13,6 @@ synchronized (dataBlockIndexReader.getRootBlockKey(block)) {
       HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheConf.shouldCacheDataOnRead());
       if (cachedBlock != null) {
         cacheHits.incrementAndGet();
-        getSchemaMetrics().updateOnCacheHit(cachedBlock.getBlockType().getCategory(),isCompaction);
         return cachedBlock.getBufferWithoutHeader();
       }
     }
@@ -26,11 +25,9 @@ synchronized (dataBlockIndexReader.getRootBlockKey(block)) {
       nextOffset=dataBlockIndexReader.getRootBlockOffset(block + 1);
     }
     HFileBlock hfileBlock=fsBlockReader.readBlockData(offset,nextOffset - offset,dataBlockIndexReader.getRootBlockDataSize(block),pread);
-    passSchemaMetricsTo(hfileBlock);
     hfileBlock.expectType(BlockType.DATA);
     final long delta=System.nanoTime() - startTimeNs;
     HFile.offerReadLatency(delta,pread);
-    getSchemaMetrics().updateOnCacheMiss(BlockCategory.DATA,isCompaction,delta);
     if (cacheBlock && cacheConf.shouldCacheBlockOnRead(hfileBlock.getBlockType().getCategory())) {
       cacheConf.getBlockCache().cacheBlock(cacheKey,hfileBlock,cacheConf.isInMemory());
     }

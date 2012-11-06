@@ -1,0 +1,36 @@
+{
+  String tableNameString="testRequestCount";
+  byte[] tName=Bytes.toBytes(tableNameString);
+  byte[] cfName=Bytes.toBytes("d");
+  byte[] row=Bytes.toBytes("rk");
+  byte[] qualifier=Bytes.toBytes("qual");
+  byte[] initValue=Bytes.toBytes("Value");
+  byte[] nextValue=Bytes.toBytes("NEXT VAL");
+  TEST_UTIL.createTable(tName,cfName);
+  new HTable(conf,tName).close();
+  metricsRegionServer.getRegionServerWrapper().forceRecompute();
+  long requests=metricsHelper.getCounter("totalRequestCount",serverSource);
+  long readRequests=metricsHelper.getCounter("readRequestCount",serverSource);
+  long writeRequests=metricsHelper.getCounter("writeRequestCount",serverSource);
+  HTable table=new HTable(conf,tName);
+  Put p=new Put(row);
+  p.add(cfName,qualifier,initValue);
+  for (int i=0; i < 30; i++) {
+    table.put(p);
+  }
+  table.flushCommits();
+  Get g=new Get(row);
+  for (int i=0; i < 10; i++) {
+    table.get(g);
+  }
+  for (  HRegionInfo i : table.getRegionLocations().keySet()) {
+    MetricsRegionAggregateSource agg=rs.getRegion(i.getRegionName()).getMetrics().getSource().getAggregateSource();
+    String prefix="table." + tableNameString + ".region."+ i.getEncodedName();
+    metricsHelper.assertCounter(prefix + ".getCount",10,agg);
+    metricsHelper.assertCounter(prefix + ".multiPutCount",30,agg);
+  }
+  metricsRegionServer.getRegionServerWrapper().forceRecompute();
+  metricsHelper.assertCounterGt("totalRequestCount",requests + 39,serverSource);
+  metricsHelper.assertCounterGt("readRequestCount",readRequests + 9,serverSource);
+  metricsHelper.assertCounterGt("writeRequestCount",writeRequests + 29,serverSource);
+}
