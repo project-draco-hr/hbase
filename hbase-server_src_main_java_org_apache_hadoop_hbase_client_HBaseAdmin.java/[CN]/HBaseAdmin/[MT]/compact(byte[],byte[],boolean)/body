@@ -1,0 +1,33 @@
+{
+  CatalogTracker ct=getCatalogTracker();
+  try {
+    Pair<HRegionInfo,ServerName> regionServerPair=getRegion(tableNameOrRegionName,ct);
+    if (regionServerPair != null) {
+      if (regionServerPair.getSecond() == null) {
+        throw new NoServerForRegionException(Bytes.toStringBinary(tableNameOrRegionName));
+      }
+ else {
+        compact(regionServerPair.getSecond(),regionServerPair.getFirst(),major,columnFamily);
+      }
+    }
+ else {
+      final String tableName=tableNameString(tableNameOrRegionName,ct);
+      List<Pair<HRegionInfo,ServerName>> pairs=MetaReader.getTableRegionsAndLocations(ct,tableName);
+      for (      Pair<HRegionInfo,ServerName> pair : pairs) {
+        if (pair.getFirst().isOffline())         continue;
+        if (pair.getSecond() == null)         continue;
+        try {
+          compact(pair.getSecond(),pair.getFirst(),major,columnFamily);
+        }
+ catch (        NotServingRegionException e) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Trying to" + (major ? " major" : "") + " compact "+ pair.getFirst()+ ": "+ StringUtils.stringifyException(e));
+          }
+        }
+      }
+    }
+  }
+  finally {
+    cleanupCatalogTracker(ct);
+  }
+}

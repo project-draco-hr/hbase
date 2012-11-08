@@ -1,0 +1,81 @@
+{
+  byte[] table=Bytes.toBytes(tableName);
+  byte[] family=Bytes.toBytes("family");
+  byte[][] families={family,Bytes.add(family,Bytes.toBytes("2")),Bytes.add(family,Bytes.toBytes("3"))};
+  HTable ht=null;
+  try {
+    ht=TEST_UTIL.createTable(table,families);
+    loadData(ht,families,3000,flushes);
+    HRegionServer rs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(0);
+    List<HRegion> regions=rs.getOnlineRegions(table);
+    int countBefore=countStoreFilesInFamilies(regions,families);
+    int countBeforeSingleFamily=countStoreFilesInFamily(regions,family);
+    assertTrue(countBefore > 0);
+    HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+    if (expectedState == CompactionState.MINOR) {
+      if (singleFamily) {
+        admin.compact(table,family);
+      }
+ else {
+        admin.compact(table);
+      }
+    }
+ else {
+      if (singleFamily) {
+        admin.majorCompact(table,family);
+      }
+ else {
+        admin.majorCompact(table);
+      }
+    }
+    long curt=System.currentTimeMillis();
+    long waitTime=5000;
+    long endt=curt + waitTime;
+    CompactionState state=admin.getCompactionState(table);
+    while (state == CompactionState.NONE && curt < endt) {
+      Thread.sleep(10);
+      state=admin.getCompactionState(table);
+      curt=System.currentTimeMillis();
+    }
+    if (expectedState != state) {
+      for (      HRegion region : regions) {
+        state=CompactionRequest.getCompactionState(region.getRegionId());
+        assertEquals(CompactionState.NONE,state);
+      }
+    }
+ else {
+      curt=System.currentTimeMillis();
+      waitTime=20000;
+      endt=curt + waitTime;
+      state=admin.getCompactionState(table);
+      while (state != CompactionState.NONE && curt < endt) {
+        Thread.sleep(10);
+        state=admin.getCompactionState(table);
+        curt=System.currentTimeMillis();
+      }
+      assertEquals(CompactionState.NONE,state);
+    }
+    int countAfter=countStoreFilesInFamilies(regions,families);
+    int countAfterSingleFamily=countStoreFilesInFamily(regions,family);
+    assertTrue(countAfter < countBefore);
+    if (!singleFamily) {
+      if (expectedState == CompactionState.MAJOR)       assertTrue(families.length == countAfter);
+ else       assertTrue(families.length < countAfter);
+    }
+ else {
+      int singleFamDiff=countBeforeSingleFamily - countAfterSingleFamily;
+      assertTrue(singleFamDiff == (countBefore - countAfter));
+      if (expectedState == CompactionState.MAJOR) {
+        assertTrue(1 == countAfterSingleFamily);
+      }
+ else {
+        assertTrue(1 < countAfterSingleFamily);
+      }
+    }
+  }
+  finally {
+    if (ht != null) {
+      TEST_UTIL.deleteTable(table);
+    }
+  }
+}
