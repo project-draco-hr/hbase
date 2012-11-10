@@ -1,0 +1,50 @@
+{
+  LOG.info("Starting test testAppendMultiThreads");
+  initHRegion(tableName,getName(),new int[]{1,3},fam1,fam2);
+  int numThreads=100;
+  int opsPerThread=100;
+  AtomicOperation[] all=new AtomicOperation[numThreads];
+  final byte[] val=new byte[]{1};
+  AtomicInteger failures=new AtomicInteger(0);
+  for (int i=0; i < numThreads; i++) {
+    all[i]=new AtomicOperation(region,opsPerThread,null,failures){
+      @Override public void run(){
+        for (int i=0; i < numOps; i++) {
+          try {
+            Append a=new Append(row);
+            a.add(fam1,qual1,val);
+            a.add(fam1,qual2,val);
+            a.add(fam2,qual3,val);
+            region.append(a,null,true);
+            Get g=new Get(row);
+            Result result=region.get(g,null);
+            assertEquals(result.getValue(fam1,qual1).length,result.getValue(fam1,qual2).length);
+            assertEquals(result.getValue(fam1,qual1).length,result.getValue(fam2,qual3).length);
+          }
+ catch (          IOException e) {
+            e.printStackTrace();
+            failures.incrementAndGet();
+            fail();
+          }
+        }
+      }
+    }
+;
+  }
+  for (int i=0; i < numThreads; i++) {
+    all[i].start();
+  }
+  for (int i=0; i < numThreads; i++) {
+    try {
+      all[i].join();
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  assertEquals(0,failures.get());
+  Get g=new Get(row);
+  Result result=region.get(g,null);
+  assertEquals(result.getValue(fam1,qual1).length,10000);
+  assertEquals(result.getValue(fam1,qual2).length,10000);
+  assertEquals(result.getValue(fam2,qual3).length,10000);
+}

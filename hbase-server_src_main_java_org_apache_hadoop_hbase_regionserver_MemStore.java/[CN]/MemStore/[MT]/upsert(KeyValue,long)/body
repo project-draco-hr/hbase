@@ -3,18 +3,21 @@
   KeyValue firstKv=KeyValue.createFirstOnRow(kv.getBuffer(),kv.getRowOffset(),kv.getRowLength(),kv.getBuffer(),kv.getFamilyOffset(),kv.getFamilyLength(),kv.getBuffer(),kv.getQualifierOffset(),kv.getQualifierLength());
   SortedSet<KeyValue> ss=kvset.tailSet(firstKv);
   Iterator<KeyValue> it=ss.iterator();
+  int versionsVisible=0;
   while (it.hasNext()) {
     KeyValue cur=it.next();
     if (kv == cur) {
       continue;
     }
-    if (!kv.matchingRow(cur)) {
-      break;
-    }
-    if (kv.matchingQualifier(cur)) {
-      if (kv.getType() == KeyValue.Type.Put.getCode() && kv.getMemstoreTS() == 0) {
-        addedSize-=heapSizeChange(kv,true);
-        it.remove();
+    if (kv.matchingRow(cur) && kv.matchingQualifier(cur)) {
+      if (cur.getType() == KeyValue.Type.Put.getCode() && cur.getMemstoreTS() <= readpoint) {
+        if (versionsVisible > 1) {
+          addedSize-=heapSizeChange(cur,true);
+          it.remove();
+        }
+ else {
+          versionsVisible++;
+        }
       }
     }
  else {

@@ -9,9 +9,12 @@
   long txid=0;
   startRegionOperation();
   this.writeRequestsCount.increment();
+  WriteEntry w=null;
   try {
     Integer lid=getLock(lockid,row,true);
     this.updatesLock.readLock().lock();
+    mvcc.completeMemstoreInsert(mvcc.beginMemstoreInsert());
+    w=mvcc.beginMemstoreInsert();
     try {
       long now=EnvironmentEdgeManager.currentTimeMillis();
       for (      Map.Entry<byte[],List<KeyValue>> family : append.getFamilyMap().entrySet()) {
@@ -39,6 +42,7 @@
           System.arraycopy(kv.getBuffer(),kv.getRowOffset(),newKV.getBuffer(),newKV.getRowOffset(),kv.getRowLength());
           System.arraycopy(kv.getBuffer(),kv.getFamilyOffset(),newKV.getBuffer(),newKV.getFamilyOffset(),kv.getFamilyLength());
           System.arraycopy(kv.getBuffer(),kv.getQualifierOffset(),newKV.getBuffer(),newKV.getQualifierOffset(),kv.getQualifierLength());
+          newKV.setMemstoreTS(w.getWriteNumber());
           kvs.add(newKV);
           if (writeToWAL) {
             if (walEdits == null) {
@@ -54,7 +58,14 @@
       }
       for (      Map.Entry<Store,List<KeyValue>> entry : tempMemstore.entrySet()) {
         Store store=entry.getKey();
-        size+=store.upsert(entry.getValue());
+        if (store.getFamily().getMaxVersions() == 1) {
+          size+=store.upsert(entry.getValue(),getSmallestReadPoint());
+        }
+ else {
+          for (          KeyValue kv : entry.getValue()) {
+            size+=store.add(kv);
+          }
+        }
         allKVs.addAll(entry.getValue());
       }
       size=this.addAndGetGlobalMemstoreSize(size);
@@ -69,6 +80,9 @@
     }
   }
   finally {
+    if (w != null) {
+      mvcc.completeMemstoreInsert(w);
+    }
     closeRegionOperation();
   }
   this.metricsRegion.updateAppend();
