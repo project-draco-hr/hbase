@@ -1,0 +1,71 @@
+{
+  final byte[] tableName=Bytes.toBytes("testShouldFailSplitIfZNodeDoesNotExistDueToPrevRollBack");
+  HBaseAdmin admin=new HBaseAdmin(TESTING_UTIL.getConfiguration());
+  try {
+    HTableDescriptor htd=new HTableDescriptor(tableName);
+    htd.addFamily(new HColumnDescriptor("cf"));
+    admin.createTable(htd);
+    HTable t=new HTable(cluster.getConfiguration(),tableName);
+    while (!(cluster.getRegions(tableName).size() == 1)) {
+      Thread.sleep(100);
+    }
+    final List<HRegion> regions=cluster.getRegions(tableName);
+    HRegionInfo hri=getAndCheckSingleTableRegion(regions);
+    int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
+    final HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
+    insertData(tableName,admin,t);
+    this.admin.setBalancerRunning(false,false);
+    cluster.getMaster().setCatalogJanitorEnabled(false);
+    new Thread(){
+      public void run(){
+        SplitTransaction st=null;
+        st=new MockedSplitTransaction(regions.get(0),Bytes.toBytes("row2"));
+        try {
+          st.prepare();
+          st.execute(regionServer,regionServer);
+        }
+ catch (        IOException e) {
+        }
+      }
+    }
+.start();
+    while (!callRollBack) {
+      Thread.sleep(100);
+    }
+    SplitTransaction st=null;
+    st=new MockedSplitTransaction(regions.get(0),Bytes.toBytes("row2"));
+    try {
+      secondSplit=true;
+      st.prepare();
+      st.execute(regionServer,regionServer);
+    }
+ catch (    IOException e) {
+      LOG.debug("Rollback started :" + e.getMessage());
+      st.rollback(regionServer,regionServer);
+    }
+    while (!firstSplitCompleted) {
+      Thread.sleep(100);
+    }
+    RegionStates regionStates=cluster.getMaster().getAssignmentManager().getRegionStates();
+    Map<String,RegionState> rit=regionStates.getRegionsInTransition();
+    while (rit.containsKey(hri.getTableNameAsString())) {
+      Thread.sleep(100);
+    }
+    List<HRegion> onlineRegions=regionServer.getOnlineRegions(tableName);
+    assertEquals("The parent region should be splitted",2,onlineRegions.size());
+    List<HRegionInfo> regionsOfTable=cluster.getMaster().getAssignmentManager().getRegionStates().getRegionsOfTable(tableName);
+    assertEquals("No of regions in master",2,regionsOfTable.size());
+  }
+  finally {
+    admin.setBalancerRunning(true,false);
+    secondSplit=false;
+    firstSplitCompleted=false;
+    callRollBack=false;
+    cluster.getMaster().setCatalogJanitorEnabled(true);
+    if (admin.isTableAvailable(tableName) && admin.isTableEnabled(tableName)) {
+      admin.disableTable(tableName);
+      admin.deleteTable(tableName);
+      admin.close();
+    }
+  }
+}
