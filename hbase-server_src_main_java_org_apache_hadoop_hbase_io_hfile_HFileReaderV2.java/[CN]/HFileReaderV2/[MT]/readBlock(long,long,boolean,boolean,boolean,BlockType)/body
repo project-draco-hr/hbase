@@ -6,40 +6,48 @@
     throw new IOException("Requested block is out of range: " + dataBlockOffset + ", lastDataBlockOffset: "+ trailer.getLastDataBlockOffset());
   }
   BlockCacheKey cacheKey=new BlockCacheKey(name,dataBlockOffset,dataBlockEncoder.getEffectiveEncodingInCache(isCompaction),expectedBlockType);
-  IdLock.Entry lockEntry=offsetLock.getLockEntry(dataBlockOffset);
+  boolean useLock=false;
+  IdLock.Entry lockEntry=null;
   try {
-    blockLoads.incrementAndGet();
-    if (cacheConf.isBlockCacheEnabled()) {
-      HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheBlock);
-      if (cachedBlock != null) {
-        BlockCategory blockCategory=cachedBlock.getBlockType().getCategory();
-        cacheHits.incrementAndGet();
-        if (cachedBlock.getBlockType() == BlockType.DATA) {
-          HFile.dataBlockReadCnt.incrementAndGet();
-        }
-        validateBlockType(cachedBlock,expectedBlockType);
-        if (cachedBlock.getBlockType() == BlockType.ENCODED_DATA && cachedBlock.getDataBlockEncoding() != dataBlockEncoder.getEncodingInCache()) {
-          throw new IOException("Cached block under key " + cacheKey + " "+ "has wrong encoding: "+ cachedBlock.getDataBlockEncoding()+ " (expected: "+ dataBlockEncoder.getEncodingInCache()+ ")");
-        }
-        return cachedBlock;
+    while (true) {
+      if (useLock) {
+        lockEntry=offsetLock.getLockEntry(dataBlockOffset);
       }
+      if (cacheConf.isBlockCacheEnabled()) {
+        HFileBlock cachedBlock=(HFileBlock)cacheConf.getBlockCache().getBlock(cacheKey,cacheBlock,useLock);
+        if (cachedBlock != null) {
+          if (cachedBlock.getBlockType() == BlockType.DATA) {
+            HFile.dataBlockReadCnt.incrementAndGet();
+          }
+          validateBlockType(cachedBlock,expectedBlockType);
+          if (cachedBlock.getBlockType() == BlockType.ENCODED_DATA && cachedBlock.getDataBlockEncoding() != dataBlockEncoder.getEncodingInCache()) {
+            throw new IOException("Cached block under key " + cacheKey + " "+ "has wrong encoding: "+ cachedBlock.getDataBlockEncoding()+ " (expected: "+ dataBlockEncoder.getEncodingInCache()+ ")");
+          }
+          return cachedBlock;
+        }
+      }
+      if (!useLock) {
+        useLock=true;
+        continue;
+      }
+      long startTimeNs=System.nanoTime();
+      HFileBlock hfileBlock=fsBlockReader.readBlockData(dataBlockOffset,onDiskBlockSize,-1,pread);
+      hfileBlock=dataBlockEncoder.diskToCacheFormat(hfileBlock,isCompaction);
+      validateBlockType(hfileBlock,expectedBlockType);
+      final long delta=System.nanoTime() - startTimeNs;
+      HFile.offerReadLatency(delta,pread);
+      if (cacheBlock && cacheConf.shouldCacheBlockOnRead(hfileBlock.getBlockType().getCategory())) {
+        cacheConf.getBlockCache().cacheBlock(cacheKey,hfileBlock,cacheConf.isInMemory());
+      }
+      if (hfileBlock.getBlockType() == BlockType.DATA) {
+        HFile.dataBlockReadCnt.incrementAndGet();
+      }
+      return hfileBlock;
     }
-    long startTimeNs=System.nanoTime();
-    HFileBlock hfileBlock=fsBlockReader.readBlockData(dataBlockOffset,onDiskBlockSize,-1,pread);
-    hfileBlock=dataBlockEncoder.diskToCacheFormat(hfileBlock,isCompaction);
-    validateBlockType(hfileBlock,expectedBlockType);
-    BlockCategory blockCategory=hfileBlock.getBlockType().getCategory();
-    final long delta=System.nanoTime() - startTimeNs;
-    HFile.offerReadLatency(delta,pread);
-    if (cacheBlock && cacheConf.shouldCacheBlockOnRead(hfileBlock.getBlockType().getCategory())) {
-      cacheConf.getBlockCache().cacheBlock(cacheKey,hfileBlock,cacheConf.isInMemory());
-    }
-    if (hfileBlock.getBlockType() == BlockType.DATA) {
-      HFile.dataBlockReadCnt.incrementAndGet();
-    }
-    return hfileBlock;
   }
   finally {
-    offsetLock.releaseLockEntry(lockEntry);
+    if (lockEntry != null) {
+      offsetLock.releaseLockEntry(lockEntry);
+    }
   }
 }
