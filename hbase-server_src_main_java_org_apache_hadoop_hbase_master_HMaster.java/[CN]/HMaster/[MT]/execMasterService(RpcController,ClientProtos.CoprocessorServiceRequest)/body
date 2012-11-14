@@ -1,0 +1,38 @@
+{
+  try {
+    ServerRpcController execController=new ServerRpcController();
+    ClientProtos.CoprocessorServiceCall call=request.getCall();
+    String serviceName=call.getServiceName();
+    String methodName=call.getMethodName();
+    if (!coprocessorServiceHandlers.containsKey(serviceName)) {
+      throw new HBaseRPC.UnknownProtocolException(null,"No registered master coprocessor service found for name " + serviceName);
+    }
+    Service service=coprocessorServiceHandlers.get(serviceName);
+    Descriptors.ServiceDescriptor serviceDesc=service.getDescriptorForType();
+    Descriptors.MethodDescriptor methodDesc=serviceDesc.findMethodByName(methodName);
+    if (methodDesc == null) {
+      throw new HBaseRPC.UnknownProtocolException(service.getClass(),"Unknown method " + methodName + " called on master service "+ serviceName);
+    }
+    Message execRequest=service.getRequestPrototype(methodDesc).newBuilderForType().mergeFrom(call.getRequest()).build();
+    final Message.Builder responseBuilder=service.getResponsePrototype(methodDesc).newBuilderForType();
+    service.callMethod(methodDesc,controller,execRequest,new RpcCallback<Message>(){
+      @Override public void run(      Message message){
+        if (message != null) {
+          responseBuilder.mergeFrom(message);
+        }
+      }
+    }
+);
+    Message execResult=responseBuilder.build();
+    if (execController.getFailedOn() != null) {
+      throw execController.getFailedOn();
+    }
+    ClientProtos.CoprocessorServiceResponse.Builder builder=ClientProtos.CoprocessorServiceResponse.newBuilder();
+    builder.setRegion(RequestConverter.buildRegionSpecifier(RegionSpecifierType.REGION_NAME,HConstants.EMPTY_BYTE_ARRAY));
+    builder.setValue(builder.getValueBuilder().setName(execResult.getClass().getName()).setValue(execResult.toByteString()));
+    return builder.build();
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
+}

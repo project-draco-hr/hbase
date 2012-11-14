@@ -1,0 +1,29 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Call: " + method.getName() + ", "+ request.toString());
+  }
+  if (row == null) {
+    throw new IllegalArgumentException("Missing row property for remote region location");
+  }
+  final ClientProtos.CoprocessorServiceCall call=ClientProtos.CoprocessorServiceCall.newBuilder().setRow(ByteString.copyFrom(row)).setServiceName(method.getService().getFullName()).setMethodName(method.getName()).setRequest(request.toByteString()).build();
+  ServerCallable<CoprocessorServiceResponse> callable=new ServerCallable<CoprocessorServiceResponse>(connection,table,row){
+    public CoprocessorServiceResponse call() throws Exception {
+      byte[] regionName=location.getRegionInfo().getRegionName();
+      return ProtobufUtil.execService(server,call,regionName);
+    }
+  }
+;
+  CoprocessorServiceResponse result=callable.withRetries();
+  Message response=null;
+  if (result.getValue().hasValue()) {
+    response=responsePrototype.newBuilderForType().mergeFrom(result.getValue().getValue()).build();
+  }
+ else {
+    response=responsePrototype.getDefaultInstanceForType();
+  }
+  lastRegion=result.getRegion().getValue().toByteArray();
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("Result is region=" + Bytes.toStringBinary(lastRegion) + ", value="+ response);
+  }
+  return response;
+}
