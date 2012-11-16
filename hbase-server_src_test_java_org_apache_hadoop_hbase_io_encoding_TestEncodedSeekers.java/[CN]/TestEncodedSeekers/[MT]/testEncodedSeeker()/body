@@ -2,41 +2,11 @@
   System.err.println("Testing encoded seekers for encoding " + encoding);
   LruBlockCache cache=(LruBlockCache)new CacheConfig(testUtil.getConfiguration()).getBlockCache();
   cache.clearCache();
-  HRegion region=testUtil.createTestRegion(TABLE_NAME,new HColumnDescriptor(CF_NAME).setMaxVersions(MAX_VERSIONS).setDataBlockEncoding(encoding).setEncodeOnDisk(encodeOnDisk));
-  LoadTestKVGenerator dataGenerator=new LoadTestKVGenerator(MIN_VALUE_SIZE,MAX_VALUE_SIZE);
-  for (int i=0; i < NUM_ROWS; ++i) {
-    byte[] key=MultiThreadedWriter.longToByteArrayKey(i);
-    for (int j=0; j < NUM_COLS_PER_ROW; ++j) {
-      Put put=new Put(key);
-      String colAsStr=String.valueOf(j);
-      byte[] value=dataGenerator.generateRandomSizeValue(i,colAsStr);
-      put.add(CF_BYTES,Bytes.toBytes(colAsStr),value);
-      region.put(put);
-    }
-    if (i % NUM_ROWS_PER_FLUSH == 0) {
-      region.flushcache();
-    }
-  }
-  for (int doneCompaction=0; doneCompaction <= 1; ++doneCompaction) {
-    for (int i=0; i < NUM_ROWS; ++i) {
-      final byte[] rowKey=MultiThreadedWriter.longToByteArrayKey(i);
-      for (int j=0; j < NUM_COLS_PER_ROW; ++j) {
-        if (VERBOSE) {
-          System.err.println("Reading row " + i + ", column "+ j);
-        }
-        final String qualStr=String.valueOf(j);
-        final byte[] qualBytes=Bytes.toBytes(qualStr);
-        Get get=new Get(rowKey);
-        get.addColumn(CF_BYTES,qualBytes);
-        Result result=region.get(get,null);
-        assertEquals(1,result.size());
-        assertTrue(LoadTestKVGenerator.verify(Bytes.toString(rowKey),qualStr,result.getValue(CF_BYTES,qualBytes)));
-      }
-    }
-    if (doneCompaction == 0) {
-      region.compactStores();
-    }
-  }
+  HRegion region=testUtil.createTestRegion(TABLE_NAME,new HColumnDescriptor(CF_NAME).setMaxVersions(MAX_VERSIONS).setDataBlockEncoding(encoding).setEncodeOnDisk(encodeOnDisk).setBlocksize(BLOCK_SIZE));
+  doPuts(region);
+  doGets(region);
+  region.compactStores();
+  doGets(region);
   Map<DataBlockEncoding,Integer> encodingCounts=cache.getEncodingCountsForTest();
   System.err.println("encodingCounts=" + encodingCounts);
   assertEquals(1,encodingCounts.size());
