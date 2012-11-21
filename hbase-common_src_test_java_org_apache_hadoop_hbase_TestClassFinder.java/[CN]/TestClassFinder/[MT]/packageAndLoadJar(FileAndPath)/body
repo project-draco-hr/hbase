@@ -1,0 +1,40 @@
+{
+  String path=basePath + "jar" + jarCounter.incrementAndGet()+ ".jar";
+  Manifest manifest=new Manifest();
+  manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION,"1.0");
+  FileOutputStream fos=new FileOutputStream(path);
+  JarOutputStream jarOutputStream=new JarOutputStream(fos,manifest);
+  Set<String> pathsInJar=new HashSet<String>();
+  for (  FileAndPath fileAndPath : filesInJar) {
+    String pathToAdd=fileAndPath.path;
+    while (pathsInJar.add(pathToAdd)) {
+      int ix=pathToAdd.lastIndexOf('/',pathToAdd.length() - 2);
+      if (ix < 0) {
+        break;
+      }
+      pathToAdd=pathToAdd.substring(0,ix);
+    }
+  }
+  for (  String pathInJar : pathsInJar) {
+    jarOutputStream.putNextEntry(new JarEntry(pathInJar));
+    jarOutputStream.closeEntry();
+  }
+  for (  FileAndPath fileAndPath : filesInJar) {
+    File file=fileAndPath.file;
+    jarOutputStream.putNextEntry(new JarEntry(fileAndPath.path + file.getName()));
+    byte[] allBytes=new byte[(int)file.length()];
+    FileInputStream fis=new FileInputStream(file);
+    fis.read(allBytes);
+    fis.close();
+    jarOutputStream.write(allBytes);
+    jarOutputStream.closeEntry();
+  }
+  jarOutputStream.close();
+  fos.close();
+  File jarFile=new File(path);
+  assertTrue(jarFile.exists());
+  URLClassLoader urlClassLoader=(URLClassLoader)ClassLoader.getSystemClassLoader();
+  Method method=URLClassLoader.class.getDeclaredMethod("addURL",new Class[]{URL.class});
+  method.setAccessible(true);
+  method.invoke(urlClassLoader,new Object[]{jarFile.toURI().toURL()});
+}

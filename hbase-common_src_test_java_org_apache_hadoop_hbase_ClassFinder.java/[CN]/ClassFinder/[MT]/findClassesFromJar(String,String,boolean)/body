@@ -1,0 +1,49 @@
+{
+  JarInputStream jarFile=null;
+  try {
+    jarFile=new JarInputStream(new FileInputStream(jarFileName));
+  }
+ catch (  IOException ioEx) {
+    if (!proceedOnExceptions) {
+      throw ioEx;
+    }
+    LOG.error("Failed to look for classes in " + jarFileName + ": "+ ioEx);
+  }
+  Set<Class<?>> classes=new HashSet<Class<?>>();
+  JarEntry entry=null;
+  while (true) {
+    try {
+      entry=jarFile.getNextJarEntry();
+    }
+ catch (    IOException ioEx) {
+      if (!proceedOnExceptions) {
+        throw ioEx;
+      }
+      LOG.error("Failed to get next entry from " + jarFileName + ": "+ ioEx);
+      break;
+    }
+    if (entry == null) {
+      break;
+    }
+    String className=entry.getName();
+    if (!className.endsWith(CLASS_EXT)) {
+      continue;
+    }
+    int ix=className.lastIndexOf('/');
+    String fileName=(ix >= 0) ? className.substring(ix + 1) : className;
+    if (!this.fileNameFilter.isCandidateFile(fileName,className)) {
+      continue;
+    }
+    className=className.substring(0,className.length() - CLASS_EXT.length()).replace('/','.');
+    if (!className.startsWith(packageName)) {
+      continue;
+    }
+    Class<?> c=makeClass(className,proceedOnExceptions);
+    if (c != null) {
+      if (!classes.add(c)) {
+        LOG.error("Ignoring duplicate class " + className);
+      }
+    }
+  }
+  return classes;
+}
