@@ -1,0 +1,28 @@
+{
+  if (candidates.getFilesToCompact().isEmpty()) {
+    return candidates;
+  }
+  int start=0;
+  double ratio=comConf.getCompactionRatio();
+  if (isOffPeakHour() && candidates.trySetOffpeak()) {
+    ratio=comConf.getCompactionRatioOffPeak();
+    LOG.info("Running an off-peak compaction, selection ratio = " + ratio + ", numOutstandingOffPeakCompactions is now "+ CompactSelection.getNumOutStandingOffPeakCompactions());
+  }
+  int countOfFiles=candidates.getFilesToCompact().size();
+  long[] fileSizes=new long[countOfFiles];
+  long[] sumSize=new long[countOfFiles];
+  for (int i=countOfFiles - 1; i >= 0; --i) {
+    StoreFile file=candidates.getFilesToCompact().get(i);
+    fileSizes[i]=file.getReader().length();
+    int tooFar=i + comConf.getMaxFilesToCompact() - 1;
+    sumSize[i]=fileSizes[i] + ((i + 1 < countOfFiles) ? sumSize[i + 1] : 0) - ((tooFar < countOfFiles) ? fileSizes[tooFar] : 0);
+  }
+  while (countOfFiles - start >= comConf.getMinFilesToCompact() && fileSizes[start] > Math.max(comConf.getMinCompactSize(),(long)(sumSize[start + 1] * ratio))) {
+    ++start;
+  }
+  if (start < countOfFiles) {
+    LOG.info("Default compaction algorithm has selected " + (countOfFiles - start) + " files from "+ countOfFiles+ " candidates");
+  }
+  candidates=candidates.getSubList(start,countOfFiles);
+  return candidates;
+}
