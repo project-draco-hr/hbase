@@ -1,0 +1,30 @@
+{
+  LOG.info("Unbalancing regions");
+  ClusterStatus status=this.cluster.getClusterStatus();
+  List<ServerName> victimServers=new LinkedList<ServerName>(status.getServers());
+  int targetServerCount=(int)Math.ceil(fractionOfServers * victimServers.size());
+  List<byte[]> targetServers=new ArrayList<byte[]>(targetServerCount);
+  for (int i=0; i < targetServerCount; ++i) {
+    int victimIx=random.nextInt(victimServers.size());
+    String serverName=victimServers.remove(victimIx).getServerName();
+    targetServers.add(Bytes.toBytes(serverName));
+  }
+  List<byte[]> victimRegions=new LinkedList<byte[]>();
+  for (  ServerName server : victimServers) {
+    ServerLoad serverLoad=status.getLoad(server);
+    List<byte[]> regions=new LinkedList<byte[]>(serverLoad.getRegionsLoad().keySet());
+    int victimRegionCount=(int)Math.ceil(fractionOfRegions * regions.size());
+    LOG.debug("Removing " + victimRegionCount + " regions from "+ server.getServerName());
+    for (int i=0; i < victimRegionCount; ++i) {
+      int victimIx=random.nextInt(regions.size());
+      String regionId=HRegionInfo.encodeRegionName(regions.remove(victimIx));
+      victimRegions.add(Bytes.toBytes(regionId));
+    }
+  }
+  LOG.info("Moving " + victimRegions.size() + " regions from "+ victimServers.size()+ " servers to "+ targetServers.size()+ " different servers");
+  HBaseAdmin admin=this.context.getHaseIntegrationTestingUtility().getHBaseAdmin();
+  for (  byte[] victimRegion : victimRegions) {
+    int targetIx=random.nextInt(targetServers.size());
+    admin.move(victimRegion,targetServers.get(targetIx));
+  }
+}
