@@ -8,13 +8,28 @@
       startTime=EnvironmentEdgeManager.currentTimeMillis();
       LOG.info("Blocking updates for '" + Thread.currentThread().getName() + "' on region "+ Bytes.toStringBinary(getRegionName())+ ": memstore size "+ StringUtils.humanReadableInt(this.memstoreSize.get())+ " is >= than blocking "+ StringUtils.humanReadableInt(this.blockingMemStoreSize)+ " size");
     }
+    long now=EnvironmentEdgeManager.currentTimeMillis();
+    long timeToWait=startTime + busyWaitDuration - now;
+    if (timeToWait <= 0L) {
+      final long totalTime=now - startTime;
+      this.updatesBlockedMs.add(totalTime);
+      LOG.info("Failed to unblock updates for region " + this + " '"+ Thread.currentThread().getName()+ "' in "+ totalTime+ "ms. The region is still busy.");
+      throw new RegionTooBusyException("region is flushing");
+    }
     blocked=true;
 synchronized (this) {
       try {
-        wait(threadWakeFrequency);
+        wait(Math.min(timeToWait,threadWakeFrequency));
       }
- catch (      InterruptedException e) {
-        Thread.currentThread().interrupt();
+ catch (      InterruptedException ie) {
+        final long totalTime=EnvironmentEdgeManager.currentTimeMillis() - startTime;
+        if (totalTime > 0) {
+          this.updatesBlockedMs.add(totalTime);
+        }
+        LOG.info("Interrupted while waiting to unblock updates for region " + this + " '"+ Thread.currentThread().getName()+ "'");
+        InterruptedIOException iie=new InterruptedIOException();
+        iie.initCause(ie);
+        throw iie;
       }
     }
   }
