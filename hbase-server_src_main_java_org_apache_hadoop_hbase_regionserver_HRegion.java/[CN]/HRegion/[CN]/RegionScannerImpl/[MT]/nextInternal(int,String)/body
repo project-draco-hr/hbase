@@ -4,18 +4,26 @@
     if (rpcCall != null) {
       rpcCall.throwExceptionIfCallerDisconnected();
     }
-    byte[] currentRow=peekRow();
-    if (isStopRow(currentRow)) {
+    KeyValue current=this.storeHeap.peek();
+    byte[] currentRow=null;
+    int offset=0;
+    short length=0;
+    if (current != null) {
+      currentRow=current.getBuffer();
+      offset=current.getRowOffset();
+      length=current.getRowLength();
+    }
+    if (isStopRow(currentRow,offset,length)) {
       if (filter != null && filter.hasFilterRow()) {
         filter.filterRow(results);
       }
       return false;
     }
- else     if (filterRowKey(currentRow)) {
-      nextRow(currentRow);
+ else     if (filterRowKey(currentRow,offset,length)) {
+      nextRow(currentRow,offset,length);
     }
  else {
-      byte[] nextRow;
+      KeyValue nextKv;
       do {
         this.storeHeap.next(results,limit - results.size(),metric);
         if (limit > 0 && results.size() == limit) {
@@ -24,14 +32,15 @@
           }
           return true;
         }
+        nextKv=this.storeHeap.peek();
       }
- while (Bytes.equals(currentRow,nextRow=peekRow()));
-      final boolean stopRow=isStopRow(nextRow);
+ while (nextKv != null && nextKv.matchingRow(currentRow,offset,length));
+      final boolean stopRow=nextKv == null || isStopRow(nextKv.getBuffer(),nextKv.getRowOffset(),nextKv.getRowLength());
       if (filter != null && filter.hasFilterRow()) {
         filter.filterRow(results);
       }
       if (results.isEmpty()) {
-        nextRow(currentRow);
+        nextRow(currentRow,offset,length);
         if (!stopRow)         continue;
       }
       return !stopRow;
