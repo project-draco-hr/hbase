@@ -1,11 +1,26 @@
 {
   Class<?> implClass=null;
   LOG.debug("Loading coprocessor class " + className + " with path "+ path+ " and priority "+ priority);
-  try {
-    implClass=getClass().getClassLoader().loadClass(className);
+  ClassLoader cl=null;
+  if (path == null) {
+    try {
+      implClass=getClass().getClassLoader().loadClass(className);
+    }
+ catch (    ClassNotFoundException e) {
+      throw new IOException("No jar path specified for " + className);
+    }
   }
- catch (  ClassNotFoundException e) {
-    LOG.info("Class " + className + " needs to be loaded from a file - "+ path+ ".");
+ else {
+    cl=classLoadersCache.get(path);
+    if (cl != null) {
+      LOG.debug("Found classloader " + cl + "for "+ path.toString());
+      try {
+        implClass=cl.loadClass(className);
+      }
+ catch (      ClassNotFoundException e) {
+        LOG.info("Class " + className + " needs to be loaded from a file - "+ path+ ".");
+      }
+    }
   }
   if (implClass == null) {
     if (path == null) {
@@ -20,7 +35,8 @@
     File tmpLocal=new File(dst.toString());
     tmpLocal.deleteOnExit();
     List<URL> paths=new ArrayList<URL>();
-    paths.add(new File(dst.toString()).getCanonicalFile().toURL());
+    URL url=new File(dst.toString()).getCanonicalFile().toURL();
+    paths.add(url);
     JarFile jarFile=new JarFile(dst.toString());
     Enumeration<JarEntry> entries=jarFile.entries();
     while (entries.hasMoreElements()) {
@@ -33,14 +49,26 @@
       }
     }
     jarFile.close();
-    ClassLoader cl=new CoprocessorClassLoader(paths,this.getClass().getClassLoader());
-    Thread.currentThread().setContextClassLoader(cl);
+    cl=new CoprocessorClassLoader(paths,this.getClass().getClassLoader());
+    ClassLoader prev=classLoadersCache.putIfAbsent(path,cl);
+    if (prev != null) {
+      cl=prev;
+    }
     try {
       implClass=cl.loadClass(className);
     }
  catch (    ClassNotFoundException e) {
-      throw new IOException(e);
+      throw new IOException("Cannot load external coprocessor class " + className,e);
     }
   }
-  return loadInstance(implClass,priority,conf);
+  Thread currentThread=Thread.currentThread();
+  ClassLoader hostClassLoader=currentThread.getContextClassLoader();
+  try {
+    currentThread.setContextClassLoader(cl);
+    E cpInstance=loadInstance(implClass,priority,conf);
+    return cpInstance;
+  }
+  finally {
+    currentThread.setContextClassLoader(hostClassLoader);
+  }
 }
