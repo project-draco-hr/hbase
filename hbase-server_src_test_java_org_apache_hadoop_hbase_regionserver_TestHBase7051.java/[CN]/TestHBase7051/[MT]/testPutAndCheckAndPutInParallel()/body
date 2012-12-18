@@ -1,6 +1,5 @@
 {
   final String tableName="testPutAndCheckAndPut";
-  final String family="f1";
   Configuration conf=HBaseConfiguration.create();
   conf.setClass(HConstants.REGION_IMPL,MockHRegion.class,HeapSize.class);
   final MockHRegion region=(MockHRegion)TestHRegion.initHRegion(Bytes.toBytes(tableName),tableName,conf,Bytes.toBytes(family));
@@ -11,13 +10,15 @@
   puts[0]=put;
   Pair<Mutation,Integer> pair=new Pair<Mutation,Integer>(puts[0],null);
   putsAndLocks.add(pair);
-  count++;
   region.batchMutate(putsAndLocks.toArray(new Pair[0]));
-  makeCheckAndPut(family,region);
-  makePut(family,region);
-  while (!checkAndPutCompleted) {
+  MultithreadedTestUtil.TestContext ctx=new MultithreadedTestUtil.TestContext(conf);
+  ctx.addThread(new PutThread(ctx,region));
+  ctx.addThread(new CheckAndPutThread(ctx,region));
+  ctx.startThreads();
+  while (testStep != TestStep.CHECKANDPUT_COMPLETED) {
     Thread.sleep(100);
   }
+  ctx.stop();
   Scan s=new Scan();
   RegionScanner scanner=region.getScanner(s);
   List<KeyValue> results=new ArrayList<KeyValue>();
