@@ -17,7 +17,7 @@
   LOG.info("Replicating " + clusterId + " -> "+ peerClusterId);
   if (this.queueRecovered) {
     try {
-      this.position=this.zkHelper.getHLogRepPosition(this.peerClusterZnode,this.queue.peek().getName());
+      this.repLogReader.setPosition(this.zkHelper.getHLogRepPosition(this.peerClusterZnode,this.queue.peek().getName()));
     }
  catch (    KeeperException e) {
       this.terminate("Couldn't get the position of this recovered queue " + peerClusterZnode,e);
@@ -57,6 +57,7 @@
     }
     boolean gotIOE=false;
     currentNbEntries=0;
+    currentSize=0;
     try {
       if (readAllEntriesToReplicateOrNextFile(currentWALisBeingWrittenTo)) {
         continue;
@@ -91,9 +92,7 @@
     }
  finally {
       try {
-        if (this.reader != null) {
-          this.reader.close();
-        }
+        this.repLogReader.closeReader();
       }
  catch (      IOException e) {
         gotIOE=true;
@@ -101,9 +100,9 @@
       }
     }
     if (this.isActive() && (gotIOE || currentNbEntries == 0)) {
-      if (this.lastLoggedPosition != this.position) {
-        this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.position,queueRecovered,currentWALisBeingWrittenTo);
-        this.lastLoggedPosition=this.position;
+      if (this.lastLoggedPosition != this.repLogReader.getPosition()) {
+        this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.repLogReader.getPosition(),queueRecovered,currentWALisBeingWrittenTo);
+        this.lastLoggedPosition=this.repLogReader.getPosition();
       }
       if (sleepForRetries("Nothing to replicate",sleepMultiplier)) {
         sleepMultiplier++;
