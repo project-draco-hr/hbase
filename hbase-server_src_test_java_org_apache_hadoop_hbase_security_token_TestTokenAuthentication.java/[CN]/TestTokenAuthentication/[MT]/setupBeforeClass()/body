@@ -1,11 +1,17 @@
 {
   TEST_UTIL=new HBaseTestingUtility();
+  TEST_UTIL.startMiniZKCluster();
   Configuration conf=TEST_UTIL.getConfiguration();
-  conf.set("hbase.coprocessor.region.classes",IdentityCoprocessor.class.getName());
-  TEST_UTIL.startMiniCluster();
-  HRegionServer rs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(0);
-  secretManager=new AuthenticationTokenSecretManager(conf,rs.getZooKeeper(),rs.getServerName().toString(),conf.getLong("hbase.auth.key.update.interval",24 * 60 * 60* 1000),conf.getLong("hbase.auth.token.max.lifetime",7 * 24 * 60* 60* 1000));
-  secretManager.start();
+  conf.set("hadoop.security.authentication","kerberos");
+  conf.set("hbase.security.authentication","kerberos");
+  server=new TokenServer(conf);
+  serverThread=new Thread(server);
+  Threads.setDaemonThreadRunning(serverThread,"TokenServer:" + server.getServerName().toString());
+  while (!server.isStarted() && !server.isStopped()) {
+    Thread.sleep(10);
+  }
+  ZKClusterId.setClusterId(server.getZooKeeper(),clusterId);
+  secretManager=(AuthenticationTokenSecretManager)server.getSecretManager();
   while (secretManager.getCurrentKey() == null) {
     Thread.sleep(1);
   }
