@@ -1,0 +1,36 @@
+{
+  Configuration conf=getConf();
+  Path hbaseRoot=FSUtils.getRootDir(conf);
+  FileSystem fs=hbaseRoot.getFileSystem(conf);
+  Map<String,Path> allFiles=FSUtils.getTableStoreFilePathMap(fs,hbaseRoot);
+  for (  Path path : allFiles.values()) {
+    boolean isReference=false;
+    try {
+      isReference=StoreFile.isReference(path);
+    }
+ catch (    Throwable t) {
+    }
+    if (!isReference)     continue;
+    Path referredToFile=StoreFile.getReferredToFile(path);
+    if (fs.exists(referredToFile))     continue;
+    errors.reportError(ERROR_CODE.LINGERING_REFERENCE_HFILE,"Found lingering reference file " + path);
+    if (!shouldFixReferenceFiles())     continue;
+    boolean success=false;
+    String pathStr=path.toString();
+    int index=pathStr.lastIndexOf(Path.SEPARATOR_CHAR);
+    for (int i=0; index > 0 && i < 3; i++) {
+      index=pathStr.lastIndexOf(Path.SEPARATOR_CHAR,index);
+    }
+    if (index > 0) {
+      Path rootDir=getSidelineDir();
+      Path dst=new Path(rootDir,pathStr.substring(index));
+      fs.mkdirs(dst.getParent());
+      LOG.info("Trying to sildeline reference file" + path + " to "+ dst);
+      setShouldRerun();
+      success=fs.rename(path,dst);
+    }
+    if (!success) {
+      LOG.error("Failed to sideline reference file " + path);
+    }
+  }
+}
