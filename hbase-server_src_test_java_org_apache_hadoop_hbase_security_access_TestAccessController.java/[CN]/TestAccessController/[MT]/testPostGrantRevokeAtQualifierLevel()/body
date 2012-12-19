@@ -14,7 +14,8 @@
   admin.createTable(htd);
   User user=User.createUserForTesting(TEST_UTIL.getConfiguration(),"user",new String[0]);
   HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
-  AccessControllerProtocol protocol=acl.coprocessorProxy(AccessControllerProtocol.class,tableName);
+  BlockingRpcChannel service=acl.coprocessorService(tableName);
+  AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
   PrivilegedExceptionAction getQualifierAction=new PrivilegedExceptionAction(){
     public Object run() throws Exception {
       Get g=new Get(Bytes.toBytes("random_row"));
@@ -45,26 +46,26 @@
     }
   }
 ;
-  protocol.revoke(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1));
+  ProtobufUtil.revoke(protocol,user.getShortName(),tableName,family1,null);
   verifyDenied(user,getQualifierAction);
   verifyDenied(user,putQualifierAction);
   verifyDenied(user,deleteQualifierAction);
-  protocol.grant(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier,Permission.Action.READ));
+  ProtobufUtil.grant(protocol,user.getShortName(),tableName,family1,qualifier,Permission.Action.READ);
   Thread.sleep(100);
   verifyAllowed(user,getQualifierAction);
   verifyDenied(user,putQualifierAction);
   verifyDenied(user,deleteQualifierAction);
-  protocol.grant(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier,Permission.Action.WRITE));
+  ProtobufUtil.grant(protocol,user.getShortName(),tableName,family1,qualifier,Permission.Action.WRITE);
   Thread.sleep(100);
   verifyDenied(user,getQualifierAction);
   verifyAllowed(user,putQualifierAction);
   verifyAllowed(user,deleteQualifierAction);
-  protocol.grant(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier,Permission.Action.READ,Permission.Action.WRITE));
+  ProtobufUtil.grant(protocol,user.getShortName(),tableName,family1,qualifier,Permission.Action.READ,Permission.Action.WRITE);
   Thread.sleep(100);
   verifyAllowed(user,getQualifierAction);
   verifyAllowed(user,putQualifierAction);
   verifyAllowed(user,deleteQualifierAction);
-  protocol.revoke(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier));
+  ProtobufUtil.revoke(protocol,user.getShortName(),tableName,family1,qualifier);
   Thread.sleep(100);
   verifyDenied(user,getQualifierAction);
   verifyDenied(user,putQualifierAction);
