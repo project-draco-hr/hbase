@@ -1,53 +1,35 @@
 {
   HTable table=new HTable(util.getConfiguration(),TEST_TABLE);
-  Map<byte[],String> results=table.coprocessorExec(PingProtocol.class,null,null,new Batch.Call<PingProtocol,String>(){
-    public String call(    PingProtocol instance){
-      return instance.ping();
-    }
+  for (  Entry<HRegionInfo,ServerName> e : table.getRegionLocations().entrySet()) {
+    LOG.info("Region " + e.getKey().getRegionNameAsString() + ", servername="+ e.getValue());
   }
-);
+  Map<byte[],String> results=ping(table,null,ROW_A);
+  assertEquals(1,results.size());
   verifyRegionResults(table,results,ROW_A);
-  verifyRegionResults(table,results,ROW_B);
-  verifyRegionResults(table,results,ROW_C);
-  results=table.coprocessorExec(PingProtocol.class,ROW_BC,null,new Batch.Call<PingProtocol,String>(){
-    public String call(    PingProtocol instance){
-      return instance.ping();
-    }
-  }
-);
-  HRegionLocation loc=table.getRegionLocation(ROW_A);
+  results=ping(table,ROW_BC,null);
+  assertEquals(2,results.size());
+  HRegionLocation loc=table.getRegionLocation(ROW_A,true);
   assertNull("Should be missing region for row aaa (prior to start row)",results.get(loc.getRegionInfo().getRegionName()));
   verifyRegionResults(table,results,ROW_B);
   verifyRegionResults(table,results,ROW_C);
-  results=table.coprocessorExec(PingProtocol.class,null,ROW_BC,new Batch.Call<PingProtocol,String>(){
-    public String call(    PingProtocol instance){
-      return instance.ping();
-    }
-  }
-);
+  results=ping(table,null,ROW_BC);
+  assertEquals(2,results.size());
   verifyRegionResults(table,results,ROW_A);
   verifyRegionResults(table,results,ROW_B);
-  loc=table.getRegionLocation(ROW_C);
+  loc=table.getRegionLocation(ROW_C,true);
   assertNull("Should be missing region for row ccc (past stop row)",results.get(loc.getRegionInfo().getRegionName()));
-  results=table.coprocessorExec(PingProtocol.class,ROW_AB,ROW_BC,new Batch.Call<PingProtocol,String>(){
-    public String call(    PingProtocol instance){
-      return instance.ping();
-    }
-  }
-);
+  results=ping(table,ROW_AB,ROW_BC);
+  assertEquals(2,results.size());
   verifyRegionResults(table,results,ROW_A);
   verifyRegionResults(table,results,ROW_B);
-  loc=table.getRegionLocation(ROW_C);
+  loc=table.getRegionLocation(ROW_C,true);
   assertNull("Should be missing region for row ccc (past stop row)",results.get(loc.getRegionInfo().getRegionName()));
-  results=table.coprocessorExec(PingProtocol.class,ROW_B,ROW_BC,new Batch.Call<PingProtocol,String>(){
-    public String call(    PingProtocol instance){
-      return instance.ping();
-    }
-  }
-);
+  results=ping(table,ROW_B,ROW_BC);
+  assertEquals(1,results.size());
   verifyRegionResults(table,results,ROW_B);
-  loc=table.getRegionLocation(ROW_A);
+  loc=table.getRegionLocation(ROW_A,true);
   assertNull("Should be missing region for row aaa (prior to start)",results.get(loc.getRegionInfo().getRegionName()));
-  loc=table.getRegionLocation(ROW_C);
+  loc=table.getRegionLocation(ROW_C,true);
   assertNull("Should be missing region for row ccc (past stop row)",results.get(loc.getRegionInfo().getRegionName()));
+  table.close();
 }
