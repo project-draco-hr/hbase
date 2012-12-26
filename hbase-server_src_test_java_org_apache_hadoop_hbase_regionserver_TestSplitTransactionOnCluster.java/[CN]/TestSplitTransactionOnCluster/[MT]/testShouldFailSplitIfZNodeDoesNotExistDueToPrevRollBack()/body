@@ -6,9 +6,10 @@
     htd.addFamily(new HColumnDescriptor("cf"));
     admin.createTable(htd);
     HTable t=new HTable(cluster.getConfiguration(),tableName);
-    while (!(cluster.getRegions(tableName).size() == 1)) {
+    for (int i=0; cluster.getRegions(tableName).size() != 1 && i < 100; i++) {
       Thread.sleep(100);
     }
+    assertTrue("waited too long for table to get online",cluster.getRegions(tableName).size() == 1);
     final List<HRegion> regions=cluster.getRegions(tableName);
     HRegionInfo hri=getAndCheckSingleTableRegion(regions);
     int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
@@ -29,9 +30,10 @@
       }
     }
 .start();
-    while (!callRollBack) {
+    for (int i=0; !callRollBack && i < 100; i++) {
       Thread.sleep(100);
     }
+    assertTrue("Waited too long for rollback",callRollBack);
     SplitTransaction st=null;
     st=new MockedSplitTransaction(regions.get(0),Bytes.toBytes("row2"));
     try {
@@ -43,14 +45,16 @@
       LOG.debug("Rollback started :" + e.getMessage());
       st.rollback(regionServer,regionServer);
     }
-    while (!firstSplitCompleted) {
+    for (int i=0; !firstSplitCompleted && i < 100; i++) {
       Thread.sleep(100);
     }
+    assertTrue("fist split did not complete",firstSplitCompleted);
     RegionStates regionStates=cluster.getMaster().getAssignmentManager().getRegionStates();
     Map<String,RegionState> rit=regionStates.getRegionsInTransition();
-    while (rit.containsKey(hri.getTableNameAsString())) {
+    for (int i=0; rit.containsKey(hri.getTableNameAsString()) && i < 100; i++) {
       Thread.sleep(100);
     }
+    assertFalse("region still in transition",rit.containsKey(rit.containsKey(hri.getTableNameAsString())));
     List<HRegion> onlineRegions=regionServer.getOnlineRegions(tableName);
     assertEquals("The parent region should be splitted",2,onlineRegions.size());
     List<HRegionInfo> regionsOfTable=cluster.getMaster().getAssignmentManager().getRegionStates().getRegionsOfTable(tableName);
