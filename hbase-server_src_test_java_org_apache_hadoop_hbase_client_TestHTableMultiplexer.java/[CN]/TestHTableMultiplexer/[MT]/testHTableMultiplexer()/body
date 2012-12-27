@@ -1,0 +1,48 @@
+{
+  byte[] TABLE=Bytes.toBytes("testHTableMultiplexer");
+  final int NUM_REGIONS=10;
+  final int VERSION=3;
+  List<Put> failedPuts=null;
+  boolean success=false;
+  HTableMultiplexer multiplexer=new HTableMultiplexer(TEST_UTIL.getConfiguration(),PER_REGIONSERVER_QUEUE_SIZE);
+  HTableMultiplexerStatus status=multiplexer.getHTableMultiplexerStatus();
+  HTable ht=TEST_UTIL.createTable(TABLE,new byte[][]{FAMILY},VERSION,Bytes.toBytes("aaaaa"),Bytes.toBytes("zzzzz"),NUM_REGIONS);
+  TEST_UTIL.waitUntilAllRegionsAssigned(NUM_REGIONS);
+  byte[][] startRows=ht.getStartKeys();
+  byte[][] endRows=ht.getEndKeys();
+  for (int i=0; i < NUM_REGIONS; i++) {
+    Put put=new Put(startRows[i]);
+    put.add(FAMILY,QUALIFIER,VALUE1);
+    success=multiplexer.put(TABLE,put);
+    Assert.assertTrue(success);
+    verifyAllBufferedPutsHaveFlushed(status);
+    LOG.info("Put for " + Bytes.toString(startRows[i]) + " @ iteration "+ (i + 1));
+    Get get=new Get(startRows[i]);
+    get.addColumn(FAMILY,QUALIFIER);
+    Result r;
+    do {
+      r=ht.get(get);
+    }
+ while (r == null || r.getValue(FAMILY,QUALIFIER) == null);
+    Assert.assertEquals(0,Bytes.compareTo(VALUE1,r.getValue(FAMILY,QUALIFIER)));
+  }
+  List<Put> multiput=new ArrayList<Put>();
+  for (int i=0; i < NUM_REGIONS; i++) {
+    Put put=new Put(endRows[i]);
+    put.add(FAMILY,QUALIFIER,VALUE2);
+    multiput.add(put);
+  }
+  failedPuts=multiplexer.put(TABLE,multiput);
+  Assert.assertTrue(failedPuts == null);
+  verifyAllBufferedPutsHaveFlushed(status);
+  for (int i=0; i < NUM_REGIONS; i++) {
+    Get get=new Get(endRows[i]);
+    get.addColumn(FAMILY,QUALIFIER);
+    Result r;
+    do {
+      r=ht.get(get);
+    }
+ while (r == null || r.getValue(FAMILY,QUALIFIER) == null);
+    Assert.assertEquals(0,Bytes.compareTo(VALUE2,r.getValue(FAMILY,QUALIFIER)));
+  }
+}
