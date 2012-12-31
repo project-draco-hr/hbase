@@ -1,18 +1,29 @@
 {
+  boolean openSuccessful=false;
+  final String regionName=regionInfo.getRegionNameAsString();
   try {
-    final String name=regionInfo.getRegionNameAsString();
     if (this.server.isStopped() || this.rsServices.isStopping()) {
       return;
     }
     final String encodedName=regionInfo.getEncodedName();
-    HRegion region=this.rsServices.getFromOnlineRegions(encodedName);
-    if (!transitionZookeeperOfflineToOpening(encodedName,versionOfOfflineNode)) {
-      LOG.warn("Region was hijacked? It no longer exists, encodedName=" + encodedName);
+    if (this.rsServices.getFromOnlineRegions(encodedName) != null) {
+      LOG.error("Region " + encodedName + " was already online when we started processing the opening. "+ "Marking this new attempt as failed");
+      tryTransitionFromOfflineToFailedOpen(this.rsServices,regionInfo,this.version);
       return;
     }
-    region=openRegion();
+    if (!isRegionStillOpening()) {
+      LOG.error("Region " + encodedName + " opening cancelled");
+      tryTransitionFromOfflineToFailedOpen(this.rsServices,regionInfo,this.version);
+      return;
+    }
+    if (!transitionZookeeperOfflineToOpening(encodedName,versionOfOfflineNode)) {
+      LOG.warn("Region was hijacked? Opening cancelled for encodedName=" + encodedName);
+      tryTransitionFromOfflineToFailedOpen(this.rsServices,regionInfo,this.version);
+      return;
+    }
+    HRegion region=openRegion();
     if (region == null) {
-      tryTransitionToFailedOpen(regionInfo);
+      tryTransitionFromOpeningToFailedOpen(regionInfo);
       return;
     }
     boolean failed=true;
@@ -23,22 +34,27 @@
     }
     if (failed || this.server.isStopped() || this.rsServices.isStopping()) {
       cleanupFailedOpen(region);
-      tryTransitionToFailedOpen(regionInfo);
+      tryTransitionFromOpeningToFailedOpen(regionInfo);
       return;
     }
-    if (!transitionToOpened(region)) {
+    if (!isRegionStillOpening() || !transitionToOpened(region)) {
       cleanupFailedOpen(region);
-      return;
-    }
-    if (!isRegionStillOpening()) {
-      LOG.warn("Open region aborted since it isn't opening any more");
-      cleanupFailedOpen(region);
+      tryTransitionFromOpeningToFailedOpen(regionInfo);
       return;
     }
     this.rsServices.addToOnlineRegions(region);
-    LOG.debug("Opened " + name + " on server:"+ this.server.getServerName());
+    openSuccessful=true;
+    LOG.debug("Opened " + regionName + " on server:"+ this.server.getServerName());
   }
   finally {
-    this.rsServices.getRegionsInTransitionInRS().remove(this.regionInfo.getEncodedNameAsBytes());
+    final Boolean current=this.rsServices.getRegionsInTransitionInRS().remove(this.regionInfo.getEncodedNameAsBytes());
+    if (openSuccessful) {
+      if (current == null) {
+        LOG.error("Bad state: we've just opened a region that was NOT in transition. Region=" + regionName);
+      }
+ else       if (Boolean.FALSE.equals(current)) {
+        LOG.error("Race condition: we've finished to open a region, while a close was requested " + " on region=" + regionName + ". It can be a critical error, as a region that"+ " should be closed is now opened.");
+      }
+    }
   }
 }

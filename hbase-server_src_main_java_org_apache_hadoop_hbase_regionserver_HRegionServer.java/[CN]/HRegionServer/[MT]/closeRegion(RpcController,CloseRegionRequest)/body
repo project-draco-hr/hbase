@@ -7,24 +7,14 @@
   final ServerName sn=(request.hasDestinationServer() ? ProtobufUtil.toServerName(request.getDestinationServer()) : null);
   try {
     checkOpen();
-    String encodedRegionName=ProtobufUtil.getRegionEncodedName(request.getRegion());
-    byte[] encodedName=Bytes.toBytes(encodedRegionName);
-    HRegion region=getRegionByEncodedName(encodedRegionName);
-    if (region.getCoprocessorHost() != null) {
+    final String encodedRegionName=ProtobufUtil.getRegionEncodedName(request.getRegion());
+    final HRegion region=this.getFromOnlineRegions(encodedRegionName);
+    if ((region != null) && (region.getCoprocessorHost() != null)) {
       region.getCoprocessorHost().preClose(false);
     }
-    Boolean openAction=regionsInTransitionInRS.get(encodedName);
-    if (openAction != null) {
-      if (openAction.booleanValue()) {
-        regionsInTransitionInRS.replace(encodedName,openAction,Boolean.FALSE);
-      }
-      checkIfRegionInTransition(encodedName,CLOSE);
-    }
     requestCount.increment();
-    LOG.info("Received close region: " + region.getRegionNameAsString() + ". Version of ZK closing node:"+ versionOfClosingNode+ ". Destination server:"+ sn);
-    HRegionInfo regionInfo=region.getRegionInfo();
-    checkIfRegionInTransition(encodedName,CLOSE);
-    boolean closed=closeRegion(regionInfo,false,zk,versionOfClosingNode,sn);
+    LOG.info("Received close region: " + encodedRegionName + "Transitioning in ZK: "+ (zk ? "yes" : "no")+ ". Version of ZK closing node:"+ versionOfClosingNode+ ". Destination server:"+ sn);
+    boolean closed=closeRegion(encodedRegionName,false,zk,versionOfClosingNode,sn);
     CloseRegionResponse.Builder builder=CloseRegionResponse.newBuilder().setClosed(closed);
     return builder.build();
   }
