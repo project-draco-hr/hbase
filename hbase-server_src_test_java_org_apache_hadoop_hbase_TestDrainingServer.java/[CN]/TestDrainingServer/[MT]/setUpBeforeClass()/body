@@ -1,30 +1,27 @@
 {
   TEST_UTIL.startMiniCluster(NB_SLAVES);
+  TEST_UTIL.getHBaseCluster().waitForActiveAndReadyMaster();
   TEST_UTIL.getConfiguration().setBoolean("hbase.master.enabletable.roundrobin",true);
-  ZooKeeperWatcher zkw=HBaseTestingUtility.getZooKeeperWatcher(TEST_UTIL);
-  HTableDescriptor htd=new HTableDescriptor(TABLENAME);
-  htd.addFamily(new HColumnDescriptor(FAMILY));
-  TEST_UTIL.createMultiRegionsInMeta(TEST_UTIL.getConfiguration(),htd,HBaseTestingUtility.KEYS);
-  FileSystem fs=FileSystem.get(TEST_UTIL.getConfiguration());
-  FSTableDescriptors.createTableDescriptor(fs,FSUtils.getRootDir(TEST_UTIL.getConfiguration()),htd);
-  HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
-  MiniHBaseCluster cluster=TEST_UTIL.getMiniHBaseCluster();
-  admin.disableTable(TABLENAME);
-  admin.enableTable(TABLENAME);
+  final List<String> families=new ArrayList<String>(1);
+  families.add("family");
+  TEST_UTIL.createRandomTable("table",families,1,0,0,COUNT_OF_REGIONS,0);
+  TEST_UTIL.getHBaseAdmin().setBalancerRunning(false,false);
   boolean ready=false;
   while (!ready) {
-    ZKAssign.blockUntilNoRIT(zkw);
+    waitForAllRegionsOnline();
     int i=0;
     ready=true;
     while (i < NB_SLAVES && ready) {
-      HRegionServer hrs=cluster.getRegionServer(i);
+      HRegionServer hrs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(i);
       if (ProtobufUtil.getOnlineRegions(hrs).isEmpty()) {
         ready=false;
       }
       i++;
     }
     if (!ready) {
-      admin.balancer();
+      TEST_UTIL.getHBaseAdmin().setBalancerRunning(true,true);
+      Assert.assertTrue("Can't start a balance!",TEST_UTIL.getHBaseAdmin().balancer());
+      TEST_UTIL.getHBaseAdmin().setBalancerRunning(false,false);
       Thread.sleep(100);
     }
   }
