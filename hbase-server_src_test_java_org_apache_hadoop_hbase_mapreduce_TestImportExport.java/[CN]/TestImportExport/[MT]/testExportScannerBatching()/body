@@ -1,0 +1,25 @@
+{
+  String BATCH_TABLE="exportWithBatch";
+  HTableDescriptor desc=new HTableDescriptor(BATCH_TABLE);
+  desc.addFamily(new HColumnDescriptor(FAMILYA).setMaxVersions(1));
+  UTIL.getHBaseAdmin().createTable(desc);
+  HTable t=new HTable(UTIL.getConfiguration(),BATCH_TABLE);
+  Put p=new Put(ROW1);
+  p.add(FAMILYA,QUAL,now,QUAL);
+  p.add(FAMILYA,QUAL,now + 1,QUAL);
+  p.add(FAMILYA,QUAL,now + 2,QUAL);
+  p.add(FAMILYA,QUAL,now + 3,QUAL);
+  p.add(FAMILYA,QUAL,now + 4,QUAL);
+  t.put(p);
+  String[] args=new String[]{"-D" + Export.EXPORT_BATCHING + "="+ EXPORT_BATCH_SIZE,BATCH_TABLE,OUTPUT_DIR};
+  GenericOptionsParser opts=new GenericOptionsParser(new Configuration(cluster.getConfiguration()),args);
+  Configuration conf=opts.getConfiguration();
+  args=opts.getRemainingArgs();
+  assertEquals(conf.get(Export.EXPORT_BATCHING),EXPORT_BATCH_SIZE);
+  Job job=Export.createSubmittableJob(conf,args);
+  job.getConfiguration().set("mapreduce.framework.name","yarn");
+  job.waitForCompletion(false);
+  assertTrue(job.isSuccessful());
+  FileSystem fs=FileSystem.get(UTIL.getConfiguration());
+  fs.delete(new Path(OUTPUT_DIR),true);
+}
