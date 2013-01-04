@@ -20,11 +20,14 @@
   put2.add(FAM_NAM,ROW,ROW);
   table.put(put2);
   assertNotNull(conn.getCachedLocation(TABLE_NAME,ROW));
-  while (TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates().isRegionsInTransition()) {
-  }
   TEST_UTIL.getHBaseAdmin().setBalancerRunning(false,false);
+  HMaster master=TEST_UTIL.getMiniHBaseCluster().getMaster();
+  while (master.getAssignmentManager().getRegionStates().isRegionsInTransition()) {
+    Thread.sleep(1);
+  }
   HRegionLocation toMove=conn.getCachedLocation(TABLE_NAME,ROW);
   byte[] regionName=toMove.getRegionInfo().getRegionName();
+  byte[] encodedRegionNameBytes=toMove.getRegionInfo().getEncodedNameAsBytes();
   int curServerId=TEST_UTIL.getHBaseCluster().getServerWith(regionName);
   int destServerId=(curServerId == 0 ? 1 : 0);
   HRegionServer curServer=TEST_UTIL.getHBaseCluster().getRegionServer(curServerId);
@@ -35,13 +38,17 @@
   Assert.assertFalse(toMove.getPort() == destServerName.getPort());
   Assert.assertNotNull(curServer.getOnlineRegion(regionName));
   Assert.assertNull(destServer.getOnlineRegion(regionName));
+  Assert.assertFalse(TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates().isRegionsInTransition());
   LOG.info("Move starting region=" + toMove.getRegionInfo().getRegionNameAsString());
   TEST_UTIL.getHBaseAdmin().move(toMove.getRegionInfo().getEncodedNameAsBytes(),destServerName.getServerName().getBytes());
-  while (destServer.getOnlineRegion(regionName) == null) {
+  while (destServer.getOnlineRegion(regionName) == null || destServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes) || curServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes) || master.getAssignmentManager().getRegionStates().isRegionsInTransition()) {
+    Thread.sleep(1);
   }
+  LOG.info("Move finished for region=" + toMove.getRegionInfo().getRegionNameAsString());
   Assert.assertNull(curServer.getOnlineRegion(regionName));
   Assert.assertNotNull(destServer.getOnlineRegion(regionName));
-  LOG.info("Move finished for region=" + toMove.getRegionInfo().getRegionNameAsString());
+  Assert.assertFalse(destServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
+  Assert.assertFalse(curServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
   Assert.assertFalse(conn.getCachedLocation(TABLE_NAME,ROW).getPort() == destServerName.getPort());
   Field numRetries=conn.getClass().getDeclaredField("numRetries");
   numRetries.setAccessible(true);
@@ -66,9 +73,12 @@
   }
   Assert.assertNotNull(conn.getCachedLocation(TABLE_NAME,ROW));
   Assert.assertEquals("Previous server was " + curServer.getServerName().getHostAndPort(),destServerName.getPort(),conn.getCachedLocation(TABLE_NAME,ROW).getPort());
+  Assert.assertFalse(destServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
+  Assert.assertFalse(curServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
   LOG.info("Move starting region=" + toMove.getRegionInfo().getRegionNameAsString());
   TEST_UTIL.getHBaseAdmin().move(toMove.getRegionInfo().getEncodedNameAsBytes(),curServer.getServerName().getServerName().getBytes());
-  while (curServer.getOnlineRegion(regionName) == null) {
+  while (curServer.getOnlineRegion(regionName) == null || destServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes) || curServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes) || master.getAssignmentManager().getRegionStates().isRegionsInTransition()) {
+    Thread.sleep(1);
   }
   Assert.assertNotNull(curServer.getOnlineRegion(regionName));
   Assert.assertNull(destServer.getOnlineRegion(regionName));
