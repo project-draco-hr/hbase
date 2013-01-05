@@ -1,0 +1,50 @@
+{
+  final AggregateArgument requestArg=validateArgAndGetPB(scan,ci);
+  final NavigableMap<byte[],List<S>> map=new TreeMap<byte[],List<S>>(Bytes.BYTES_COMPARATOR);
+class StdCallback implements Batch.Callback<List<S>> {
+    S sumVal=null, sumWeights=null;
+    public Pair<NavigableMap<byte[],List<S>>,List<S>> getMedianParams(){
+      List<S> l=new ArrayList<S>();
+      l.add(sumVal);
+      l.add(sumWeights);
+      Pair<NavigableMap<byte[],List<S>>,List<S>> p=new Pair<NavigableMap<byte[],List<S>>,List<S>>(map,l);
+      return p;
+    }
+    @Override public synchronized void update(    byte[] region,    byte[] row,    List<S> result){
+      map.put(row,result);
+      sumVal=ci.add(sumVal,result.get(0));
+      sumWeights=ci.add(sumWeights,result.get(1));
+    }
+  }
+  StdCallback stdCallback=new StdCallback();
+  HTable table=null;
+  try {
+    table=new HTable(conf,tableName);
+    table.coprocessorService(AggregateService.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateService,List<S>>(){
+      @Override public List<S> call(      AggregateService instance) throws IOException {
+        ServerRpcController controller=new ServerRpcController();
+        BlockingRpcCallback<AggregateResponse> rpcCallback=new BlockingRpcCallback<AggregateResponse>();
+        instance.getMedian(controller,requestArg,rpcCallback);
+        AggregateResponse response=rpcCallback.get();
+        if (controller.failedOnException()) {
+          throw controller.getFailedOn();
+        }
+        List<S> list=new ArrayList<S>();
+        for (int i=0; i < response.getFirstPartCount(); i++) {
+          ByteString b=response.getFirstPart(i);
+          T t=ProtobufUtil.getParsedGenericInstance(ci.getClass(),4,b);
+          S s=ci.getPromotedValueFromProto(t);
+          list.add(s);
+        }
+        return list;
+      }
+    }
+,stdCallback);
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+  return stdCallback.getMedianParams();
+}
