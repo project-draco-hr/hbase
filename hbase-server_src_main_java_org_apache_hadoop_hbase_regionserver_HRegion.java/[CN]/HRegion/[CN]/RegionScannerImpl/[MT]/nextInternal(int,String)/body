@@ -13,37 +13,54 @@
       offset=current.getRowOffset();
       length=current.getRowLength();
     }
-    if (isStopRow(currentRow,offset,length)) {
-      if (filter != null && filter.hasFilterRow()) {
-        filter.filterRow(results);
-      }
-      return false;
-    }
- else     if (filterRowKey(currentRow,offset,length)) {
-      nextRow(currentRow,offset,length);
-    }
- else {
-      KeyValue nextKv;
-      do {
-        this.storeHeap.next(results,limit - results.size(),metric);
-        if (limit > 0 && results.size() == limit) {
-          if (this.filter != null && filter.hasFilterRow()) {
-            throw new IncompatibleFilterException("Filter whose hasFilterRow() returns true is incompatible with scan with limit!");
-          }
-          return true;
+    boolean stopRow=isStopRow(currentRow,offset,length);
+    if (joinedContinuationRow == null) {
+      if (stopRow) {
+        if (filter != null && filter.hasFilterRow()) {
+          filter.filterRow(results);
         }
-        nextKv=this.storeHeap.peek();
+        return false;
       }
- while (nextKv != null && nextKv.matchingRow(currentRow,offset,length));
-      final boolean stopRow=nextKv == null || isStopRow(nextKv.getBuffer(),nextKv.getRowOffset(),nextKv.getRowLength());
+      if (filterRowKey(currentRow,offset,length)) {
+        nextRow(currentRow,offset,length);
+        continue;
+      }
+      KeyValue nextKv=populateResult(this.storeHeap,limit,currentRow,offset,length,metric);
+      if (nextKv == KV_LIMIT) {
+        if (this.filter != null && filter.hasFilterRow()) {
+          throw new IncompatibleFilterException("Filter whose hasFilterRow() returns true is incompatible with scan with limit!");
+        }
+        return true;
+      }
+      stopRow=nextKv == null || isStopRow(nextKv.getBuffer(),nextKv.getRowOffset(),nextKv.getRowLength());
+      final boolean isEmptyRow=results.isEmpty();
       if (filter != null && filter.hasFilterRow()) {
         filter.filterRow(results);
       }
-      if (results.isEmpty()) {
+      if (isEmptyRow) {
         nextRow(currentRow,offset,length);
         if (!stopRow)         continue;
+        return false;
       }
-      return !stopRow;
+      if (this.joinedHeap != null) {
+        KeyValue nextJoinedKv=joinedHeap.peek();
+        boolean mayHaveData=(nextJoinedKv != null && nextJoinedKv.matchingRow(currentRow,offset,length)) || this.joinedHeap.seek(KeyValue.createFirstOnRow(currentRow,offset,length));
+        if (mayHaveData) {
+          joinedContinuationRow=current;
+          populateFromJoinedHeap(limit,metric);
+        }
+      }
     }
+ else {
+      populateFromJoinedHeap(limit,metric);
+    }
+    if (joinedContinuationRow != null) {
+      return true;
+    }
+    if (results.isEmpty()) {
+      nextRow(currentRow,offset,length);
+      if (!stopRow)       continue;
+    }
+    return !stopRow;
   }
 }
