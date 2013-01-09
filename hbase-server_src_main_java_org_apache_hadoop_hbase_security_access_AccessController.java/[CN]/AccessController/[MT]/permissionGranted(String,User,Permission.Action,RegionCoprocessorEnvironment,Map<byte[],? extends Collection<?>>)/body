@@ -3,17 +3,17 @@
   byte[] tableName=hri.getTableName();
   if (hri.isRootRegion() || hri.isMetaRegion()) {
     if (permRequest == Permission.Action.READ) {
-      return AuthResult.allow(request,"All users allowed",user,permRequest,tableName);
+      return AuthResult.allow(request,"All users allowed",user,permRequest,tableName,families);
     }
   }
   if (user == null) {
-    return AuthResult.deny(request,"No user associated with request!",null,permRequest,tableName);
+    return AuthResult.deny(request,"No user associated with request!",null,permRequest,tableName,families);
   }
   if (permRequest == Permission.Action.WRITE && (hri.isRootRegion() || hri.isMetaRegion() || Bytes.equals(tableName,AccessControlLists.ACL_GLOBAL_NAME)) && (authManager.authorize(user,Permission.Action.CREATE) || authManager.authorize(user,Permission.Action.ADMIN))) {
-    return AuthResult.allow(request,"Table permission granted",user,permRequest,tableName);
+    return AuthResult.allow(request,"Table permission granted",user,permRequest,tableName,families);
   }
   if (authManager.authorize(user,tableName,(byte[])null,permRequest)) {
-    return AuthResult.allow(request,"Table permission granted",user,permRequest,tableName);
+    return AuthResult.allow(request,"Table permission granted",user,permRequest,tableName,families);
   }
   if (families != null && families.size() > 0) {
     for (    Map.Entry<byte[],? extends Collection<?>> family : families.entrySet()) {
@@ -25,7 +25,7 @@
           Set<byte[]> familySet=(Set<byte[]>)family.getValue();
           for (          byte[] qualifier : familySet) {
             if (!authManager.authorize(user,tableName,family.getKey(),qualifier,permRequest)) {
-              return AuthResult.deny(request,"Failed qualifier check",user,permRequest,tableName,family.getKey(),qualifier);
+              return AuthResult.deny(request,"Failed qualifier check",user,permRequest,tableName,makeFamilyMap(family.getKey(),qualifier));
             }
           }
         }
@@ -33,16 +33,16 @@
           List<KeyValue> kvList=(List<KeyValue>)family.getValue();
           for (          KeyValue kv : kvList) {
             if (!authManager.authorize(user,tableName,family.getKey(),kv.getQualifier(),permRequest)) {
-              return AuthResult.deny(request,"Failed qualifier check",user,permRequest,tableName,family.getKey(),kv.getQualifier());
+              return AuthResult.deny(request,"Failed qualifier check",user,permRequest,tableName,makeFamilyMap(family.getKey(),kv.getQualifier()));
             }
           }
         }
       }
  else {
-        return AuthResult.deny(request,"Failed family check",user,permRequest,tableName,family.getKey(),null);
+        return AuthResult.deny(request,"Failed family check",user,permRequest,tableName,makeFamilyMap(family.getKey(),null));
       }
     }
-    return AuthResult.allow(request,"All family checks passed",user,permRequest,tableName);
+    return AuthResult.allow(request,"All family checks passed",user,permRequest,tableName,families);
   }
-  return AuthResult.deny(request,"No families to check and table permission failed",user,permRequest,tableName);
+  return AuthResult.deny(request,"No families to check and table permission failed",user,permRequest,tableName,families);
 }
