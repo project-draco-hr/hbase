@@ -1,0 +1,61 @@
+{
+  BucketEntry[] bucketEntries=new BucketEntry[entries.size()];
+  RAMQueueEntry[] ramEntries=new RAMQueueEntry[entries.size()];
+  int done=0;
+  while (entries.size() > 0 && cacheEnabled) {
+    RAMQueueEntry ramEntry=null;
+    try {
+      ramEntry=entries.remove(entries.size() - 1);
+      if (ramEntry == null) {
+        LOG.warn("Couldn't get the entry from RAM queue, who steals it?");
+        continue;
+      }
+      BucketEntry bucketEntry=ramEntry.writeToCache(ioEngine,bucketAllocator,deserialiserMap,realCacheSize);
+      ramEntries[done]=ramEntry;
+      bucketEntries[done++]=bucketEntry;
+      if (ioErrorStartTime > 0) {
+        ioErrorStartTime=-1;
+      }
+    }
+ catch (    BucketAllocatorException fle) {
+      LOG.warn("Failed allocating for block " + (ramEntry == null ? "" : ramEntry.getKey()),fle);
+    }
+catch (    CacheFullException cfe) {
+      if (!freeInProgress) {
+        freeSpace();
+      }
+ else {
+        Thread.sleep(50);
+      }
+    }
+catch (    IOException ioex) {
+      LOG.error("Failed writing to bucket cache",ioex);
+      checkIOErrorIsTolerated();
+    }
+  }
+  try {
+    ioEngine.sync();
+  }
+ catch (  IOException ioex) {
+    LOG.error("Faild syncing IO engine",ioex);
+    checkIOErrorIsTolerated();
+    for (int i=0; i < done; ++i) {
+      if (bucketEntries[i] != null) {
+        bucketAllocator.freeBlock(bucketEntries[i].offset());
+      }
+    }
+    done=0;
+  }
+  for (int i=0; i < done; ++i) {
+    if (bucketEntries[i] != null) {
+      backingMap.put(ramEntries[i].getKey(),bucketEntries[i]);
+    }
+    RAMQueueEntry ramCacheEntry=ramCache.remove(ramEntries[i].getKey());
+    if (ramCacheEntry != null) {
+      heapSize.addAndGet(-1 * ramEntries[i].getData().heapSize());
+    }
+  }
+  if (bucketAllocator.getUsedSize() > acceptableSize()) {
+    freeSpace();
+  }
+}

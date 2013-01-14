@@ -1,0 +1,36 @@
+{
+  this(availableSpace);
+  boolean[] reconfigured=new boolean[buckets.length];
+  for (  Map.Entry<BlockCacheKey,BucketEntry> entry : map.entrySet()) {
+    long foundOffset=entry.getValue().offset();
+    int foundLen=entry.getValue().getLength();
+    int bucketSizeIndex=-1;
+    for (int i=0; i < BUCKET_SIZES.length; ++i) {
+      if (foundLen <= BUCKET_SIZES[i]) {
+        bucketSizeIndex=i;
+        break;
+      }
+    }
+    if (bucketSizeIndex == -1) {
+      throw new BucketAllocatorException("Can't match bucket size for the block with size " + foundLen);
+    }
+    int bucketNo=(int)(foundOffset / (long)BUCKET_CAPACITY);
+    if (bucketNo < 0 || bucketNo >= buckets.length)     throw new BucketAllocatorException("Can't find bucket " + bucketNo + ", total buckets="+ buckets.length+ "; did you shrink the cache?");
+    Bucket b=buckets[bucketNo];
+    if (reconfigured[bucketNo] == true) {
+      if (b.sizeIndex() != bucketSizeIndex)       throw new BucketAllocatorException("Inconsistent allocation in bucket map;");
+    }
+ else {
+      if (!b.isCompletelyFree())       throw new BucketAllocatorException("Reconfiguring bucket " + bucketNo + " but it's already allocated; corrupt data");
+      BucketSizeInfo bsi=bucketSizeInfos[bucketSizeIndex];
+      BucketSizeInfo oldbsi=bucketSizeInfos[b.sizeIndex()];
+      oldbsi.removeBucket(b);
+      bsi.instantiateBucket(b);
+      reconfigured[bucketNo]=true;
+    }
+    realCacheSize.addAndGet(foundLen);
+    buckets[bucketNo].addAllocation(foundOffset);
+    usedSize+=buckets[bucketNo].itemAllocationSize();
+    bucketSizeInfos[bucketSizeIndex].blockAllocated(b);
+  }
+}

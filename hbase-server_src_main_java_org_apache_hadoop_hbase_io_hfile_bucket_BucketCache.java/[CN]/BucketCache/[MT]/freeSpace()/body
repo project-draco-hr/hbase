@@ -1,0 +1,97 @@
+{
+  if (!freeSpaceLock.tryLock())   return;
+  try {
+    freeInProgress=true;
+    long bytesToFreeWithoutExtra=0;
+    StringBuffer msgBuffer=new StringBuffer();
+    BucketAllocator.IndexStatistics[] stats=bucketAllocator.getIndexStatistics();
+    long[] bytesToFreeForBucket=new long[stats.length];
+    for (int i=0; i < stats.length; i++) {
+      bytesToFreeForBucket[i]=0;
+      long freeGoal=(long)Math.floor(stats[i].totalCount() * (1 - DEFAULT_MIN_FACTOR));
+      freeGoal=Math.max(freeGoal,1);
+      if (stats[i].freeCount() < freeGoal) {
+        bytesToFreeForBucket[i]=stats[i].itemSize() * (freeGoal - stats[i].freeCount());
+        bytesToFreeWithoutExtra+=bytesToFreeForBucket[i];
+        msgBuffer.append("Free for bucketSize(" + stats[i].itemSize() + ")="+ StringUtils.byteDesc(bytesToFreeForBucket[i])+ ", ");
+      }
+    }
+    msgBuffer.append("Free for total=" + StringUtils.byteDesc(bytesToFreeWithoutExtra) + ", ");
+    if (bytesToFreeWithoutExtra <= 0) {
+      return;
+    }
+    long currentSize=bucketAllocator.getUsedSize();
+    long totalSize=bucketAllocator.getTotalSize();
+    LOG.debug("Bucket cache free space started; Attempting to  " + msgBuffer.toString() + " of current used="+ StringUtils.byteDesc(currentSize)+ ",actual cacheSize="+ StringUtils.byteDesc(realCacheSize.get())+ ",total="+ StringUtils.byteDesc(totalSize));
+    long bytesToFreeWithExtra=(long)Math.floor(bytesToFreeWithoutExtra * (1 + DEFAULT_EXTRA_FREE_FACTOR));
+    BucketEntryGroup bucketSingle=new BucketEntryGroup(bytesToFreeWithExtra,blockSize,singleSize());
+    BucketEntryGroup bucketMulti=new BucketEntryGroup(bytesToFreeWithExtra,blockSize,multiSize());
+    BucketEntryGroup bucketMemory=new BucketEntryGroup(bytesToFreeWithExtra,blockSize,memorySize());
+    for (    Map.Entry<BlockCacheKey,BucketEntry> bucketEntryWithKey : backingMap.entrySet()) {
+switch (bucketEntryWithKey.getValue().getPriority()) {
+case SINGLE:
+{
+          bucketSingle.add(bucketEntryWithKey);
+          break;
+        }
+case MULTI:
+{
+        bucketMulti.add(bucketEntryWithKey);
+        break;
+      }
+case MEMORY:
+{
+      bucketMemory.add(bucketEntryWithKey);
+      break;
+    }
+}
+}
+PriorityQueue<BucketEntryGroup> bucketQueue=new PriorityQueue<BucketEntryGroup>(3);
+bucketQueue.add(bucketSingle);
+bucketQueue.add(bucketMulti);
+bucketQueue.add(bucketMemory);
+int remainingBuckets=3;
+long bytesFreed=0;
+BucketEntryGroup bucketGroup;
+while ((bucketGroup=bucketQueue.poll()) != null) {
+long overflow=bucketGroup.overflow();
+if (overflow > 0) {
+  long bucketBytesToFree=Math.min(overflow,(bytesToFreeWithoutExtra - bytesFreed) / remainingBuckets);
+  bytesFreed+=bucketGroup.free(bucketBytesToFree);
+}
+remainingBuckets--;
+}
+stats=bucketAllocator.getIndexStatistics();
+boolean needFreeForExtra=false;
+for (int i=0; i < stats.length; i++) {
+long freeGoal=(long)Math.floor(stats[i].totalCount() * (1 - DEFAULT_MIN_FACTOR));
+freeGoal=Math.max(freeGoal,1);
+if (stats[i].freeCount() < freeGoal) {
+  needFreeForExtra=true;
+  break;
+}
+}
+if (needFreeForExtra) {
+bucketQueue.clear();
+remainingBuckets=2;
+bucketQueue.add(bucketSingle);
+bucketQueue.add(bucketMulti);
+while ((bucketGroup=bucketQueue.poll()) != null) {
+  long bucketBytesToFree=(bytesToFreeWithExtra - bytesFreed) / remainingBuckets;
+  bytesFreed+=bucketGroup.free(bucketBytesToFree);
+  remainingBuckets--;
+}
+}
+if (LOG.isDebugEnabled()) {
+long single=bucketSingle.totalSize();
+long multi=bucketMulti.totalSize();
+long memory=bucketMemory.totalSize();
+LOG.debug("Bucket cache free space completed; " + "freed=" + StringUtils.byteDesc(bytesFreed) + ", "+ "total="+ StringUtils.byteDesc(totalSize)+ ", "+ "single="+ StringUtils.byteDesc(single)+ ", "+ "multi="+ StringUtils.byteDesc(multi)+ ", "+ "memory="+ StringUtils.byteDesc(memory));
+}
+}
+  finally {
+cacheStats.evict();
+freeInProgress=false;
+freeSpaceLock.unlock();
+}
+}
