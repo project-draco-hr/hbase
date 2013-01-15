@@ -5,9 +5,42 @@
   }
   final ServerCallable<Boolean> svrCallable=new ServerCallable<Boolean>(conn,tableName,first){
     @Override public Boolean call() throws Exception {
-      LOG.debug("Going to connect to server " + location + " for row "+ Bytes.toStringBinary(row));
-      byte[] regionName=location.getRegionInfo().getRegionName();
-      return ProtobufUtil.bulkLoadHFile(server,famPaths,regionName,assignSeqIds);
+      SecureBulkLoadClient secureClient=null;
+      boolean success=false;
+      try {
+        LOG.debug("Going to connect to server " + location + " for row "+ Bytes.toStringBinary(row));
+        byte[] regionName=location.getRegionInfo().getRegionName();
+        if (!useSecure) {
+          success=ProtobufUtil.bulkLoadHFile(server,famPaths,regionName,assignSeqIds);
+        }
+ else {
+          HTable table=new HTable(conn.getConfiguration(),tableName);
+          secureClient=new SecureBulkLoadClient(table);
+          success=secureClient.bulkLoadHFiles(famPaths,userToken,bulkToken,location.getRegionInfo().getStartKey());
+        }
+        return success;
+      }
+  finally {
+        if (secureClient != null && !success) {
+          FileSystem fs=FileSystem.get(cfg);
+          for (          Pair<byte[],String> el : famPaths) {
+            Path hfileStagingPath=null;
+            Path hfileOrigPath=new Path(el.getSecond());
+            try {
+              hfileStagingPath=new Path(secureClient.getStagingPath(bulkToken,el.getFirst()),hfileOrigPath.getName());
+              if (fs.rename(hfileStagingPath,hfileOrigPath)) {
+                LOG.debug("Moved back file " + hfileOrigPath + " from "+ hfileStagingPath);
+              }
+ else               if (fs.exists(hfileStagingPath)) {
+                LOG.debug("Unable to move back file " + hfileOrigPath + " from "+ hfileStagingPath);
+              }
+            }
+ catch (            Exception ex) {
+              LOG.debug("Unable to move back file " + hfileOrigPath + " from "+ hfileStagingPath,ex);
+            }
+          }
+        }
+      }
     }
   }
 ;

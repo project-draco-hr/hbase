@@ -16,6 +16,13 @@
       LOG.warn("Bulk load operation did not find any files to load in " + "directory " + hfofDir.toUri() + ".  Does it contain files in "+ "subdirectories that correspond to column family names?");
       return;
     }
+    if (useSecure) {
+      FileSystem fs=FileSystem.get(cfg);
+      if (User.isSecurityEnabled()) {
+        userToken=fs.getDelegationToken("renewer");
+      }
+      bulkToken=new SecureBulkLoadClient(table).prepareBulkLoad(table.getTableName());
+    }
     while (!queue.isEmpty()) {
       final Pair<byte[][],byte[][]> startEndKeys=table.getStartEndKeys();
       if (count != 0) {
@@ -32,6 +39,19 @@
     }
   }
   finally {
+    if (useSecure) {
+      if (userToken != null) {
+        try {
+          userToken.cancel(cfg);
+        }
+ catch (        Exception e) {
+          LOG.warn("Failed to cancel HDFS delegation token.",e);
+        }
+      }
+      if (bulkToken != null) {
+        new SecureBulkLoadClient(table).cleanupBulkLoad(bulkToken);
+      }
+    }
     pool.shutdown();
     if (queue != null && !queue.isEmpty()) {
       StringBuilder err=new StringBuilder();
