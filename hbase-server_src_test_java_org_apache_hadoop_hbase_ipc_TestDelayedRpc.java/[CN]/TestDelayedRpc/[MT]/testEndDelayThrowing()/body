@@ -4,22 +4,28 @@
   FaultyTestRpc instance=new FaultyTestRpc();
   rpcServer=HBaseServerRPC.getServer(instance.getClass(),instance,new Class<?>[]{TestRpcImpl.class},isa.getHostName(),isa.getPort(),1,0,true,conf,0);
   rpcServer.start();
-  TestRpc client=(TestRpc)HBaseClientRPC.getProxy(TestRpc.class,rpcServer.getListenerAddress(),conf,1000);
-  int result=0xDEADBEEF;
+  ProtobufRpcClientEngine clientEngine=new ProtobufRpcClientEngine(conf);
   try {
-    result=client.test(TestArg.newBuilder().setDelay(false).build()).getResponse();
+    TestRpc client=clientEngine.getProxy(TestRpc.class,rpcServer.getListenerAddress(),conf,1000);
+    int result=0xDEADBEEF;
+    try {
+      result=client.test(TestArg.newBuilder().setDelay(false).build()).getResponse();
+    }
+ catch (    Exception e) {
+      fail("No exception should have been thrown.");
+    }
+    assertEquals(result,UNDELAYED);
+    boolean caughtException=false;
+    try {
+      result=client.test(TestArg.newBuilder().setDelay(true).build()).getResponse();
+    }
+ catch (    Exception e) {
+      if (e.getCause().getMessage().contains("java.lang.Exception: Something went wrong"))       caughtException=true;
+      Log.warn(e);
+    }
+    assertTrue(caughtException);
   }
- catch (  Exception e) {
-    fail("No exception should have been thrown.");
+  finally {
+    clientEngine.close();
   }
-  assertEquals(result,UNDELAYED);
-  boolean caughtException=false;
-  try {
-    result=client.test(TestArg.newBuilder().setDelay(true).build()).getResponse();
-  }
- catch (  Exception e) {
-    if (e.getCause().getMessage().contains("java.lang.Exception: Something went wrong"))     caughtException=true;
-    Log.warn(e);
-  }
-  assertTrue(caughtException);
 }
