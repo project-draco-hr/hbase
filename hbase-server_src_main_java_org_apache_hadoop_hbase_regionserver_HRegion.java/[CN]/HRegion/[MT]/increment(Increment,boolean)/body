@@ -1,0 +1,94 @@
+{
+  byte[] row=increment.getRow();
+  checkRow(row,"increment");
+  TimeRange tr=increment.getTimeRange();
+  boolean flush=false;
+  WALEdit walEdits=null;
+  List<KeyValue> allKVs=new ArrayList<KeyValue>(increment.numColumns());
+  Map<Store,List<KeyValue>> tempMemstore=new HashMap<Store,List<KeyValue>>();
+  long size=0;
+  long txid=0;
+  startRegionOperation();
+  this.writeRequestsCount.increment();
+  WriteEntry w=null;
+  try {
+    Integer lid=getLock(null,row,true);
+    lock(this.updatesLock.readLock());
+    mvcc.completeMemstoreInsert(mvcc.beginMemstoreInsert());
+    w=mvcc.beginMemstoreInsert();
+    try {
+      long now=EnvironmentEdgeManager.currentTimeMillis();
+      for (      Map.Entry<byte[],NavigableMap<byte[],Long>> family : increment.getFamilyMap().entrySet()) {
+        Store store=stores.get(family.getKey());
+        List<KeyValue> kvs=new ArrayList<KeyValue>(family.getValue().size());
+        Get get=new Get(row);
+        for (        Map.Entry<byte[],Long> column : family.getValue().entrySet()) {
+          get.addColumn(family.getKey(),column.getKey());
+        }
+        get.setTimeRange(tr.getMin(),tr.getMax());
+        List<KeyValue> results=get(get,false);
+        int idx=0;
+        for (        Map.Entry<byte[],Long> column : family.getValue().entrySet()) {
+          long amount=column.getValue();
+          if (idx < results.size() && results.get(idx).matchingQualifier(column.getKey())) {
+            KeyValue kv=results.get(idx);
+            if (kv.getValueLength() == Bytes.SIZEOF_LONG) {
+              amount+=Bytes.toLong(kv.getBuffer(),kv.getValueOffset(),Bytes.SIZEOF_LONG);
+            }
+ else {
+              throw new DoNotRetryIOException("Attempted to increment field that isn't 64 bits wide");
+            }
+            idx++;
+          }
+          KeyValue newKV=new KeyValue(row,family.getKey(),column.getKey(),now,Bytes.toBytes(amount));
+          newKV.setMemstoreTS(w.getWriteNumber());
+          kvs.add(newKV);
+          if (writeToWAL) {
+            if (walEdits == null) {
+              walEdits=new WALEdit();
+            }
+            walEdits.add(newKV);
+          }
+        }
+        tempMemstore.put(store,kvs);
+      }
+      if (writeToWAL) {
+        txid=this.log.appendNoSync(regionInfo,this.htableDescriptor.getName(),walEdits,HConstants.DEFAULT_CLUSTER_ID,EnvironmentEdgeManager.currentTimeMillis(),this.htableDescriptor);
+      }
+      for (      Map.Entry<Store,List<KeyValue>> entry : tempMemstore.entrySet()) {
+        Store store=entry.getKey();
+        if (store.getFamily().getMaxVersions() == 1) {
+          size+=store.upsert(entry.getValue(),getSmallestReadPoint());
+        }
+ else {
+          for (          KeyValue kv : entry.getValue()) {
+            size+=store.add(kv);
+          }
+        }
+        allKVs.addAll(entry.getValue());
+      }
+      size=this.addAndGetGlobalMemstoreSize(size);
+      flush=isFlushSize(size);
+    }
+  finally {
+      this.updatesLock.readLock().unlock();
+      releaseRowLock(lid);
+    }
+    if (writeToWAL) {
+      syncOrDefer(txid);
+    }
+  }
+  finally {
+    if (w != null) {
+      mvcc.completeMemstoreInsert(w);
+    }
+    closeRegionOperation();
+    if (this.metricsRegion != null) {
+      this.metricsRegion.updateIncrement();
+    }
+  }
+  if (flush) {
+    requestFlush();
+  }
+  return new Result(allKVs);
+}
