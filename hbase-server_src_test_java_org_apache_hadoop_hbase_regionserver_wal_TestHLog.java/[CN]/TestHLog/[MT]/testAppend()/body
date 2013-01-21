@@ -14,8 +14,8 @@
     HTableDescriptor htd=new HTableDescriptor();
     htd.addFamily(new HColumnDescriptor("column"));
     log.append(hri,tableName,cols,System.currentTimeMillis(),htd);
-    log.startCacheFlush(hri.getEncodedNameAsBytes());
-    log.completeCacheFlush(hri.getEncodedNameAsBytes());
+    long logSeqId=log.startCacheFlush(hri.getEncodedNameAsBytes());
+    log.completeCacheFlush(hri.getEncodedNameAsBytes(),tableName,logSeqId,false);
     log.close();
     Path filename=((FSHLog)log).computeFilename();
     log=null;
@@ -30,6 +30,16 @@
       assertEquals((byte)(idx + '0'),val.getValue()[0]);
       System.out.println(entry.getKey() + " " + val);
       idx++;
+    }
+    entry=reader.next();
+    assertEquals(1,entry.getEdit().size());
+    for (    KeyValue val : entry.getEdit().getKeyValues()) {
+      assertTrue(Bytes.equals(hri.getEncodedNameAsBytes(),entry.getKey().getEncodedRegionName()));
+      assertTrue(Bytes.equals(tableName,entry.getKey().getTablename()));
+      assertTrue(Bytes.equals(HLog.METAROW,val.getRow()));
+      assertTrue(Bytes.equals(HLog.METAFAMILY,val.getFamily()));
+      assertEquals(0,Bytes.compareTo(HLogUtil.COMPLETE_CACHE_FLUSH,val.getValue()));
+      System.out.println(entry.getKey() + " " + val);
     }
   }
   finally {

@@ -1,57 +1,64 @@
 {
-synchronized (rollWriterLock) {
-    if (!force && this.writer != null && this.numEntries.get() <= 0) {
-      return null;
+  if (!force && this.writer != null && this.numEntries.get() <= 0) {
+    return null;
+  }
+  byte[][] regionsToFlush=null;
+  this.cacheFlushLock.lock();
+  try {
+    this.logRollRunning=true;
+    if (closed) {
+      LOG.debug("HLog closed.  Skipping rolling of writer");
+      return regionsToFlush;
     }
-    byte[][] regionsToFlush=null;
-    try {
-      this.logRollRunning=true;
-      boolean isClosed=closed;
-      if (isClosed || !closeBarrier.beginOp()) {
-        LOG.debug("HLog " + (isClosed ? "closed" : "closing") + ". Skipping rolling of writer");
-        return regionsToFlush;
+    long currentFilenum=this.filenum;
+    Path oldPath=null;
+    if (currentFilenum > 0) {
+      oldPath=computeFilename(currentFilenum);
+    }
+    this.filenum=System.currentTimeMillis();
+    Path newPath=computeFilename();
+    if (!this.listeners.isEmpty()) {
+      for (      WALActionsListener i : this.listeners) {
+        i.preLogRoll(oldPath,newPath);
       }
-      long currentFilenum=this.filenum;
-      Path oldPath=null;
-      if (currentFilenum > 0) {
-        oldPath=computeFilename(currentFilenum);
-      }
-      this.filenum=System.currentTimeMillis();
-      Path newPath=computeFilename();
-      if (!this.listeners.isEmpty()) {
-        for (        WALActionsListener i : this.listeners) {
-          i.preLogRoll(oldPath,newPath);
-        }
-      }
-      FSHLog.Writer nextWriter=this.createWriterInstance(fs,newPath,conf);
-      FSDataOutputStream nextHdfsOut=null;
-      if (nextWriter instanceof SequenceFileLogWriter) {
-        nextHdfsOut=((SequenceFileLogWriter)nextWriter).getWriterFSDataOutputStream();
-      }
-      Path oldFile=null;
-      int oldNumEntries=0;
+    }
+    FSHLog.Writer nextWriter=this.createWriterInstance(fs,newPath,conf);
+    FSDataOutputStream nextHdfsOut=null;
+    if (nextWriter instanceof SequenceFileLogWriter) {
+      nextHdfsOut=((SequenceFileLogWriter)nextWriter).getWriterFSDataOutputStream();
+    }
 synchronized (updateLock) {
-        oldNumEntries=this.numEntries.get();
-        oldFile=cleanupCurrentWriter(currentFilenum);
-        this.writer=nextWriter;
-        this.hdfs_out=nextHdfsOut;
-        this.numEntries.set(0);
+      Path oldFile=cleanupCurrentWriter(currentFilenum);
+      this.writer=nextWriter;
+      this.hdfs_out=nextHdfsOut;
+      LOG.info((oldFile != null ? "Roll " + FSUtils.getPath(oldFile) + ", entries="+ this.numEntries.get()+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen()+ ". " : "") + " for " + FSUtils.getPath(newPath));
+      this.numEntries.set(0);
+    }
+    if (!this.listeners.isEmpty()) {
+      for (      WALActionsListener i : this.listeners) {
+        i.postLogRoll(oldPath,newPath);
       }
-      LOG.info("Rolled log" + (oldFile != null ? " for file=" + FSUtils.getPath(oldFile) + ", entries="+ oldNumEntries+ ", filesize="+ this.fs.getFileStatus(oldFile).getLen() : "") + "; new path="+ FSUtils.getPath(newPath));
-      if (!this.listeners.isEmpty()) {
-        for (        WALActionsListener i : this.listeners) {
-          i.postLogRoll(oldPath,newPath);
+    }
+    if (this.outputfiles.size() > 0) {
+      if (this.lastSeqWritten.isEmpty()) {
+        LOG.debug("Last sequenceid written is empty. Deleting all old hlogs");
+        for (        Map.Entry<Long,Path> e : this.outputfiles.entrySet()) {
+          archiveLogFile(e.getValue(),e.getKey());
         }
+        this.outputfiles.clear();
       }
-      if (getNumLogFiles() > 0) {
-        cleanOldLogs();
-        regionsToFlush=getRegionsToForceFlush();
+ else {
+        regionsToFlush=cleanOldLogs();
       }
+    }
+  }
+  finally {
+    try {
+      this.logRollRunning=false;
     }
   finally {
-      this.logRollRunning=false;
-      closeBarrier.endOp();
+      this.cacheFlushLock.unlock();
     }
-    return regionsToFlush;
   }
+  return regionsToFlush;
 }
