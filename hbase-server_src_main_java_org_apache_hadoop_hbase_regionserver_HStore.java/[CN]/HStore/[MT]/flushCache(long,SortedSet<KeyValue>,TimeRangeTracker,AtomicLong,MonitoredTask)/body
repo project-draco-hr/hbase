@@ -1,3 +1,38 @@
 {
-  return internalFlushCache(snapshot,logCacheFlushId,snapshotTimeRangeTracker,flushedSize,status);
+  IOException lastException=null;
+  for (int i=0; i < HStore.flush_retries_number; i++) {
+    try {
+      Path pathName=internalFlushCache(snapshot,logCacheFlushId,snapshotTimeRangeTracker,flushedSize,status);
+      try {
+        if (pathName != null) {
+          validateStoreFile(pathName);
+        }
+        return pathName;
+      }
+ catch (      Exception e) {
+        LOG.warn("Failed validating store file " + pathName + ", retring num="+ i,e);
+        if (e instanceof IOException) {
+          lastException=(IOException)e;
+        }
+ else {
+          lastException=new IOException(e);
+        }
+      }
+    }
+ catch (    IOException e) {
+      LOG.warn("Failed flushing store file, retring num=" + i,e);
+      lastException=e;
+    }
+    if (lastException != null) {
+      try {
+        Thread.sleep(pauseTime);
+      }
+ catch (      InterruptedException e) {
+        IOException iie=new InterruptedIOException();
+        iie.initCause(e);
+        throw iie;
+      }
+    }
+  }
+  throw lastException;
 }
