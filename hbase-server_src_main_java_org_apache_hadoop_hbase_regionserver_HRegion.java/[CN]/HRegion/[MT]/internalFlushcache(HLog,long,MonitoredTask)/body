@@ -14,14 +14,23 @@
   long flushsize=this.memstoreSize.get();
   status.setStatus("Preparing to flush by snapshotting stores");
   List<StoreFlusher> storeFlushers=new ArrayList<StoreFlusher>(stores.size());
-  long completeSeqId=-1L;
+  long flushSeqId=-1L;
   try {
     w=mvcc.beginMemstoreInsert();
     mvcc.advanceMemstore(w);
-    sequenceId=(wal == null) ? myseqid : wal.startCacheFlush(this.regionInfo.getEncodedNameAsBytes());
-    completeSeqId=this.getCompleteCacheFlushSequenceId(sequenceId);
+    if (wal != null) {
+      Long startSeqId=wal.startCacheFlush(this.regionInfo.getEncodedNameAsBytes());
+      if (startSeqId == null) {
+        status.setStatus("Flush will not be started for [" + this.regionInfo.getEncodedName() + "] - WAL is going away");
+        return false;
+      }
+      flushSeqId=startSeqId.longValue();
+    }
+ else {
+      flushSeqId=myseqid;
+    }
     for (    Store s : stores.values()) {
-      storeFlushers.add(s.getStoreFlusher(completeSeqId));
+      storeFlushers.add(s.getStoreFlusher(flushSeqId));
     }
     for (    StoreFlusher flusher : storeFlushers) {
       flusher.prepare();
@@ -60,10 +69,10 @@
     throw dse;
   }
   if (wal != null) {
-    wal.completeCacheFlush(this.regionInfo.getEncodedNameAsBytes(),regionInfo.getTableName(),completeSeqId,this.getRegionInfo().isMetaRegion());
+    wal.completeCacheFlush(this.regionInfo.getEncodedNameAsBytes());
   }
   if (this.rsServices != null) {
-    completeSequenceId=completeSeqId;
+    completeSequenceId=flushSeqId;
   }
 synchronized (this) {
     notifyAll();
