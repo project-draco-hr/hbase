@@ -1,7 +1,7 @@
 {
   if (isAboveHighWaterMark()) {
-    long start=System.currentTimeMillis();
-synchronized (this.blockSignal) {
+    lock.lock();
+    try {
       boolean blocked=false;
       long startTime=0;
       while (isAboveHighWaterMark() && !server.isStopped()) {
@@ -12,13 +12,11 @@ synchronized (this.blockSignal) {
         blocked=true;
         wakeupFlushThread();
         try {
-          blockSignal.wait(5 * 1000);
+          flushOccurred.await(5,TimeUnit.SECONDS);
         }
  catch (        InterruptedException ie) {
           Thread.currentThread().interrupt();
         }
-        long took=System.currentTimeMillis() - start;
-        LOG.warn("Memstore is above high water mark and block " + took + "ms");
       }
       if (blocked) {
         final long totalTime=EnvironmentEdgeManager.currentTimeMillis() - startTime;
@@ -27,6 +25,9 @@ synchronized (this.blockSignal) {
         }
         LOG.info("Unblocking updates for server " + server.toString());
       }
+    }
+  finally {
+      lock.unlock();
     }
   }
  else   if (isAboveLowWaterMark()) {
