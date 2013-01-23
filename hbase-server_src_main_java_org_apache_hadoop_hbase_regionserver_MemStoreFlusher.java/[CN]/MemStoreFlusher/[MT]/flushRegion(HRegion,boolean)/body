@@ -4,8 +4,8 @@ synchronized (this.regionsInQueue) {
     if (fqe != null && emergencyFlush) {
       flushQueue.remove(fqe);
     }
-    lock.lock();
   }
+  lock.readLock().lock();
   try {
     boolean shouldCompact=region.flushcache();
     boolean shouldSplit=region.checkSplit() != null;
@@ -13,7 +13,7 @@ synchronized (this.regionsInQueue) {
       this.server.compactSplitThread.requestSplit(region);
     }
  else     if (shouldCompact) {
-      server.compactSplitThread.requestCompaction(region,getName());
+      server.compactSplitThread.requestCompaction(region,Thread.currentThread().getName());
     }
   }
  catch (  DroppedSnapshotException ex) {
@@ -27,12 +27,8 @@ catch (  IOException ex) {
     }
   }
  finally {
-    try {
-      flushOccurred.signalAll();
-    }
-  finally {
-      lock.unlock();
-    }
+    lock.readLock().unlock();
+    wakeUpIfBlocking();
   }
   return true;
 }

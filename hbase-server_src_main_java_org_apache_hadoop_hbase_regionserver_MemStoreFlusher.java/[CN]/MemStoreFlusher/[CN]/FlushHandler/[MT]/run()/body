@@ -1,21 +1,15 @@
 {
-  while (!this.server.isStopped()) {
+  while (!server.isStopped()) {
     FlushQueueEntry fqe=null;
     try {
       wakeupPending.set(false);
       fqe=flushQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
       if (fqe == null || fqe instanceof WakeupFlushThread) {
         if (isAboveLowWaterMark()) {
-          LOG.debug("Flush thread woke up because memory above low water=" + StringUtils.humanReadableInt(this.globalMemStoreLimitLowMark));
+          LOG.debug("Flush thread woke up because memory above low water=" + StringUtils.humanReadableInt(globalMemStoreLimitLowMark));
           if (!flushOneForGlobalPressure()) {
-            lock.lock();
-            try {
-              Thread.sleep(1000);
-              flushOccurred.signalAll();
-            }
-  finally {
-              lock.unlock();
-            }
+            Thread.sleep(1000);
+            wakeUpIfBlocking();
           }
           wakeupFlushThread();
         }
@@ -39,14 +33,10 @@ catch (    Exception ex) {
       }
     }
   }
-  this.regionsInQueue.clear();
-  this.flushQueue.clear();
-  lock.lock();
-  try {
-    flushOccurred.signalAll();
+synchronized (regionsInQueue) {
+    regionsInQueue.clear();
+    flushQueue.clear();
   }
-  finally {
-    lock.unlock();
-  }
+  wakeUpIfBlocking();
   LOG.info(getName() + " exiting");
 }
