@@ -1,12 +1,12 @@
 {
   StringBuilder s=new StringBuilder();
   Set<ImmutableBytesWritable> reservedKeys=new TreeSet<ImmutableBytesWritable>();
-  Set<ImmutableBytesWritable> configKeys=new TreeSet<ImmutableBytesWritable>();
+  Set<ImmutableBytesWritable> userKeys=new TreeSet<ImmutableBytesWritable>();
   for (  ImmutableBytesWritable k : values.keySet()) {
     if (k == null || k.get() == null)     continue;
     String key=Bytes.toString(k.get());
     if (!RESERVED_KEYWORDS.contains(k) && !key.startsWith("coprocessor$")) {
-      configKeys.add(k);
+      userKeys.add(k);
       continue;
     }
     String value=Bytes.toString(values.get(k).get());
@@ -17,35 +17,55 @@
       reservedKeys.add(k);
     }
   }
-  if (reservedKeys.isEmpty() && configKeys.isEmpty())   return s;
-  s.append(", {TABLE_ATTRIBUTES => {");
-  boolean printCommaForAttr=false;
-  for (  ImmutableBytesWritable k : reservedKeys) {
-    String key=Bytes.toString(k.get());
-    String value=Bytes.toString(values.get(k).get());
-    if (printCommaForAttr)     s.append(", ");
-    printCommaForAttr=true;
-    s.append(key);
-    s.append(" => ");
-    s.append('\'').append(value).append('\'');
-  }
-  if (!configKeys.isEmpty()) {
-    if (printCommaForAttr)     s.append(", ");
-    printCommaForAttr=true;
-    s.append(HConstants.METADATA).append(" => ");
-    s.append("{");
-    boolean printCommaForCfg=false;
-    for (    ImmutableBytesWritable k : configKeys) {
+  boolean hasAttributes=!reservedKeys.isEmpty() || !userKeys.isEmpty();
+  if (!hasAttributes && configuration.isEmpty())   return s;
+  s.append(", {");
+  if (hasAttributes) {
+    s.append("TABLE_ATTRIBUTES => {");
+    boolean printCommaForAttr=false;
+    for (    ImmutableBytesWritable k : reservedKeys) {
       String key=Bytes.toString(k.get());
       String value=Bytes.toString(values.get(k).get());
-      if (printCommaForCfg)       s.append(", ");
-      printCommaForCfg=true;
-      s.append('\'').append(key).append('\'');
+      if (printCommaForAttr)       s.append(", ");
+      printCommaForAttr=true;
+      s.append(key);
       s.append(" => ");
       s.append('\'').append(value).append('\'');
     }
+    if (!userKeys.isEmpty()) {
+      if (printCommaForAttr)       s.append(", ");
+      printCommaForAttr=true;
+      s.append(HConstants.METADATA).append(" => ");
+      s.append("{");
+      boolean printCommaForCfg=false;
+      for (      ImmutableBytesWritable k : userKeys) {
+        String key=Bytes.toString(k.get());
+        String value=Bytes.toString(values.get(k).get());
+        if (printCommaForCfg)         s.append(", ");
+        printCommaForCfg=true;
+        s.append('\'').append(key).append('\'');
+        s.append(" => ");
+        s.append('\'').append(value).append('\'');
+      }
+      s.append("}");
+    }
+  }
+  if (!configuration.isEmpty()) {
+    if (hasAttributes) {
+      s.append(", ");
+    }
+    s.append(HConstants.CONFIGURATION).append(" => ");
+    s.append('{');
+    boolean printCommaForConfig=false;
+    for (    Map.Entry<String,String> e : configuration.entrySet()) {
+      if (printCommaForConfig)       s.append(", ");
+      printCommaForConfig=true;
+      s.append('\'').append(e.getKey()).append('\'');
+      s.append(" => ");
+      s.append('\'').append(e.getValue()).append('\'');
+    }
     s.append("}");
   }
-  s.append("}}");
+  s.append("}");
   return s;
 }
