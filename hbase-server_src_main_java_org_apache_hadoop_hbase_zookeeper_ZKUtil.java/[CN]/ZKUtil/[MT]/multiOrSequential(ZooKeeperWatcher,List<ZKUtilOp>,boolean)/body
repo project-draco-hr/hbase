@@ -1,0 +1,34 @@
+{
+  if (ops == null)   return;
+  boolean useMulti=zkw.getConfiguration().getBoolean(HConstants.ZOOKEEPER_USEMULTI,false);
+  if (useMulti) {
+    List<Op> zkOps=new LinkedList<Op>();
+    for (    ZKUtilOp op : ops) {
+      zkOps.add(toZooKeeperOp(zkw,op));
+    }
+    try {
+      zkw.getRecoverableZooKeeper().multi(zkOps);
+    }
+ catch (    KeeperException ke) {
+switch (ke.code()) {
+case NODEEXISTS:
+case NONODE:
+case BADVERSION:
+case NOAUTH:
+        if (runSequentialOnMultiFailure) {
+          LOG.info("On call to ZK.multi, received exception: " + ke.toString() + "."+ "  Attempting to run operations sequentially because"+ " runSequentialOnMultiFailure is: "+ runSequentialOnMultiFailure+ ".");
+          processSequentially(zkw,ops);
+          break;
+        }
+default :
+      throw ke;
+  }
+}
+catch (InterruptedException ie) {
+  zkw.interruptedException(ie);
+}
+}
+ else {
+processSequentially(zkw,ops);
+}
+}
