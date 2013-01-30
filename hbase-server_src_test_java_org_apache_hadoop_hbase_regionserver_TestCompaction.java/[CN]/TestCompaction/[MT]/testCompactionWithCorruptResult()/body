@@ -5,18 +5,17 @@
   }
   HStore store=(HStore)r.getStore(COLUMN_FAMILY);
   List<StoreFile> storeFiles=store.getStorefiles();
-  long maxId=StoreFile.getMaxSequenceIdInList(storeFiles,true);
-  Compactor tool=new Compactor(this.conf);
-  StoreFile.Writer compactedFile=tool.compact(store,storeFiles,false,maxId);
+  Compactor tool=store.compactionPolicy.getCompactor();
+  List<Path> newFiles=tool.compact(storeFiles,false);
   FileSystem fs=FileSystem.get(conf);
-  Path origPath=compactedFile.getPath();
+  Path origPath=newFiles.get(0);
   Path homedir=store.getHomedir();
   Path dstPath=new Path(homedir,origPath.getName());
   FSDataOutputStream stream=fs.create(origPath,null,true,512,(short)3,(long)1024,null);
   stream.writeChars("CORRUPT FILE!!!!");
   stream.close();
   try {
-    store.completeCompaction(storeFiles,compactedFile);
+    store.completeCompaction(storeFiles,origPath);
   }
  catch (  Exception e) {
     assert(fs.exists(origPath));
