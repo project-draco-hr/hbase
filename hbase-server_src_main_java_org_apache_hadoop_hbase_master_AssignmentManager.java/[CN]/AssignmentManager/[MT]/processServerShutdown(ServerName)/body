@@ -8,5 +8,24 @@ synchronized (this.regionPlans) {
       }
     }
   }
-  return regionStates.serverOffline(sn);
+  List<HRegionInfo> regions=regionStates.serverOffline(sn);
+  for (Iterator<HRegionInfo> it=regions.iterator(); it.hasNext(); ) {
+    HRegionInfo hri=it.next();
+    String encodedName=hri.getEncodedName();
+    Lock lock=locker.acquireLock(encodedName);
+    try {
+      RegionState regionState=regionStates.getRegionTransitionState(encodedName);
+      if (regionState == null || !regionState.isPendingOpenOrOpeningOnServer(sn)) {
+        LOG.info("Skip region " + hri + " since it is not opening on the dead server any more: "+ sn);
+        it.remove();
+      }
+ else {
+        regionStates.updateRegionState(hri,RegionState.State.CLOSED);
+      }
+    }
+  finally {
+      lock.unlock();
+    }
+  }
+  return regions;
 }

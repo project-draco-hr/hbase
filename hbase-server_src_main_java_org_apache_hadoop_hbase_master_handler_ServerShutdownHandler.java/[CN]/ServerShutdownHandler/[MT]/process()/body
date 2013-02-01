@@ -38,18 +38,22 @@ catch (      IOException ioe) {
       throw new IOException("Server is stopped");
     }
     AssignmentManager am=services.getAssignmentManager();
-    List<RegionState> regionsInTransition=am.processServerShutdown(serverName);
-    LOG.info("Reassigning " + ((hris == null) ? 0 : hris.size()) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (skipping "+ regionsInTransition.size()+ " regions(s) that are already in transition)");
+    List<HRegionInfo> regionsInTransition=am.processServerShutdown(serverName);
+    LOG.info("Reassigning " + ((hris == null) ? 0 : hris.size()) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (and "+ regionsInTransition.size()+ " regions(s) that were opening on this server)");
+    List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
+    toAssignRegions.addAll(regionsInTransition);
     if (hris != null) {
       RegionStates regionStates=am.getRegionStates();
-      List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
       for (      Map.Entry<HRegionInfo,Result> e : hris.entrySet()) {
         HRegionInfo hri=e.getKey();
+        if (regionsInTransition.contains(hri)) {
+          continue;
+        }
         RegionState rit=regionStates.getRegionTransitionState(hri);
         if (processDeadRegion(hri,e.getValue(),am,server.getCatalogTracker())) {
           ServerName addressFromAM=regionStates.getRegionServerOfRegion(hri);
           if (addressFromAM != null && !addressFromAM.equals(this.serverName)) {
-            LOG.debug("Skip assigning region " + hri.getRegionNameAsString() + " because it has been opened in "+ addressFromAM.getServerName());
+            LOG.info("Skip assigning region " + hri.getRegionNameAsString() + " because it has been opened in "+ addressFromAM.getServerName());
             continue;
           }
           if (rit != null) {
@@ -81,13 +85,13 @@ catch (      IOException ioe) {
           }
         }
       }
-      try {
-        am.assign(toAssignRegions);
-      }
- catch (      InterruptedException ie) {
-        LOG.error("Caught " + ie + " during round-robin assignment");
-        throw new IOException(ie);
-      }
+    }
+    try {
+      am.assign(toAssignRegions);
+    }
+ catch (    InterruptedException ie) {
+      LOG.error("Caught " + ie + " during round-robin assignment");
+      throw new IOException(ie);
     }
   }
   finally {
