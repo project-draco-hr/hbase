@@ -10,17 +10,25 @@ synchronized (this.updateLock) {
   try {
     long doneUpto;
     long now=EnvironmentEdgeManager.currentTimeMillis();
+    IOException ioe=null;
+    List<Entry> pending=null;
 synchronized (flushLock) {
       if (txid <= this.syncedTillHere) {
         return;
       }
       doneUpto=this.unflushedEntries.get();
-      List<Entry> pending=logSyncerThread.getPendingWrites();
+      pending=logSyncerThread.getPendingWrites();
       try {
         logSyncerThread.hlogFlush(tempWriter,pending);
       }
  catch (      IOException io) {
+        ioe=io;
+        LOG.error("syncer encountered error, will retry. txid=" + txid,ioe);
+      }
+    }
+    if (ioe != null && pending != null) {
 synchronized (this.updateLock) {
+synchronized (flushLock) {
           tempWriter=this.writer;
           logSyncerThread.hlogFlush(tempWriter,pending);
         }
@@ -30,12 +38,12 @@ synchronized (this.updateLock) {
       return;
     }
     try {
-      tempWriter.sync();
+      if (tempWriter != null)       tempWriter.sync();
     }
  catch (    IOException ex) {
 synchronized (this.updateLock) {
         tempWriter=this.writer;
-        tempWriter.sync();
+        if (tempWriter != null)         tempWriter.sync();
       }
     }
     this.syncedTillHere=Math.max(this.syncedTillHere,doneUpto);
