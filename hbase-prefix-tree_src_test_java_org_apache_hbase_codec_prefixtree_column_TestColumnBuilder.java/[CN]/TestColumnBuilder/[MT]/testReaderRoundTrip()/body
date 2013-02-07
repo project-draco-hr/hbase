@@ -1,0 +1,35 @@
+{
+  for (int i=0; i < sortedUniqueColumns.size(); ++i) {
+    ByteRange column=sortedUniqueColumns.get(i);
+    builder.addSorted(column);
+  }
+  List<byte[]> builderOutputArrays=builder.getArrays();
+  for (int i=0; i < builderOutputArrays.size(); ++i) {
+    byte[] inputArray=sortedUniqueColumns.get(i).deepCopyToNewArray();
+    byte[] outputArray=builderOutputArrays.get(i);
+    boolean same=Bytes.equals(inputArray,outputArray);
+    Assert.assertTrue(same);
+  }
+  Assert.assertEquals(sortedUniqueColumns.size(),builderOutputArrays.size());
+  writer=new ColumnSectionWriter(blockMeta,builder,false);
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  writer.compile().writeBytes(baos);
+  bytes=baos.toByteArray();
+  buffer=new byte[blockMeta.getMaxQualifierLength()];
+  reader=new ColumnReader(buffer,false);
+  reader.initOnBlock(blockMeta,bytes);
+  List<TokenizerNode> builderNodes=Lists.newArrayList();
+  builder.appendNodes(builderNodes,true,true);
+  int i=0;
+  for (  TokenizerNode builderNode : builderNodes) {
+    if (!builderNode.hasOccurrences()) {
+      continue;
+    }
+    Assert.assertEquals(1,builderNode.getNumOccurrences());
+    int position=builderNode.getOutputArrayOffset();
+    byte[] output=reader.populateBuffer(position).copyBufferToNewArray();
+    boolean same=Bytes.equals(sortedUniqueColumns.get(i).deepCopyToNewArray(),output);
+    Assert.assertTrue(same);
+    ++i;
+  }
+}

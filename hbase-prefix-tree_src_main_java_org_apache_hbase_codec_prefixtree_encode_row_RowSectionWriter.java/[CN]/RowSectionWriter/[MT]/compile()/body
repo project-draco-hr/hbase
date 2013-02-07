@@ -1,0 +1,46 @@
+{
+  blockMeta.setMaxRowLength(prefixTreeEncoder.getRowTokenizer().getMaxElementLength());
+  prefixTreeEncoder.getRowTokenizer().setNodeFirstInsertionIndexes();
+  prefixTreeEncoder.getRowTokenizer().appendNodes(nonLeaves,true,false);
+  prefixTreeEncoder.getRowTokenizer().appendNodes(leaves,false,true);
+  int negativeIndex=0;
+  int totalLeafBytes=0;
+  for (int i=leaves.size() - 1; i >= 0; --i) {
+    TokenizerNode leaf=leaves.get(i);
+    RowNodeWriter leafWriter=initializeWriter(leafWriters,numLeafWriters,leaf);
+    ++numLeafWriters;
+    int leafNodeWidth=leafWriter.calculateWidthOverrideOffsetWidth(0);
+    totalLeafBytes+=leafNodeWidth;
+    negativeIndex+=leafNodeWidth;
+    leaf.setNegativeIndex(negativeIndex);
+  }
+  int totalNonLeafBytesWithoutOffsets=0;
+  int totalChildPointers=0;
+  for (int i=nonLeaves.size() - 1; i >= 0; --i) {
+    TokenizerNode nonLeaf=nonLeaves.get(i);
+    RowNodeWriter nonLeafWriter=initializeWriter(nonLeafWriters,numNonLeafWriters,nonLeaf);
+    ++numNonLeafWriters;
+    totalNonLeafBytesWithoutOffsets+=nonLeafWriter.calculateWidthOverrideOffsetWidth(0);
+    totalChildPointers+=nonLeaf.getNumChildren();
+  }
+  int offsetWidth=0;
+  while (true) {
+    ++offsetWidth;
+    int offsetBytes=totalChildPointers * offsetWidth;
+    int totalRowBytes=totalNonLeafBytesWithoutOffsets + offsetBytes + totalLeafBytes;
+    if (totalRowBytes < UFIntTool.maxValueForNumBytes(offsetWidth)) {
+      numBytes=totalRowBytes;
+      break;
+    }
+  }
+  blockMeta.setNextNodeOffsetWidth(offsetWidth);
+  for (int i=nonLeaves.size() - 1; i >= 0; --i) {
+    TokenizerNode nonLeaf=nonLeaves.get(i);
+    int writerIndex=nonLeaves.size() - i - 1;
+    RowNodeWriter nonLeafWriter=nonLeafWriters.get(writerIndex);
+    int nodeWidth=nonLeafWriter.calculateWidth();
+    negativeIndex+=nodeWidth;
+    nonLeaf.setNegativeIndex(negativeIndex);
+  }
+  return this;
+}
