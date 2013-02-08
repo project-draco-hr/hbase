@@ -2,31 +2,32 @@
   StoreFile.Reader r=f.getReader();
   if (r == null) {
     LOG.warn("StoreFile " + f + " has a null Reader");
-    return;
+    return false;
   }
   if (r.getEntries() == 0) {
     LOG.warn("StoreFile " + f + " is a empty store file");
-    return;
+    return false;
   }
   byte[] fk=r.getFirstKey();
-  if (fk == null)   return;
+  if (fk == null)   return false;
   KeyValue firstKV=KeyValue.createKeyValueFromKey(fk,0,fk.length);
   byte[] lk=r.getLastKey();
   KeyValue lastKV=KeyValue.createKeyValueFromKey(lk,0,lk.length);
   KeyValue firstOnRow=state.getTargetKey();
   if (this.comparator.compareRows(lastKV,firstOnRow) < 0) {
-    if (!state.isTargetTable(lastKV))     return;
+    if (!state.isTargetTable(lastKV))     return false;
     firstOnRow=new KeyValue(lastKV.getRow(),HConstants.LATEST_TIMESTAMP);
   }
   HFileScanner scanner=r.getScanner(true,true,false);
-  if (!seekToScanner(scanner,firstOnRow,firstKV))   return;
-  if (walkForwardInSingleRow(scanner,firstOnRow,state))   return;
+  if (!seekToScanner(scanner,firstOnRow,firstKV))   return false;
+  if (walkForwardInSingleRow(scanner,firstOnRow,state))   return true;
   while (scanner.seekBefore(firstOnRow.getBuffer(),firstOnRow.getKeyOffset(),firstOnRow.getKeyLength())) {
     KeyValue kv=scanner.getKeyValue();
     if (!state.isTargetTable(kv))     break;
     if (!state.isBetterCandidate(kv))     break;
     firstOnRow=new KeyValue(kv.getRow(),HConstants.LATEST_TIMESTAMP);
-    if (!seekToScanner(scanner,firstOnRow,firstKV))     break;
-    if (walkForwardInSingleRow(scanner,firstOnRow,state))     break;
+    if (!seekToScanner(scanner,firstOnRow,firstKV))     return false;
+    if (walkForwardInSingleRow(scanner,firstOnRow,state))     return true;
   }
+  return false;
 }
