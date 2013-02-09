@@ -1,0 +1,38 @@
+{
+  String table="testSplitdaughtersNotInMeta";
+  HTable meta=null;
+  try {
+    setupTable(table);
+    assertEquals(ROWKEYS.length,countRows());
+    TEST_UTIL.getHBaseAdmin().flush(table);
+    HRegionLocation location=tbl.getRegionLocation("B");
+    meta=new HTable(conf,HTableDescriptor.META_TABLEDESC.getName());
+    HRegionInfo hri=location.getRegionInfo();
+    HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+    byte[] regionName=location.getRegionInfo().getRegionName();
+    admin.split(location.getRegionInfo().getRegionName(),Bytes.toBytes("BM"));
+    TestEndToEndSplitTransaction.blockUntilRegionSplit(TEST_UTIL.getConfiguration(),60000,regionName,true);
+    PairOfSameType<HRegionInfo> daughters=HRegionInfo.getDaughterRegions(meta.get(new Get(regionName)));
+    Map<HRegionInfo,ServerName> hris=tbl.getRegionLocations();
+    undeployRegion(admin,hris.get(daughters.getFirst()),daughters.getFirst());
+    undeployRegion(admin,hris.get(daughters.getSecond()),daughters.getSecond());
+    meta.delete(new Delete(daughters.getFirst().getRegionName()));
+    meta.delete(new Delete(daughters.getSecond().getRegionName()));
+    meta.flushCommits();
+    HBaseFsck hbck=doFsck(conf,false);
+    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+    hbck=doFsck(conf,true,true,false,false,false,false,false,false,null);
+    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+    Get get=new Get(hri.getRegionName());
+    Result result=meta.get(get);
+    assertNotNull(result);
+    assertNotNull(HRegionInfo.getHRegionInfo(result));
+    assertEquals(ROWKEYS.length,countRows());
+    assertEquals(tbl.getStartKeys().length,SPLITS.length + 1 + 1);
+    assertNoErrors(doFsck(conf,false));
+  }
+  finally {
+    deleteTable(table);
+    IOUtils.closeQuietly(meta);
+  }
+}

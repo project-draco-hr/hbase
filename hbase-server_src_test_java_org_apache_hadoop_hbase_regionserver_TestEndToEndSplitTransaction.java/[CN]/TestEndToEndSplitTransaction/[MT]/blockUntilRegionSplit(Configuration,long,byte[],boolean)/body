@@ -1,0 +1,36 @@
+{
+  long start=System.currentTimeMillis();
+  log("blocking until region is split:" + Bytes.toStringBinary(regionName));
+  HRegionInfo daughterA=null, daughterB=null;
+  HTable metaTable=new HTable(conf,HConstants.META_TABLE_NAME);
+  try {
+    while (System.currentTimeMillis() - start < timeout) {
+      Result result=getRegionRow(metaTable,regionName);
+      if (result == null) {
+        break;
+      }
+      HRegionInfo region=HRegionInfo.getHRegionInfo(result);
+      if (region.isSplitParent()) {
+        log("found parent region: " + region.toString());
+        PairOfSameType<HRegionInfo> pair=HRegionInfo.getDaughterRegions(result);
+        daughterA=pair.getFirst();
+        daughterB=pair.getSecond();
+        break;
+      }
+      Threads.sleep(100);
+    }
+    if (waitForDaughters) {
+      long rem=timeout - (System.currentTimeMillis() - start);
+      blockUntilRegionIsInMeta(metaTable,rem,daughterA);
+      rem=timeout - (System.currentTimeMillis() - start);
+      blockUntilRegionIsInMeta(metaTable,rem,daughterB);
+      rem=timeout - (System.currentTimeMillis() - start);
+      blockUntilRegionIsOpened(conf,rem,daughterA);
+      rem=timeout - (System.currentTimeMillis() - start);
+      blockUntilRegionIsOpened(conf,rem,daughterB);
+    }
+  }
+  finally {
+    IOUtils.closeQuietly(metaTable);
+  }
+}
