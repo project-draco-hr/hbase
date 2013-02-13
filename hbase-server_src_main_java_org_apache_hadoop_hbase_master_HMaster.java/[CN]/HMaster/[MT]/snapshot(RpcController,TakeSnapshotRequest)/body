@@ -21,6 +21,14 @@ catch (  IOException e) {
     throw new ServiceException(new SnapshotCreationException("Table '" + snapshot.getTable() + "' doesn't exist, can't take snapshot.",snapshot));
   }
   snapshot=snapshot.toBuilder().setVersion(SnapshotDescriptionUtils.SNAPSHOT_LAYOUT_VERSION).build();
+  try {
+    if (cpHost != null) {
+      cpHost.preSnapshot(snapshot,desc);
+    }
+  }
+ catch (  IOException e) {
+    throw new ServiceException(e);
+  }
   if (this.assignmentManager.getZKTable().isEnabledTable(snapshot.getTable())) {
     LOG.debug("Table enabled, starting distributed snapshot.");
     throw new ServiceException(new UnsupportedOperationException("Enabled table snapshots are not yet supported"));
@@ -38,6 +46,14 @@ catch (  IOException e) {
  else {
     LOG.error("Can't snapshot table '" + snapshot.getTable() + "', isn't open or closed, we don't know what to do!");
     throw new ServiceException(new SnapshotCreationException("Table is not entirely open or closed",new TablePartiallyOpenException(snapshot.getTable() + " isn't fully open."),snapshot));
+  }
+  try {
+    if (cpHost != null) {
+      cpHost.postSnapshot(snapshot,desc);
+    }
+  }
+ catch (  IOException e) {
+    throw new ServiceException(e);
   }
   long waitTime=SnapshotDescriptionUtils.getMaxMasterTimeout(conf,snapshot.getType(),SnapshotDescriptionUtils.DEFAULT_MAX_WAIT_TIME);
   return TakeSnapshotResponse.newBuilder().setExpectedTimeout(waitTime).build();
