@@ -1,0 +1,39 @@
+{
+  FileStatus status;
+  try {
+    status=fs.getFileStatus(snapshotDir);
+  }
+ catch (  FileNotFoundException e) {
+    LOG.warn("Snapshot directory: " + snapshotDir + " doesn't exist");
+    return;
+  }
+  if (status.getModificationTime() <= lastModifiedTime)   return;
+  this.lastModifiedTime=status.getModificationTime();
+  this.cache.clear();
+  Map<String,SnapshotDirectoryInfo> known=new HashMap<String,SnapshotDirectoryInfo>();
+  FileStatus[] snapshots=FSUtils.listStatus(fs,snapshotDir);
+  if (snapshots == null) {
+    LOG.debug("No snapshots on-disk, cache empty");
+    this.snapshots.clear();
+    return;
+  }
+  for (  FileStatus snapshot : snapshots) {
+    String name=snapshot.getPath().getName();
+    if (name.equals(SnapshotDescriptionUtils.SNAPSHOT_TMP_DIR_NAME)) {
+      FileStatus[] running=FSUtils.listStatus(fs,snapshot.getPath());
+      if (running == null)       continue;
+      for (      FileStatus run : running) {
+        this.cache.addAll(getAllFiles(run,dirFilter));
+      }
+    }
+    SnapshotDirectoryInfo files=this.snapshots.remove(name);
+    if (files == null || files.hasBeenModified(snapshot.getModificationTime())) {
+      Collection<String> storedFiles=getAllFiles(snapshot,dirFilter);
+      files=new SnapshotDirectoryInfo(snapshot.getModificationTime(),storedFiles);
+    }
+    this.cache.addAll(files.getFiles());
+    known.put(name,files);
+  }
+  this.snapshots.clear();
+  this.snapshots.putAll(known);
+}
