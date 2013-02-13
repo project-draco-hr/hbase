@@ -1,0 +1,28 @@
+{
+  HBaseAdmin admin=UTIL.getHBaseAdmin();
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  HTable table=new HTable(UTIL.getConfiguration(),TABLE_NAME);
+  UTIL.loadTable(table,TEST_FAM);
+  Set<String> snapshotServers=new HashSet<String>();
+  List<RegionServerThread> servers=UTIL.getMiniHBaseCluster().getLiveRegionServerThreads();
+  for (  RegionServerThread server : servers) {
+    if (server.getRegionServer().getOnlineRegions(TABLE_NAME).size() > 0) {
+      snapshotServers.add(server.getRegionServer().getServerName().toString());
+    }
+  }
+  LOG.debug("FS state before snapshot:");
+  FSUtils.logFileSystemState(UTIL.getTestFileSystem(),FSUtils.getRootDir(UTIL.getConfiguration()),LOG);
+  String snapshotString="offlineTableSnapshot";
+  byte[] snapshot=Bytes.toBytes(snapshotString);
+  admin.snapshot(snapshotString,STRING_TABLE_NAME,SnapshotDescription.Type.FLUSH);
+  LOG.debug("Snapshot completed.");
+  List<SnapshotDescription> snapshots=SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,snapshot,TABLE_NAME);
+  FileSystem fs=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+  Path rootDir=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+  LOG.debug("FS state after snapshot:");
+  FSUtils.logFileSystemState(UTIL.getTestFileSystem(),FSUtils.getRootDir(UTIL.getConfiguration()),LOG);
+  SnapshotTestingUtils.confirmSnapshotValid(snapshots.get(0),TABLE_NAME,TEST_FAM,rootDir,admin,fs,false,new Path(rootDir,HConstants.HREGION_LOGDIR_NAME),snapshotServers);
+  admin.deleteSnapshot(snapshot);
+  snapshots=admin.listSnapshots();
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+}

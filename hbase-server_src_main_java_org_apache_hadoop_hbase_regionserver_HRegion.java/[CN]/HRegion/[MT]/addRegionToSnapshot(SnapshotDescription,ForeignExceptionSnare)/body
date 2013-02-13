@@ -1,0 +1,27 @@
+{
+  Path rootDir=FSUtils.getRootDir(this.rsServices.getConfiguration());
+  Path snapshotRegionDir=TakeSnapshotUtils.getRegionSnapshotDirectory(desc,rootDir,regionInfo.getEncodedName());
+  LOG.debug("Storing region-info for snapshot.");
+  checkRegioninfoOnFilesystem(snapshotRegionDir);
+  LOG.debug("Creating references for hfiles");
+  for (  Store store : stores.values()) {
+    Path dstStoreDir=TakeSnapshotUtils.getStoreSnapshotDirectory(snapshotRegionDir,Bytes.toString(store.getFamily().getName()));
+    List<StoreFile> storeFiles=store.getStorefiles();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Adding snapshot references for " + storeFiles + " hfiles");
+    }
+    int sz=storeFiles.size();
+    for (int i=0; i < sz; i++) {
+      if (exnSnare != null) {
+        exnSnare.rethrowException();
+      }
+      Path file=storeFiles.get(i).getPath();
+      LOG.debug("Creating reference for file (" + (i + 1) + "/"+ sz+ ") : "+ file);
+      Path referenceFile=new Path(dstStoreDir,file.getName());
+      boolean success=fs.createNewFile(referenceFile);
+      if (!success) {
+        throw new IOException("Failed to create reference file:" + referenceFile);
+      }
+    }
+  }
+}
