@@ -1,0 +1,44 @@
+{
+  FileSystem fs=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+  Path rootDir=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+  HBaseAdmin admin=UTIL.getHBaseAdmin();
+  final long startTime=System.currentTimeMillis();
+  final String localTableNameAsString=STRING_TABLE_NAME + startTime;
+  HTable original=UTIL.createTable(Bytes.toBytes(localTableNameAsString),TEST_FAM);
+  try {
+    UTIL.loadTable(original,TEST_FAM);
+    final int origTableRowCount=UTIL.countRows(original);
+    final String snapshotNameAsString="snapshot_" + localTableNameAsString;
+    byte[] snapshotName=Bytes.toBytes(snapshotNameAsString);
+    SnapshotTestingUtils.createSnapshotAndValidate(admin,localTableNameAsString,TEST_FAM_STR,snapshotNameAsString,rootDir,fs,online);
+    if (!online) {
+      admin.enableTable(localTableNameAsString);
+    }
+    byte[] cloneTableName=Bytes.toBytes("test-clone-" + localTableNameAsString);
+    admin.cloneSnapshot(snapshotName,cloneTableName);
+    HTable clonedTable=new HTable(UTIL.getConfiguration(),cloneTableName);
+    try {
+      final int clonedTableRowCount=UTIL.countRows(clonedTable);
+      Assert.assertEquals("The line counts of original and cloned tables do not match after clone. ",origTableRowCount,clonedTableRowCount);
+      final String rowKey="new-row-" + System.currentTimeMillis();
+      Put p=new Put(Bytes.toBytes(rowKey));
+      p.add(TEST_FAM,Bytes.toBytes("someQualifier"),Bytes.toBytes("someString"));
+      original.put(p);
+      original.flushCommits();
+      Assert.assertEquals("The row count of the original table was not modified by the put",origTableRowCount + 1,UTIL.countRows(original));
+      Assert.assertEquals("The row count of the cloned table changed as a result of addition to the original",clonedTableRowCount,UTIL.countRows(clonedTable));
+      p=new Put(Bytes.toBytes(rowKey));
+      p.add(TEST_FAM,Bytes.toBytes("someQualifier"),Bytes.toBytes("someString"));
+      clonedTable.put(p);
+      clonedTable.flushCommits();
+      Assert.assertEquals("The row count of the original table was modified by the put to the clone",origTableRowCount + 1,UTIL.countRows(original));
+      Assert.assertEquals("The row count of the cloned table was not modified by the put",clonedTableRowCount + 1,UTIL.countRows(clonedTable));
+    }
+  finally {
+      clonedTable.close();
+    }
+  }
+  finally {
+    original.close();
+  }
+}
