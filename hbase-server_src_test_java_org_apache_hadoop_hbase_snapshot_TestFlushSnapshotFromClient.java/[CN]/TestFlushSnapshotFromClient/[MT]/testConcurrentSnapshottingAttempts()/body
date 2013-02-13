@@ -1,0 +1,66 @@
+{
+  int ssNum=10;
+  HBaseAdmin admin=UTIL.getHBaseAdmin();
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  UTIL.loadTable(new HTable(UTIL.getConfiguration(),TABLE_NAME),TEST_FAM);
+  HRegionServer rs=UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+  List<HRegion> onlineRegions=rs.getOnlineRegions(TABLE_NAME);
+  for (  HRegion region : onlineRegions) {
+    region.waitForFlushesAndCompactions();
+  }
+  SnapshotDescription[] descs=new SnapshotDescription[ssNum];
+  for (int i=0; i < ssNum; i++) {
+    SnapshotDescription.Builder builder=SnapshotDescription.newBuilder();
+    builder.setTable(STRING_TABLE_NAME);
+    builder.setName("ss" + i);
+    builder.setType(SnapshotDescription.Type.FLUSH);
+    descs[i]=builder.build();
+  }
+  final CountDownLatch toBeSubmitted=new CountDownLatch(ssNum);
+class SSRunnable implements Runnable {
+    SnapshotDescription ss;
+    SSRunnable(    SnapshotDescription ss){
+      this.ss=ss;
+    }
+    @Override public void run(){
+      try {
+        HBaseAdmin admin=UTIL.getHBaseAdmin();
+        LOG.info("Submitting snapshot request: " + SnapshotDescriptionUtils.toString(ss));
+        admin.takeSnapshotAsync(ss);
+      }
+ catch (      Exception e) {
+        LOG.info("Exception during snapshot request: " + SnapshotDescriptionUtils.toString(ss) + ".  This is ok, we expect some",e);
+      }
+      LOG.info("Submitted snapshot request: " + SnapshotDescriptionUtils.toString(ss));
+      toBeSubmitted.countDown();
+    }
+  }
+  ;
+  for (int i=0; i < ssNum; i++) {
+    new Thread(new SSRunnable(descs[i])).start();
+  }
+  toBeSubmitted.await();
+  while (true) {
+    int doneCount=0;
+    for (    SnapshotDescription ss : descs) {
+      try {
+        if (admin.isSnapshotFinished(ss)) {
+          doneCount++;
+        }
+      }
+ catch (      Exception e) {
+        LOG.warn("Got an exception when checking for snapshot " + ss.getName(),e);
+        doneCount++;
+      }
+    }
+    if (doneCount == descs.length) {
+      break;
+    }
+    Thread.sleep(100);
+  }
+  logFSTree(new Path(UTIL.getConfiguration().get(HConstants.HBASE_DIR)));
+  List<SnapshotDescription> taken=admin.listSnapshots();
+  int takenSize=taken.size();
+  LOG.info("Taken " + takenSize + " snapshots:  "+ taken);
+  assertTrue("We expect at least 1 request to be rejected because of we concurrently" + " issued many requests",takenSize < ssNum && takenSize > 0);
+}
