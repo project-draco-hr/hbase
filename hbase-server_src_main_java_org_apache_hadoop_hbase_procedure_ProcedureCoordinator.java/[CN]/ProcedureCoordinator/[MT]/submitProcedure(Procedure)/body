@@ -4,8 +4,14 @@
   }
   String procName=proc.getName();
 synchronized (procedures) {
-    if (procedures.get(procName) != null) {
-      return false;
+    Procedure oldProc=procedures.get(procName);
+    if (oldProc != null) {
+      if (oldProc.completedLatch.getCount() != 0) {
+        LOG.warn("Procedure " + procName + " currently running.  Rejecting new request");
+        return false;
+      }
+      LOG.debug("Procedure " + procName + " was in running list but was completed.  Accepting new attempt.");
+      procedures.remove(procName);
     }
   }
   Future<Void> f=null;
@@ -17,6 +23,7 @@ synchronized (procedures) {
     return true;
   }
  catch (  RejectedExecutionException e) {
+    LOG.warn("Procedure " + procName + " rejected by execution pool.  Propagating error and "+ "cancelling operation.",e);
     proc.receive(new ForeignException(procName,e));
     if (f != null) {
       f.cancel(true);
