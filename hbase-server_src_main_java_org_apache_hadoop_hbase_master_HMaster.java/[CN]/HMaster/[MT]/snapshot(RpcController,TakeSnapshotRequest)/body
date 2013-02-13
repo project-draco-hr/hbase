@@ -1,3 +1,44 @@
 {
-  throw new ServiceException(new UnsupportedOperationException("Snapshots are not implemented yet."));
+  LOG.debug("Starting snapshot for:" + request);
+  SnapshotDescription snapshot=SnapshotDescriptionUtils.validate(request.getSnapshot(),this.conf);
+  if (isSnapshotCompleted(snapshot)) {
+    throw new ServiceException(new SnapshotExistsException("Snapshot '" + snapshot.getName() + "' already stored on the filesystem.",snapshot));
+  }
+  LOG.debug("No existing snapshot, attempting snapshot...");
+  HTableDescriptor desc=null;
+  try {
+    desc=this.tableDescriptors.get(snapshot.getTable());
+  }
+ catch (  FileNotFoundException e) {
+    String msg="Table:" + snapshot.getTable() + " info doesn't exist!";
+    LOG.error(msg);
+    throw new ServiceException(new SnapshotCreationException(msg,e,snapshot));
+  }
+catch (  IOException e) {
+    throw new ServiceException(new SnapshotCreationException("Error while geting table description for table " + snapshot.getTable(),e,snapshot));
+  }
+  if (desc == null) {
+    throw new ServiceException(new SnapshotCreationException("Table '" + snapshot.getTable() + "' doesn't exist, can't take snapshot.",snapshot));
+  }
+  snapshot=snapshot.toBuilder().setVersion(SnapshotDescriptionUtils.SNAPSHOT_LAYOUT_VERSION).build();
+  if (this.assignmentManager.getZKTable().isEnabledTable(snapshot.getTable())) {
+    LOG.debug("Table enabled, starting distributed snapshot.");
+    throw new ServiceException(new UnsupportedOperationException("Enabled table snapshots are not yet supported"));
+  }
+ else   if (this.assignmentManager.getZKTable().isDisabledTable(snapshot.getTable())) {
+    LOG.debug("Table is disabled, running snapshot entirely on master.");
+    try {
+      snapshotManager.snapshotDisabledTable(snapshot);
+    }
+ catch (    HBaseSnapshotException e) {
+      throw new ServiceException(e);
+    }
+    LOG.debug("Started snapshot: " + snapshot);
+  }
+ else {
+    LOG.error("Can't snapshot table '" + snapshot.getTable() + "', isn't open or closed, we don't know what to do!");
+    throw new ServiceException(new SnapshotCreationException("Table is not entirely open or closed",new TablePartiallyOpenException(snapshot.getTable() + " isn't fully open."),snapshot));
+  }
+  long waitTime=SnapshotDescriptionUtils.getMaxMasterTimeout(conf,snapshot.getType(),SnapshotDescriptionUtils.DEFAULT_MAX_WAIT_TIME);
+  return TakeSnapshotResponse.newBuilder().setExpectedTimeout(waitTime).build();
 }

@@ -1,0 +1,32 @@
+{
+  final int maxWaitTime=7500;
+  final int numRetries=10;
+  final int pauseTime=500;
+  long ignoreExpectedTime=0;
+  for (int i=0; i < 6; i++) {
+    ignoreExpectedTime+=HConstants.RETRY_BACKOFF[i] * pauseTime;
+  }
+  final long time=pauseTime * 3 + ((maxWaitTime / numRetries) * 3) + 300;
+  assertTrue("Capped snapshot wait time isn't less that the uncapped backoff time " + "- further testing won't prove anything.",time < ignoreExpectedTime);
+  HConnectionManager.HConnectionImplementation mockConnection=Mockito.mock(HConnectionManager.HConnectionImplementation.class);
+  Configuration conf=HBaseConfiguration.create();
+  conf.setInt("hbase.client.retries.number",numRetries);
+  conf.setLong("hbase.client.pause",pauseTime);
+  MasterAdminKeepAliveConnection mockMaster=Mockito.mock(MasterAdminKeepAliveConnection.class);
+  Mockito.when(mockConnection.getConfiguration()).thenReturn(conf);
+  Mockito.when(mockConnection.getKeepAliveMasterAdmin()).thenReturn(mockMaster);
+  TakeSnapshotResponse response=TakeSnapshotResponse.newBuilder().setExpectedTimeout(maxWaitTime).build();
+  Mockito.when(mockMaster.snapshot((RpcController)Mockito.isNull(),Mockito.any(TakeSnapshotRequest.class))).thenReturn(response);
+  IsSnapshotDoneResponse.Builder builder=IsSnapshotDoneResponse.newBuilder();
+  builder.setDone(false);
+  Mockito.when(mockMaster.isSnapshotDone((RpcController)Mockito.isNull(),Mockito.any(IsSnapshotDoneRequest.class))).thenReturn(builder.build(),builder.build(),builder.build(),builder.build(),builder.build(),builder.setDone(true).build());
+  HBaseAdmin admin=new HBaseAdmin(mockConnection);
+  String snapshot="snapshot";
+  String table="table";
+  long start=System.currentTimeMillis();
+  admin.snapshot(snapshot,table);
+  long finish=System.currentTimeMillis();
+  long elapsed=(finish - start);
+  assertTrue("Elapsed time:" + elapsed + " is more than expected max:"+ time,elapsed <= time);
+  admin.close();
+}

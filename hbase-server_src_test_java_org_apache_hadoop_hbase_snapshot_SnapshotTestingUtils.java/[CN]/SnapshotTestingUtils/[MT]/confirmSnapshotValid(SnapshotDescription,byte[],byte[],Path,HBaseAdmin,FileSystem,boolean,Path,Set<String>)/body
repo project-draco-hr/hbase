@@ -1,0 +1,22 @@
+{
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotDescriptor,rootDir);
+  assertTrue(fs.exists(snapshotDir));
+  Path snapshotinfo=new Path(snapshotDir,SnapshotDescriptionUtils.SNAPSHOTINFO_FILE);
+  assertTrue(fs.exists(snapshotinfo));
+  if (requireLogs) {
+    TakeSnapshotUtils.verifyAllLogsGotReferenced(fs,logsDir,snapshotServers,snapshotDescriptor,new Path(snapshotDir,HConstants.HREGION_LOGDIR_NAME));
+  }
+  HTableDescriptor desc=FSTableDescriptors.getTableDescriptor(fs,rootDir,tableName);
+  HTableDescriptor snapshotDesc=FSTableDescriptors.getTableDescriptor(fs,snapshotDir);
+  assertEquals(desc,snapshotDesc);
+  List<HRegionInfo> regions=admin.getTableRegions(tableName);
+  for (  HRegionInfo info : regions) {
+    String regionName=info.getEncodedName();
+    Path regionDir=new Path(snapshotDir,regionName);
+    HRegionInfo snapshotRegionInfo=HRegion.loadDotRegionInfoFileContent(fs,regionDir);
+    assertEquals(info,snapshotRegionInfo);
+    Path familyDir=new Path(regionDir,Bytes.toString(testFamily));
+    assertTrue("Expected to find: " + familyDir + ", but it doesn't exist",fs.exists(familyDir));
+    assertTrue(fs.listStatus(familyDir).length > 0);
+  }
+}

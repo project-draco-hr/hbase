@@ -1,3 +1,36 @@
 {
-  throw new ServiceException(new UnsupportedOperationException("Snapshots are not implemented yet."));
+  try {
+    ListSnapshotResponse.Builder builder=ListSnapshotResponse.newBuilder();
+    Path snapshotDir=SnapshotDescriptionUtils.getSnapshotsDir(this.getMasterFileSystem().getRootDir());
+    if (!this.getMasterFileSystem().getFileSystem().exists(snapshotDir)) {
+      return builder.build();
+    }
+    FileSystem fs=this.getMasterFileSystem().getFileSystem();
+    FileStatus[] snapshots=fs.listStatus(snapshotDir,new SnapshotDescriptionUtils.CompletedSnaphotDirectoriesFilter(fs));
+    for (    FileStatus snapshot : snapshots) {
+      Path info=new Path(snapshot.getPath(),SnapshotDescriptionUtils.SNAPSHOTINFO_FILE);
+      if (!fs.exists(info)) {
+        LOG.error("Snapshot information for " + snapshot.getPath() + " doesn't exist");
+        continue;
+      }
+      FSDataInputStream in=null;
+      try {
+        in=fs.open(info);
+        SnapshotDescription desc=SnapshotDescription.parseFrom(in);
+        builder.addSnapshots(desc);
+      }
+ catch (      IOException e) {
+        LOG.warn("Found a corrupted snapshot " + snapshot.getPath(),e);
+      }
+ finally {
+        if (in != null) {
+          in.close();
+        }
+      }
+    }
+    return builder.build();
+  }
+ catch (  IOException e) {
+    throw new ServiceException(e);
+  }
 }
