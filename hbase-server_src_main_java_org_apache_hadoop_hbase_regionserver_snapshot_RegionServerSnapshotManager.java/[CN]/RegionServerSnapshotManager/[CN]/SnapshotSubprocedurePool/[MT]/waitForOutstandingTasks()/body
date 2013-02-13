@@ -1,0 +1,39 @@
+{
+  LOG.debug("Waiting for local region snapshots to finish.");
+  try {
+    int sz=futures.size();
+    for (int i=0; i < sz; i++) {
+      Future<Void> f=taskPool.take();
+      f.get();
+      if (!futures.remove(f)) {
+        LOG.warn("unexpected future");
+      }
+      LOG.debug("Completed " + (i + 1) + "/"+ sz+ " local region snapshots.");
+    }
+    LOG.debug("Completed " + sz + " local region snapshots.");
+    return true;
+  }
+ catch (  InterruptedException e) {
+    LOG.warn("Got InterruptedException in SnapshotSubprocedurePool",e);
+    if (stopped) {
+      throw new ForeignException("SnapshotSubprocedurePool",e);
+    }
+    Thread.currentThread().interrupt();
+  }
+catch (  ExecutionException e) {
+    if (e.getCause() instanceof ForeignException) {
+      throw (ForeignException)e.getCause();
+    }
+    throw new ForeignException(name,e.getCause());
+  }
+ finally {
+    for (    Future<Void> f : futures) {
+      if (!f.isDone()) {
+        LOG.warn("cancelling region task");
+        f.cancel(true);
+      }
+    }
+    futures.clear();
+  }
+  return false;
+}
