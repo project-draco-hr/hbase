@@ -1,0 +1,25 @@
+{
+  List<String> members=new ArrayList<String>();
+  members.add("member");
+  LatchedProcedure proc=new LatchedProcedure(coord,new ForeignExceptionDispatcher(),100,Integer.MAX_VALUE,"op",null,members);
+  final LatchedProcedure procspy=spy(proc);
+  new Thread(){
+    public void run(){
+      procspy.call();
+    }
+  }
+.start();
+  proc.startedAcquireBarrier.await();
+  verify(procspy).sendGlobalBarrierStart();
+  verify(procspy,never()).sendGlobalBarrierReached();
+  verify(procspy,never()).sendGlobalBarrierComplete();
+  verify(procspy,never()).barrierAcquiredByMember(anyString());
+  proc.barrierAcquiredByMember(members.get(0));
+  proc.acquiredBarrierLatch.await();
+  verify(procspy).sendGlobalBarrierStart();
+  proc.barrierReleasedByMember(members.get(0));
+  proc.completedProcedure.await();
+  verify(procspy).sendGlobalBarrierReached();
+  verify(procspy).sendGlobalBarrierComplete();
+  verify(procspy,never()).receive(any(ForeignException.class));
+}

@@ -1,0 +1,32 @@
+{
+  if (this.coordinator != null) {
+    throw new IllegalStateException("ZKProcedureCoordinator already started and already has listener installed");
+  }
+  this.coordinator=listener;
+  try {
+    this.zkProc=new ZKProcedureUtil(watcher,procedureType,coordName){
+      @Override public void nodeCreated(      String path){
+        if (!zkProc.isInProcedurePath(path))         return;
+        LOG.debug("Node created: " + path);
+        logZKTree(this.baseZNode);
+        if (zkProc.isAcquiredPathNode(path)) {
+          listener.memberAcquiredBarrier(ZKUtil.getNodeName(ZKUtil.getParent(path)),ZKUtil.getNodeName(path));
+        }
+        if (zkProc.isReachedPathNode(path)) {
+          listener.memberFinishedBarrier(ZKUtil.getNodeName(ZKUtil.getParent(path)),ZKUtil.getNodeName(path));
+        }
+        if (zkProc.isAbortPathNode(path)) {
+          abort(path);
+        }
+      }
+    }
+;
+    zkProc.clearChildZNodes();
+  }
+ catch (  KeeperException e) {
+    LOG.error("Unable to start the ZK-based Procedure Coordinator rpcs.",e);
+    return false;
+  }
+  LOG.debug("Starting the controller for procedure member:" + zkProc.getMemberName());
+  return true;
+}

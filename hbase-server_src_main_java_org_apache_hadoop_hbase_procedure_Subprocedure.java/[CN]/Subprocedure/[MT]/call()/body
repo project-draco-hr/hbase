@@ -1,0 +1,45 @@
+{
+  LOG.debug("Starting subprocedure '" + barrierName + "' with timeout "+ executionTimeoutTimer.getMaxTime()+ "ms");
+  executionTimeoutTimer.start();
+  try {
+    rethrowException();
+    LOG.debug("Subprocedure '" + barrierName + "' starting 'acquire' stage");
+    acquireBarrier();
+    LOG.debug("Subprocedure '" + barrierName + "' locally acquired");
+    rpcs.sendMemberAcquired(this);
+    LOG.debug("Subprocedure '" + barrierName + "' coordinator notified of 'acquire', waiting on"+ " 'reached' or 'abort' from coordinator");
+    waitForReachedGlobalBarrier();
+    rethrowException();
+    LOG.debug("Subprocedure '" + barrierName + "' received 'reached' from coordinator.");
+    insideBarrier();
+    LOG.debug("Subprocedure '" + barrierName + "' locally completed");
+    rpcs.sendMemberCompleted(this);
+    LOG.debug("Subprocedure '" + barrierName + "' has notified controller of completion");
+    rethrowException();
+    LOG.debug("Subprocedure '" + barrierName + "' locally completed");
+  }
+ catch (  Exception e) {
+    String msg=null;
+    if (e instanceof InterruptedException) {
+      msg="Procedure '" + barrierName + "' aborting due to interrupt!"+ " Likely due to pool shutdown.";
+      Thread.currentThread().interrupt();
+    }
+ else     if (e instanceof ForeignException) {
+      msg="Subprocedure '" + barrierName + "' aborting due to external exception!";
+    }
+ else {
+      msg="Subprocedure '" + barrierName + "' failed!";
+    }
+    LOG.error(msg,e);
+    cancel(msg,e);
+    LOG.debug("Subprocedure '" + barrierName + "' Running cleanup.");
+    cleanup(e);
+  }
+ finally {
+    releasedLocalBarrier.countDown();
+    executionTimeoutTimer.complete();
+    complete=true;
+    LOG.debug("Subprocedure '" + barrierName + "' completed.");
+    return null;
+  }
+}

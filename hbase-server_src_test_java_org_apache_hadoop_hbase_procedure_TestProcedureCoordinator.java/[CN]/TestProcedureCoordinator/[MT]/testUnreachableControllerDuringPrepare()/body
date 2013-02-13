@@ -1,0 +1,15 @@
+{
+  coordinator=buildNewCoordinator();
+  List<String> expected=Arrays.asList("cohort");
+  Procedure proc=new Procedure(coordinator,WAKE_FREQUENCY,TIMEOUT,procName,procData,expected);
+  final Procedure procSpy=spy(proc);
+  when(coordinator.createProcedure(any(ForeignExceptionDispatcher.class),eq(procName),eq(procData),anyListOf(String.class))).thenReturn(procSpy);
+  IOException cause=new IOException("Failed to reach comms during acquire");
+  doThrow(cause).when(controller).sendGlobalBarrierAcquire(eq(procSpy),eq(procData),anyListOf(String.class));
+  proc=coordinator.startProcedure(proc.getErrorMonitor(),procName,procData,expected);
+  proc.waitForCompleted();
+  verify(procSpy,atLeastOnce()).receive(any(ForeignException.class));
+  verify(coordinator,times(1)).rpcConnectionFailure(anyString(),eq(cause));
+  verify(controller,times(1)).sendGlobalBarrierAcquire(procSpy,procData,expected);
+  verify(controller,never()).sendGlobalBarrierReached(any(Procedure.class),anyListOf(String.class));
+}
