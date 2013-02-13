@@ -1,0 +1,44 @@
+{
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
+  LOG.debug("starting restore");
+  Set<String> snapshotRegionNames=SnapshotReferenceUtil.getSnapshotRegionNames(fs,snapshotDir);
+  if (snapshotRegionNames == null) {
+    LOG.warn("Nothing to restore. Snapshot " + snapshotDesc + " looks empty");
+    return;
+  }
+  List<HRegionInfo> tableRegions=getTableRegions();
+  if (tableRegions != null) {
+    monitor.failOnError();
+    List<HRegionInfo> regionsToRestore=new LinkedList<HRegionInfo>();
+    List<HRegionInfo> regionsToRemove=new LinkedList<HRegionInfo>();
+    for (    HRegionInfo regionInfo : tableRegions) {
+      String regionName=regionInfo.getEncodedName();
+      if (snapshotRegionNames.contains(regionName)) {
+        LOG.info("region to restore: " + regionName);
+        snapshotRegionNames.remove(regionInfo);
+        regionsToRestore.add(regionInfo);
+      }
+ else {
+        LOG.info("region to remove: " + regionName);
+        regionsToRemove.add(regionInfo);
+      }
+    }
+    monitor.failOnError();
+    restoreRegions(regionsToRestore);
+    monitor.failOnError();
+    ModifyRegionUtils.deleteRegions(fs,catalogTracker,regionsToRemove);
+  }
+  if (snapshotRegionNames.size() > 0) {
+    List<HRegionInfo> regionsToAdd=new LinkedList<HRegionInfo>();
+    monitor.failOnError();
+    for (    String regionName : snapshotRegionNames) {
+      LOG.info("region to add: " + regionName);
+      Path regionDir=new Path(snapshotDir,regionName);
+      regionsToAdd.add(HRegion.loadDotRegionInfoFileContent(fs,regionDir));
+    }
+    monitor.failOnError();
+    cloneRegions(regionsToAdd);
+  }
+  monitor.failOnError();
+  restoreWALs();
+}

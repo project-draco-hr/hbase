@@ -1,3 +1,31 @@
 {
-  throw new ServiceException(new UnsupportedOperationException("Snapshots restore is not implemented yet."));
+  SnapshotDescription reqSnapshot=request.getSnapshot();
+  FileSystem fs=this.getMasterFileSystem().getFileSystem();
+  Path rootDir=this.getMasterFileSystem().getRootDir();
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(request.getSnapshot(),rootDir);
+  try {
+    if (!fs.exists(snapshotDir)) {
+      LOG.error("A Snapshot named '" + reqSnapshot.getName() + "' does not exist.");
+      throw new SnapshotDoesNotExistException(reqSnapshot);
+    }
+    SnapshotDescription snapshot=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+    HTableDescriptor snapshotTableDesc=FSTableDescriptors.getTableDescriptor(fs,snapshotDir);
+    String tableName=reqSnapshot.getTable();
+    if (MetaReader.tableExists(catalogTracker,tableName)) {
+      if (this.assignmentManager.getZKTable().isEnabledTable(snapshot.getTable())) {
+        throw new ServiceException(new UnsupportedOperationException("Table '" + snapshot.getTable() + "' must be disabled in order to perform a restore operation."));
+      }
+      snapshotManager.restoreSnapshot(snapshot,snapshotTableDesc);
+      LOG.info("Restore snapshot=" + snapshot.getName() + " as table="+ tableName);
+    }
+ else {
+      HTableDescriptor htd=RestoreSnapshotHelper.cloneTableSchema(snapshotTableDesc,Bytes.toBytes(tableName));
+      snapshotManager.cloneSnapshot(snapshot,htd);
+      LOG.info("Clone snapshot=" + snapshot.getName() + " as table="+ tableName);
+    }
+    return RestoreSnapshotResponse.newBuilder().build();
+  }
+ catch (  IOException e) {
+    throw new ServiceException(e);
+  }
 }

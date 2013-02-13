@@ -1,0 +1,27 @@
+{
+  MasterFileSystem fileSystemManager=masterServices.getMasterFileSystem();
+  CatalogTracker catalogTracker=masterServices.getCatalogTracker();
+  FileSystem fs=fileSystemManager.getFileSystem();
+  Path rootDir=fileSystemManager.getRootDir();
+  byte[] tableName=hTableDescriptor.getName();
+  Path tableDir=HTableDescriptor.getTableDir(rootDir,tableName);
+  try {
+    this.masterServices.getTableDescriptors().add(hTableDescriptor);
+    LOG.debug("Starting restore snapshot=" + snapshot);
+    Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot,rootDir);
+    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(masterServices.getConfiguration(),fs,catalogTracker,snapshot,snapshotDir,hTableDescriptor,tableDir,monitor);
+    restoreHelper.restore();
+    LOG.info("Restore snapshot=" + snapshot.getName() + " on table="+ Bytes.toString(tableName)+ " completed!");
+    hris.clear();
+    hris.addAll(MetaReader.getTableRegions(catalogTracker,tableName));
+  }
+ catch (  IOException e) {
+    String msg="restore snapshot=" + snapshot + " failed";
+    LOG.error(msg,e);
+    monitor.snapshotFailure("Failed due to exception:" + e.getMessage(),snapshot,e);
+    throw new RestoreSnapshotException(msg,e);
+  }
+ finally {
+    this.stopped=true;
+  }
+}
