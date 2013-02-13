@@ -1,0 +1,20 @@
+{
+  Path copyDir=TEST_UTIL.getDataTestDir("export-" + System.currentTimeMillis());
+  URI hdfsUri=FileSystem.get(TEST_UTIL.getConfiguration()).getUri();
+  FileSystem fs=FileSystem.get(copyDir.toUri(),new Configuration());
+  copyDir=copyDir.makeQualified(fs);
+  int res=ExportSnapshot.innerMain(TEST_UTIL.getConfiguration(),new String[]{"-snapshot",Bytes.toString(snapshotName),"-copy-to",copyDir.toString()});
+  assertEquals(0,res);
+  FileStatus[] rootFiles=fs.listStatus(copyDir);
+  assertEquals(2,rootFiles.length);
+  for (  FileStatus fileStatus : rootFiles) {
+    String name=fileStatus.getPath().getName();
+    assertTrue(fileStatus.isDir());
+    assertTrue(name.equals(".snapshot") || name.equals(".archive"));
+  }
+  final FileSystem hdfs=FileSystem.get(hdfsUri,TEST_UTIL.getConfiguration());
+  final Path snapshotDir=new Path(".snapshot",Bytes.toString(snapshotName));
+  verifySnapshot(hdfs,new Path(TEST_UTIL.getDefaultRootDirPath(),snapshotDir),fs,new Path(copyDir,snapshotDir));
+  verifyArchive(fs,copyDir,Bytes.toString(snapshotName));
+  fs.delete(copyDir,true);
+}

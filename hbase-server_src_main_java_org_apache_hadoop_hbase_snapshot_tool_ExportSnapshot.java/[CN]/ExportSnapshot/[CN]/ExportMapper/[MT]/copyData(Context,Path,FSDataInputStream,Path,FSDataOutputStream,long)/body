@@ -1,0 +1,32 @@
+{
+  final String statusMessage="copied %s/" + StringUtils.humanReadableInt(inputFileSize) + " (%.3f%%) from "+ inputPath+ " to "+ outputPath;
+  try {
+    byte[] buffer=new byte[BUFFER_SIZE];
+    long totalBytesWritten=0;
+    int reportBytes=0;
+    int bytesRead;
+    while ((bytesRead=in.read(buffer)) > 0) {
+      out.write(buffer,0,bytesRead);
+      totalBytesWritten+=bytesRead;
+      reportBytes+=bytesRead;
+      if (reportBytes >= REPORT_SIZE) {
+        context.getCounter(Counter.BYTES_COPIED).increment(reportBytes);
+        context.setStatus(String.format(statusMessage,StringUtils.humanReadableInt(totalBytesWritten),reportBytes / (float)inputFileSize));
+        reportBytes=0;
+      }
+    }
+    context.getCounter(Counter.BYTES_COPIED).increment(reportBytes);
+    context.setStatus(String.format(statusMessage,StringUtils.humanReadableInt(totalBytesWritten),reportBytes / (float)inputFileSize));
+    if (totalBytesWritten != inputFileSize) {
+      LOG.error("number of bytes copied not matching copied=" + totalBytesWritten + " expected="+ inputFileSize+ " for file="+ inputPath);
+      context.getCounter(Counter.COPY_FAILED).increment(1);
+      return false;
+    }
+    return true;
+  }
+ catch (  IOException e) {
+    LOG.error("Error copying " + inputPath + " to "+ outputPath,e);
+    context.getCounter(Counter.COPY_FAILED).increment(1);
+    return false;
+  }
+}
