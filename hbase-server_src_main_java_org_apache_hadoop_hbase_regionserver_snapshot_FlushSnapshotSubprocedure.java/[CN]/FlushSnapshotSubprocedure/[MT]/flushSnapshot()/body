@@ -3,10 +3,18 @@
     return;
   }
   monitor.rethrowException();
+  if (taskManager.hasTasks()) {
+    throw new IllegalStateException("Attempting to take snapshot " + SnapshotDescriptionUtils.toString(snapshot) + " but we have currently have outstanding tasks");
+  }
   for (  HRegion region : regions) {
     taskManager.submitTask(new RegionSnapshotTask(region));
     monitor.rethrowException();
   }
   LOG.debug("Flush Snapshot Tasks submitted for " + regions.size() + " regions");
-  taskManager.waitForOutstandingTasks();
+  try {
+    taskManager.waitForOutstandingTasks();
+  }
+ catch (  InterruptedException e) {
+    throw new ForeignException(getMemberName(),e);
+  }
 }
