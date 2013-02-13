@@ -1,0 +1,34 @@
+{
+  SnapshotDescriptionUtils.assertSnapshotRequestIsValid(snapshot);
+  TakeSnapshotResponse response=takeSnapshotAsync(snapshot);
+  final IsSnapshotDoneRequest request=IsSnapshotDoneRequest.newBuilder().setSnapshot(snapshot).build();
+  IsSnapshotDoneResponse done=IsSnapshotDoneResponse.newBuilder().buildPartial();
+  long start=EnvironmentEdgeManager.currentTimeMillis();
+  long max=response.getExpectedTime();
+  long maxPauseTime=max / this.numRetries;
+  int tries=0;
+  LOG.debug("Waiting a max of " + max + " ms for snapshot to complete. (max "+ maxPauseTime+ " ms per retry)");
+  while ((EnvironmentEdgeManager.currentTimeMillis() - start) < max && !done.getDone()) {
+    try {
+      long sleep=getPauseTime(tries++);
+      LOG.debug("Found sleep:" + sleep);
+      sleep=sleep > maxPauseTime ? maxPauseTime : sleep;
+      LOG.debug(tries + ") Sleeping: " + sleep+ " ms while we wait for snapshot to complete.");
+      Thread.sleep(sleep);
+    }
+ catch (    InterruptedException e) {
+      LOG.debug("Interrupted while waiting for snapshot " + snapshot + " to complete");
+      Thread.currentThread().interrupt();
+    }
+    LOG.debug("Getting current status of snasphot from master...");
+    done=execute(new MasterAdminCallable<IsSnapshotDoneResponse>(){
+      @Override public IsSnapshotDoneResponse call() throws ServiceException {
+        return masterAdmin.isSnapshotDone(null,request);
+      }
+    }
+);
+  }
+  if (!done.getDone()) {
+    throw new SnapshotCreationException("Snapshot '" + snapshot.getName() + "' wasn't completed in expectedTime:"+ max+ " ms");
+  }
+}
