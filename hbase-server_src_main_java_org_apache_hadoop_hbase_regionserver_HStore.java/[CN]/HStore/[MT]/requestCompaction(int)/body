@@ -18,7 +18,11 @@ synchronized (filesCompacting) {
       }
  else {
         boolean isUserCompaction=priority == Store.PRIORITY_USER;
-        filesToCompact=compactionPolicy.selectCompaction(candidates,isUserCompaction,forceMajor && filesCompacting.isEmpty());
+        boolean mayUseOffPeak=this.offPeakCompactions.tryStartOffPeakRequest();
+        filesToCompact=compactionPolicy.selectCompaction(candidates,isUserCompaction,mayUseOffPeak,forceMajor && filesCompacting.isEmpty());
+        if (mayUseOffPeak && !filesToCompact.isOffPeakCompaction()) {
+          this.offPeakCompactions.endOffPeakRequest();
+        }
       }
       if (region.getCoprocessorHost() != null) {
         region.getCoprocessorHost().postCompactSelection(this,ImmutableList.copyOf(filesToCompact.getFilesToCompact()));
@@ -44,7 +48,7 @@ synchronized (filesCompacting) {
     this.lock.readLock().unlock();
   }
   if (ret != null) {
-    CompactionRequest.preRequest(ret);
+    this.region.reportCompactionRequestStart(ret.isMajor());
   }
   return ret;
 }
