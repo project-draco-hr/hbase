@@ -1,0 +1,45 @@
+{
+  if (isSnapshotCompleted(snapshot)) {
+    throw new SnapshotExistsException("Snapshot '" + snapshot.getName() + "' already stored on the filesystem.",snapshot);
+  }
+  LOG.debug("No existing snapshot, attempting snapshot...");
+  HTableDescriptor desc=null;
+  try {
+    desc=master.getTableDescriptors().get(snapshot.getTable());
+  }
+ catch (  FileNotFoundException e) {
+    String msg="Table:" + snapshot.getTable() + " info doesn't exist!";
+    LOG.error(msg);
+    throw new SnapshotCreationException(msg,e,snapshot);
+  }
+catch (  IOException e) {
+    throw new SnapshotCreationException("Error while geting table description for table " + snapshot.getTable(),e,snapshot);
+  }
+  if (desc == null) {
+    throw new SnapshotCreationException("Table '" + snapshot.getTable() + "' doesn't exist, can't take snapshot.",snapshot);
+  }
+  snapshot=snapshot.toBuilder().setVersion(SnapshotDescriptionUtils.SNAPSHOT_LAYOUT_VERSION).build();
+  MasterCoprocessorHost cpHost=master.getCoprocessorHost();
+  if (cpHost != null) {
+    cpHost.preSnapshot(snapshot,desc);
+  }
+  prepareToTakeSnapshot(snapshot);
+  AssignmentManager assignmentMgr=master.getAssignmentManager();
+  if (assignmentMgr.getZKTable().isEnabledTable(snapshot.getTable())) {
+    LOG.debug("Table enabled, starting distributed snapshot.");
+    throw new UnsupportedOperationException("Snapshots of enabled tables is not yet supported");
+  }
+ else   if (assignmentMgr.getZKTable().isDisabledTable(snapshot.getTable())) {
+    LOG.debug("Table is disabled, running snapshot entirely on master.");
+    snapshotDisabledTable(snapshot);
+    LOG.debug("Started snapshot: " + snapshot);
+  }
+ else {
+    LOG.error("Can't snapshot table '" + snapshot.getTable() + "', isn't open or closed, we don't know what to do!");
+    TablePartiallyOpenException tpoe=new TablePartiallyOpenException(snapshot.getTable() + " isn't fully open.");
+    throw new SnapshotCreationException("Table is not entirely open or closed",tpoe,snapshot);
+  }
+  if (cpHost != null) {
+    cpHost.postSnapshot(snapshot,desc);
+  }
+}

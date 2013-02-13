@@ -1,0 +1,37 @@
+{
+  FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(reqSnapshot,rootDir);
+  MasterCoprocessorHost cpHost=master.getCoprocessorHost();
+  if (!fs.exists(snapshotDir)) {
+    LOG.error("A Snapshot named '" + reqSnapshot.getName() + "' does not exist.");
+    throw new SnapshotDoesNotExistException(reqSnapshot);
+  }
+  SnapshotDescription fsSnapshot=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+  HTableDescriptor snapshotTableDesc=FSTableDescriptors.getTableDescriptor(fs,snapshotDir);
+  String tableName=reqSnapshot.getTable();
+  cleanupRestoreSentinels();
+  if (MetaReader.tableExists(master.getCatalogTracker(),tableName)) {
+    if (master.getAssignmentManager().getZKTable().isEnabledTable(fsSnapshot.getTable())) {
+      throw new UnsupportedOperationException("Table '" + fsSnapshot.getTable() + "' must be disabled in order to perform a restore operation.");
+    }
+    if (cpHost != null) {
+      cpHost.preRestoreSnapshot(reqSnapshot,snapshotTableDesc);
+    }
+    restoreSnapshot(fsSnapshot,snapshotTableDesc);
+    LOG.info("Restore snapshot=" + fsSnapshot.getName() + " as table="+ tableName);
+    if (cpHost != null) {
+      cpHost.postRestoreSnapshot(reqSnapshot,snapshotTableDesc);
+    }
+  }
+ else {
+    HTableDescriptor htd=RestoreSnapshotHelper.cloneTableSchema(snapshotTableDesc,Bytes.toBytes(tableName));
+    if (cpHost != null) {
+      cpHost.preCloneSnapshot(reqSnapshot,htd);
+    }
+    cloneSnapshot(fsSnapshot,htd);
+    LOG.info("Clone snapshot=" + fsSnapshot.getName() + " as table="+ tableName);
+    if (cpHost != null) {
+      cpHost.postCloneSnapshot(reqSnapshot,htd);
+    }
+  }
+}

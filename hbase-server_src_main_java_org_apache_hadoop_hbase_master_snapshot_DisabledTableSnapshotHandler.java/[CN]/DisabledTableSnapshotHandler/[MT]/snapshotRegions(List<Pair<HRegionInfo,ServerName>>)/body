@@ -1,0 +1,35 @@
+{
+  try {
+    timeoutInjector.start();
+    Set<String> serverNames=new HashSet<String>();
+    Set<HRegionInfo> regions=new HashSet<HRegionInfo>();
+    for (    Pair<HRegionInfo,ServerName> p : regionsAndLocations) {
+      regions.add(p.getFirst());
+      serverNames.add(p.getSecond().toString());
+    }
+    LOG.info("Starting to write region info and WALs for regions for offline snapshot:" + snapshot);
+    for (    HRegionInfo regionInfo : regions) {
+      Path snapshotRegionDir=TakeSnapshotUtils.getRegionSnapshotDirectory(snapshot,rootDir,regionInfo.getEncodedName());
+      HRegion.writeRegioninfoOnFilesystem(regionInfo,snapshotRegionDir,fs,conf);
+      monitor.rethrowException();
+      Path regionDir=HRegion.getRegionDir(rootDir,regionInfo);
+      new CopyRecoveredEditsTask(snapshot,monitor,fs,regionDir,snapshotRegionDir).call();
+      monitor.rethrowException();
+      new ReferenceRegionHFilesTask(snapshot,monitor,regionDir,fs,snapshotRegionDir).call();
+      monitor.rethrowException();
+    }
+    LOG.info("Starting to copy tableinfo for offline snapshot:\n" + snapshot);
+    TableInfoCopyTask tableInfo=new TableInfoCopyTask(this.monitor,snapshot,fs,FSUtils.getRootDir(conf));
+    tableInfo.call();
+    monitor.rethrowException();
+  }
+ catch (  Exception e) {
+    String reason="Failed due to exception:" + e.getMessage();
+    ForeignException ee=new ForeignException(reason,e);
+    monitor.receive(ee);
+  }
+ finally {
+    LOG.debug("Marking snapshot" + this.snapshot + " as finished.");
+    timeoutInjector.complete();
+  }
+}

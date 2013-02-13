@@ -1,36 +1,12 @@
 {
   LOG.debug("Checking to see if snapshot from request:" + request + " is done");
   try {
-    if (!request.hasSnapshot()) {
-      throw new UnknownSnapshotException("No snapshot name passed in request, can't figure out which snapshot you want to check.");
-    }
-    SnapshotDescription expected=request.getSnapshot();
     IsSnapshotDoneResponse.Builder builder=IsSnapshotDoneResponse.newBuilder();
-    SnapshotSentinel sentinel=this.snapshotManager.getCurrentSnapshotSentinel();
-    if (sentinel != null) {
-      HBaseSnapshotException e=sentinel.getExceptionIfFailed();
-      if (e != null)       throw e;
-      SnapshotDescription snapshot=sentinel.getSnapshot();
-      LOG.debug("Have a snapshot to compare:" + snapshot);
-      if (expected.getName().equals(snapshot.getName())) {
-        LOG.trace("Running snapshot (" + snapshot.getName() + ") does match request:"+ expected.getName());
-        if (sentinel.isFinished()) {
-          builder.setDone(true);
-          LOG.debug("Snapshot " + snapshot + " has completed, notifying client.");
-        }
- else         if (LOG.isDebugEnabled()) {
-          LOG.debug("Sentinel isn't finished with snapshot!");
-        }
-        return builder.build();
-      }
-    }
-    if (!isSnapshotCompleted(expected)) {
-      throw new UnknownSnapshotException("Snapshot:" + expected.getName() + " is not currently running or one of the known completed snapshots.");
-    }
-    builder.setDone(true);
+    boolean done=snapshotManager.isSnapshotDone(request.getSnapshot());
+    builder.setDone(done);
     return builder.build();
   }
- catch (  HBaseSnapshotException e) {
+ catch (  IOException e) {
     throw new ServiceException(e);
   }
 }
