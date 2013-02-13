@@ -1,13 +1,15 @@
 {
   FileSystem fs=fileSystemManager.getFileSystem();
   Path rootDir=fileSystemManager.getRootDir();
-  Path tableDir=HTableDescriptor.getTableDir(rootDir,Bytes.toBytes(tableName));
+  Path tableDir=new Path(tableRootDir,tableName);
   try {
     Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot,rootDir);
-    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(conf,fs,catalogTracker,snapshot,snapshotDir,hTableDescriptor,tableDir,monitor);
-    restoreHelper.restore();
+    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(conf,fs,snapshot,snapshotDir,hTableDescriptor,tableDir,monitor);
+    RestoreSnapshotHelper.RestoreMetaChanges metaChanges=restoreHelper.restoreHdfsRegions();
+    Preconditions.checkArgument(metaChanges.getRegionsToRestore() == null,"A clone should not have regions to restore");
+    Preconditions.checkArgument(metaChanges.getRegionsToRemove() == null,"A clone should not have regions to remove");
     LOG.info("Clone snapshot=" + snapshot.getName() + " on table="+ tableName+ " completed!");
-    return MetaReader.getTableRegions(catalogTracker,Bytes.toBytes(tableName));
+    return metaChanges.getRegionsToAdd();
   }
  catch (  Exception e) {
     String msg="clone snapshot=" + snapshot + " failed";

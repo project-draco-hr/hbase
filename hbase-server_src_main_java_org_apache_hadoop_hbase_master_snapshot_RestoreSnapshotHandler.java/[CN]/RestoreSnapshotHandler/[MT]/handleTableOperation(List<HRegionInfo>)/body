@@ -9,14 +9,17 @@
     this.masterServices.getTableDescriptors().add(hTableDescriptor);
     LOG.debug("Starting restore snapshot=" + snapshot);
     Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot,rootDir);
-    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(masterServices.getConfiguration(),fs,catalogTracker,snapshot,snapshotDir,hTableDescriptor,tableDir,monitor);
-    restoreHelper.restore();
-    LOG.info("Restore snapshot=" + snapshot.getName() + " on table="+ Bytes.toString(tableName)+ " completed!");
+    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(masterServices.getConfiguration(),fs,snapshot,snapshotDir,hTableDescriptor,tableDir,monitor);
+    RestoreSnapshotHelper.RestoreMetaChanges metaChanges=restoreHelper.restoreHdfsRegions();
     hris.clear();
-    hris.addAll(MetaReader.getTableRegions(catalogTracker,tableName));
+    hris.addAll(metaChanges.getRegionsToAdd());
+    hris.addAll(metaChanges.getRegionsToRestore());
+    List<HRegionInfo> hrisToRemove=metaChanges.getRegionsToRemove();
+    MetaEditor.mutateRegions(catalogTracker,hrisToRemove,hris);
+    LOG.info("Restore snapshot=" + snapshot.getName() + " on table="+ Bytes.toString(tableName)+ " completed!");
   }
  catch (  IOException e) {
-    String msg="restore snapshot=" + snapshot + " failed";
+    String msg="restore snapshot=" + snapshot + " failed. re-run the restore command.";
     LOG.error(msg,e);
     monitor.receive(new ForeignException(masterServices.getServerName().toString(),e));
     throw new RestoreSnapshotException(msg,e);

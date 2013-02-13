@@ -4,29 +4,28 @@
   Set<String> snapshotRegionNames=SnapshotReferenceUtil.getSnapshotRegionNames(fs,snapshotDir);
   if (snapshotRegionNames == null) {
     LOG.warn("Nothing to restore. Snapshot " + snapshotDesc + " looks empty");
-    return;
+    return null;
   }
+  RestoreMetaChanges metaChanges=new RestoreMetaChanges();
   List<HRegionInfo> tableRegions=getTableRegions();
   if (tableRegions != null) {
     monitor.rethrowException();
-    List<HRegionInfo> regionsToRestore=new LinkedList<HRegionInfo>();
-    List<HRegionInfo> regionsToRemove=new LinkedList<HRegionInfo>();
     for (    HRegionInfo regionInfo : tableRegions) {
       String regionName=regionInfo.getEncodedName();
       if (snapshotRegionNames.contains(regionName)) {
         LOG.info("region to restore: " + regionName);
         snapshotRegionNames.remove(regionInfo);
-        regionsToRestore.add(regionInfo);
+        metaChanges.addRegionToRestore(regionInfo);
       }
  else {
         LOG.info("region to remove: " + regionName);
-        regionsToRemove.add(regionInfo);
+        metaChanges.addRegionToRemove(regionInfo);
       }
     }
     monitor.rethrowException();
-    restoreRegions(regionsToRestore);
+    restoreHdfsRegions(metaChanges.getRegionsToRestore());
     monitor.rethrowException();
-    ModifyRegionUtils.deleteRegions(conf,fs,catalogTracker,regionsToRemove);
+    removeHdfsRegions(metaChanges.getRegionsToRemove());
   }
   if (snapshotRegionNames.size() > 0) {
     List<HRegionInfo> regionsToAdd=new LinkedList<HRegionInfo>();
@@ -37,8 +36,10 @@
       regionsToAdd.add(HRegion.loadDotRegionInfoFileContent(fs,regionDir));
     }
     monitor.rethrowException();
-    cloneRegions(regionsToAdd);
+    HRegionInfo[] clonedRegions=cloneHdfsRegions(regionsToAdd);
+    metaChanges.setNewRegions(clonedRegions);
   }
   monitor.rethrowException();
   restoreWALs();
+  return metaChanges;
 }
