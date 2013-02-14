@@ -1,5 +1,6 @@
 {
   boolean openSuccessful=false;
+  boolean transitionToFailedOpen=false;
   final String regionName=regionInfo.getRegionNameAsString();
   try {
     if (this.server.isStopped() || this.rsServices.isStopping()) {
@@ -24,6 +25,7 @@
     HRegion region=openRegion();
     if (region == null) {
       tryTransitionFromOpeningToFailedOpen(regionInfo);
+      transitionToFailedOpen=true;
       return;
     }
     boolean failed=true;
@@ -35,11 +37,13 @@
     if (failed || this.server.isStopped() || this.rsServices.isStopping()) {
       cleanupFailedOpen(region);
       tryTransitionFromOpeningToFailedOpen(regionInfo);
+      transitionToFailedOpen=true;
       return;
     }
     if (!isRegionStillOpening() || !transitionToOpened(region)) {
       cleanupFailedOpen(region);
       tryTransitionFromOpeningToFailedOpen(regionInfo);
+      transitionToFailedOpen=true;
       return;
     }
     this.rsServices.addToOnlineRegions(region);
@@ -55,6 +59,9 @@
  else       if (Boolean.FALSE.equals(current)) {
         LOG.error("Race condition: we've finished to open a region, while a close was requested " + " on region=" + regionName + ". It can be a critical error, as a region that"+ " should be closed is now opened.");
       }
+    }
+ else     if (transitionToFailedOpen == false) {
+      tryTransitionFromOpeningToFailedOpen(regionInfo);
     }
   }
 }

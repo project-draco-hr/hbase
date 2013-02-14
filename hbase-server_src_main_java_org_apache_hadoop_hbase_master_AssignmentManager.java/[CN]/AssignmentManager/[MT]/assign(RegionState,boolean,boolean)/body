@@ -4,12 +4,13 @@
   RegionPlan plan=null;
   long maxRegionServerStartupWaitTime=-1;
   HRegionInfo region=state.getRegion();
+  RegionOpeningState regionOpenState;
   for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
     if (plan == null) {
       plan=getRegionPlan(region,forceNewPlan);
     }
     if (plan == null) {
-      LOG.debug("Unable to determine a plan to assign " + region);
+      LOG.warn("Unable to determine a plan to assign " + region);
       this.timeoutMonitor.setAllRegionServersOffline(true);
       return;
     }
@@ -33,45 +34,45 @@
       LOG.debug("Server stopped; skipping assign of " + region);
       return;
     }
+    LOG.info("Assigning region " + region.getRegionNameAsString() + " to "+ plan.getDestination().toString());
+    currentState=regionStates.updateRegionState(region,RegionState.State.PENDING_OPEN,plan.getDestination());
+    boolean needNewPlan;
+    final String assignMsg="Failed assignment of " + region.getRegionNameAsString() + " to "+ plan.getDestination();
     try {
-      LOG.info("Assigning region " + region.getRegionNameAsString() + " to "+ plan.getDestination().toString());
-      currentState=regionStates.updateRegionState(region,RegionState.State.PENDING_OPEN,plan.getDestination());
-      RegionOpeningState regionOpenState=serverManager.sendRegionOpen(plan.getDestination(),region,versionOfOfflineNode);
-      if (regionOpenState == RegionOpeningState.ALREADY_OPENED) {
-        processAlreadyOpenedRegion(region,plan.getDestination());
+      regionOpenState=serverManager.sendRegionOpen(plan.getDestination(),region,versionOfOfflineNode);
+      if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
+        needNewPlan=true;
+        LOG.warn(assignMsg + ", regionserver says 'FAILED_OPENING', " + " trying to assign elsewhere instead; "+ "try="+ i+ " of "+ this.maximumAttempts);
       }
- else       if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
-        throw new Exception("Get regionOpeningState=" + regionOpenState);
+ else {
+        if (regionOpenState == RegionOpeningState.ALREADY_OPENED) {
+          processAlreadyOpenedRegion(region,plan.getDestination());
+        }
+        return;
       }
-      break;
     }
  catch (    Throwable t) {
       if (t instanceof RemoteException) {
         t=((RemoteException)t).unwrapRemoteException();
       }
-      boolean regionAlreadyInTransitionException=false;
-      boolean serverNotRunningYet=false;
-      boolean socketTimedOut=false;
-      if (t instanceof RegionAlreadyInTransitionException) {
-        regionAlreadyInTransitionException=true;
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Failed assignment in: " + plan.getDestination() + " due to "+ t.getMessage());
-        }
-      }
- else       if (t instanceof ServerNotRunningYetException) {
+      boolean hold=(t instanceof RegionAlreadyInTransitionException || t instanceof ServerNotRunningYetException);
+      boolean retry=!hold && (t instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(plan.getDestination()));
+      if (hold) {
+        LOG.warn(assignMsg + ", waiting a little before trying on the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
         if (maxRegionServerStartupWaitTime < 0) {
-          maxRegionServerStartupWaitTime=System.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
+          maxRegionServerStartupWaitTime=EnvironmentEdgeManager.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
         }
         try {
-          long now=System.currentTimeMillis();
+          long now=EnvironmentEdgeManager.currentTimeMillis();
           if (now < maxRegionServerStartupWaitTime) {
             LOG.debug("Server is not yet up; waiting up to " + (maxRegionServerStartupWaitTime - now) + "ms",t);
-            serverNotRunningYet=true;
             Thread.sleep(100);
             i--;
+            needNewPlan=false;
           }
  else {
             LOG.debug("Server is not up for a while; try a new one",t);
+            needNewPlan=true;
           }
         }
  catch (        InterruptedException ie) {
@@ -80,20 +81,20 @@
           return;
         }
       }
- else       if (t instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(plan.getDestination())) {
-        socketTimedOut=true;
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Call openRegion() to " + plan.getDestination() + " has timed out when trying to assign "+ region.getRegionNameAsString()+ ", but the region might already be opened on "+ plan.getDestination()+ ".",t);
-        }
+ else       if (retry) {
+        needNewPlan=false;
+        LOG.warn(assignMsg + ", trying to assign to the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
       }
-      LOG.warn("Failed assignment of " + region.getRegionNameAsString() + " to "+ plan.getDestination()+ ", trying to assign "+ (regionAlreadyInTransitionException || serverNotRunningYet || socketTimedOut ? "to the same region server because of RegionAlreadyInTransitionException" + "/ServerNotRunningYetException/SocketTimeoutException;" : "elsewhere instead; ")+ "try="+ i+ " of "+ this.maximumAttempts,t);
-      if (i == this.maximumAttempts) {
-        continue;
+ else {
+        needNewPlan=true;
+        LOG.warn(assignMsg + ", trying to assign elsewhere instead;" + " try="+ i+ " of "+ this.maximumAttempts,t);
       }
-      RegionPlan newPlan=plan;
-      if (!(regionAlreadyInTransitionException || serverNotRunningYet || socketTimedOut)) {
-        newPlan=getRegionPlan(region,true);
-      }
+    }
+    if (i == this.maximumAttempts) {
+      continue;
+    }
+    if (needNewPlan) {
+      RegionPlan newPlan=getRegionPlan(region,true);
       if (newPlan == null) {
         this.timeoutMonitor.setAllRegionServersOffline(true);
         LOG.warn("Unable to find a viable location to assign region " + region.getRegionNameAsString());

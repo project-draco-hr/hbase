@@ -5,14 +5,9 @@
   CompactionRequest ret=null;
   this.lock.readLock().lock();
   try {
+    List<StoreFile> candidates=Lists.newArrayList(storeFileManager.getStorefiles());
 synchronized (filesCompacting) {
-      List<StoreFile> candidates=Lists.newArrayList(storefiles);
-      if (!filesCompacting.isEmpty()) {
-        StoreFile last=filesCompacting.get(filesCompacting.size() - 1);
-        int idx=candidates.indexOf(last);
-        Preconditions.checkArgument(idx != -1);
-        candidates.subList(0,idx + 1).clear();
-      }
+      candidates=compactionPolicy.preSelectCompaction(candidates,filesCompacting);
       boolean override=false;
       if (region.getCoprocessorHost() != null) {
         override=region.getCoprocessorHost().preCompactSelection(this,candidates);
@@ -36,7 +31,7 @@ synchronized (filesCompacting) {
       }
       filesCompacting.addAll(filesToCompact.getFilesToCompact());
       Collections.sort(filesCompacting,StoreFile.Comparators.SEQ_ID);
-      boolean isMajor=(filesToCompact.getFilesToCompact().size() == this.storefiles.size());
+      boolean isMajor=(filesToCompact.getFilesToCompact().size() == this.getStorefilesCount());
       if (isMajor) {
         this.forceMajor=false;
       }

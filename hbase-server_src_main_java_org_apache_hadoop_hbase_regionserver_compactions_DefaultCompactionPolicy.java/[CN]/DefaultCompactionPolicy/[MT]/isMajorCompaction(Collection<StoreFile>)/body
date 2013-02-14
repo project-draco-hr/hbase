@@ -1,0 +1,33 @@
+{
+  boolean result=false;
+  long mcTime=getNextMajorCompactTime(filesToCompact);
+  if (filesToCompact == null || filesToCompact.isEmpty() || mcTime == 0) {
+    return result;
+  }
+  long lowTimestamp=StoreUtils.getLowestTimestamp(filesToCompact);
+  long now=System.currentTimeMillis();
+  if (lowTimestamp > 0l && lowTimestamp < (now - mcTime)) {
+    long cfTtl=this.store.getStoreFileTtl();
+    if (filesToCompact.size() == 1) {
+      StoreFile sf=filesToCompact.iterator().next();
+      Long minTimestamp=sf.getMinimumTimestamp();
+      long oldest=(minTimestamp == null) ? Long.MIN_VALUE : now - minTimestamp.longValue();
+      if (sf.isMajorCompaction() && (cfTtl == HConstants.FOREVER || oldest < cfTtl)) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Skipping major compaction of " + this + " because one (major) compacted file only and oldestTime "+ oldest+ "ms is < ttl="+ cfTtl);
+        }
+      }
+ else       if (cfTtl != HConstants.FOREVER && oldest > cfTtl) {
+        LOG.debug("Major compaction triggered on store " + this + ", because keyvalues outdated; time since last major compaction "+ (now - lowTimestamp)+ "ms");
+        result=true;
+      }
+    }
+ else {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Major compaction triggered on store " + this + "; time since last major compaction "+ (now - lowTimestamp)+ "ms");
+      }
+      result=true;
+    }
+  }
+  return result;
+}

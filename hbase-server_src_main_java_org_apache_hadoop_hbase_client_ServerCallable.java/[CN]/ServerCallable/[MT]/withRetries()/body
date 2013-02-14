@@ -3,6 +3,7 @@
   final long pause=c.getLong(HConstants.HBASE_CLIENT_PAUSE,HConstants.DEFAULT_HBASE_CLIENT_PAUSE);
   final int numRetries=c.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
   List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
+  this.globalStartTime=EnvironmentEdgeManager.currentTimeMillis();
   for (int tries=0; tries < numRetries; tries++) {
     try {
       beforeCall();
@@ -10,7 +11,6 @@
       return call();
     }
  catch (    Throwable t) {
-      shouldRetry(t);
       t=translateException(t);
       if (t instanceof SocketTimeoutException || t instanceof ConnectException || t instanceof RetriesExhaustedException) {
         HRegionLocation hrl=location;
@@ -18,10 +18,14 @@
           getConnection().clearCaches(hrl.getHostnamePort());
         }
       }
-      RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,System.currentTimeMillis(),toString());
+      RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,EnvironmentEdgeManager.currentTimeMillis(),toString());
       exceptions.add(qt);
       if (tries == numRetries - 1) {
         throw new RetriesExhaustedException(tries,exceptions);
+      }
+      long expectedSleep=ConnectionUtils.getPauseTime(pause,tries);
+      if (((this.endTime - this.globalStartTime) + MIN_RPC_TIMEOUT + expectedSleep) > this.callTimeout) {
+        throw (SocketTimeoutException)new SocketTimeoutException("Call to access row '" + Bytes.toString(row) + "' on table '"+ Bytes.toString(tableName)+ "' failed on timeout. "+ " callTimeout="+ this.callTimeout+ ", time="+ (this.endTime - this.startTime)).initCause(t);
       }
     }
  finally {
@@ -32,7 +36,7 @@
     }
  catch (    InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IOException("Giving up after tries=" + tries,e);
+      throw new IOException("Interrupted after tries=" + tries,e);
     }
   }
   return null;

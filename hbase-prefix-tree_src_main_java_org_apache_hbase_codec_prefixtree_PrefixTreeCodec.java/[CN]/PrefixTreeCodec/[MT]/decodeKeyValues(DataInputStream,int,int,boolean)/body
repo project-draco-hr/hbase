@@ -1,0 +1,30 @@
+{
+  ByteBuffer sourceAsBuffer=ByteBufferUtils.drainInputStreamToBuffer(source);
+  sourceAsBuffer.mark();
+  PrefixTreeBlockMeta blockMeta=new PrefixTreeBlockMeta(sourceAsBuffer);
+  sourceAsBuffer.rewind();
+  int numV1BytesWithHeader=allocateHeaderLength + blockMeta.getNumKeyValueBytes();
+  byte[] keyValueBytesWithHeader=new byte[numV1BytesWithHeader];
+  ByteBuffer result=ByteBuffer.wrap(keyValueBytesWithHeader);
+  result.rewind();
+  CellSearcher searcher=null;
+  try {
+    searcher=DecoderFactory.checkOut(sourceAsBuffer,includesMvccVersion);
+    while (searcher.next()) {
+      KeyValue currentCell=KeyValueTool.copyToNewKeyValue(searcher.getCurrent());
+      int offset=result.arrayOffset() + result.position();
+      KeyValueTool.appendToByteArray(currentCell,result.array(),offset);
+      int keyValueLength=KeyValueTool.length(currentCell);
+      ByteBufferUtils.skip(result,keyValueLength);
+      offset+=keyValueLength;
+      if (includesMvccVersion) {
+        ByteBufferUtils.writeVLong(result,currentCell.getMvccVersion());
+      }
+    }
+    result.position(result.limit());
+    return result;
+  }
+  finally {
+    DecoderFactory.checkIn(searcher);
+  }
+}

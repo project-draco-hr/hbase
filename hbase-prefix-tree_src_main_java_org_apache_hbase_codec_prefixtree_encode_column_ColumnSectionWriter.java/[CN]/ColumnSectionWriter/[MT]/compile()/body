@@ -1,0 +1,55 @@
+{
+  if (familyVsQualifier) {
+  }
+ else {
+    blockMeta.setMaxQualifierLength(tokenizer.getMaxElementLength());
+  }
+  tokenizer.setNodeFirstInsertionIndexes();
+  tokenizer.appendNodes(nonLeaves,true,false);
+  tokenizer.appendNodes(leaves,false,true);
+  allNodes=Lists.newArrayListWithCapacity(nonLeaves.size() + leaves.size());
+  allNodes.addAll(nonLeaves);
+  allNodes.addAll(leaves);
+  columnNodeWriters=Lists.newArrayListWithCapacity(CollectionUtils.nullSafeSize(allNodes));
+  for (int i=0; i < allNodes.size(); ++i) {
+    TokenizerNode node=allNodes.get(i);
+    columnNodeWriters.add(new ColumnNodeWriter(blockMeta,node,familyVsQualifier));
+  }
+  int totalBytesWithoutOffsets=0;
+  for (int i=allNodes.size() - 1; i >= 0; --i) {
+    ColumnNodeWriter columnNodeWriter=columnNodeWriters.get(i);
+    totalBytesWithoutOffsets+=columnNodeWriter.getWidthUsingPlaceholderForOffsetWidth(0);
+  }
+  int parentOffsetWidth=0;
+  while (true) {
+    ++parentOffsetWidth;
+    int numBytesFinder=totalBytesWithoutOffsets + parentOffsetWidth * allNodes.size();
+    if (numBytesFinder < UFIntTool.maxValueForNumBytes(parentOffsetWidth)) {
+      numBytes=numBytesFinder;
+      break;
+    }
+  }
+  if (familyVsQualifier) {
+    blockMeta.setFamilyOffsetWidth(parentOffsetWidth);
+  }
+ else {
+    blockMeta.setQualifierOffsetWidth(parentOffsetWidth);
+  }
+  int forwardIndex=0;
+  for (int i=0; i < allNodes.size(); ++i) {
+    TokenizerNode node=allNodes.get(i);
+    ColumnNodeWriter columnNodeWriter=columnNodeWriters.get(i);
+    int fullNodeWidth=columnNodeWriter.getWidthUsingPlaceholderForOffsetWidth(parentOffsetWidth);
+    node.setOutputArrayOffset(forwardIndex);
+    columnNodeWriter.setTokenBytes(node.getToken());
+    if (node.isRoot()) {
+      columnNodeWriter.setParentStartPosition(0);
+    }
+ else {
+      columnNodeWriter.setParentStartPosition(node.getParent().getOutputArrayOffset());
+    }
+    forwardIndex+=fullNodeWidth;
+  }
+  tokenizer.appendOutputArrayOffsets(outputArrayOffsets);
+  return this;
+}

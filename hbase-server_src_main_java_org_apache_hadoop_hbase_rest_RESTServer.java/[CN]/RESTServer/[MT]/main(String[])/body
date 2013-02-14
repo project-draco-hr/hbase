@@ -6,6 +6,7 @@
   Options options=new Options();
   options.addOption("p","port",true,"Port to bind to [default: 8080]");
   options.addOption("ro","readonly",false,"Respond only to GET HTTP " + "method requests [default: false]");
+  options.addOption(null,"infoport",true,"Port for web UI");
   CommandLine commandLine=null;
   try {
     commandLine=new PosixParser().parse(options,args);
@@ -22,6 +23,11 @@
   if (commandLine != null && commandLine.hasOption("readonly")) {
     servlet.getConfiguration().setBoolean("hbase.rest.readonly",true);
     LOG.debug("readonly set to true");
+  }
+  if (commandLine != null && commandLine.hasOption("infoport")) {
+    String val=commandLine.getOptionValue("infoport");
+    servlet.getConfiguration().setInt("hbase.rest.info.port",Integer.valueOf(val));
+    LOG.debug("Web UI port set to " + val);
   }
   @SuppressWarnings("unchecked") List<String> remainingArgs=commandLine != null ? commandLine.getArgList() : new ArrayList<String>();
   if (remainingArgs.size() != 1) {
@@ -58,6 +64,14 @@
   if (User.isSecurityEnabled() && User.isHBaseSecurityEnabled(conf)) {
     String machineName=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.rest.dns.interface","default"),conf.get("hbase.rest.dns.nameserver","default")));
     User.login(conf,"hbase.rest.keytab.file","hbase.rest.kerberos.principal",machineName);
+  }
+  int port=conf.getInt("hbase.rest.info.port",8085);
+  if (port >= 0) {
+    conf.setLong("startcode",System.currentTimeMillis());
+    String a=conf.get("hbase.rest.info.bindAddress","0.0.0.0");
+    InfoServer infoServer=new InfoServer("rest",a,port,false,conf);
+    infoServer.setAttribute("hbase.conf",conf);
+    infoServer.start();
   }
   server.start();
   server.join();
