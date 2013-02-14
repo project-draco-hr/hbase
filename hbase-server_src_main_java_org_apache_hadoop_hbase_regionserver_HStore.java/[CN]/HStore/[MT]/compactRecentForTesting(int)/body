@@ -1,6 +1,5 @@
 {
   List<StoreFile> filesToCompact;
-  long maxId;
   boolean isMajor;
   this.lock.readLock().lock();
   try {
@@ -17,7 +16,6 @@ synchronized (filesCompacting) {
         throw new RuntimeException("Not enough files");
       }
       filesToCompact=filesToCompact.subList(count - N,count);
-      maxId=StoreFile.getMaxSequenceIdInList(filesToCompact,true);
       isMajor=(filesToCompact.size() == storefiles.size());
       filesCompacting.addAll(filesToCompact);
       Collections.sort(filesCompacting,StoreFile.Comparators.SEQ_ID);
@@ -27,10 +25,12 @@ synchronized (filesCompacting) {
     this.lock.readLock().unlock();
   }
   try {
-    StoreFile.Writer writer=this.compactor.compact(this,filesToCompact,isMajor,maxId);
-    StoreFile sf=completeCompaction(filesToCompact,writer);
-    if (region.getCoprocessorHost() != null) {
-      region.getCoprocessorHost().postCompact(this,sf);
+    List<Path> newFiles=this.compactor.compact(filesToCompact,isMajor);
+    for (    Path newFile : newFiles) {
+      StoreFile sf=completeCompaction(filesToCompact,newFile);
+      if (region.getCoprocessorHost() != null) {
+        region.getCoprocessorHost().postCompact(this,sf);
+      }
     }
   }
   finally {

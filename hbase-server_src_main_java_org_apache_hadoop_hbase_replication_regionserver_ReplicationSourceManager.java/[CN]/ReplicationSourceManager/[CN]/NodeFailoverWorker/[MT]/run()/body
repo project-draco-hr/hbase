@@ -10,13 +10,20 @@
     LOG.info("Not transferring queue since we are shutting down");
     return;
   }
-  if (!zkHelper.lockOtherRS(rsZnode)) {
-    return;
+  SortedMap<String,SortedSet<String>> newQueues=null;
+  if (conf.getBoolean(HConstants.ZOOKEEPER_USEMULTI,true)) {
+    LOG.info("Atomically moving " + rsZnode + "'s hlogs to my queue");
+    newQueues=zkHelper.copyQueuesFromRSUsingMulti(rsZnode);
   }
-  LOG.info("Moving " + rsZnode + "'s hlogs to my queue");
-  SortedMap<String,SortedSet<String>> newQueues=zkHelper.copyQueuesFromRS(rsZnode);
-  zkHelper.deleteRsQueues(rsZnode);
-  if (newQueues == null || newQueues.size() == 0) {
+ else {
+    LOG.info("Moving " + rsZnode + "'s hlogs to my queue");
+    if (!zkHelper.lockOtherRS(rsZnode)) {
+      return;
+    }
+    newQueues=zkHelper.copyQueuesFromRS(rsZnode);
+    zkHelper.deleteRsQueues(rsZnode);
+  }
+  if (newQueues.size() == 0) {
     return;
   }
   for (  Map.Entry<String,SortedSet<String>> entry : newQueues.entrySet()) {

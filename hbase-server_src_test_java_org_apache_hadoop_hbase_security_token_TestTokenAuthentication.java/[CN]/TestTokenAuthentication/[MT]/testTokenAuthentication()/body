@@ -2,19 +2,26 @@
   UserGroupInformation testuser=UserGroupInformation.createUserForTesting("testuser",new String[]{"testgroup"});
   testuser.setAuthenticationMethod(UserGroupInformation.AuthenticationMethod.TOKEN);
   final Configuration conf=TEST_UTIL.getConfiguration();
-  conf.set("hadoop.security.authentication","kerberos");
-  conf.set("randomkey",UUID.randomUUID().toString());
-  testuser.setConfiguration(conf);
+  UserGroupInformation.setConfiguration(conf);
   Token<AuthenticationTokenIdentifier> token=secretManager.generateToken("testuser");
+  LOG.debug("Got token: " + token.toString());
   testuser.addToken(token);
   testuser.doAs(new PrivilegedExceptionAction<Object>(){
     public Object run() throws Exception {
-      HTable table=new HTable(conf,".META.");
-      IdentityProtocol prot=table.coprocessorProxy(IdentityProtocol.class,HConstants.EMPTY_START_ROW);
-      String myname=prot.whoami();
-      assertEquals("testuser",myname);
-      String authMethod=prot.getAuthMethod();
-      assertEquals("TOKEN",authMethod);
+      Configuration c=server.getConfiguration();
+      c.set(HConstants.CLUSTER_ID,clusterId.toString());
+      ProtobufRpcClientEngine rpcClient=new ProtobufRpcClientEngine(c);
+      try {
+        AuthenticationProtos.AuthenticationService.BlockingInterface proxy=HBaseClientRPC.waitForProxy(rpcClient,BlockingAuthenticationService.class,server.getAddress(),c,HConstants.DEFAULT_HBASE_CLIENT_RPC_MAXATTEMPTS,HConstants.DEFAULT_HBASE_RPC_TIMEOUT,HConstants.DEFAULT_HBASE_RPC_TIMEOUT);
+        AuthenticationProtos.WhoAmIResponse response=proxy.whoami(null,AuthenticationProtos.WhoAmIRequest.getDefaultInstance());
+        String myname=response.getUsername();
+        assertEquals("testuser",myname);
+        String authMethod=response.getAuthMethod();
+        assertEquals("TOKEN",authMethod);
+      }
+  finally {
+        rpcClient.close();
+      }
       return null;
     }
   }

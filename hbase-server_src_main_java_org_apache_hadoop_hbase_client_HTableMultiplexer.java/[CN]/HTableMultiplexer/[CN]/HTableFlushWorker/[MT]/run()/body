@@ -1,0 +1,78 @@
+{
+  List<PutStatus> processingList=new ArrayList<PutStatus>();
+  long frequency=conf.getLong(TABLE_MULTIPLEXER_FLUSH_FREQ_MS,100);
+  try {
+    Thread.sleep(frequency);
+  }
+ catch (  InterruptedException e) {
+  }
+  long start, elapsed;
+  int failedCount=0;
+  while (true) {
+    try {
+      start=elapsed=EnvironmentEdgeManager.currentTimeMillis();
+      processingList.clear();
+      failedCount=0;
+      queue.drainTo(processingList);
+      currentProcessingPutCount.set(processingList.size());
+      if (processingList.size() > 0) {
+        ArrayList<Put> list=new ArrayList<Put>(processingList.size());
+        for (        PutStatus putStatus : processingList) {
+          list.add(putStatus.getPut());
+        }
+        List<Put> failed=null;
+        Object[] results=new Object[list.size()];
+        try {
+          htable.batch(list,results);
+        }
+ catch (        IOException e) {
+          LOG.debug("Caught some exceptions " + e + " when flushing puts to region server "+ addr.getHostnamePort());
+        }
+ finally {
+          for (int i=results.length - 1; i >= 0; i--) {
+            if (results[i] instanceof Result) {
+              list.remove(i);
+            }
+          }
+          failed=list;
+        }
+        if (failed != null) {
+          if (failed.size() == processingList.size()) {
+            for (            PutStatus putStatus : processingList) {
+              if (!resubmitFailedPut(putStatus,this.addr)) {
+                failedCount++;
+              }
+            }
+          }
+ else {
+            Set<Put> failedPutSet=new HashSet<Put>(failed);
+            for (            PutStatus putStatus : processingList) {
+              if (failedPutSet.contains(putStatus.getPut()) && !resubmitFailedPut(putStatus,this.addr)) {
+                failedCount++;
+              }
+            }
+          }
+        }
+        this.totalFailedPutCount.addAndGet(failedCount);
+        elapsed=EnvironmentEdgeManager.currentTimeMillis() - start;
+        averageLatency.add(elapsed);
+        if (elapsed > maxLatency.get()) {
+          maxLatency.set(elapsed);
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Processed " + currentProcessingPutCount + " put requests for "+ addr.getHostnamePort()+ " and "+ failedCount+ " failed"+ ", latency for this send: "+ elapsed);
+        }
+        currentProcessingPutCount.set(0);
+      }
+      if (elapsed == start) {
+        elapsed=EnvironmentEdgeManager.currentTimeMillis() - start;
+      }
+      if (elapsed < frequency) {
+        Thread.sleep(frequency - elapsed);
+      }
+    }
+ catch (    Exception e) {
+      LOG.debug("Caught some exceptions " + e + " when flushing puts to region server "+ addr.getHostnamePort());
+    }
+  }
+}

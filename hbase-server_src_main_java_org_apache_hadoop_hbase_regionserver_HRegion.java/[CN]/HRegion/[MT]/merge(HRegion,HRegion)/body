@@ -8,12 +8,12 @@
   a.compactStores(true);
   if (LOG.isDebugEnabled()) {
     LOG.debug("Files for region: " + a);
-    listPaths(fs,a.getRegionDir());
+    FSUtils.logFileSystemState(fs,a.getRegionDir(),LOG);
   }
   b.compactStores(true);
   if (LOG.isDebugEnabled()) {
     LOG.debug("Files for region: " + b);
-    listPaths(fs,b.getRegionDir());
+    FSUtils.logFileSystemState(fs,b.getRegionDir(),LOG);
   }
   Configuration conf=a.baseConf;
   HTableDescriptor tabledesc=a.getTableDesc();
@@ -37,20 +37,13 @@
     byte[] colFamily=es.getKey();
     makeColumnFamilyDirs(fs,tableDir,newRegionInfo,colFamily);
     List<StoreFile> srcFiles=es.getValue();
-    if (srcFiles.size() == 2) {
-      long seqA=srcFiles.get(0).getMaxSequenceId();
-      long seqB=srcFiles.get(1).getMaxSequenceId();
-      if (seqA == seqB) {
-        throw new IOException("Files have same sequenceid: " + seqA);
-      }
-    }
     for (    StoreFile hsf : srcFiles) {
       StoreFile.rename(fs,hsf.getPath(),StoreFile.getUniqueFile(fs,HStore.getStoreHomedir(tableDir,newRegionInfo.getEncodedName(),colFamily)));
     }
   }
   if (LOG.isDebugEnabled()) {
     LOG.debug("Files for new region");
-    listPaths(fs,newRegionDir);
+    FSUtils.logFileSystemState(fs,newRegionDir,LOG);
   }
   HRegion dstRegion=HRegion.newHRegion(tableDir,log,fs,conf,newRegionInfo,a.getTableDesc(),null);
   dstRegion.readRequestsCount.set(a.readRequestsCount.get() + b.readRequestsCount.get());
@@ -61,10 +54,10 @@
   dstRegion.compactStores();
   if (LOG.isDebugEnabled()) {
     LOG.debug("Files for new region");
-    listPaths(fs,dstRegion.getRegionDir());
+    FSUtils.logFileSystemState(fs,dstRegion.getRegionDir(),LOG);
   }
-  HFileArchiver.archiveRegion(fs,FSUtils.getRootDir(a.getBaseConf()),a.getTableDir(),a.getRegionDir());
-  HFileArchiver.archiveRegion(fs,FSUtils.getRootDir(b.getBaseConf()),b.getTableDir(),b.getRegionDir());
+  HFileArchiver.archiveRegion(a.getBaseConf(),fs,FSUtils.getRootDir(a.getBaseConf()),a.getTableDir(),a.getRegionDir());
+  HFileArchiver.archiveRegion(a.getBaseConf(),fs,FSUtils.getRootDir(b.getBaseConf()),b.getTableDir(),b.getRegionDir());
   LOG.info("merge completed. New region is " + dstRegion);
   return dstRegion;
 }

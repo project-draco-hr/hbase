@@ -8,6 +8,7 @@
   final String defaultCompression=conf.get("hfile.compression",Compression.Algorithm.NONE.getName());
   final boolean compactionExclude=conf.getBoolean("hbase.mapreduce.hfileoutputformat.compaction.exclude",false);
   final Map<byte[],String> compressionMap=createFamilyCompressionMap(conf);
+  final Map<byte[],String> bloomTypeMap=createFamilyBloomMap(conf);
   String dataBlockEncodingStr=conf.get(DATABLOCK_ENCODING_CONF_KEY);
   final HFileDataBlockEncoder encoder;
   if (dataBlockEncodingStr == null) {
@@ -48,7 +49,6 @@
         wl=getNewWriter(family,conf);
       }
       kv.updateLatestStamp(this.now);
-      trt.includeTimestamp(kv);
       wl.writer.append(kv);
       wl.written+=length;
       this.previousRow=rowKey;
@@ -69,17 +69,24 @@
       Path familydir=new Path(outputdir,Bytes.toString(family));
       String compression=compressionMap.get(family);
       compression=compression == null ? defaultCompression : compression;
-      wl.writer=HFile.getWriterFactoryNoCache(conf).withPath(fs,StoreFile.getUniqueFile(fs,familydir)).withBlockSize(blocksize).withCompression(compression).withComparator(KeyValue.KEY_COMPARATOR).withDataBlockEncoder(encoder).withChecksumType(HStore.getChecksumType(conf)).withBytesPerChecksum(HStore.getBytesPerChecksum(conf)).create();
+      String bloomTypeStr=bloomTypeMap.get(family);
+      BloomType bloomType=BloomType.NONE;
+      if (bloomTypeStr != null) {
+        bloomType=BloomType.valueOf(bloomTypeStr);
+      }
+      Configuration tempConf=new Configuration(conf);
+      tempConf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY,0.0f);
+      wl.writer=new StoreFile.WriterBuilder(conf,new CacheConfig(tempConf),fs,blocksize).withOutputDir(familydir).withCompression(AbstractHFileWriter.compressionByName(compression)).withBloomType(bloomType).withComparator(KeyValue.COMPARATOR).withDataBlockEncoder(encoder).withChecksumType(HStore.getChecksumType(conf)).withBytesPerChecksum(HStore.getBytesPerChecksum(conf)).build();
       this.writers.put(family,wl);
       return wl;
     }
-    private void close(    final HFile.Writer w) throws IOException {
+    private void close(    final StoreFile.Writer w) throws IOException {
       if (w != null) {
         w.appendFileInfo(StoreFile.BULKLOAD_TIME_KEY,Bytes.toBytes(System.currentTimeMillis()));
         w.appendFileInfo(StoreFile.BULKLOAD_TASK_KEY,Bytes.toBytes(context.getTaskAttemptID().toString()));
         w.appendFileInfo(StoreFile.MAJOR_COMPACTION_KEY,Bytes.toBytes(true));
         w.appendFileInfo(StoreFile.EXCLUDE_FROM_MINOR_COMPACTION_KEY,Bytes.toBytes(compactionExclude));
-        w.appendFileInfo(StoreFile.TIMERANGE_KEY,WritableUtils.toByteArray(trt));
+        w.appendTrackedTimestampsToMetadata();
         w.close();
       }
     }

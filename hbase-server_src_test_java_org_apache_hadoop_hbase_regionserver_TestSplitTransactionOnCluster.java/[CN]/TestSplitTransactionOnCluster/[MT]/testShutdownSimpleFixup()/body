@@ -1,6 +1,6 @@
 {
   final byte[] tableName=Bytes.toBytes("testShutdownSimpleFixup");
-  HTable t=TESTING_UTIL.createTable(tableName,HConstants.CATALOG_FAMILY);
+  HTable t=createTableAndWait(tableName,HConstants.CATALOG_FAMILY);
   List<HRegion> regions=cluster.getRegions(tableName);
   HRegionInfo hri=getAndCheckSingleTableRegion(regions);
   int tableRegionIndex=ensureTableRegionNotOnSameServerAsMeta(admin,hri);
@@ -16,10 +16,7 @@
     removeDaughterFromMeta(daughters.get(0).getRegionName());
     cluster.abortRegionServer(tableRegionIndex);
     waitUntilRegionServerDead();
-    while (cluster.getRegions(tableName).size() < daughters.size()) {
-      LOG.info("Waiting for repair to happen");
-      Thread.sleep(1000);
-    }
+    awaitDaughters(tableName,daughters.size());
     regions=cluster.getRegions(tableName);
     for (    HRegion r : regions) {
       assertTrue(daughters.contains(r));
@@ -28,5 +25,6 @@
   finally {
     admin.setBalancerRunning(true,false);
     cluster.getMaster().setCatalogJanitorEnabled(true);
+    t.close();
   }
 }

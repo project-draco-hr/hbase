@@ -1,14 +1,18 @@
 {
   HTable table=new HTable(util.getConfiguration(),TEST_TABLE);
-  List<? extends Row> rows=Lists.newArrayList(new Get(ROW_A),new Get(ROW_B),new Get(ROW_C));
-  Batch.Call<PingProtocol,String> call=Batch.forMethod(PingProtocol.class,"ping");
-  Map<byte[],String> results=table.coprocessorExec(PingProtocol.class,ROW_A,ROW_C,call);
+  Map<byte[],String> results=table.coprocessorService(PingProtos.PingService.class,null,ROW_A,new Batch.Call<PingProtos.PingService,String>(){
+    @Override public String call(    PingProtos.PingService instance) throws IOException {
+      BlockingRpcCallback<PingProtos.PingResponse> rpcCallback=new BlockingRpcCallback<PingProtos.PingResponse>();
+      instance.ping(null,PingProtos.PingRequest.newBuilder().build(),rpcCallback);
+      return rpcCallback.get().getPong();
+    }
+  }
+);
+  assertEquals(1,results.size());
   verifyRegionResults(table,results,ROW_A);
-  verifyRegionResults(table,results,ROW_B);
-  verifyRegionResults(table,results,ROW_C);
-  Batch.Call<PingProtocol,String> helloCall=Batch.forMethod(PingProtocol.class,"hello","NAME");
-  results=table.coprocessorExec(PingProtocol.class,ROW_A,ROW_C,helloCall);
+  final String name="NAME";
+  results=hello(table,name,null,ROW_A);
+  assertEquals(1,results.size());
   verifyRegionResults(table,results,"Hello, NAME",ROW_A);
-  verifyRegionResults(table,results,"Hello, NAME",ROW_B);
-  verifyRegionResults(table,results,"Hello, NAME",ROW_C);
+  table.close();
 }

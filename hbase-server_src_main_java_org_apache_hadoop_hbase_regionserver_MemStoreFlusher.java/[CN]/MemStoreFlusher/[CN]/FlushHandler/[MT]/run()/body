@@ -1,0 +1,42 @@
+{
+  while (!server.isStopped()) {
+    FlushQueueEntry fqe=null;
+    try {
+      wakeupPending.set(false);
+      fqe=flushQueue.poll(threadWakeFrequency,TimeUnit.MILLISECONDS);
+      if (fqe == null || fqe instanceof WakeupFlushThread) {
+        if (isAboveLowWaterMark()) {
+          LOG.debug("Flush thread woke up because memory above low water=" + StringUtils.humanReadableInt(globalMemStoreLimitLowMark));
+          if (!flushOneForGlobalPressure()) {
+            Thread.sleep(1000);
+            wakeUpIfBlocking();
+          }
+          wakeupFlushThread();
+        }
+        continue;
+      }
+      FlushRegionEntry fre=(FlushRegionEntry)fqe;
+      if (!flushRegion(fre)) {
+        break;
+      }
+    }
+ catch (    InterruptedException ex) {
+      continue;
+    }
+catch (    ConcurrentModificationException ex) {
+      continue;
+    }
+catch (    Exception ex) {
+      LOG.error("Cache flusher failed for entry " + fqe,ex);
+      if (!server.checkFileSystem()) {
+        break;
+      }
+    }
+  }
+synchronized (regionsInQueue) {
+    regionsInQueue.clear();
+    flushQueue.clear();
+  }
+  wakeUpIfBlocking();
+  LOG.info(getName() + " exiting");
+}

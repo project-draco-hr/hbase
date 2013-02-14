@@ -1,0 +1,55 @@
+{
+  int rsToKill1=utility1.getHBaseCluster().getServerWithMeta() == 0 ? 1 : 0;
+  int rsToKill2=utility2.getHBaseCluster().getServerWithMeta() == 0 ? 1 : 0;
+  Thread killer1=killARegionServer(utility1,7500,rsToKill1);
+  Thread killer2=killARegionServer(utility2,10000,rsToKill2);
+  LOG.info("Start loading table");
+  int initialCount=utility1.loadTable(htable1,famName);
+  LOG.info("Done loading table");
+  killer1.join(5000);
+  killer2.join(5000);
+  LOG.info("Done waiting for threads");
+  Result[] res;
+  while (true) {
+    try {
+      Scan scan=new Scan();
+      ResultScanner scanner=htable1.getScanner(scan);
+      res=scanner.next(initialCount);
+      scanner.close();
+      break;
+    }
+ catch (    UnknownScannerException ex) {
+      LOG.info("Cluster wasn't ready yet, restarting scanner");
+    }
+  }
+  if (res.length != initialCount) {
+    LOG.warn("We lost some rows on the master cluster!");
+    initialCount=res.length;
+  }
+  int lastCount=0;
+  final long start=System.currentTimeMillis();
+  int i=0;
+  while (true) {
+    if (i == NB_RETRIES - 1) {
+      fail("Waited too much time for queueFailover replication. " + "Waited " + (System.currentTimeMillis() - start) + "ms.");
+    }
+    Scan scan2=new Scan();
+    ResultScanner scanner2=htable2.getScanner(scan2);
+    Result[] res2=scanner2.next(initialCount * 2);
+    scanner2.close();
+    if (res2.length < initialCount) {
+      if (lastCount < res2.length) {
+        i--;
+      }
+ else {
+        i++;
+      }
+      lastCount=res2.length;
+      LOG.info("Only got " + lastCount + " rows instead of "+ initialCount+ " current i="+ i);
+      Thread.sleep(SLEEP_TIME * 2);
+    }
+ else {
+      break;
+    }
+  }
+}

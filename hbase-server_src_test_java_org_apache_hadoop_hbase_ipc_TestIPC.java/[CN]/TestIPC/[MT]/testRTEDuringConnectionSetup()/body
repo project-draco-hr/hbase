@@ -1,0 +1,24 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  SocketFactory spyFactory=spy(NetUtils.getDefaultSocketFactory(conf));
+  Mockito.doAnswer(new Answer<Socket>(){
+    @Override public Socket answer(    InvocationOnMock invocation) throws Throwable {
+      Socket s=spy((Socket)invocation.callRealMethod());
+      doThrow(new RuntimeException("Injected fault")).when(s).setSoTimeout(anyInt());
+      return s;
+    }
+  }
+).when(spyFactory).createSocket();
+  TestRpcServer rpcServer=new TestRpcServer();
+  rpcServer.start();
+  HBaseClient client=new HBaseClient(conf,spyFactory);
+  InetSocketAddress address=rpcServer.getListenerAddress();
+  try {
+    client.call(RpcRequestBody.getDefaultInstance(),address,User.getCurrent(),0);
+    fail("Expected an exception to have been thrown!");
+  }
+ catch (  Exception e) {
+    LOG.info("Caught expected exception: " + e.toString());
+    assertTrue(StringUtils.stringifyException(e).contains("Injected fault"));
+  }
+}

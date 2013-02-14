@@ -5,9 +5,22 @@
         try {
           List<String> children=ZKUtil.listChildrenAndWatchForNewChildren(watcher,watcher.assignmentZNode);
           if (children != null) {
+            Stat stat=new Stat();
             for (            String child : children) {
               if (!regionStates.isRegionInTransition(child)) {
-                ZKUtil.watchAndCheckExists(watcher,ZKUtil.joinZNode(watcher.assignmentZNode,child));
+                stat.setVersion(0);
+                byte[] data=ZKAssign.getDataAndWatch(watcher,ZKUtil.joinZNode(watcher.assignmentZNode,child),stat);
+                if (data != null && stat.getVersion() > 0) {
+                  try {
+                    RegionTransition rt=RegionTransition.parseFrom(data);
+                    if (rt.getEventType() == EventType.RS_ZK_REGION_SPLITTING) {
+                      handleRegion(rt,stat.getVersion());
+                    }
+                  }
+ catch (                  DeserializationException de) {
+                    LOG.error("error getting data for " + child,de);
+                  }
+                }
               }
             }
           }

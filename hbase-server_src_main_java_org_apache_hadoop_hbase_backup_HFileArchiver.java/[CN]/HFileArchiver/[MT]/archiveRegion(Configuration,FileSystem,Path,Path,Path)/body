@@ -1,0 +1,42 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("ARCHIVING region " + regionDir.toString());
+  }
+  if (tableDir == null || regionDir == null) {
+    LOG.error("No archive directory could be found because tabledir (" + tableDir + ") or regiondir ("+ regionDir+ "was null. Deleting files instead.");
+    deleteRegionWithoutArchiving(fs,regionDir);
+    return false;
+  }
+  Preconditions.checkArgument(regionDir.toString().startsWith(tableDir.toString()));
+  Path regionArchiveDir=HFileArchiveUtil.getRegionArchiveDir(conf,tableDir,regionDir);
+  LOG.debug("Have an archive directory, preparing to move files");
+  FileStatusConverter getAsFile=new FileStatusConverter(fs);
+  Collection<File> toArchive=new ArrayList<File>();
+  final PathFilter dirFilter=new FSUtils.DirFilter(fs);
+  PathFilter nonHidden=new PathFilter(){
+    @Override public boolean accept(    Path file){
+      return dirFilter.accept(file) && !file.getName().toString().startsWith(".");
+    }
+  }
+;
+  FileStatus[] storeDirs=FSUtils.listStatus(fs,regionDir,nonHidden);
+  if (storeDirs == null) {
+    LOG.debug("Region directory (" + regionDir + ") was empty, just deleting and returning!");
+    return deleteRegionWithoutArchiving(fs,regionDir);
+  }
+  toArchive.addAll(Lists.transform(Arrays.asList(storeDirs),getAsFile));
+  LOG.debug("Archiving:" + toArchive);
+  boolean success=false;
+  try {
+    success=resolveAndArchive(fs,regionArchiveDir,toArchive);
+  }
+ catch (  IOException e) {
+    LOG.error("Failed to archive: " + toArchive,e);
+    success=false;
+  }
+  if (success) {
+    LOG.debug("Successfully resolved and archived, now can just delete region.");
+    return deleteRegionWithoutArchiving(fs,regionDir);
+  }
+  throw new IOException("Received error when attempting to archive files (" + toArchive + "), cannot delete region directory. ");
+}

@@ -12,28 +12,56 @@
     }
     if (activeMaster != null)     activeMaster.master.shutdown();
   }
+  boolean noWait=false;
+  final long maxTime=System.currentTimeMillis() + 120 * 1000;
   if (regionservers != null) {
     for (    RegionServerThread t : regionservers) {
-      if (t.isAlive()) {
+      t.getRegionServer().stop("Shutdown requested");
+    }
+    for (    RegionServerThread t : regionservers) {
+      if (t.isAlive() && !noWait && System.currentTimeMillis() < maxTime) {
         try {
-          t.getRegionServer().stop("Shutdown requested");
-          t.join();
+          t.join(maxTime);
         }
  catch (        InterruptedException e) {
+          LOG.info("Got InterruptedException on shutdown - " + "not waiting anymore on region server ends",e);
+          noWait=true;
+        }
+      }
+    }
+    for (int i=0; i < 10; ++i) {
+      for (      RegionServerThread t : regionservers) {
+        if (t.isAlive()) {
+          try {
+            t.join(10);
+          }
+ catch (          InterruptedException e) {
+            noWait=true;
+          }
+        }
+      }
+      for (      RegionServerThread t : regionservers) {
+        if (t.isAlive()) {
+          t.interrupt();
         }
       }
     }
   }
   if (masters != null) {
     for (    JVMClusterUtil.MasterThread t : masters) {
-      while (t.master.isAlive()) {
+      while (t.master.isAlive() && !noWait) {
         try {
           Threads.threadDumpingIsAlive(t.master.getThread());
         }
  catch (        InterruptedException e) {
+          LOG.info("Got InterruptedException on shutdown - " + "not waiting anymore on master ends",e);
+          noWait=true;
         }
       }
     }
   }
-  LOG.info("Shutdown of " + ((masters != null) ? masters.size() : "0") + " master(s) and "+ ((regionservers != null) ? regionservers.size() : "0")+ " regionserver(s) complete");
+  LOG.info("Shutdown of " + ((masters != null) ? masters.size() : "0") + " master(s) and "+ ((regionservers != null) ? regionservers.size() : "0")+ " regionserver(s) "+ (noWait ? "interrupted" : "complete"));
+  if (!noWait) {
+    Thread.currentThread().interrupt();
+  }
 }

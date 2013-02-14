@@ -7,19 +7,19 @@
   }
   requestCount.increment();
   OpenRegionResponse.Builder builder=OpenRegionResponse.newBuilder();
-  int regionCount=request.getOpenInfoCount();
-  Map<String,HTableDescriptor> htds=new HashMap<String,HTableDescriptor>(regionCount);
-  boolean isBulkAssign=regionCount > 1;
+  final int regionCount=request.getOpenInfoCount();
+  final Map<String,HTableDescriptor> htds=new HashMap<String,HTableDescriptor>(regionCount);
+  final boolean isBulkAssign=regionCount > 1;
   for (  RegionOpenInfo regionOpenInfo : request.getOpenInfoList()) {
-    HRegionInfo region=HRegionInfo.convert(regionOpenInfo.getRegion());
+    final HRegionInfo region=HRegionInfo.convert(regionOpenInfo.getRegion());
     int versionOfOfflineNode=-1;
     if (regionOpenInfo.hasVersionOfOfflineNode()) {
       versionOfOfflineNode=regionOpenInfo.getVersionOfOfflineNode();
     }
+    HTableDescriptor htd;
     try {
-      checkIfRegionInTransition(region.getEncodedNameAsBytes(),OPEN);
-      HRegion onlineRegion=getFromOnlineRegions(region.getEncodedName());
-      if (null != onlineRegion) {
+      final HRegion onlineRegion=getFromOnlineRegions(region.getEncodedName());
+      if (onlineRegion != null) {
         if (onlineRegion.getCoprocessorHost() != null) {
           onlineRegion.getCoprocessorHost().preOpen();
         }
@@ -30,38 +30,38 @@
           continue;
         }
  else {
-          LOG.warn("The region " + region.getEncodedName() + " is online on this server but META does not have this server.");
-          removeFromOnlineRegions(region.getEncodedName(),null);
+          LOG.warn("The region " + region.getEncodedName() + " is online on this server"+ " but META does not have this server - continue opening.");
+          removeFromOnlineRegions(onlineRegion,null);
         }
       }
       LOG.info("Received request to open region: " + region.getRegionNameAsString() + " on "+ this.serverNameFromMasterPOV);
-      HTableDescriptor htd=htds.get(region.getTableNameAsString());
+      htd=htds.get(region.getTableNameAsString());
       if (htd == null) {
         htd=this.tableDescriptors.get(region.getTableName());
         htds.put(region.getTableNameAsString(),htd);
       }
-      this.regionsInTransitionInRS.putIfAbsent(region.getEncodedNameAsBytes(),true);
-      if (region.isRootRegion()) {
-        this.service.submit(new OpenRootHandler(this,this,region,htd,versionOfOfflineNode));
+      final Boolean previous=this.regionsInTransitionInRS.putIfAbsent(region.getEncodedNameAsBytes(),Boolean.TRUE);
+      if (Boolean.FALSE.equals(previous)) {
+        OpenRegionHandler.tryTransitionFromOfflineToFailedOpen(this,region,versionOfOfflineNode);
+        throw new RegionAlreadyInTransitionException("Received OPEN for the region:" + region.getRegionNameAsString() + " , which we are already trying to CLOSE ");
       }
- else       if (region.isMetaRegion()) {
-        this.service.submit(new OpenMetaHandler(this,this,region,htd,versionOfOfflineNode));
+      if (Boolean.TRUE.equals(previous)) {
+        LOG.info("Receiving OPEN for the region:" + region.getRegionNameAsString() + " , which we are already trying to OPEN"+ " - ignoring this new request for this region.");
       }
+      if (previous == null) {
+        if (region.isRootRegion()) {
+          this.service.submit(new OpenRootHandler(this,this,region,htd,versionOfOfflineNode));
+        }
+ else         if (region.isMetaRegion()) {
+          this.service.submit(new OpenMetaHandler(this,this,region,htd,versionOfOfflineNode));
+        }
  else {
-        this.service.submit(new OpenRegionHandler(this,this,region,htd,versionOfOfflineNode));
+          this.service.submit(new OpenRegionHandler(this,this,region,htd,versionOfOfflineNode));
+        }
       }
       builder.addOpeningState(RegionOpeningState.OPENED);
     }
- catch (    RegionAlreadyInTransitionException rie) {
-      LOG.warn("Region is already in transition",rie);
-      if (isBulkAssign) {
-        builder.addOpeningState(RegionOpeningState.OPENED);
-      }
- else {
-        throw new ServiceException(rie);
-      }
-    }
-catch (    IOException ie) {
+ catch (    IOException ie) {
       LOG.warn("Failed opening region " + region.getRegionNameAsString(),ie);
       if (isBulkAssign) {
         builder.addOpeningState(RegionOpeningState.FAILED_OPENING);

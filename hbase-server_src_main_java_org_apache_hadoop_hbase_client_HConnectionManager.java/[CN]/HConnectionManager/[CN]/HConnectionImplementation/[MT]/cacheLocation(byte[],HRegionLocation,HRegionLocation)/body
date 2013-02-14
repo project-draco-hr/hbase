@@ -1,0 +1,28 @@
+{
+  boolean isFromMeta=(source == null);
+  byte[] startKey=location.getRegionInfo().getStartKey();
+  Map<byte[],HRegionLocation> tableLocations=getTableLocations(tableName);
+  boolean isNewCacheEntry=false;
+  boolean isStaleUpdate=false;
+  HRegionLocation oldLocation=null;
+synchronized (this.cachedRegionLocations) {
+    cachedServers.add(location.getHostnamePort());
+    oldLocation=tableLocations.get(startKey);
+    isNewCacheEntry=(oldLocation == null);
+    if (!isNewCacheEntry && !oldLocation.equals(source)) {
+      long newLocationSeqNum=location.getSeqNum();
+      boolean isStaleMetaRecord=isFromMeta && (oldLocation.getSeqNum() > newLocationSeqNum);
+      boolean isStaleRedirect=!isFromMeta && (oldLocation.getSeqNum() >= newLocationSeqNum);
+      isStaleUpdate=(isStaleMetaRecord || isStaleRedirect);
+    }
+    if (!isStaleUpdate) {
+      tableLocations.put(startKey,location);
+    }
+  }
+  if (isNewCacheEntry) {
+    LOG.debug("Cached location for " + location.getRegionInfo().getRegionNameAsString() + " is "+ location.getHostnamePort());
+  }
+ else   if (isStaleUpdate && !location.equals(oldLocation)) {
+    LOG.debug("Ignoring stale location update for " + location.getRegionInfo().getRegionNameAsString() + ": "+ location.getHostnamePort()+ " at "+ location.getSeqNum()+ "; local "+ oldLocation.getHostnamePort()+ " at "+ oldLocation.getSeqNum());
+  }
+}

@@ -1,0 +1,29 @@
+{
+  if (serverToFlushWorkerMap == null) {
+    return;
+  }
+  long averageCalcSum=0;
+  int averageCalcCount=0;
+  for (  Map.Entry<HRegionLocation,HTableFlushWorker> entry : serverToFlushWorkerMap.entrySet()) {
+    HRegionLocation addr=entry.getKey();
+    HTableFlushWorker worker=entry.getValue();
+    long bufferedCounter=worker.getTotalBufferedCount();
+    long failedCounter=worker.getTotalFailedCount();
+    long serverMaxLatency=worker.getMaxLatency();
+    AtomicAverageCounter averageCounter=worker.getAverageLatencyCounter();
+    SimpleEntry<Long,Integer> averageComponents=averageCounter.getComponents();
+    long serverAvgLatency=averageCounter.getAndReset();
+    this.totalBufferedPutCounter+=bufferedCounter;
+    this.totalFailedPutCounter+=failedCounter;
+    if (serverMaxLatency > this.maxLatency) {
+      this.maxLatency=serverMaxLatency;
+    }
+    averageCalcSum+=averageComponents.getKey();
+    averageCalcCount+=averageComponents.getValue();
+    this.serverToBufferedCounterMap.put(addr.getHostnamePort(),bufferedCounter);
+    this.serverToFailedCounterMap.put(addr.getHostnamePort(),failedCounter);
+    this.serverToAverageLatencyMap.put(addr.getHostnamePort(),serverAvgLatency);
+    this.serverToMaxLatencyMap.put(addr.getHostnamePort(),serverMaxLatency);
+  }
+  this.overallAverageLatency=averageCalcCount != 0 ? averageCalcSum / averageCalcCount : 0;
+}

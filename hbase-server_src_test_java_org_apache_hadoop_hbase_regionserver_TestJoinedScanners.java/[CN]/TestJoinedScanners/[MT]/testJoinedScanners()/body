@@ -1,0 +1,54 @@
+{
+  String dataNodeHosts[]=new String[]{"host1","host2","host3"};
+  int regionServersCount=3;
+  HBaseTestingUtility htu=new HBaseTestingUtility();
+  final int DEFAULT_BLOCK_SIZE=1024 * 1024;
+  htu.getConfiguration().setLong("dfs.block.size",DEFAULT_BLOCK_SIZE);
+  htu.getConfiguration().setInt("dfs.replication",1);
+  htu.getConfiguration().setLong("hbase.hregion.max.filesize",322122547200L);
+  MiniHBaseCluster cluster=null;
+  try {
+    cluster=htu.startMiniCluster(1,regionServersCount,dataNodeHosts);
+    byte[][] families={cf_essential,cf_joined};
+    HTable ht=htu.createTable(Bytes.toBytes(this.getClass().getSimpleName()),families);
+    long rows_to_insert=10000;
+    int insert_batch=20;
+    int flag_percent=1;
+    int large_bytes=128 * 1024;
+    long time=System.nanoTime();
+    LOG.info("Make " + Long.toString(rows_to_insert) + " rows, total size = "+ Float.toString(rows_to_insert * large_bytes / 1024 / 1024)+ " MB");
+    byte[] val_large=new byte[large_bytes];
+    List<Put> puts=new ArrayList<Put>();
+    for (long i=0; i < rows_to_insert; i++) {
+      Put put=new Put(Bytes.toBytes(Long.toString(i)));
+      if (i % 100 <= flag_percent) {
+        put.add(cf_essential,col_name,flag_yes);
+      }
+ else {
+        put.add(cf_essential,col_name,flag_no);
+      }
+      put.add(cf_joined,col_name,val_large);
+      puts.add(put);
+      if (puts.size() >= insert_batch) {
+        ht.put(puts);
+        puts.clear();
+      }
+    }
+    if (puts.size() >= 0) {
+      ht.put(puts);
+      puts.clear();
+    }
+    LOG.info("Data generated in " + Double.toString((System.nanoTime() - time) / 1000000000.0) + " seconds");
+    boolean slow=true;
+    for (int i=0; i < 20; ++i) {
+      runScanner(ht,slow);
+      slow=!slow;
+    }
+    ht.close();
+  }
+  finally {
+    if (cluster != null) {
+      htu.shutdownMiniCluster();
+    }
+  }
+}

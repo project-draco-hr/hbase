@@ -1,0 +1,48 @@
+{
+  this.region=region;
+  this.maxResultSize=scan.getMaxResultSize();
+  if (scan.hasFilter()) {
+    this.filter=new FilterWrapper(scan.getFilter());
+  }
+ else {
+    this.filter=null;
+  }
+  this.batch=scan.getBatch();
+  if (Bytes.equals(scan.getStopRow(),HConstants.EMPTY_END_ROW) && !scan.isGetScan()) {
+    this.stopRow=null;
+  }
+ else {
+    this.stopRow=scan.getStopRow();
+  }
+  this.isScan=scan.isGetScan() ? -1 : 0;
+  IsolationLevel isolationLevel=scan.getIsolationLevel();
+synchronized (scannerReadPoints) {
+    if (isolationLevel == IsolationLevel.READ_UNCOMMITTED) {
+      this.readPt=Long.MAX_VALUE;
+      MultiVersionConsistencyControl.setThreadReadPoint(this.readPt);
+    }
+ else {
+      this.readPt=MultiVersionConsistencyControl.resetThreadReadPoint(mvcc);
+    }
+    scannerReadPoints.put(this,this.readPt);
+  }
+  List<KeyValueScanner> scanners=new ArrayList<KeyValueScanner>();
+  List<KeyValueScanner> joinedScanners=new ArrayList<KeyValueScanner>();
+  if (additionalScanners != null) {
+    scanners.addAll(additionalScanners);
+  }
+  for (  Map.Entry<byte[],NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
+    Store store=stores.get(entry.getKey());
+    KeyValueScanner scanner=store.getScanner(scan,entry.getValue());
+    if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand() || this.filter.isFamilyEssential(entry.getKey())) {
+      scanners.add(scanner);
+    }
+ else {
+      joinedScanners.add(scanner);
+    }
+  }
+  this.storeHeap=new KeyValueHeap(scanners,comparator);
+  if (!joinedScanners.isEmpty()) {
+    this.joinedHeap=new KeyValueHeap(joinedScanners,comparator);
+  }
+}

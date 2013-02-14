@@ -1,29 +1,34 @@
 {
+  if (this.closed) {
+    return;
+  }
   try {
     logSyncerThread.close();
     logSyncerThread.join(this.optionalFlushInterval * 2);
   }
  catch (  InterruptedException e) {
     LOG.error("Exception while waiting for syncer thread to die",e);
+    Thread.currentThread().interrupt();
   }
-  cacheFlushLock.lock();
   try {
-    if (!this.listeners.isEmpty()) {
-      for (      WALActionsListener i : this.listeners) {
-        i.logCloseRequested();
-      }
-    }
-synchronized (updateLock) {
-      this.closed=true;
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("closing hlog writer in " + this.dir.toString());
-      }
-      if (this.writer != null) {
-        this.writer.close();
-      }
+    closeBarrier.stopAndDrainOps();
+  }
+ catch (  InterruptedException e) {
+    LOG.error("Exception while waiting for cache flushes and log rolls",e);
+    Thread.currentThread().interrupt();
+  }
+  if (!this.listeners.isEmpty()) {
+    for (    WALActionsListener i : this.listeners) {
+      i.logCloseRequested();
     }
   }
-  finally {
-    cacheFlushLock.unlock();
+synchronized (updateLock) {
+    this.closed=true;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("closing hlog writer in " + this.dir.toString());
+    }
+    if (this.writer != null) {
+      this.writer.close();
+    }
   }
 }

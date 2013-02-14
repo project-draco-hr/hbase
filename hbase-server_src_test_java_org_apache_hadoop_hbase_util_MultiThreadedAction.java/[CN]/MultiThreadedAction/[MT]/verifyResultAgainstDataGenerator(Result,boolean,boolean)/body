@@ -1,0 +1,43 @@
+{
+  String rowKeyStr=Bytes.toString(result.getRow());
+  if (result.isEmpty()) {
+    LOG.error("No data returned for key = [" + rowKeyStr + "]");
+    return false;
+  }
+  if (!verifyValues && !verifyCfAndColumnIntegrity) {
+    return true;
+  }
+  byte[][] expectedCfs=dataGenerator.getColumnFamilies();
+  if (verifyCfAndColumnIntegrity && (expectedCfs.length != result.getMap().size())) {
+    LOG.error("Bad family count for [" + rowKeyStr + "]: "+ result.getMap().size());
+    return false;
+  }
+  for (  byte[] cf : result.getMap().keySet()) {
+    String cfStr=Bytes.toString(cf);
+    Map<byte[],byte[]> columnValues=result.getFamilyMap(cf);
+    if (columnValues == null) {
+      LOG.error("No data for family [" + cfStr + "] for ["+ rowKeyStr+ "]");
+      return false;
+    }
+    if (verifyCfAndColumnIntegrity && !dataGenerator.verify(result.getRow(),cf,columnValues.keySet())) {
+      String colsStr="";
+      for (      byte[] col : columnValues.keySet()) {
+        if (colsStr.length() > 0) {
+          colsStr+=", ";
+        }
+        colsStr+="[" + Bytes.toString(col) + "]";
+      }
+      LOG.error("Bad columns for family [" + cfStr + "] for ["+ rowKeyStr+ "]: "+ colsStr);
+      return false;
+    }
+    if (verifyValues) {
+      for (      Map.Entry<byte[],byte[]> kv : columnValues.entrySet()) {
+        if (!dataGenerator.verify(result.getRow(),cf,kv.getKey(),kv.getValue())) {
+          LOG.error("Error checking data for key [" + rowKeyStr + "], column family ["+ cfStr+ "], column ["+ Bytes.toString(kv.getKey())+ "]; value of length "+ +kv.getValue().length);
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}

@@ -14,7 +14,6 @@
   this.rpcTimeout=conf.getInt(HConstants.HBASE_RPC_TIMEOUT_KEY,HConstants.DEFAULT_HBASE_RPC_TIMEOUT);
   this.abortRequested=false;
   this.stopped=false;
-  this.rowLockLeaseTimeoutPeriod=conf.getInt(HConstants.HBASE_REGIONSERVER_ROWLOCK_TIMEOUT_PERIOD,HConstants.DEFAULT_HBASE_REGIONSERVER_ROWLOCK_TIMEOUT_PERIOD);
   this.scannerLeaseTimeoutPeriod=conf.getInt(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,HConstants.DEFAULT_HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD);
   String hostname=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.regionserver.dns.interface","default"),conf.get("hbase.regionserver.dns.nameserver","default")));
   int port=conf.getInt(HConstants.REGIONSERVER_PORT,HConstants.DEFAULT_REGIONSERVER_PORT);
@@ -22,7 +21,7 @@
   if (initialIsa.getAddress() == null) {
     throw new IllegalArgumentException("Failed resolve of " + initialIsa);
   }
-  this.rpcServer=HBaseRPC.getServer(AdminProtocol.class,this,new Class<?>[]{ClientProtocol.class,AdminProtocol.class,HBaseRPCErrorHandler.class,OnlineRegions.class},initialIsa.getHostName(),initialIsa.getPort(),conf.getInt("hbase.regionserver.handler.count",10),conf.getInt("hbase.regionserver.metahandler.count",10),conf.getBoolean("hbase.rpc.verbose",false),conf,HConstants.QOS_THRESHOLD);
+  this.rpcServer=HBaseServerRPC.getServer(AdminProtocol.class,this,new Class<?>[]{ClientProtocol.class,AdminProtocol.class,HBaseRPCErrorHandler.class,OnlineRegions.class},initialIsa.getHostName(),initialIsa.getPort(),conf.getInt("hbase.regionserver.handler.count",10),conf.getInt("hbase.regionserver.metahandler.count",10),conf.getBoolean("hbase.rpc.verbose",false),conf,HConstants.QOS_THRESHOLD);
   this.isa=this.rpcServer.getListenerAddress();
   this.rpcServer.setErrorHandler(this);
   this.rpcServer.setQosFunction((qosFunction=new QosFunction()));
@@ -31,5 +30,11 @@
   User.login(this.conf,"hbase.regionserver.keytab.file","hbase.regionserver.kerberos.principal",this.isa.getHostName());
   regionServerAccounting=new RegionServerAccounting();
   cacheConfig=new CacheConfig(conf);
+  uncaughtExceptionHandler=new UncaughtExceptionHandler(){
+    public void uncaughtException(    Thread t,    Throwable e){
+      abort("Uncaught exception in service thread " + t.getName(),e);
+    }
+  }
+;
   this.rsHost=new RegionServerCoprocessorHost(this,this.conf);
 }

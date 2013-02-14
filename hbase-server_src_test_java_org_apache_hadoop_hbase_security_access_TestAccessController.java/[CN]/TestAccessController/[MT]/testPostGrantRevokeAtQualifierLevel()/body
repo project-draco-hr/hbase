@@ -13,14 +13,17 @@
   htd.addFamily(new HColumnDescriptor(family2));
   admin.createTable(htd);
   User user=User.createUserForTesting(TEST_UTIL.getConfiguration(),"user",new String[0]);
-  HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
-  AccessControllerProtocol protocol=acl.coprocessorProxy(AccessControllerProtocol.class,tableName);
   PrivilegedExceptionAction getQualifierAction=new PrivilegedExceptionAction(){
     public Object run() throws Exception {
       Get g=new Get(Bytes.toBytes("random_row"));
       g.addColumn(family1,qualifier);
       HTable t=new HTable(conf,tableName);
-      t.get(g);
+      try {
+        t.get(g);
+      }
+  finally {
+        t.close();
+      }
       return null;
     }
   }
@@ -30,7 +33,12 @@
       Put p=new Put(Bytes.toBytes("random_row"));
       p.add(family1,qualifier,Bytes.toBytes("v1"));
       HTable t=new HTable(conf,tableName);
-      t.put(p);
+      try {
+        t.put(p);
+      }
+  finally {
+        t.close();
+      }
       return null;
     }
   }
@@ -40,31 +48,77 @@
       Delete d=new Delete(Bytes.toBytes("random_row"));
       d.deleteColumn(family1,qualifier);
       HTable t=new HTable(conf,tableName);
-      t.delete(d);
+      try {
+        t.delete(d);
+      }
+  finally {
+        t.close();
+      }
       return null;
     }
   }
 ;
-  protocol.revoke(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1));
+  HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  try {
+    BlockingRpcChannel service=acl.coprocessorService(tableName);
+    AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+    ProtobufUtil.revoke(protocol,user.getShortName(),tableName,family1,null);
+  }
+  finally {
+    acl.close();
+  }
+  Thread.sleep(100);
   verifyDenied(user,getQualifierAction);
   verifyDenied(user,putQualifierAction);
   verifyDenied(user,deleteQualifierAction);
-  protocol.grant(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier,Permission.Action.READ));
+  acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  try {
+    BlockingRpcChannel service=acl.coprocessorService(tableName);
+    AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+    ProtobufUtil.grant(protocol,user.getShortName(),tableName,family1,qualifier,Permission.Action.READ);
+  }
+  finally {
+    acl.close();
+  }
   Thread.sleep(100);
   verifyAllowed(user,getQualifierAction);
   verifyDenied(user,putQualifierAction);
   verifyDenied(user,deleteQualifierAction);
-  protocol.grant(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier,Permission.Action.WRITE));
+  acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  try {
+    BlockingRpcChannel service=acl.coprocessorService(tableName);
+    AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+    ProtobufUtil.grant(protocol,user.getShortName(),tableName,family1,qualifier,Permission.Action.WRITE);
+  }
+  finally {
+    acl.close();
+  }
   Thread.sleep(100);
   verifyDenied(user,getQualifierAction);
   verifyAllowed(user,putQualifierAction);
   verifyAllowed(user,deleteQualifierAction);
-  protocol.grant(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier,Permission.Action.READ,Permission.Action.WRITE));
+  acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  try {
+    BlockingRpcChannel service=acl.coprocessorService(tableName);
+    AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+    ProtobufUtil.grant(protocol,user.getShortName(),tableName,family1,qualifier,Permission.Action.READ,Permission.Action.WRITE);
+  }
+  finally {
+    acl.close();
+  }
   Thread.sleep(100);
   verifyAllowed(user,getQualifierAction);
   verifyAllowed(user,putQualifierAction);
   verifyAllowed(user,deleteQualifierAction);
-  protocol.revoke(new UserPermission(Bytes.toBytes(user.getShortName()),tableName,family1,qualifier));
+  acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  try {
+    BlockingRpcChannel service=acl.coprocessorService(tableName);
+    AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+    ProtobufUtil.revoke(protocol,user.getShortName(),tableName,family1,qualifier);
+  }
+  finally {
+    acl.close();
+  }
   Thread.sleep(100);
   verifyDenied(user,getQualifierAction);
   verifyDenied(user,putQualifierAction);

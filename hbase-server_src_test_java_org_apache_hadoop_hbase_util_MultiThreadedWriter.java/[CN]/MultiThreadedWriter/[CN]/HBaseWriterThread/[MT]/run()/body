@@ -1,19 +1,35 @@
 {
   try {
-    long rowKey;
-    while ((rowKey=nextKeyToInsert.getAndIncrement()) < endKey) {
-      long numColumns=minColumnsPerKey + Math.abs(random.nextLong()) % (maxColumnsPerKey - minColumnsPerKey);
+    long rowKeyBase;
+    byte[][] columnFamilies=dataGenerator.getColumnFamilies();
+    while ((rowKeyBase=nextKeyToInsert.getAndIncrement()) < endKey) {
+      byte[] rowKey=dataGenerator.getDeterministicUniqueKey(rowKeyBase);
+      Put put=new Put(rowKey);
       numKeys.addAndGet(1);
-      if (isMultiPut) {
-        multiPutInsertKey(rowKey,0,numColumns);
-      }
- else {
-        for (long col=0; col < numColumns; ++col) {
-          insert(rowKey,col);
+      int columnCount=0;
+      for (      byte[] cf : columnFamilies) {
+        String s;
+        byte[][] columns=dataGenerator.generateColumnsForCf(rowKey,cf);
+        for (        byte[] column : columns) {
+          byte[] value=dataGenerator.generateValue(rowKey,cf,column);
+          put.add(cf,column,value);
+          ++columnCount;
+          if (!isMultiPut) {
+            insert(put,rowKeyBase);
+            numCols.addAndGet(1);
+            put=new Put(rowKey);
+          }
         }
       }
+      if (isMultiPut) {
+        if (verbose) {
+          LOG.debug("Preparing put for key = [" + rowKey + "], "+ columnCount+ " columns");
+        }
+        insert(put,rowKeyBase);
+        numCols.addAndGet(columnCount);
+      }
       if (trackInsertedKeys) {
-        insertedKeys.add(rowKey);
+        insertedKeys.add(rowKeyBase);
       }
     }
   }
