@@ -20,14 +20,18 @@
   MetaEditor.deleteRegions(this.server.getCatalogTracker(),regions);
   MasterFileSystem mfs=this.masterServices.getMasterFileSystem();
   Path tempTableDir=mfs.moveTableToTemp(tableName);
-  this.masterServices.getTableDescriptors().remove(Bytes.toString(tableName));
-  am.getZKTable().setDeletedTable(Bytes.toString(tableName));
-  FileSystem fs=mfs.getFileSystem();
-  for (  HRegionInfo hri : regions) {
-    LOG.debug("Deleting region " + hri.getRegionNameAsString() + " from FS");
-    HFileArchiver.archiveRegion(masterServices.getConfiguration(),fs,mfs.getRootDir(),tempTableDir,new Path(tempTableDir,hri.getEncodedName()));
+  try {
+    FileSystem fs=mfs.getFileSystem();
+    for (    HRegionInfo hri : regions) {
+      LOG.debug("Deleting region " + hri.getRegionNameAsString() + " from FS");
+      HFileArchiver.archiveRegion(fs,mfs.getRootDir(),tempTableDir,new Path(tempTableDir,hri.getEncodedName()));
+    }
+    fs.delete(tempTableDir,true);
   }
-  fs.delete(tempTableDir,true);
+  finally {
+    this.masterServices.getTableDescriptors().remove(Bytes.toString(tableName));
+    am.getZKTable().setDeletedTable(Bytes.toString(tableName));
+  }
   if (cpHost != null) {
     cpHost.postDeleteTableHandler(this.tableName);
   }
