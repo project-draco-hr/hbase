@@ -1,0 +1,28 @@
+{
+  if (scanners.isEmpty())   return;
+  int storeFileScannerCount=scanners.size();
+  CountDownLatch latch=new CountDownLatch(storeFileScannerCount);
+  List<ParallelSeekHandler> handlers=new ArrayList<ParallelSeekHandler>(storeFileScannerCount);
+  for (  KeyValueScanner scanner : scanners) {
+    if (scanner instanceof StoreFileScanner) {
+      ParallelSeekHandler seekHandler=new ParallelSeekHandler(scanner,kv,MultiVersionConsistencyControl.getThreadReadPoint(),latch);
+      executor.submit(seekHandler);
+      handlers.add(seekHandler);
+    }
+ else {
+      scanner.seek(kv);
+      latch.countDown();
+    }
+  }
+  try {
+    latch.await();
+  }
+ catch (  InterruptedException ie) {
+    throw new InterruptedIOException(ie.getMessage());
+  }
+  for (  ParallelSeekHandler handler : handlers) {
+    if (handler.getErr() != null) {
+      throw new IOException(handler.getErr());
+    }
+  }
+}
