@@ -1,0 +1,27 @@
+{
+  IsSnapshotDoneRequest.Builder builder=IsSnapshotDoneRequest.newBuilder();
+  String snapshotName="asyncExpectedFailureTest";
+  SnapshotTestingUtils.expectSnapshotDoneException(master,builder.build(),UnknownSnapshotException.class);
+  SnapshotDescription desc=SnapshotDescription.newBuilder().setName(snapshotName).build();
+  builder.setSnapshot(desc);
+  SnapshotTestingUtils.expectSnapshotDoneException(master,builder.build(),UnknownSnapshotException.class);
+  DisabledTableSnapshotHandler mockHandler=Mockito.mock(DisabledTableSnapshotHandler.class);
+  Mockito.when(mockHandler.getException()).thenReturn(null);
+  Mockito.when(mockHandler.getSnapshot()).thenReturn(desc);
+  Mockito.when(mockHandler.isFinished()).thenReturn(new Boolean(true));
+  master.getSnapshotManagerForTesting().setSnapshotHandlerForTesting(mockHandler);
+  builder=IsSnapshotDoneRequest.newBuilder();
+  SnapshotTestingUtils.expectSnapshotDoneException(master,builder.build(),UnknownSnapshotException.class);
+  builder.setSnapshot(desc);
+  IsSnapshotDoneResponse response=master.isSnapshotDone(null,builder.build());
+  assertTrue("Snapshot didn't complete when it should have.",response.getDone());
+  builder.setSnapshot(SnapshotDescription.newBuilder().setName("Not A Snapshot").build());
+  SnapshotTestingUtils.expectSnapshotDoneException(master,builder.build(),UnknownSnapshotException.class);
+  snapshotName="completed";
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,rootDir);
+  desc=desc.toBuilder().setName(snapshotName).build();
+  SnapshotDescriptionUtils.writeSnapshotInfo(desc,snapshotDir,fs);
+  builder.setSnapshot(desc);
+  response=master.isSnapshotDone(null,builder.build());
+  assertTrue("Completed, on-disk snapshot not found",response.getDone());
+}

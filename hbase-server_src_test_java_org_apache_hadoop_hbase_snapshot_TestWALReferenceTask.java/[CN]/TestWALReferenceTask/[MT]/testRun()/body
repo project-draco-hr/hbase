@@ -1,0 +1,33 @@
+{
+  Configuration conf=UTIL.getConfiguration();
+  FileSystem fs=UTIL.getTestFileSystem();
+  Path testDir=UTIL.getDataTestDir();
+  Set<String> servers=new HashSet<String>();
+  Path logDir=new Path(testDir,".logs");
+  Path server1Dir=new Path(logDir,"Server1");
+  servers.add(server1Dir.getName());
+  Path server2Dir=new Path(logDir,"me.hbase.com,56073,1348618509968");
+  servers.add(server2Dir.getName());
+  Path log1_1=new Path(server1Dir,"me.hbase.com%2C56073%2C1348618509968.1348618520536");
+  Path log1_2=new Path(server1Dir,"me.hbase.com%2C56073%2C1348618509968.1234567890123");
+  Path log2_1=new Path(server2Dir,"me.hbase.com%2C56074%2C1348618509998.1348618515589");
+  Path log2_2=new Path(server2Dir,"me.hbase.com%2C56073%2C1348618509968.1234567890123");
+  fs.createNewFile(log1_1);
+  fs.createNewFile(log1_2);
+  fs.createNewFile(log2_1);
+  fs.createNewFile(log2_2);
+  FSUtils.logFileSystemState(fs,testDir,LOG);
+  FSUtils.setRootDir(conf,testDir);
+  SnapshotDescription snapshot=SnapshotDescription.newBuilder().setName("testWALReferenceSnapshot").build();
+  ForeignExceptionDispatcher listener=Mockito.mock(ForeignExceptionDispatcher.class);
+  ReferenceServerWALsTask task=new ReferenceServerWALsTask(snapshot,listener,server1Dir,conf,fs);
+  task.call();
+  task=new ReferenceServerWALsTask(snapshot,listener,server2Dir,conf,fs);
+  task.call();
+  FSUtils.logFileSystemState(fs,testDir,LOG);
+  Path workingDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshot,testDir);
+  Path snapshotLogDir=new Path(workingDir,HConstants.HREGION_LOGDIR_NAME);
+  TakeSnapshotUtils.verifyAllLogsGotReferenced(fs,logDir,servers,snapshot,snapshotLogDir);
+  Mockito.verify(listener,Mockito.atLeastOnce()).rethrowException();
+  Mockito.verifyNoMoreInteractions(listener);
+}

@@ -1,0 +1,35 @@
+{
+  if (expected == null) {
+    throw new UnknownSnapshotException("No snapshot name passed in request, can't figure out which snapshot you want to check.");
+  }
+  String ssString=SnapshotDescriptionUtils.toString(expected);
+  TakeSnapshotHandler handler=getTakeSnapshotHandler(expected);
+  if (handler == null) {
+    if (!isSnapshotCompleted(expected)) {
+      throw new UnknownSnapshotException("Snapshot " + ssString + " is not currently running or one of the known completed snapshots.");
+    }
+    return true;
+  }
+  try {
+    handler.rethrowException();
+  }
+ catch (  ForeignException e) {
+    String status;
+    Procedure p=coordinator.getProcedure(expected.getName());
+    if (p != null) {
+      status=p.getStatus();
+    }
+ else {
+      status=expected.getName() + " not found in proclist " + coordinator.getProcedureNames();
+    }
+    throw new HBaseSnapshotException("Snapshot " + ssString + " had an error.  "+ status,e,expected);
+  }
+  if (handler.isFinished()) {
+    LOG.debug("Snapshot '" + ssString + "' has completed, notifying client.");
+    return true;
+  }
+ else   if (LOG.isDebugEnabled()) {
+    LOG.debug("Snapshoting '" + ssString + "' is still in progress!");
+  }
+  return false;
+}

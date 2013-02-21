@@ -1,0 +1,31 @@
+{
+  List<SnapshotDescription> snapshotDescs=new ArrayList<SnapshotDescription>();
+  Path snapshotDir=SnapshotDescriptionUtils.getSnapshotsDir(rootDir);
+  FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  if (!fs.exists(snapshotDir)) {
+    return snapshotDescs;
+  }
+  FileStatus[] snapshots=fs.listStatus(snapshotDir,new SnapshotDescriptionUtils.CompletedSnaphotDirectoriesFilter(fs));
+  for (  FileStatus snapshot : snapshots) {
+    Path info=new Path(snapshot.getPath(),SnapshotDescriptionUtils.SNAPSHOTINFO_FILE);
+    if (!fs.exists(info)) {
+      LOG.error("Snapshot information for " + snapshot.getPath() + " doesn't exist");
+      continue;
+    }
+    FSDataInputStream in=null;
+    try {
+      in=fs.open(info);
+      SnapshotDescription desc=SnapshotDescription.parseFrom(in);
+      snapshotDescs.add(desc);
+    }
+ catch (    IOException e) {
+      LOG.warn("Found a corrupted snapshot " + snapshot.getPath(),e);
+    }
+ finally {
+      if (in != null) {
+        in.close();
+      }
+    }
+  }
+  return snapshotDescs;
+}

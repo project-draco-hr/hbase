@@ -1,0 +1,33 @@
+{
+  FileSystem fs=UTIL.getTestFileSystem();
+  Path testdir=UTIL.getDataTestDir();
+  Path regionDir=new Path(testdir,"region");
+  Path family1=new Path(regionDir,"fam1");
+  Path family2=new Path(regionDir,"fam2");
+  fs.mkdirs(family2);
+  Path file1=new Path(family1,"05f99689ae254693836613d1884c6b63");
+  fs.createNewFile(file1);
+  Path file2=new Path(family1,"7ac9898bf41d445aa0003e3d699d5d26");
+  fs.createNewFile(file2);
+  Path snapshotRegionDir=new Path(testdir,HConstants.SNAPSHOT_DIR_NAME);
+  fs.mkdirs(snapshotRegionDir);
+  SnapshotDescription snapshot=SnapshotDescription.newBuilder().setName("name").setTable("table").build();
+  ForeignExceptionDispatcher monitor=Mockito.mock(ForeignExceptionDispatcher.class);
+  ReferenceRegionHFilesTask task=new ReferenceRegionHFilesTask(snapshot,monitor,regionDir,fs,snapshotRegionDir);
+  ReferenceRegionHFilesTask taskSpy=Mockito.spy(task);
+  task.call();
+  Mockito.verify(taskSpy,Mockito.never()).snapshotFailure(Mockito.anyString(),Mockito.any(Exception.class));
+  List<String> hfiles=new ArrayList<String>(2);
+  FileStatus[] regions=FSUtils.listStatus(fs,snapshotRegionDir);
+  for (  FileStatus region : regions) {
+    FileStatus[] fams=FSUtils.listStatus(fs,region.getPath());
+    for (    FileStatus fam : fams) {
+      FileStatus[] files=FSUtils.listStatus(fs,fam.getPath());
+      for (      FileStatus file : files) {
+        hfiles.add(file.getPath().getName());
+      }
+    }
+  }
+  assertTrue("Didn't reference :" + file1,hfiles.contains(file1.getName()));
+  assertTrue("Didn't reference :" + file1,hfiles.contains(file2.getName()));
+}

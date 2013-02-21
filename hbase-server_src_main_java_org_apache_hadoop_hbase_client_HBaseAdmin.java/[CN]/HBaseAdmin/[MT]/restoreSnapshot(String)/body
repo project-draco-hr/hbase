@@ -1,0 +1,30 @@
+{
+  String rollbackSnapshot=snapshotName + "-" + EnvironmentEdgeManager.currentTimeMillis();
+  String tableName=null;
+  for (  SnapshotDescription snapshotInfo : getCompletedSnapshots()) {
+    if (snapshotInfo.getName().equals(snapshotName)) {
+      tableName=snapshotInfo.getTable();
+      break;
+    }
+  }
+  if (tableName == null) {
+    throw new RestoreSnapshotException("Unable to find the table name for snapshot=" + snapshotName);
+  }
+  snapshot(rollbackSnapshot,tableName);
+  try {
+    internalRestoreSnapshot(snapshotName,tableName);
+  }
+ catch (  IOException e) {
+    try {
+      String msg="Restore snapshot=" + snapshotName + " failed. Rollback to snapshot="+ rollbackSnapshot+ " succeeded.";
+      LOG.error(msg,e);
+      internalRestoreSnapshot(rollbackSnapshot,tableName);
+      throw new RestoreSnapshotException(msg,e);
+    }
+ catch (    IOException ex) {
+      String msg="Failed to restore and rollback to snapshot=" + rollbackSnapshot;
+      LOG.error(msg,ex);
+      throw new RestoreSnapshotException(msg,ex);
+    }
+  }
+}

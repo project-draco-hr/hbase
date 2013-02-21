@@ -1,0 +1,36 @@
+{
+  SnapshotDescription snapshot=SnapshotDescription.newBuilder().setName("snapshot").build();
+  ForeignExceptionDispatcher monitor=Mockito.mock(ForeignExceptionDispatcher.class);
+  FileSystem fs=UTIL.getTestFileSystem();
+  Path root=UTIL.getDataTestDir();
+  String regionName="regionA";
+  Path regionDir=new Path(root,regionName);
+  Path workingDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshot,root);
+  try {
+    Path snapshotRegionDir=new Path(workingDir,regionName);
+    fs.mkdirs(snapshotRegionDir);
+    Path edits=HLogUtil.getRegionDirRecoveredEditsDir(regionDir);
+    fs.mkdirs(edits);
+    Path file1=new Path(edits,"0000000000000002352");
+    FSDataOutputStream out=fs.create(file1);
+    byte[] data=new byte[]{1,2,3,4};
+    out.write(data);
+    out.close();
+    Path empty=new Path(edits,"empty");
+    fs.createNewFile(empty);
+    CopyRecoveredEditsTask task=new CopyRecoveredEditsTask(snapshot,monitor,fs,regionDir,snapshotRegionDir);
+    CopyRecoveredEditsTask taskSpy=Mockito.spy(task);
+    taskSpy.call();
+    Path snapshotEdits=HLogUtil.getRegionDirRecoveredEditsDir(snapshotRegionDir);
+    FileStatus[] snapshotEditFiles=FSUtils.listStatus(fs,snapshotEdits);
+    assertEquals("Got wrong number of files in the snapshot edits",1,snapshotEditFiles.length);
+    FileStatus file=snapshotEditFiles[0];
+    assertEquals("Didn't copy expected file",file1.getName(),file.getPath().getName());
+    Mockito.verify(monitor,Mockito.never()).receive(Mockito.any(ForeignException.class));
+    Mockito.verify(taskSpy,Mockito.never()).snapshotFailure(Mockito.anyString(),Mockito.any(Exception.class));
+  }
+  finally {
+    FSUtils.delete(fs,regionDir,true);
+    FSUtils.delete(fs,workingDir,true);
+  }
+}

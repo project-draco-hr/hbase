@@ -1,0 +1,39 @@
+{
+  LOG.debug("------- Starting Snapshot test -------------");
+  HBaseAdmin admin=UTIL.getHBaseAdmin();
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  UTIL.loadTable(new HTable(UTIL.getConfiguration(),TABLE_NAME),TEST_FAM);
+  HRegionServer rs=UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+  List<HRegion> onlineRegions=rs.getOnlineRegions(TABLE_NAME);
+  for (  HRegion region : onlineRegions) {
+    region.waitForFlushesAndCompactions();
+  }
+  String snapshotName="flushSnapshotCreateListDestroy";
+  admin.snapshot(snapshotName,STRING_TABLE_NAME,SnapshotDescription.Type.FLUSH);
+  logFSTree(new Path(UTIL.getConfiguration().get(HConstants.HBASE_DIR)));
+  List<SnapshotDescription> snapshots=SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,snapshotName,STRING_TABLE_NAME);
+  FileSystem fs=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+  Path rootDir=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshots.get(0),rootDir);
+  assertTrue(fs.exists(snapshotDir));
+  HBaseFsck.debugLsr(UTIL.getHBaseCluster().getConfiguration(),snapshotDir);
+  Path snapshotinfo=new Path(snapshotDir,SnapshotDescriptionUtils.SNAPSHOTINFO_FILE);
+  assertTrue(fs.exists(snapshotinfo));
+  HTableDescriptor desc=FSTableDescriptors.getTableDescriptor(fs,rootDir,TABLE_NAME);
+  HTableDescriptor snapshotDesc=FSTableDescriptors.getTableDescriptor(fs,SnapshotDescriptionUtils.getSnapshotsDir(rootDir),Bytes.toBytes(snapshotName));
+  assertEquals(desc,snapshotDesc);
+  List<HRegionInfo> regions=admin.getTableRegions(TABLE_NAME);
+  for (  HRegionInfo info : regions) {
+    String regionName=info.getEncodedName();
+    Path regionDir=new Path(snapshotDir,regionName);
+    HRegionInfo snapshotRegionInfo=HRegion.loadDotRegionInfoFileContent(fs,regionDir);
+    assertEquals(info,snapshotRegionInfo);
+    Path familyDir=new Path(regionDir,Bytes.toString(TEST_FAM));
+    assertTrue(fs.exists(familyDir));
+    assertTrue(fs.listStatus(familyDir).length > 0);
+  }
+  admin.deleteSnapshot(snapshotName);
+  HBaseFsck.debugLsr(UTIL.getHBaseCluster().getConfiguration(),FSUtils.getRootDir(UTIL.getConfiguration()));
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  LOG.debug("------- Flush-Snapshot Create List Destroy-------------");
+}

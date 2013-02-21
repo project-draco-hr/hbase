@@ -1,0 +1,34 @@
+{
+  LOG.info("Running table snapshot operation " + eventType + " on table "+ snapshot.getTable());
+  try {
+    SnapshotDescriptionUtils.writeSnapshotInfo(snapshot,workingDir,this.fs);
+    new TableInfoCopyTask(monitor,snapshot,fs,rootDir).call();
+    monitor.rethrowException();
+    List<Pair<HRegionInfo,ServerName>> regionsAndLocations=MetaReader.getTableRegionsAndLocations(this.server.getCatalogTracker(),Bytes.toBytes(snapshot.getTable()),true);
+    snapshotRegions(regionsAndLocations);
+    Set<String> serverNames=new HashSet<String>();
+    for (    Pair<HRegionInfo,ServerName> p : regionsAndLocations) {
+      serverNames.add(p.getSecond().toString());
+    }
+    verifier.verifySnapshot(this.workingDir,serverNames);
+    completeSnapshot(this.snapshotDir,this.workingDir,this.fs);
+  }
+ catch (  Exception e) {
+    String reason="Failed taking snapshot " + SnapshotDescriptionUtils.toString(snapshot) + " due to exception:"+ e.getMessage();
+    LOG.error(reason,e);
+    ForeignException ee=new ForeignException(reason,e);
+    monitor.receive(ee);
+    cancel("Failed to take snapshot '" + SnapshotDescriptionUtils.toString(snapshot) + "' due to exception");
+  }
+ finally {
+    LOG.debug("Launching cleanup of working dir:" + workingDir);
+    try {
+      if (fs.exists(workingDir) && !this.fs.delete(workingDir,true)) {
+        LOG.error("Couldn't delete snapshot working directory:" + workingDir);
+      }
+    }
+ catch (    IOException e) {
+      LOG.error("Couldn't delete snapshot working directory:" + workingDir);
+    }
+  }
+}

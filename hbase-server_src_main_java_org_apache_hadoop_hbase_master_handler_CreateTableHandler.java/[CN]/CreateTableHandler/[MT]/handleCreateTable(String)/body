@@ -1,51 +1,30 @@
 {
-  int regionNumber=newRegions.length;
-  ThreadPoolExecutor regionOpenAndInitThreadPool=getRegionOpenAndInitThreadPool("RegionOpenAndInitThread-" + tableName,regionNumber);
-  CompletionService<HRegion> completionService=new ExecutorCompletionService<HRegion>(regionOpenAndInitThreadPool);
-  FSTableDescriptors.createTableDescriptor(this.hTableDescriptor,this.conf);
-  List<HRegionInfo> regionInfos=new ArrayList<HRegionInfo>();
-  for (  final HRegionInfo newRegion : newRegions) {
-    completionService.submit(new Callable<HRegion>(){
-      public HRegion call() throws IOException {
-        HRegion region=HRegion.createHRegion(newRegion,fileSystemManager.getRootDir(),conf,hTableDescriptor,null,false,true);
-        region.close();
-        return region;
-      }
-    }
-);
+  Path tempdir=fileSystemManager.getTempDir();
+  FileSystem fs=fileSystemManager.getFileSystem();
+  FSTableDescriptors.createTableDescriptor(fs,tempdir,this.hTableDescriptor);
+  Path tempTableDir=new Path(tempdir,tableName);
+  Path tableDir=new Path(fileSystemManager.getRootDir(),tableName);
+  List<HRegionInfo> regionInfos=handleCreateHdfsRegions(tempdir,tableName);
+  if (!fs.rename(tempTableDir,tableDir)) {
+    throw new IOException("Unable to move table from temp=" + tempTableDir + " to hbase root="+ tableDir);
   }
-  try {
-    for (int i=0; i < regionNumber; i++) {
-      Future<HRegion> future=completionService.take();
-      HRegion region=future.get();
-      regionInfos.add(region.getRegionInfo());
-    }
-  }
- catch (  InterruptedException e) {
-    throw new InterruptedIOException(e.getMessage());
-  }
-catch (  ExecutionException e) {
-    throw new IOException(e.getCause());
-  }
- finally {
-    regionOpenAndInitThreadPool.shutdownNow();
-  }
-  if (regionInfos.size() > 0) {
+  if (regionInfos != null && regionInfos.size() > 0) {
     MetaEditor.addRegionsToMeta(this.catalogTracker,regionInfos);
+    try {
+      assignmentManager.getRegionStates().createRegionStates(regionInfos);
+      assignmentManager.assign(regionInfos);
+    }
+ catch (    InterruptedException e) {
+      LOG.error("Caught " + e + " during round-robin assignment");
+      InterruptedIOException ie=new InterruptedIOException(e.getMessage());
+      ie.initCause(e);
+      throw ie;
+    }
   }
   try {
-    List<HRegionInfo> regions=Arrays.asList(newRegions);
-    assignmentManager.getRegionStates().createRegionStates(regions);
-    assignmentManager.assign(regions);
-  }
- catch (  InterruptedException ie) {
-    LOG.error("Caught " + ie + " during round-robin assignment");
-    throw new IOException(ie);
-  }
-  try {
-    assignmentManager.getZKTable().setEnabledTable(this.hTableDescriptor.getNameAsString());
+    assignmentManager.getZKTable().setEnabledTable(tableName);
   }
  catch (  KeeperException e) {
-    throw new IOException("Unable to ensure that the table will be" + " enabled because of a ZooKeeper issue",e);
+    throw new IOException("Unable to ensure that " + tableName + " will be"+ " enabled because of a ZooKeeper issue",e);
   }
 }

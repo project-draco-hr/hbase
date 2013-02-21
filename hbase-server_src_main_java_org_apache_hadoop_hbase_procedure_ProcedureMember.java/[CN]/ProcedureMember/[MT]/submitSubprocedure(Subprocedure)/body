@@ -1,0 +1,41 @@
+{
+  if (subproc == null) {
+    LOG.warn("Submitted null subprocedure, nothing to run here.");
+    return false;
+  }
+  String procName=subproc.getName();
+  if (procName == null || procName.length() == 0) {
+    LOG.error("Subproc name cannot be null or the empty string");
+    return false;
+  }
+  Subprocedure rsub;
+synchronized (subprocs) {
+    rsub=subprocs.get(procName);
+  }
+  if (rsub != null) {
+    if (!rsub.isComplete()) {
+      LOG.error("Subproc '" + procName + "' is already running. Bailing out");
+      return false;
+    }
+    LOG.warn("A completed old subproc " + procName + " is still present, removing");
+    subprocs.remove(procName);
+  }
+  LOG.debug("Submitting new Subprocedure:" + procName);
+  Future<Void> future=null;
+  try {
+    future=this.pool.submit(subproc);
+synchronized (subprocs) {
+      subprocs.put(procName,subproc);
+    }
+    return true;
+  }
+ catch (  RejectedExecutionException e) {
+    String msg="Subprocedure pool is full!";
+    subproc.cancel(msg,e.getCause());
+    if (future != null) {
+      future.cancel(true);
+    }
+  }
+  LOG.error("Failed to start subprocedure '" + procName + "'");
+  return false;
+}

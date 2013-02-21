@@ -1,0 +1,94 @@
+{
+  boolean verifyChecksum=true;
+  String snapshotName=null;
+  String filesGroup=null;
+  String filesUser=null;
+  Path outputRoot=null;
+  int filesMode=0;
+  int mappers=getConf().getInt("mapreduce.job.maps",1);
+  for (int i=0; i < args.length; i++) {
+    String cmd=args[i];
+    try {
+      if (cmd.equals("-snapshot")) {
+        snapshotName=args[++i];
+      }
+ else       if (cmd.equals("-copy-to")) {
+        outputRoot=new Path(args[++i]);
+      }
+ else       if (cmd.equals("-no-checksum-verify")) {
+        verifyChecksum=false;
+      }
+ else       if (cmd.equals("-mappers")) {
+        mappers=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-chuser")) {
+        filesUser=args[++i];
+      }
+ else       if (cmd.equals("-chgroup")) {
+        filesGroup=args[++i];
+      }
+ else       if (cmd.equals("-chmod")) {
+        filesMode=Integer.parseInt(args[++i],8);
+      }
+ else       if (cmd.equals("-h") || cmd.equals("--help")) {
+        printUsageAndExit();
+      }
+ else {
+        System.err.println("UNEXPECTED: " + cmd);
+        printUsageAndExit();
+      }
+    }
+ catch (    Exception e) {
+      printUsageAndExit();
+    }
+  }
+  if (snapshotName == null) {
+    System.err.println("Snapshot name not provided.");
+    printUsageAndExit();
+  }
+  if (outputRoot == null) {
+    System.err.println("Destination file-system not provided.");
+    printUsageAndExit();
+  }
+  Configuration conf=getConf();
+  Path inputRoot=FSUtils.getRootDir(conf);
+  FileSystem inputFs=FileSystem.get(conf);
+  FileSystem outputFs=FileSystem.get(outputRoot.toUri(),conf);
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,inputRoot);
+  Path snapshotTmpDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshotName,outputRoot);
+  Path outputSnapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,outputRoot);
+  if (outputFs.exists(outputSnapshotDir)) {
+    System.err.println("The snapshot '" + snapshotName + "' already exists in the destination: "+ outputSnapshotDir);
+    return 1;
+  }
+  if (outputFs.exists(snapshotTmpDir)) {
+    System.err.println("A snapshot with the same name '" + snapshotName + "' is in-progress");
+    return 1;
+  }
+  final List<Pair<Path,Long>> files=getSnapshotFiles(inputFs,snapshotDir);
+  try {
+    FileUtil.copy(inputFs,snapshotDir,outputFs,snapshotTmpDir,false,false,conf);
+  }
+ catch (  IOException e) {
+    System.err.println("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ snapshotTmpDir);
+    e.printStackTrace(System.err);
+    return 1;
+  }
+  try {
+    if (!runCopyJob(inputRoot,outputRoot,files,verifyChecksum,filesUser,filesGroup,filesMode,mappers)) {
+      throw new ExportSnapshotException("Snapshot export failed!");
+    }
+    if (!outputFs.rename(snapshotTmpDir,outputSnapshotDir)) {
+      System.err.println("Snapshot export failed!");
+      System.err.println("Unable to rename snapshot directory from=" + snapshotTmpDir + " to="+ outputSnapshotDir);
+      return 1;
+    }
+    return 0;
+  }
+ catch (  Exception e) {
+    System.err.println("Snapshot export failed!");
+    e.printStackTrace(System.err);
+    outputFs.delete(outputSnapshotDir,true);
+    return 1;
+  }
+}

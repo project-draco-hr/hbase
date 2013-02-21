@@ -1,0 +1,19 @@
+{
+  if (sub == null) {
+    LOG.error("Failed due to null subprocedure",ee);
+    return;
+  }
+  String procName=sub.getName();
+  LOG.debug("Aborting procedure (" + procName + ") in zk");
+  String procAbortZNode=zkController.getAbortZNode(procName);
+  try {
+    String source=(ee.getSource() == null) ? memberName : ee.getSource();
+    byte[] errorInfo=ProtobufUtil.prependPBMagic(ForeignException.serialize(source,ee));
+    ZKUtil.createAndFailSilent(zkController.getWatcher(),procAbortZNode,errorInfo);
+    LOG.debug("Finished creating abort znode:" + procAbortZNode);
+  }
+ catch (  KeeperException e) {
+    zkController.logZKTree(zkController.getBaseZnode());
+    member.controllerConnectionFailure("Failed to post zk node:" + procAbortZNode + " to abort procedure",new IOException(e));
+  }
+}

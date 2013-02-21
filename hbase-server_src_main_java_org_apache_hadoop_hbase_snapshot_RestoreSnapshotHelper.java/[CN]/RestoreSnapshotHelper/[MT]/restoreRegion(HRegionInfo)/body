@@ -1,0 +1,46 @@
+{
+  Path snapshotRegionDir=new Path(snapshotDir,regionInfo.getEncodedName());
+  Map<String,List<String>> snapshotFiles=SnapshotReferenceUtil.getRegionHFileReferences(fs,snapshotRegionDir);
+  Path regionDir=new Path(tableDir,regionInfo.getEncodedName());
+  String tableName=tableDesc.getNameAsString();
+  for (  Path familyDir : FSUtils.getFamilyDirs(fs,regionDir)) {
+    byte[] family=Bytes.toBytes(familyDir.getName());
+    Set<String> familyFiles=getTableRegionFamilyFiles(familyDir);
+    List<String> snapshotFamilyFiles=snapshotFiles.remove(familyDir.getName());
+    if (snapshotFamilyFiles != null) {
+      List<String> hfilesToAdd=new LinkedList<String>();
+      for (      String hfileName : snapshotFamilyFiles) {
+        if (familyFiles.contains(hfileName)) {
+          familyFiles.remove(hfileName);
+        }
+ else {
+          hfilesToAdd.add(hfileName);
+        }
+      }
+      for (      String hfileName : hfilesToAdd) {
+        LOG.trace("Adding HFileLink " + hfileName + " to region="+ regionInfo.getEncodedName()+ " table="+ tableName);
+        restoreStoreFile(familyDir,regionInfo,hfileName);
+      }
+      for (      String hfileName : familyFiles) {
+        Path hfile=new Path(familyDir,hfileName);
+        LOG.trace("Removing hfile=" + hfile + " from region="+ regionInfo.getEncodedName()+ " table="+ tableName);
+        HFileArchiver.archiveStoreFile(fs,regionInfo,conf,tableDir,family,hfile);
+      }
+    }
+ else {
+      LOG.trace("Removing family=" + Bytes.toString(family) + " from region="+ regionInfo.getEncodedName()+ " table="+ tableName);
+      HFileArchiver.archiveFamily(fs,conf,regionInfo,tableDir,family);
+      fs.delete(familyDir,true);
+    }
+  }
+  for (  Map.Entry<String,List<String>> familyEntry : snapshotFiles.entrySet()) {
+    Path familyDir=new Path(regionDir,familyEntry.getKey());
+    if (!fs.mkdirs(familyDir)) {
+      throw new IOException("Unable to create familyDir=" + familyDir);
+    }
+    for (    String hfileName : familyEntry.getValue()) {
+      LOG.trace("Adding HFileLink " + hfileName + " to table="+ tableName);
+      restoreStoreFile(familyDir,regionInfo,hfileName);
+    }
+  }
+}

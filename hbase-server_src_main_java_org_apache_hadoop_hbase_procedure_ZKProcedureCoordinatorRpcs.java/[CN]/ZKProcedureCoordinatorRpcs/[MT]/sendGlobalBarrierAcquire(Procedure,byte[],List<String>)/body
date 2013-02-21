@@ -1,0 +1,29 @@
+{
+  String procName=proc.getName();
+  String abortNode=zkProc.getAbortZNode(procName);
+  try {
+    if (ZKUtil.watchAndCheckExists(zkProc.getWatcher(),abortNode)) {
+      abort(abortNode);
+    }
+  }
+ catch (  KeeperException e) {
+    LOG.error("Failed to watch abort",e);
+    throw new IOException("Failed while watching abort node:" + abortNode,e);
+  }
+  String acquire=zkProc.getAcquiredBarrierNode(procName);
+  LOG.debug("Creating acquire znode:" + acquire);
+  try {
+    byte[] data=ProtobufUtil.prependPBMagic(info);
+    ZKUtil.createWithParents(zkProc.getWatcher(),acquire,data);
+    for (    String node : nodeNames) {
+      String znode=ZKUtil.joinZNode(acquire,node);
+      LOG.debug("Watching for acquire node:" + znode);
+      if (ZKUtil.watchAndCheckExists(zkProc.getWatcher(),znode)) {
+        coordinator.memberAcquiredBarrier(procName,node);
+      }
+    }
+  }
+ catch (  KeeperException e) {
+    throw new IOException("Failed while creating acquire node:" + acquire,e);
+  }
+}

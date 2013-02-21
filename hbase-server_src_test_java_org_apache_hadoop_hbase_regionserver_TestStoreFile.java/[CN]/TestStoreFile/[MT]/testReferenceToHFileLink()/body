@@ -1,0 +1,37 @@
+{
+  final String columnFamily="f";
+  Path rootDir=FSUtils.getRootDir(conf);
+  String tablename="_original-evil-name";
+  HRegionInfo hri=new HRegionInfo(Bytes.toBytes(tablename));
+  Path storedir=new Path(new Path(rootDir,new Path(hri.getTableNameAsString(),hri.getEncodedName())),columnFamily);
+  StoreFile.Writer writer=new StoreFile.WriterBuilder(conf,cacheConf,this.fs,8 * 1024).withOutputDir(storedir).build();
+  Path storeFilePath=writer.getPath();
+  writeStoreFile(writer);
+  writer.close();
+  String target="clone";
+  Path dstPath=new Path(rootDir,new Path(new Path(target,"7e0102"),columnFamily));
+  HFileLink.create(conf,this.fs,dstPath,hri,storeFilePath.getName());
+  Path linkFilePath=new Path(dstPath,HFileLink.createHFileLinkName(hri,storeFilePath.getName()));
+  Path splitDirA=new Path(new Path(rootDir,new Path(target,"571A")),columnFamily);
+  Path splitDirB=new Path(new Path(rootDir,new Path(target,"571B")),columnFamily);
+  StoreFile f=new StoreFile(fs,linkFilePath,conf,cacheConf,BloomType.NONE,NoOpDataBlockEncoder.INSTANCE);
+  byte[] splitRow=SPLITKEY;
+  Path pathA=StoreFile.split(fs,splitDirA,f,splitRow,true);
+  Path pathB=StoreFile.split(fs,splitDirB,f,splitRow,false);
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  StoreFile hsfA=new StoreFile(this.fs,pathA,conf,cacheConf,BloomType.NONE,NoOpDataBlockEncoder.INSTANCE);
+  int count=1;
+  HFileScanner s=hsfA.createReader().getScanner(false,false);
+  s.seekTo();
+  while (s.next()) {
+    count++;
+  }
+  assertTrue(count > 0);
+  StoreFile hsfB=new StoreFile(this.fs,pathB,conf,cacheConf,BloomType.NONE,NoOpDataBlockEncoder.INSTANCE);
+  HFileScanner sB=hsfB.createReader().getScanner(false,false);
+  sB.seekTo();
+  while (sB.next()) {
+    count++;
+  }
+  assertEquals((LAST_CHAR - FIRST_CHAR + 1) * (LAST_CHAR - FIRST_CHAR + 1),count);
+}

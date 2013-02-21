@@ -1,0 +1,32 @@
+{
+  LOG.info("Starting procedure '" + procName + "'");
+  timeoutInjector.start();
+  try {
+    monitor.rethrowException();
+    LOG.debug("Procedure '" + procName + "' starting 'acquire'");
+    sendGlobalBarrierStart();
+    LOG.debug("Waiting for all members to 'acquire'");
+    waitForLatch(acquiredBarrierLatch,monitor,wakeFrequency,"acquired");
+    monitor.rethrowException();
+    LOG.debug("Procedure '" + procName + "' starting 'in-barrier' execution.");
+    sendGlobalBarrierReached();
+    waitForLatch(releasedBarrierLatch,monitor,wakeFrequency,"released");
+    monitor.rethrowException();
+    LOG.info("Procedure '" + procName + "' execution completed");
+  }
+ catch (  Exception e) {
+    if (e instanceof InterruptedException) {
+      Thread.currentThread().interrupt();
+    }
+    String msg="Procedure '" + procName + "' execution failed!";
+    LOG.error(msg,e);
+    receive(new ForeignException(getName(),e));
+  }
+ finally {
+    LOG.debug("Running finish phase.");
+    sendGlobalBarrierComplete();
+    completedLatch.countDown();
+    timeoutInjector.complete();
+    return null;
+  }
+}

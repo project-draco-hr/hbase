@@ -1,0 +1,44 @@
+{
+  LOG.debug("starting restore");
+  Set<String> snapshotRegionNames=SnapshotReferenceUtil.getSnapshotRegionNames(fs,snapshotDir);
+  if (snapshotRegionNames == null) {
+    LOG.warn("Nothing to restore. Snapshot " + snapshotDesc + " looks empty");
+    return null;
+  }
+  RestoreMetaChanges metaChanges=new RestoreMetaChanges();
+  List<HRegionInfo> tableRegions=getTableRegions();
+  if (tableRegions != null) {
+    monitor.rethrowException();
+    for (    HRegionInfo regionInfo : tableRegions) {
+      String regionName=regionInfo.getEncodedName();
+      if (snapshotRegionNames.contains(regionName)) {
+        LOG.info("region to restore: " + regionName);
+        snapshotRegionNames.remove(regionName);
+        metaChanges.addRegionToRestore(regionInfo);
+      }
+ else {
+        LOG.info("region to remove: " + regionName);
+        metaChanges.addRegionToRemove(regionInfo);
+      }
+    }
+    monitor.rethrowException();
+    restoreHdfsRegions(metaChanges.getRegionsToRestore());
+    monitor.rethrowException();
+    removeHdfsRegions(metaChanges.getRegionsToRemove());
+  }
+  if (snapshotRegionNames.size() > 0) {
+    List<HRegionInfo> regionsToAdd=new LinkedList<HRegionInfo>();
+    monitor.rethrowException();
+    for (    String regionName : snapshotRegionNames) {
+      LOG.info("region to add: " + regionName);
+      Path regionDir=new Path(snapshotDir,regionName);
+      regionsToAdd.add(HRegion.loadDotRegionInfoFileContent(fs,regionDir));
+    }
+    monitor.rethrowException();
+    HRegionInfo[] clonedRegions=cloneHdfsRegions(regionsToAdd);
+    metaChanges.setNewRegions(clonedRegions);
+  }
+  monitor.rethrowException();
+  restoreWALs();
+  return metaChanges;
+}

@@ -1,0 +1,30 @@
+{
+  SnapshotDescription snapshot=SnapshotDescription.newBuilder().setName(snapshotName).setTable(tableName).build();
+  internalRestoreSnapshotAsync(snapshot);
+  final IsRestoreSnapshotDoneRequest request=IsRestoreSnapshotDoneRequest.newBuilder().setSnapshot(snapshot).build();
+  IsRestoreSnapshotDoneResponse done=IsRestoreSnapshotDoneResponse.newBuilder().buildPartial();
+  final long maxPauseTime=5000;
+  int tries=0;
+  while (!done.getDone()) {
+    try {
+      long sleep=getPauseTime(tries++);
+      sleep=sleep > maxPauseTime ? maxPauseTime : sleep;
+      LOG.debug(tries + ") Sleeping: " + sleep+ " ms while we wait for snapshot restore to complete.");
+      Thread.sleep(sleep);
+    }
+ catch (    InterruptedException e) {
+      LOG.debug("Interrupted while waiting for snapshot " + snapshot + " restore to complete");
+      Thread.currentThread().interrupt();
+    }
+    LOG.debug("Getting current status of snapshot restore from master...");
+    done=execute(new MasterAdminCallable<IsRestoreSnapshotDoneResponse>(){
+      @Override public IsRestoreSnapshotDoneResponse call() throws ServiceException {
+        return masterAdmin.isRestoreSnapshotDone(null,request);
+      }
+    }
+);
+  }
+  if (!done.getDone()) {
+    throw new RestoreSnapshotException("Snapshot '" + snapshot.getName() + "' wasn't restored.");
+  }
+}

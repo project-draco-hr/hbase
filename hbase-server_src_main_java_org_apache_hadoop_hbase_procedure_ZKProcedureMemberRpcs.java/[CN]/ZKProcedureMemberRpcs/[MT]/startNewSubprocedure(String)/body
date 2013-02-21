@@ -1,0 +1,40 @@
+{
+  LOG.debug("Found procedure znode: " + path);
+  String opName=ZKUtil.getNodeName(path);
+  String abortZNode=zkController.getAbortZNode(opName);
+  try {
+    if (ZKUtil.watchAndCheckExists(zkController.getWatcher(),abortZNode)) {
+      LOG.debug("Not starting:" + opName + " because we already have an abort notification.");
+      return;
+    }
+  }
+ catch (  KeeperException e) {
+    member.controllerConnectionFailure("Failed to get the abort znode (" + abortZNode + ") for procedure :"+ opName,new IOException(e));
+    return;
+  }
+  Subprocedure subproc=null;
+  try {
+    byte[] data=ZKUtil.getData(zkController.getWatcher(),path);
+    LOG.debug("start proc data length is " + data.length);
+    if (!ProtobufUtil.isPBMagicPrefix(data)) {
+      String msg="Data in for starting procuedure " + opName + " is illegally formatted. "+ "Killing the procedure.";
+      LOG.error(msg);
+      throw new IllegalArgumentException(msg);
+    }
+    data=Arrays.copyOfRange(data,ProtobufUtil.lengthOfPBMagic(),data.length);
+    LOG.debug("Found data for znode:" + path);
+    subproc=member.createSubprocedure(opName,data);
+    member.submitSubprocedure(subproc);
+  }
+ catch (  IllegalArgumentException iae) {
+    LOG.error("Illegal argument exception",iae);
+    sendMemberAborted(subproc,new ForeignException(getMemberName(),iae));
+  }
+catch (  IllegalStateException ise) {
+    LOG.error("Illegal state exception ",ise);
+    sendMemberAborted(subproc,new ForeignException(getMemberName(),ise));
+  }
+catch (  KeeperException e) {
+    member.controllerConnectionFailure("Failed to get data for new procedure:" + opName,new IOException(e));
+  }
+}

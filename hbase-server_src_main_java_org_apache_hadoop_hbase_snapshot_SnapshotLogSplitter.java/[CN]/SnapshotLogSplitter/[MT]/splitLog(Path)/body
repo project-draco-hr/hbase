@@ -1,0 +1,28 @@
+{
+  HLog.Reader log=HLogFactory.createReader(fs,logPath,conf);
+  try {
+    HLog.Entry entry;
+    LogWriter writer=null;
+    byte[] regionName=null;
+    byte[] newRegionName=null;
+    while ((entry=log.next()) != null) {
+      HLogKey key=entry.getKey();
+      if (!Bytes.equals(key.getTablename(),snapshotTableName))       continue;
+      if (!Bytes.equals(regionName,key.getEncodedRegionName())) {
+        regionName=key.getEncodedRegionName().clone();
+        newRegionName=regionsMap.get(regionName);
+        if (newRegionName == null)         newRegionName=regionName;
+        writer=getOrCreateWriter(newRegionName,key.getLogSeqNum());
+        LOG.debug("+ regionName=" + Bytes.toString(regionName));
+      }
+      key=new HLogKey(newRegionName,tableName,key.getLogSeqNum(),key.getWriteTime(),key.getClusterId());
+      writer.append(new HLog.Entry(key,entry.getEdit()));
+    }
+  }
+ catch (  IOException e) {
+    LOG.warn("Something wrong during the log split",e);
+  }
+ finally {
+    log.close();
+  }
+}

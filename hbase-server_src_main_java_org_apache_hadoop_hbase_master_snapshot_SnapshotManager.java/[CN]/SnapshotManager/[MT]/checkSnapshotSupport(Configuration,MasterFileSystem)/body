@@ -1,0 +1,37 @@
+{
+  String enabled=conf.get(HBASE_SNAPSHOT_ENABLED);
+  boolean snapshotEnabled=conf.getBoolean(HBASE_SNAPSHOT_ENABLED,false);
+  boolean userDisabled=(enabled != null && enabled.trim().length() > 0 && !snapshotEnabled);
+  Set<String> hfileCleaners=new HashSet<String>();
+  String[] cleaners=conf.getStrings(HFileCleaner.MASTER_HFILE_CLEANER_PLUGINS);
+  if (cleaners != null)   Collections.addAll(hfileCleaners,cleaners);
+  Set<String> logCleaners=new HashSet<String>();
+  cleaners=conf.getStrings(HConstants.HBASE_MASTER_LOGCLEANER_PLUGINS);
+  if (cleaners != null)   Collections.addAll(logCleaners,cleaners);
+  if (snapshotEnabled) {
+    hfileCleaners.add(SnapshotHFileCleaner.class.getName());
+    hfileCleaners.add(HFileLinkCleaner.class.getName());
+    logCleaners.add(SnapshotLogCleaner.class.getName());
+    conf.setStrings(HFileCleaner.MASTER_HFILE_CLEANER_PLUGINS,hfileCleaners.toArray(new String[hfileCleaners.size()]));
+    conf.setStrings(HConstants.HBASE_MASTER_LOGCLEANER_PLUGINS,logCleaners.toArray(new String[logCleaners.size()]));
+  }
+ else {
+    snapshotEnabled=logCleaners.contains(SnapshotLogCleaner.class.getName()) && hfileCleaners.contains(SnapshotHFileCleaner.class.getName()) && hfileCleaners.contains(HFileLinkCleaner.class.getName());
+    if (snapshotEnabled) {
+      LOG.warn("Snapshot log and hfile cleaners are present in the configuration, " + "but the '" + HBASE_SNAPSHOT_ENABLED + "' property "+ (userDisabled ? "is set to 'false'." : "is not set."));
+    }
+  }
+  this.isSnapshotSupported=snapshotEnabled && !userDisabled;
+  if (!snapshotEnabled) {
+    LOG.info("Snapshot feature is not enabled, missing log and hfile cleaners.");
+    Path snapshotDir=SnapshotDescriptionUtils.getSnapshotsDir(mfs.getRootDir());
+    FileSystem fs=mfs.getFileSystem();
+    if (fs.exists(snapshotDir)) {
+      FileStatus[] snapshots=FSUtils.listStatus(fs,snapshotDir,new SnapshotDescriptionUtils.CompletedSnaphotDirectoriesFilter(fs));
+      if (snapshots != null) {
+        LOG.error("Snapshots are present, but cleaners are not enabled.");
+        checkSnapshotSupport();
+      }
+    }
+  }
+}

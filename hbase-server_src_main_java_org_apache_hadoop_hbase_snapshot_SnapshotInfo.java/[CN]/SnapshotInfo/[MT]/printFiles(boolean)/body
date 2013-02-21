@@ -1,0 +1,76 @@
+{
+  final String table=snapshotDesc.getTable();
+  final Configuration conf=getConf();
+  if (showFiles) {
+    System.out.println("Snapshot Files");
+    System.out.println("----------------------------------------");
+  }
+  final AtomicInteger hfileArchiveCount=new AtomicInteger();
+  final AtomicInteger hfilesMissing=new AtomicInteger();
+  final AtomicInteger hfilesCount=new AtomicInteger();
+  final AtomicInteger logsMissing=new AtomicInteger();
+  final AtomicInteger logsCount=new AtomicInteger();
+  final AtomicLong hfileArchiveSize=new AtomicLong();
+  final AtomicLong hfileSize=new AtomicLong();
+  final AtomicLong logSize=new AtomicLong();
+  SnapshotReferenceUtil.visitReferencedFiles(fs,snapshotDir,new SnapshotReferenceUtil.FileVisitor(){
+    public void storeFile(    final String region,    final String family,    final String hfile) throws IOException {
+      Path path=new Path(family,HFileLink.createHFileLinkName(table,region,hfile));
+      HFileLink link=new HFileLink(conf,path);
+      boolean inArchive=false;
+      long size=-1;
+      try {
+        if ((inArchive=fs.exists(link.getArchivePath()))) {
+          size=fs.getFileStatus(link.getArchivePath()).getLen();
+          hfileArchiveSize.addAndGet(size);
+          hfileArchiveCount.addAndGet(1);
+        }
+ else {
+          size=link.getFileStatus(fs).getLen();
+          hfileSize.addAndGet(size);
+          hfilesCount.addAndGet(1);
+        }
+      }
+ catch (      FileNotFoundException e) {
+        hfilesMissing.addAndGet(1);
+      }
+      if (showFiles) {
+        System.out.printf("%8s %s/%s/%s/%s %s%n",(size < 0 ? "-" : StringUtils.humanReadableInt(size)),table,region,family,hfile,(inArchive ? "(archive)" : (size < 0) ? "(NOT FOUND)" : ""));
+      }
+    }
+    public void recoveredEdits(    final String region,    final String logfile) throws IOException {
+      Path path=SnapshotReferenceUtil.getRecoveredEdits(snapshotDir,region,logfile);
+      long size=fs.getFileStatus(path).getLen();
+      logSize.addAndGet(size);
+      logsCount.addAndGet(1);
+      if (showFiles) {
+        System.out.printf("%8s recovered.edits %s on region %s%n",StringUtils.humanReadableInt(size),logfile,region);
+      }
+    }
+    public void logFile(    final String server,    final String logfile) throws IOException {
+      HLogLink logLink=new HLogLink(conf,server,logfile);
+      long size=-1;
+      try {
+        size=logLink.getFileStatus(fs).getLen();
+        logSize.addAndGet(size);
+        logsCount.addAndGet(1);
+      }
+ catch (      FileNotFoundException e) {
+        logsMissing.addAndGet(1);
+      }
+      if (showFiles) {
+        System.out.printf("%8s log %s on server %s %s%n",(size < 0 ? "-" : StringUtils.humanReadableInt(size)),logfile,server,(size < 0 ? "(NOT FOUND)" : ""));
+      }
+    }
+  }
+);
+  System.out.println();
+  if (hfilesMissing.get() > 0 || logsMissing.get() > 0) {
+    System.out.println("**************************************************************");
+    System.out.printf("BAD SNAPSHOT: %d hfile(s) and %d log(s) missing.%n",hfilesMissing.get(),logsMissing.get());
+    System.out.println("**************************************************************");
+  }
+  System.out.printf("%d HFiles (%d in archive), total size %s (%.2f%% %s shared with the source table)%n",hfilesCount.get() + hfileArchiveCount.get(),hfileArchiveCount.get(),StringUtils.humanReadableInt(hfileSize.get() + hfileArchiveSize.get()),((float)hfileSize.get() / (hfileSize.get() + hfileArchiveSize.get())) * 100,StringUtils.humanReadableInt(hfileSize.get()));
+  System.out.printf("%d Logs, total size %s%n",logsCount.get(),StringUtils.humanReadableInt(logSize.get()));
+  System.out.println();
+}

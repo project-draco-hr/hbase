@@ -1,0 +1,23 @@
+{
+  String procName=ZKUtil.getNodeName(abortNode);
+  ForeignException ee=null;
+  try {
+    byte[] data=ZKUtil.getData(zkProc.getWatcher(),abortNode);
+    if (!ProtobufUtil.isPBMagicPrefix(data)) {
+      LOG.warn("Got an error notification for op:" + abortNode + " but we can't read the information. Killing the procedure.");
+      ee=new ForeignException(coordName,"Data in abort node is illegally formatted.  ignoring content.");
+    }
+ else {
+      data=Arrays.copyOfRange(data,ProtobufUtil.lengthOfPBMagic(),data.length);
+      ee=ForeignException.deserialize(data);
+    }
+  }
+ catch (  InvalidProtocolBufferException e) {
+    LOG.warn("Got an error notification for op:" + abortNode + " but we can't read the information. Killing the procedure.");
+    ee=new ForeignException(coordName,e);
+  }
+catch (  KeeperException e) {
+    coordinator.rpcConnectionFailure("Failed to get data for abort node:" + abortNode + zkProc.getAbortZnode(),new IOException(e));
+  }
+  coordinator.abortProcedure(procName,ee);
+}

@@ -1,0 +1,46 @@
+{
+  if (members == null) {
+    members=new String[0];
+  }
+  List<String> expected=Arrays.asList(members);
+  ZooKeeperWatcher coordZkw=newZooKeeperWatcher();
+  String opDescription="coordination test - " + members.length + " cohort members";
+  ZKProcedureCoordinatorRpcs coordinatorComms=new ZKProcedureCoordinatorRpcs(coordZkw,opDescription,COORDINATOR_NODE_NAME);
+  ThreadPoolExecutor pool=ProcedureCoordinator.defaultPool(COORDINATOR_NODE_NAME,KEEP_ALIVE,POOL_SIZE,WAKE_FREQUENCY);
+  ProcedureCoordinator coordinator=new ProcedureCoordinator(coordinatorComms,pool){
+    @Override public Procedure createProcedure(    ForeignExceptionDispatcher fed,    String procName,    byte[] procArgs,    List<String> expectedMembers){
+      return Mockito.spy(super.createProcedure(fed,procName,procArgs,expectedMembers));
+    }
+  }
+;
+  SubprocedureFactory subprocFactory=Mockito.mock(SubprocedureFactory.class);
+  List<Pair<ProcedureMember,ZKProcedureMemberRpcs>> procMembers=new ArrayList<Pair<ProcedureMember,ZKProcedureMemberRpcs>>(members.length);
+  for (  String member : members) {
+    ZooKeeperWatcher watcher=newZooKeeperWatcher();
+    ZKProcedureMemberRpcs comms=new ZKProcedureMemberRpcs(watcher,opDescription,member);
+    ThreadPoolExecutor pool2=ProcedureMember.defaultPool(WAKE_FREQUENCY,KEEP_ALIVE,1,member);
+    ProcedureMember procMember=new ProcedureMember(comms,pool2,subprocFactory);
+    procMembers.add(new Pair<ProcedureMember,ZKProcedureMemberRpcs>(procMember,comms));
+    comms.start(procMember);
+  }
+  final List<Subprocedure> subprocs=new ArrayList<Subprocedure>();
+  for (int i=0; i < procMembers.size(); i++) {
+    ForeignExceptionDispatcher cohortMonitor=new ForeignExceptionDispatcher();
+    Subprocedure commit=Mockito.spy(new SubprocedureImpl(procMembers.get(i).getFirst(),opName,cohortMonitor,WAKE_FREQUENCY,TIMEOUT));
+    subprocs.add(commit);
+  }
+  final AtomicInteger i=new AtomicInteger(0);
+  Mockito.when(subprocFactory.buildSubprocedure(Mockito.eq(opName),(byte[])Mockito.argThat(new ArrayEquals(data)))).thenAnswer(new Answer<Subprocedure>(){
+    @Override public Subprocedure answer(    InvocationOnMock invocation) throws Throwable {
+      int index=i.getAndIncrement();
+      LOG.debug("Task size:" + subprocs.size() + ", getting:"+ index);
+      Subprocedure commit=subprocs.get(index);
+      return commit;
+    }
+  }
+);
+  Procedure task=coordinator.startProcedure(new ForeignExceptionDispatcher(),opName,data,expected);
+  waitAndVerifyProc(task,once,once,never(),once,false);
+  verifyCohortSuccessful(expected,subprocFactory,subprocs,once,once,never(),once,false);
+  closeAll(coordinator,coordinatorComms,procMembers);
+}

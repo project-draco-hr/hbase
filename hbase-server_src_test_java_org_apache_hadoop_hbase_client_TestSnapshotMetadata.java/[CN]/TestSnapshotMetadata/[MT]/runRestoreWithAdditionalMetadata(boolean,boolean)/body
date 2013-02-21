@@ -1,0 +1,49 @@
+{
+  if (admin.isTableDisabled(originalTableName)) {
+    admin.enableTable(originalTableName);
+  }
+  final byte[] familyForUpdate=BLOCKSIZE_FAM;
+  List<byte[]> familiesWithDataList=new ArrayList<byte[]>();
+  List<byte[]> emptyFamiliesList=new ArrayList<byte[]>();
+  if (addData) {
+    HTable original=new HTable(UTIL.getConfiguration(),originalTableName);
+    UTIL.loadTable(original,familyForUpdate);
+    original.close();
+    for (    byte[] family : families) {
+      if (family != familyForUpdate) {
+        emptyFamiliesList.add(family);
+      }
+    }
+    familiesWithDataList.add(familyForUpdate);
+  }
+ else {
+    for (    byte[] family : families) {
+      emptyFamiliesList.add(family);
+    }
+  }
+  final String snapshotNameAsString="snapshot" + originalTableNameAsString + System.currentTimeMillis();
+  final byte[] snapshotName=Bytes.toBytes(snapshotNameAsString);
+  SnapshotTestingUtils.createSnapshotAndValidate(admin,originalTableNameAsString,familiesWithDataList,emptyFamiliesList,snapshotNameAsString,rootDir,fs);
+  admin.enableTable(originalTableName);
+  if (changeMetadata) {
+    final String newFamilyNameAsString="newFamily" + System.currentTimeMillis();
+    final byte[] newFamilyName=Bytes.toBytes(newFamilyNameAsString);
+    admin.disableTable(originalTableName);
+    HColumnDescriptor hcd=new HColumnDescriptor(newFamilyName);
+    admin.addColumn(originalTableName,hcd);
+    Assert.assertTrue("New column family was not added.",admin.getTableDescriptor(originalTableName).toString().contains(newFamilyNameAsString));
+  }
+  if (!admin.isTableDisabled(originalTableName)) {
+    admin.disableTable(originalTableName);
+  }
+  admin.restoreSnapshot(snapshotName);
+  admin.enableTable(originalTableName);
+  HTable original=new HTable(UTIL.getConfiguration(),originalTableName);
+  try {
+    Assert.assertTrue(originalTableDescriptor.equals(admin.getTableDescriptor(originalTableName)));
+    Assert.assertTrue(originalTableDescriptor.equals(original.getTableDescriptor()));
+  }
+  finally {
+    original.close();
+  }
+}

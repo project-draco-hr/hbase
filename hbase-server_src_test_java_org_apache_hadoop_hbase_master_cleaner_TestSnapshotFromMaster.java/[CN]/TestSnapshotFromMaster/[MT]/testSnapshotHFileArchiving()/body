@@ -1,0 +1,49 @@
+{
+  HBaseAdmin admin=UTIL.getHBaseAdmin();
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  UTIL.loadTable(new HTable(UTIL.getConfiguration(),TABLE_NAME),TEST_FAM);
+  admin.disableTable(TABLE_NAME);
+  String snapshotName="snapshot";
+  byte[] snapshotNameBytes=Bytes.toBytes(snapshotName);
+  admin.snapshot(snapshotNameBytes,TABLE_NAME);
+  Configuration conf=master.getConfiguration();
+  LOG.info("After snapshot File-System state");
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,snapshotNameBytes,TABLE_NAME);
+  admin.enableTable(TABLE_NAME);
+  List<HRegion> regions=UTIL.getHBaseCluster().getRegions(TABLE_NAME);
+  for (  HRegion region : regions) {
+    region.waitForFlushesAndCompactions();
+    region.compactStores();
+  }
+  LOG.info("After compaction File-System state");
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  LOG.debug("Running hfile cleaners");
+  ensureHFileCleanersRun();
+  LOG.info("After cleaners File-System state: " + rootDir);
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  Path snapshotTable=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,rootDir);
+  FileStatus[] snapshotHFiles=SnapshotTestingUtils.listHFiles(fs,snapshotTable);
+  LOG.debug("Have snapshot hfiles:");
+  for (  FileStatus file : snapshotHFiles) {
+    LOG.debug(file.getPath());
+  }
+  Collection<String> files=getArchivedHFiles(archiveDir,rootDir,fs,STRING_TABLE_NAME);
+  for (  FileStatus file : snapshotHFiles) {
+    assertTrue("Archived hfiles " + files + " is missing snapshot file:"+ file.getPath(),files.contains(file.getPath().getName()));
+  }
+  admin.deleteSnapshot(snapshotNameBytes);
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  List<BaseHFileCleanerDelegate> delegates=UTIL.getMiniHBaseCluster().getMaster().getHFileCleaner().cleanersChain;
+  for (  BaseHFileCleanerDelegate delegate : delegates) {
+    if (delegate instanceof SnapshotHFileCleaner) {
+      ((SnapshotHFileCleaner)delegate).getFileCacheForTesting().triggerCacheRefreshForTesting();
+    }
+  }
+  LOG.debug("Running hfile cleaners");
+  ensureHFileCleanersRun();
+  LOG.info("After delete snapshot cleaners run File-System state");
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  files=getArchivedHFiles(archiveDir,rootDir,fs,STRING_TABLE_NAME);
+  assertEquals("Still have some hfiles in the archive, when their snapshot has been deleted.",0,files.size());
+}

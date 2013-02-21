@@ -15,13 +15,25 @@
     if (am.getRegionStates().isRegionInTransition(region)) {
       throw new IOException("Waited hbase.master.wait.on.region (" + waitTime + "ms) for region to leave region "+ region.getRegionNameAsString()+ " in transitions");
     }
-    LOG.debug("Deleting region " + region.getRegionNameAsString() + " from META and FS");
-    MetaEditor.deleteRegion(this.server.getCatalogTracker(),region);
-    this.masterServices.getMasterFileSystem().deleteRegion(region);
   }
-  this.masterServices.getMasterFileSystem().deleteTable(tableName);
-  this.masterServices.getTableDescriptors().remove(Bytes.toString(tableName));
-  am.getZKTable().setDeletedTable(Bytes.toString(tableName));
+  LOG.debug("Deleting regions from META");
+  MetaEditor.deleteRegions(this.server.getCatalogTracker(),regions);
+  MasterFileSystem mfs=this.masterServices.getMasterFileSystem();
+  Path tempTableDir=mfs.moveTableToTemp(tableName);
+  try {
+    FileSystem fs=mfs.getFileSystem();
+    for (    HRegionInfo hri : regions) {
+      LOG.debug("Archiving region " + hri.getRegionNameAsString() + " from FS");
+      HFileArchiver.archiveRegion(fs,mfs.getRootDir(),tempTableDir,new Path(tempTableDir,hri.getEncodedName()));
+    }
+    if (!fs.delete(tempTableDir,true)) {
+      LOG.error("Couldn't delete " + tempTableDir);
+    }
+  }
+  finally {
+    this.masterServices.getTableDescriptors().remove(Bytes.toString(tableName));
+    am.getZKTable().setDeletedTable(Bytes.toString(tableName));
+  }
   if (cpHost != null) {
     cpHost.postDeleteTableHandler(this.tableName);
   }

@@ -1,0 +1,24 @@
+{
+  if (rss.isStopping() || rss.isStopped()) {
+    throw new IllegalStateException("Can't start snapshot on RS: " + rss.getServerName() + ", because stopping/stopped!");
+  }
+  List<HRegion> involvedRegions;
+  try {
+    involvedRegions=getRegionsToSnapshot(snapshot);
+  }
+ catch (  IOException e1) {
+    throw new IllegalStateException("Failed to figure out if we should handle a snapshot - " + "something has gone awry with the online regions.",e1);
+  }
+  LOG.debug("Launching subprocedure for snapshot " + snapshot.getName() + " from table "+ snapshot.getTable());
+  ForeignExceptionDispatcher exnDispatcher=new ForeignExceptionDispatcher();
+  Configuration conf=rss.getConfiguration();
+  long timeoutMillis=conf.getLong(SNAPSHOT_TIMEOUT_MILLIS_KEY,SNAPSHOT_TIMEOUT_MILLIS_DEFAULT);
+  long wakeMillis=conf.getLong(SNAPSHOT_REQUEST_WAKE_MILLIS_KEY,SNAPSHOT_REQUEST_WAKE_MILLIS_DEFAULT);
+switch (snapshot.getType()) {
+case FLUSH:
+    SnapshotSubprocedurePool taskManager=new SnapshotSubprocedurePool(rss.getServerName().toString(),conf);
+  return new FlushSnapshotSubprocedure(member,exnDispatcher,wakeMillis,timeoutMillis,involvedRegions,snapshot,taskManager);
+default :
+throw new UnsupportedOperationException("Unrecognized snapshot type:" + snapshot.getType());
+}
+}

@@ -1,0 +1,15 @@
+{
+  coordinator=buildNewCoordinator();
+  List<String> expected=Arrays.asList("cohort");
+  final Procedure spy=spy(new Procedure(coordinator,WAKE_FREQUENCY,TIMEOUT,procName,procData,expected));
+  when(coordinator.createProcedure(any(ForeignExceptionDispatcher.class),eq(procName),eq(procData),anyListOf(String.class))).thenReturn(spy);
+  IOException cause=new IOException("Failed to reach controller during prepare");
+  doAnswer(new AcquireBarrierAnswer(procName,new String[]{"cohort"})).when(controller).sendGlobalBarrierAcquire(eq(spy),eq(procData),anyListOf(String.class));
+  doThrow(cause).when(controller).sendGlobalBarrierReached(eq(spy),anyListOf(String.class));
+  Procedure task=coordinator.startProcedure(spy.getErrorMonitor(),procName,procData,expected);
+  task.waitForCompleted();
+  verify(spy,atLeastOnce()).receive(any(ForeignException.class));
+  verify(coordinator,times(1)).rpcConnectionFailure(anyString(),eq(cause));
+  verify(controller,times(1)).sendGlobalBarrierAcquire(eq(spy),eq(procData),anyListOf(String.class));
+  verify(controller,times(1)).sendGlobalBarrierReached(any(Procedure.class),anyListOf(String.class));
+}

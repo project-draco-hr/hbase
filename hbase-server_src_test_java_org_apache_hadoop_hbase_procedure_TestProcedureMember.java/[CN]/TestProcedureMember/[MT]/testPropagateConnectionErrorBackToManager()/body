@@ -1,0 +1,17 @@
+{
+  member=buildCohortMember();
+  ProcedureMember memberSpy=spy(member);
+  final ForeignExceptionDispatcher dispatcher=new ForeignExceptionDispatcher();
+  ForeignExceptionDispatcher dispSpy=spy(dispatcher);
+  Subprocedure commit=new EmptySubprocedure(member,dispatcher);
+  Subprocedure spy=spy(commit);
+  when(mockBuilder.buildSubprocedure(op,data)).thenReturn(spy);
+  doThrow(new ForeignException("SRC","prepare exception")).when(spy).acquireBarrier();
+  doThrow(new IOException("Controller is down!")).when(mockMemberComms).sendMemberAborted(eq(spy),any(ForeignException.class));
+  Subprocedure subproc=memberSpy.createSubprocedure(op,data);
+  memberSpy.submitSubprocedure(subproc);
+  memberSpy.closeAndWait(TIMEOUT);
+  InOrder order=inOrder(mockMemberComms,spy,dispSpy);
+  order.verify(spy).acquireBarrier();
+  order.verify(mockMemberComms,never()).sendMemberAcquired(spy);
+}
