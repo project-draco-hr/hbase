@@ -1,0 +1,56 @@
+{
+  boolean hasTimeout=timeoutMs != -1;
+  long waitUntilMs=hasTimeout ? EnvironmentEdgeManager.currentTimeMillis() + timeoutMs : -1;
+  String createdZNode=createLockZNode();
+  while (true) {
+    List<String> children;
+    try {
+      children=ZKUtil.listChildrenNoWatch(zkWatcher,parentLockNode);
+    }
+ catch (    KeeperException e) {
+      LOG.error("Unexpected ZooKeeper error when listing children",e);
+      throw new IOException("Unexpected ZooKeeper exception",e);
+    }
+    String pathToWatch;
+    if ((pathToWatch=getLockPath(createdZNode,children)) == null) {
+      break;
+    }
+    CountDownLatch deletedLatch=new CountDownLatch(1);
+    String zkPathToWatch=ZKUtil.joinZNode(parentLockNode,pathToWatch);
+    DeletionListener deletionListener=new DeletionListener(zkWatcher,zkPathToWatch,deletedLatch);
+    zkWatcher.registerListener(deletionListener);
+    try {
+      if (ZKUtil.setWatchIfNodeExists(zkWatcher,zkPathToWatch)) {
+        if (hasTimeout) {
+          long remainingMs=waitUntilMs - EnvironmentEdgeManager.currentTimeMillis();
+          if (remainingMs < 0 || !deletedLatch.await(remainingMs,TimeUnit.MILLISECONDS)) {
+            LOG.warn("Unable to acquire the lock in " + timeoutMs + " milliseconds.");
+            try {
+              ZKUtil.deleteNode(zkWatcher,createdZNode);
+            }
+ catch (            KeeperException e) {
+              LOG.warn("Unable to remove ZNode " + createdZNode);
+            }
+            return false;
+          }
+        }
+ else {
+          deletedLatch.await();
+        }
+        if (deletionListener.hasException()) {
+          Throwable t=deletionListener.getException();
+          throw new IOException("Exception in the watcher",t);
+        }
+      }
+    }
+ catch (    KeeperException e) {
+      throw new IOException("Unexpected ZooKeeper exception",e);
+    }
+ finally {
+      zkWatcher.unregisterListener(deletionListener);
+    }
+  }
+  updateAcquiredLock(createdZNode);
+  LOG.debug("Successfully acquired a lock for " + createdZNode);
+  return true;
+}

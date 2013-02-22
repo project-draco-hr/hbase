@@ -1,0 +1,42 @@
+{
+  final String testName="testReadLockExcludesWriters";
+  List<Future<Void>> results=Lists.newArrayList();
+  final CountDownLatch writeLockAcquiredLatch=new CountDownLatch(1);
+  Callable<Void> acquireWriteLock=new Callable<Void>(){
+    @Override public Void call() throws Exception {
+      final String threadDesc=testName + "-acquireWriteLock";
+      ZKInterProcessWriteLock writeLock=getReadWriteLock(testName).writeLock(Bytes.toBytes(threadDesc));
+      writeLock.acquire();
+      try {
+        writeLockAcquiredLatch.countDown();
+        assertTrue(isLockHeld.compareAndSet(false,true));
+        Thread.sleep(1000);
+      }
+  finally {
+        isLockHeld.set(false);
+        writeLock.release();
+      }
+      return null;
+    }
+  }
+;
+  Callable<Void> acquireReadLock=new Callable<Void>(){
+    @Override public Void call() throws Exception {
+      final String threadDesc=testName + "-acquireReadLock";
+      ZKInterProcessReadLock readLock=getReadWriteLock(testName).readLock(Bytes.toBytes(threadDesc));
+      writeLockAcquiredLatch.await();
+      readLock.acquire();
+      try {
+        assertFalse(isLockHeld.get());
+      }
+  finally {
+        readLock.release();
+      }
+      return null;
+    }
+  }
+;
+  results.add(executor.submit(acquireWriteLock));
+  results.add(executor.submit(acquireReadLock));
+  MultithreadedTestUtil.assertOnFutures(results);
+}

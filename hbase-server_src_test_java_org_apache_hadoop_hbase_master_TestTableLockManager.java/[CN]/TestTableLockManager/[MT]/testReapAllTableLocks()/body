@@ -1,0 +1,30 @@
+{
+  prepareMiniZkCluster();
+  ServerName serverName=new ServerName("localhost:10000",0);
+  final TableLockManager lockManager=TableLockManager.createTableLockManager(TEST_UTIL.getConfiguration(),TEST_UTIL.getZooKeeperWatcher(),serverName);
+  String tables[]={"table1","table2","table3","table4"};
+  ExecutorService executor=Executors.newFixedThreadPool(6);
+  final CountDownLatch writeLocksObtained=new CountDownLatch(4);
+  final CountDownLatch writeLocksAttempted=new CountDownLatch(10);
+  for (int i=0; i < tables.length; i++) {
+    final String table=tables[i];
+    for (int j=0; j < i + 1; j++) {
+      executor.submit(new Callable<Void>(){
+        @Override public Void call() throws Exception {
+          writeLocksAttempted.countDown();
+          lockManager.writeLock(Bytes.toBytes(table),"testReapAllTableLocks").acquire();
+          writeLocksObtained.countDown();
+          return null;
+        }
+      }
+);
+    }
+  }
+  writeLocksObtained.await();
+  writeLocksAttempted.await();
+  lockManager.reapAllTableWriteLocks();
+  TEST_UTIL.getConfiguration().setInt(TableLockManager.TABLE_WRITE_LOCK_TIMEOUT_MS,0);
+  TableLockManager zeroTimeoutLockManager=TableLockManager.createTableLockManager(TEST_UTIL.getConfiguration(),TEST_UTIL.getZooKeeperWatcher(),serverName);
+  zeroTimeoutLockManager.writeLock(Bytes.toBytes(tables[tables.length - 1]),"zero timeout").acquire();
+  executor.shutdownNow();
+}

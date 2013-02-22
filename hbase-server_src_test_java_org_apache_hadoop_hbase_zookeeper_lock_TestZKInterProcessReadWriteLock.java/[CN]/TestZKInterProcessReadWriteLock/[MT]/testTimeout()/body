@@ -1,0 +1,42 @@
+{
+  final String testName="testTimeout";
+  final CountDownLatch lockAcquiredLatch=new CountDownLatch(1);
+  Callable<Void> shouldHog=new Callable<Void>(){
+    @Override public Void call() throws Exception {
+      final String threadDesc=testName + "-shouldHog";
+      ZKInterProcessWriteLock lock=getReadWriteLock(testName).writeLock(Bytes.toBytes(threadDesc));
+      lock.acquire();
+      lockAcquiredLatch.countDown();
+      Thread.sleep(10000);
+      lock.release();
+      return null;
+    }
+  }
+;
+  Callable<Void> shouldTimeout=new Callable<Void>(){
+    @Override public Void call() throws Exception {
+      final String threadDesc=testName + "-shouldTimeout";
+      ZKInterProcessWriteLock lock=getReadWriteLock(testName).writeLock(Bytes.toBytes(threadDesc));
+      lockAcquiredLatch.await();
+      assertFalse(lock.tryAcquire(5000));
+      return null;
+    }
+  }
+;
+  Callable<Void> shouldAcquireLock=new Callable<Void>(){
+    @Override public Void call() throws Exception {
+      final String threadDesc=testName + "-shouldAcquireLock";
+      ZKInterProcessWriteLock lock=getReadWriteLock(testName).writeLock(Bytes.toBytes(threadDesc));
+      lockAcquiredLatch.await();
+      assertTrue(lock.tryAcquire(30000));
+      lock.release();
+      return null;
+    }
+  }
+;
+  List<Future<Void>> results=Lists.newArrayList();
+  results.add(executor.submit(shouldHog));
+  results.add(executor.submit(shouldTimeout));
+  results.add(executor.submit(shouldAcquireLock));
+  MultithreadedTestUtil.assertOnFutures(results);
+}

@@ -1,0 +1,33 @@
+{
+  final String testName="testWriteLockExcludesWriters";
+  final ZKInterProcessReadWriteLock readWriteLock=getReadWriteLock(testName);
+  List<Future<Void>> results=Lists.newArrayList();
+  for (int i=0; i < NUM_THREADS; ++i) {
+    final String threadDesc=testName + i;
+    results.add(executor.submit(new Callable<Void>(){
+      @Override public Void call() throws IOException {
+        ZKInterProcessWriteLock writeLock=readWriteLock.writeLock(Bytes.toBytes(threadDesc));
+        try {
+          writeLock.acquire();
+          try {
+            assertTrue(isLockHeld.compareAndSet(false,true));
+            Thread.sleep(1000);
+            assertTrue(isLockHeld.compareAndSet(true,false));
+          }
+  finally {
+            isLockHeld.set(false);
+            writeLock.release();
+          }
+        }
+ catch (        InterruptedException e) {
+          LOG.warn(threadDesc + " interrupted",e);
+          Thread.currentThread().interrupt();
+          throw new InterruptedIOException();
+        }
+        return null;
+      }
+    }
+));
+  }
+  MultithreadedTestUtil.assertOnFutures(results);
+}

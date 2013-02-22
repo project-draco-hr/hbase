@@ -1,0 +1,30 @@
+{
+  final String testName="testReadLockDoesNotExcludeReaders";
+  final ZKInterProcessReadWriteLock readWriteLock=getReadWriteLock(testName);
+  final CountDownLatch locksAcquiredLatch=new CountDownLatch(NUM_THREADS);
+  final AtomicInteger locksHeld=new AtomicInteger(0);
+  List<Future<Void>> results=Lists.newArrayList();
+  for (int i=0; i < NUM_THREADS; ++i) {
+    final String threadDesc=testName + i;
+    results.add(executor.submit(new Callable<Void>(){
+      @Override public Void call() throws Exception {
+        ZKInterProcessReadLock readLock=readWriteLock.readLock(Bytes.toBytes(threadDesc));
+        readLock.acquire();
+        try {
+          locksHeld.incrementAndGet();
+          locksAcquiredLatch.countDown();
+          Thread.sleep(1000);
+        }
+  finally {
+          readLock.release();
+          locksHeld.decrementAndGet();
+        }
+        return null;
+      }
+    }
+));
+  }
+  locksAcquiredLatch.await();
+  assertEquals(locksHeld.get(),NUM_THREADS);
+  MultithreadedTestUtil.assertOnFutures(results);
+}

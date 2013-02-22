@@ -1,0 +1,27 @@
+{
+  List<String> children;
+  try {
+    children=ZKUtil.listChildrenNoWatch(zkWatcher,parentLockNode);
+  }
+ catch (  KeeperException e) {
+    LOG.error("Unexpected ZooKeeper error when listing children",e);
+    throw new IOException("Unexpected ZooKeeper exception",e);
+  }
+  KeeperException deferred=null;
+  for (  String child : children) {
+    if (isChildWriteLock(child)) {
+      String znode=ZKUtil.joinZNode(parentLockNode,child);
+      LOG.info("Reaping write lock for znode:" + znode);
+      try {
+        ZKUtil.deleteNodeFailSilent(zkWatcher,znode);
+      }
+ catch (      KeeperException ex) {
+        LOG.warn("Error reaping the znode for write lock :" + znode);
+        deferred=ex;
+      }
+    }
+  }
+  if (deferred != null) {
+    throw new IOException("ZK exception while reaping locks:",deferred);
+  }
+}
