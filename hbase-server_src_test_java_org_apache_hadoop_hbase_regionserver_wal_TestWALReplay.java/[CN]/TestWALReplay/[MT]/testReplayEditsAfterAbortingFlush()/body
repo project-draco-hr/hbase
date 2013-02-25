@@ -1,0 +1,72 @@
+{
+  final String tableNameStr="testReplayEditsAfterAbortingFlush";
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(tableNameStr);
+  final Path basedir=new Path(this.hbaseRootDir,tableNameStr);
+  deleteDir(basedir);
+  final HTableDescriptor htd=createBasic3FamilyHTD(tableNameStr);
+  HRegion region3=HRegion.createHRegion(hri,hbaseRootDir,this.conf,htd);
+  region3.close();
+  region3.getLog().closeAndDelete();
+  HLog wal=createWAL(this.conf);
+  final AtomicBoolean throwExceptionWhenFlushing=new AtomicBoolean(false);
+  RegionServerServices rsServices=Mockito.mock(RegionServerServices.class);
+  Mockito.doReturn(false).when(rsServices).isAborted();
+  HRegion region=new HRegion(basedir,wal,this.fs,this.conf,hri,htd,rsServices){
+    @Override protected HStore instantiateHStore(    Path tableDir,    HColumnDescriptor c) throws IOException {
+      return new HStore(tableDir,this,c,fs,conf){
+        @Override protected Path flushCache(        final long logCacheFlushId,        SortedSet<KeyValue> snapshot,        TimeRangeTracker snapshotTimeRangeTracker,        AtomicLong flushedSize,        MonitoredTask status) throws IOException {
+          if (throwExceptionWhenFlushing.get()) {
+            throw new IOException("Simulated exception by tests");
+          }
+          return super.flushCache(logCacheFlushId,snapshot,snapshotTimeRangeTracker,flushedSize,status);
+        }
+      }
+;
+    }
+  }
+;
+  long seqid=region.initialize();
+  wal.setSequenceNumber(seqid);
+  int writtenRowCount=10;
+  List<HColumnDescriptor> families=new ArrayList<HColumnDescriptor>(htd.getFamilies());
+  for (int i=0; i < writtenRowCount; i++) {
+    Put put=new Put(Bytes.toBytes(tableNameStr + Integer.toString(i)));
+    put.add(families.get(i % families.size()).getName(),Bytes.toBytes("q"),Bytes.toBytes("val"));
+    region.put(put);
+  }
+  RegionScanner scanner=region.getScanner(new Scan());
+  assertEquals(writtenRowCount,getScannedCount(scanner));
+  throwExceptionWhenFlushing.set(true);
+  try {
+    region.flushcache();
+    fail("Injected exception hasn't been thrown");
+  }
+ catch (  Throwable t) {
+    LOG.info("Expected simulated exception when flushing region," + t.getMessage());
+    Mockito.doReturn(true).when(rsServices).isAborted();
+  }
+  int moreRow=10;
+  for (int i=writtenRowCount; i < writtenRowCount + moreRow; i++) {
+    Put put=new Put(Bytes.toBytes(tableNameStr + Integer.toString(i)));
+    put.add(families.get(i % families.size()).getName(),Bytes.toBytes("q"),Bytes.toBytes("val"));
+    region.put(put);
+  }
+  writtenRowCount+=moreRow;
+  throwExceptionWhenFlushing.set(false);
+  try {
+    region.flushcache();
+  }
+ catch (  IOException t) {
+    LOG.info("Expected exception when flushing region because server is stopped," + t.getMessage());
+  }
+  region.close(true);
+  wal.close();
+  runWALSplit(this.conf);
+  HLog wal2=createWAL(this.conf);
+  Mockito.doReturn(false).when(rsServices).isAborted();
+  HRegion region2=new HRegion(basedir,wal2,this.fs,this.conf,hri,htd,rsServices);
+  long seqid2=region2.initialize();
+  wal2.setSequenceNumber(seqid2);
+  scanner=region2.getScanner(new Scan());
+  assertEquals(writtenRowCount,getScannedCount(scanner));
+}
