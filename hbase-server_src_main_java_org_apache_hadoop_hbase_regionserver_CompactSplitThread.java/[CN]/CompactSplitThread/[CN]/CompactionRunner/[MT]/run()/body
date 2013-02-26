@@ -1,0 +1,33 @@
+{
+  Preconditions.checkNotNull(server);
+  if (server.isStopped()) {
+    return;
+  }
+  this.compaction.getRequest().beforeExecute();
+  try {
+    long start=EnvironmentEdgeManager.currentTimeMillis();
+    boolean completed=region.compact(compaction,store);
+    long now=EnvironmentEdgeManager.currentTimeMillis();
+    LOG.info(((completed) ? "Completed" : "Aborted") + " compaction: " + this+ "; duration="+ StringUtils.formatTimeDiff(now,start));
+    if (completed) {
+      if (store.getCompactPriority() <= 0) {
+        requestCompaction(region,store,"Recursive enqueue",null);
+      }
+ else {
+        requestSplit(region);
+      }
+    }
+  }
+ catch (  IOException ex) {
+    LOG.error("Compaction failed " + this,RemoteExceptionHandler.checkIOException(ex));
+    server.checkFileSystem();
+  }
+catch (  Exception ex) {
+    LOG.error("Compaction failed " + this,ex);
+    server.checkFileSystem();
+  }
+ finally {
+    LOG.debug("CompactSplitThread Status: " + CompactSplitThread.this);
+  }
+  this.compaction.getRequest().afterExecute();
+}

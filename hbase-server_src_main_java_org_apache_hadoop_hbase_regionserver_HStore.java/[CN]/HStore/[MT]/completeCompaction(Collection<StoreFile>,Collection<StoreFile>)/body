@@ -1,0 +1,30 @@
+{
+  try {
+    this.lock.writeLock().lock();
+    try {
+      this.storeFileManager.addCompactionResults(compactedFiles,result);
+      filesCompacting.removeAll(compactedFiles);
+    }
+  finally {
+      this.lock.writeLock().unlock();
+    }
+    notifyChangedReadersObservers();
+    LOG.debug("Removing store files after compaction...");
+    HFileArchiver.archiveStoreFiles(this.conf,this.fs,this.region,this.family.getName(),compactedFiles);
+  }
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    LOG.error("Failed replacing compacted files in " + this + ". Compacted files are "+ (result == null ? "none" : result.toString())+ ". Files replaced "+ compactedFiles.toString()+ " some of which may have been already removed",e);
+  }
+  this.storeSize=0L;
+  this.totalUncompressedBytes=0L;
+  for (  StoreFile hsf : this.storeFileManager.getStorefiles()) {
+    StoreFile.Reader r=hsf.getReader();
+    if (r == null) {
+      LOG.warn("StoreFile " + hsf + " has a null Reader");
+      continue;
+    }
+    this.storeSize+=r.length();
+    this.totalUncompressedBytes+=r.getTotalUncompressedBytes();
+  }
+}

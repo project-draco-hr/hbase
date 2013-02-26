@@ -1,0 +1,26 @@
+{
+  ArrayList<StoreFile> candidateSelection=new ArrayList<StoreFile>(candidateFiles);
+  candidateSelection=getCurrentEligibleFiles(candidateSelection,filesCompacting);
+  long cfTtl=this.storeConfigInfo.getStoreFileTtl();
+  if (!forceMajor) {
+    if (comConf.shouldDeleteExpired() && (cfTtl != Long.MAX_VALUE)) {
+      ArrayList<StoreFile> expiredSelection=selectExpiredStoreFiles(candidateSelection,EnvironmentEdgeManager.currentTimeMillis() - cfTtl);
+      if (expiredSelection != null) {
+        return new CompactionRequest(expiredSelection);
+      }
+    }
+    candidateSelection=skipLargeFiles(candidateSelection);
+  }
+  boolean majorCompaction=((forceMajor && isUserCompaction) || ((forceMajor || isMajorCompaction(candidateSelection)) && (candidateSelection.size() < comConf.getMaxFilesToCompact())) || StoreUtils.hasReferences(candidateSelection));
+  if (!majorCompaction) {
+    candidateSelection=filterBulk(candidateSelection);
+    candidateSelection=applyCompactionPolicy(candidateSelection,mayUseOffPeak);
+    candidateSelection=checkMinFilesCriteria(candidateSelection);
+  }
+  candidateSelection=removeExcessFiles(candidateSelection,isUserCompaction,majorCompaction);
+  CompactionRequest result=new CompactionRequest(candidateSelection);
+  if (!majorCompaction && !candidateSelection.isEmpty()) {
+    result.setOffPeak(mayUseOffPeak);
+  }
+  return result;
+}
