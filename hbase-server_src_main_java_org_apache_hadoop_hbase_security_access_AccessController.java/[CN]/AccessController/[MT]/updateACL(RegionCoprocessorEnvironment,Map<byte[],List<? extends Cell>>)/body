@@ -1,0 +1,24 @@
+{
+  Set<byte[]> tableSet=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+  for (  Map.Entry<byte[],List<? extends Cell>> f : familyMap.entrySet()) {
+    List<? extends Cell> cells=f.getValue();
+    for (    Cell cell : cells) {
+      KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+      if (Bytes.equals(kv.getBuffer(),kv.getFamilyOffset(),kv.getFamilyLength(),AccessControlLists.ACL_LIST_FAMILY,0,AccessControlLists.ACL_LIST_FAMILY.length)) {
+        tableSet.add(kv.getRow());
+      }
+    }
+  }
+  ZKPermissionWatcher zkw=this.authManager.getZKPermissionWatcher();
+  Configuration conf=regionEnv.getConfiguration();
+  for (  byte[] tableName : tableSet) {
+    try {
+      ListMultimap<String,TablePermission> perms=AccessControlLists.getTablePermissions(conf,tableName);
+      byte[] serialized=AccessControlLists.writePermissionsAsBytes(perms,conf);
+      zkw.writeToZookeeper(tableName,serialized);
+    }
+ catch (    IOException ex) {
+      LOG.error("Failed updating permissions mirror for '" + Bytes.toString(tableName) + "'",ex);
+    }
+  }
+}

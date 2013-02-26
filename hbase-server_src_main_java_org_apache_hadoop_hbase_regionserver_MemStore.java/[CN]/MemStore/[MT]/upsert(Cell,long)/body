@@ -1,0 +1,31 @@
+{
+  KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+  long addedSize=internalAdd(kv);
+  KeyValue firstKv=KeyValue.createFirstOnRow(kv.getBuffer(),kv.getRowOffset(),kv.getRowLength(),kv.getBuffer(),kv.getFamilyOffset(),kv.getFamilyLength(),kv.getBuffer(),kv.getQualifierOffset(),kv.getQualifierLength());
+  SortedSet<KeyValue> ss=kvset.tailSet(firstKv);
+  Iterator<KeyValue> it=ss.iterator();
+  int versionsVisible=0;
+  while (it.hasNext()) {
+    KeyValue cur=it.next();
+    if (kv == cur) {
+      continue;
+    }
+    if (kv.matchingRow(cur) && kv.matchingQualifier(cur)) {
+      if (cur.getType() == KeyValue.Type.Put.getCode() && cur.getMemstoreTS() <= readpoint) {
+        if (versionsVisible > 1) {
+          long delta=heapSizeChange(cur,true);
+          addedSize-=delta;
+          this.size.addAndGet(-delta);
+          it.remove();
+        }
+ else {
+          versionsVisible++;
+        }
+      }
+    }
+ else {
+      break;
+    }
+  }
+  return addedSize;
+}
