@@ -4,56 +4,14 @@
     coprocessorHost.preOpen();
   }
   status.setStatus("Writing region info on filesystem");
-  checkRegioninfoOnFilesystem();
+  fs.checkRegionInfoOnFilesystem();
   status.setStatus("Cleaning up temporary data from old regions");
-  cleanupTmpDir();
-  Map<byte[],Long> maxSeqIdInStores=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
-  long maxSeqId=-1;
-  long maxMemstoreTS=-1;
-  if (!htableDescriptor.getFamilies().isEmpty()) {
-    ThreadPoolExecutor storeOpenerThreadPool=getStoreOpenAndCloseThreadPool("StoreOpenerThread-" + this.regionInfo.getRegionNameAsString());
-    CompletionService<HStore> completionService=new ExecutorCompletionService<HStore>(storeOpenerThreadPool);
-    for (    final HColumnDescriptor family : htableDescriptor.getFamilies()) {
-      status.setStatus("Instantiating store for column family " + family);
-      completionService.submit(new Callable<HStore>(){
-        public HStore call() throws IOException {
-          return instantiateHStore(tableDir,family);
-        }
-      }
-);
-    }
-    try {
-      for (int i=0; i < htableDescriptor.getFamilies().size(); i++) {
-        Future<HStore> future=completionService.take();
-        HStore store=future.get();
-        this.stores.put(store.getColumnFamilyName().getBytes(),store);
-        long storeSeqIdForReplay=store.getMaxSequenceId(false);
-        maxSeqIdInStores.put(store.getColumnFamilyName().getBytes(),storeSeqIdForReplay);
-        long storeSeqIdForAssignment=store.getMaxSequenceId(true);
-        if (maxSeqId == -1 || storeSeqIdForAssignment > maxSeqId) {
-          maxSeqId=storeSeqIdForAssignment;
-        }
-        long maxStoreMemstoreTS=store.getMaxMemstoreTS();
-        if (maxStoreMemstoreTS > maxMemstoreTS) {
-          maxMemstoreTS=maxStoreMemstoreTS;
-        }
-      }
-    }
- catch (    InterruptedException e) {
-      throw new IOException(e);
-    }
-catch (    ExecutionException e) {
-      throw new IOException(e.getCause());
-    }
- finally {
-      storeOpenerThreadPool.shutdownNow();
-    }
-  }
-  mvcc.initialize(maxMemstoreTS + 1);
-  maxSeqId=Math.max(maxSeqId,replayRecoveredEditsIfAny(this.regiondir,maxSeqIdInStores,reporter,status));
+  fs.cleanupTempDir();
+  status.setStatus("Initializing all the Stores");
+  long maxSeqId=initializeRegionStores(reporter,status);
   status.setStatus("Cleaning up detritus from prior splits");
   SplitTransaction.cleanupAnySplitDetritus(this);
-  FSUtils.deleteDirectory(this.fs,new Path(regiondir,MERGEDIR));
+  fs.cleanupMergesDir();
   this.writestate.setReadOnly(this.htableDescriptor.isReadOnly());
   this.writestate.flushRequested=false;
   this.writestate.compacting=0;

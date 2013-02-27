@@ -1,0 +1,41 @@
+{
+  if (htd == null) {
+    throw new IllegalArgumentException("Need table descriptor");
+  }
+  if (confParam instanceof CompoundConfiguration) {
+    throw new IllegalArgumentException("Need original base configuration");
+  }
+  this.comparator=fs.getRegionInfo().getComparator();
+  this.log=log;
+  this.fs=fs;
+  this.baseConf=confParam;
+  this.conf=new CompoundConfiguration().add(confParam).addStringMap(htd.getConfiguration()).addWritableMap(htd.getValues());
+  this.rowLockWaitDuration=conf.getInt("hbase.rowlock.wait.duration",DEFAULT_ROWLOCK_WAIT_DURATION);
+  this.isLoadingCfsOnDemandDefault=conf.getBoolean(LOAD_CFS_ON_DEMAND_CONFIG_KEY,false);
+  this.htableDescriptor=htd;
+  this.rsServices=rsServices;
+  this.threadWakeFrequency=conf.getLong(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000);
+  setHTableSpecificConf();
+  this.scannerReadPoints=new ConcurrentHashMap<RegionScanner,Long>();
+  this.busyWaitDuration=conf.getLong("hbase.busy.wait.duration",DEFAULT_BUSY_WAIT_DURATION);
+  this.maxBusyWaitMultiplier=conf.getInt("hbase.busy.wait.multiplier.max",2);
+  if (busyWaitDuration * maxBusyWaitMultiplier <= 0L) {
+    throw new IllegalArgumentException("Invalid hbase.busy.wait.duration (" + busyWaitDuration + ") or hbase.busy.wait.multiplier.max ("+ maxBusyWaitMultiplier+ "). Their product should be positive");
+  }
+  this.maxBusyWaitDuration=conf.getLong("ipc.client.call.purge.timeout",2 * HConstants.DEFAULT_HBASE_RPC_TIMEOUT);
+  this.timestampSlop=conf.getLong("hbase.hregion.keyvalue.timestamp.slop.millisecs",HConstants.LATEST_TIMESTAMP);
+  this.rowProcessorTimeout=conf.getLong("hbase.hregion.row.processor.timeout",DEFAULT_ROW_PROCESSOR_TIMEOUT);
+  if (rsServices != null) {
+    this.rsAccounting=this.rsServices.getRegionServerAccounting();
+    this.coprocessorHost=new RegionCoprocessorHost(this,rsServices,conf);
+    this.metricsRegionWrapper=new MetricsRegionWrapperImpl(this);
+    this.metricsRegion=new MetricsRegion(this.metricsRegionWrapper);
+  }
+ else {
+    this.metricsRegionWrapper=null;
+    this.metricsRegion=null;
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Instantiated " + this);
+  }
+}
