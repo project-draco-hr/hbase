@@ -9,21 +9,34 @@
   LOG.info("Recovering file " + p);
   long startWaiting=System.currentTimeMillis();
   boolean recovered=false;
+  long recoveryTimeout=conf.getInt("hbase.lease.recovery.timeout",300000);
+  boolean triggerAppend=conf.getBoolean(TEST_TRIGGER_DFS_APPEND,false);
+  Exception ex=null;
   while (!recovered) {
     try {
       try {
         DistributedFileSystem dfs=(DistributedFileSystem)fs;
-        DistributedFileSystem.class.getMethod("recoverLease",new Class[]{Path.class}).invoke(dfs,p);
+        if (triggerAppend)         throw new IOException();
+        try {
+          recovered=(Boolean)DistributedFileSystem.class.getMethod("recoverLease",new Class[]{Path.class}).invoke(dfs,p);
+        }
+ catch (        InvocationTargetException ite) {
+          throw (IOException)ite.getCause();
+        }
       }
- catch (      InvocationTargetException ite) {
-        throw (IOException)ite.getCause();
+ catch (      Exception e) {
+        if (!e.getClass().getName().contains("RecoveryInProgressException")) {
+          LOG.debug("Failed fs.recoverLease invocation, " + e.toString() + ", trying fs.append instead");
+          ex=e;
+        }
       }
-catch (      Exception e) {
-        LOG.debug("Failed fs.recoverLease invocation, " + e.toString() + ", trying fs.append instead");
+      if (ex != null || System.currentTimeMillis() - startWaiting > recoveryTimeout) {
+        ex=null;
         FSDataOutputStream out=fs.append(p);
         out.close();
+        recovered=true;
       }
-      recovered=true;
+      if (recovered)       break;
     }
  catch (    IOException e) {
       e=RemoteExceptionHandler.checkIOException(e);
@@ -43,9 +56,9 @@ catch (      Exception e) {
     try {
       Thread.sleep(1000);
     }
- catch (    InterruptedException ex) {
+ catch (    InterruptedException ie) {
       InterruptedIOException iioe=new InterruptedIOException();
-      iioe.initCause(ex);
+      iioe.initCause(ie);
       throw iioe;
     }
   }
