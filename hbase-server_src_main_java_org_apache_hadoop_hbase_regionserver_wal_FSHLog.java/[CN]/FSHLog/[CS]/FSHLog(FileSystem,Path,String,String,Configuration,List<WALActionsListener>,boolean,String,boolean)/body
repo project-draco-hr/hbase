@@ -21,7 +21,7 @@
   this.lowReplicationRollLimit=conf.getInt("hbase.regionserver.hlog.lowreplication.rolllimit",5);
   this.enabled=conf.getBoolean("hbase.regionserver.hlog.enabled",true);
   this.closeErrorsTolerated=conf.getInt("hbase.regionserver.logroll.errors.tolerated",0);
-  this.logSyncerThread=new LogSyncer(this.optionalFlushInterval);
+  this.logSyncer=new LogSyncer(this.optionalFlushInterval);
   LOG.info("HLog configuration: blocksize=" + StringUtils.byteDesc(this.blocksize) + ", rollsize="+ StringUtils.byteDesc(this.logrollsize)+ ", enabled="+ this.enabled+ ", optionallogflushinternal="+ this.optionalFlushInterval+ "ms");
   this.prefix=prefix == null || prefix.isEmpty() ? "hlog" : URLEncoder.encode(prefix,"UTF8");
   boolean dirExists=false;
@@ -38,7 +38,12 @@
   }
   rollWriter();
   this.getNumCurrentReplicas=getGetNumCurrentReplicas(this.hdfs_out);
-  Threads.setDaemonThreadRunning(logSyncerThread.getThread(),Thread.currentThread().getName() + ".logSyncer");
+  if (this.optionalFlushInterval > 0) {
+    Threads.setDaemonThreadRunning(logSyncer.getThread(),Thread.currentThread().getName() + ".logSyncer");
+  }
+ else {
+    LOG.info("hbase.regionserver.optionallogflushinterval is set as " + this.optionalFlushInterval + ". Deferred log syncing won't work. "+ "Any Mutation, marked to be deferred synced, will be flushed immediately.");
+  }
   coprocessorHost=new WALCoprocessorHost(this,conf);
   this.metrics=new MetricsWAL();
 }
