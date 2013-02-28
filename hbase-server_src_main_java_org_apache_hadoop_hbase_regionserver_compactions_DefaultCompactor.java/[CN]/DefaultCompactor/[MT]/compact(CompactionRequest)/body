@@ -4,6 +4,7 @@
   long maxId=StoreFile.getMaxSequenceIdInList(filesToCompact,true);
   int maxKeyCount=0;
   long earliestPutTs=HConstants.LATEST_TIMESTAMP;
+  ScanType scanType=request.isMajor() ? ScanType.COMPACT_DROP_DELETES : ScanType.COMPACT_RETAIN_DELETES;
   for (  StoreFile file : filesToCompact) {
     StoreFile.Reader r=file.getReader();
     if (r == null) {
@@ -12,7 +13,7 @@
     }
     long keyCount=(r.getBloomFilterType() == store.getFamily().getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
     maxKeyCount+=keyCount;
-    if (majorCompaction) {
+    if (scanType == ScanType.COMPACT_DROP_DELETES) {
       byte[] tmp=r.loadFileInfo().get(StoreFile.EARLIEST_PUT_TS);
       if (tmp == null) {
         earliestPutTs=HConstants.OLDEST_TIMESTAMP;
@@ -38,9 +39,8 @@
     InternalScanner scanner=null;
     try {
       if (store.getCoprocessorHost() != null) {
-        scanner=store.getCoprocessorHost().preCompactScannerOpen(store,scanners,majorCompaction ? ScanType.MAJOR_COMPACT : ScanType.MINOR_COMPACT,earliestPutTs,request);
+        scanner=store.getCoprocessorHost().preCompactScannerOpen(store,scanners,scanType,earliestPutTs,request);
       }
-      ScanType scanType=majorCompaction ? ScanType.MAJOR_COMPACT : ScanType.MINOR_COMPACT;
       if (scanner == null) {
         Scan scan=new Scan();
         scan.setMaxVersions(store.getFamily().getMaxVersions());
