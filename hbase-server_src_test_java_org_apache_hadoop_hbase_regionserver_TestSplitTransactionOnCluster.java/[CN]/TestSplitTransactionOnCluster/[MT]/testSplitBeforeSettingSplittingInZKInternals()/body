@@ -1,32 +1,20 @@
 {
   final byte[] tableName=Bytes.toBytes("testSplitBeforeSettingSplittingInZK");
-  HBaseAdmin admin=TESTING_UTIL.getHBaseAdmin();
   try {
-    HTableDescriptor htd=new HTableDescriptor(tableName);
-    htd.addFamily(new HColumnDescriptor("cf"));
-    admin.createTable(htd);
-    for (int i=0; cluster.getRegions(tableName).size() == 0 && i < 100; i++) {
-      Thread.sleep(100);
-    }
+    HTable t=createTableAndWait(tableName,Bytes.toBytes("cf"));
+    List<HRegion> regions=awaitTableRegions(tableName);
     assertTrue("Table not online",cluster.getRegions(tableName).size() != 0);
-    List<HRegion> regions=null;
-    for (int i=0; i < 100; i++) {
-      regions=cluster.getRegions(tableName);
-      if (regions.size() > 0)       break;
-      Thread.sleep(100);
-    }
     int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
     HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
-    SplitTransaction st=null;
-{
-      st=new MockedSplitTransaction(regions.get(0),null){
-        @Override int createNodeSplitting(        ZooKeeperWatcher zkw,        HRegionInfo region,        ServerName serverName) throws KeeperException, IOException {
-          throw new SplittingNodeCreationFailedException();
-        }
+    final HRegion region=findSplittableRegion(regions);
+    assertTrue("not able to find a splittable region",region != null);
+    SplitTransaction st=new MockedSplitTransaction(region,Bytes.toBytes("row2")){
+      @Override int createNodeSplitting(      ZooKeeperWatcher zkw,      HRegionInfo region,      ServerName serverName) throws KeeperException, IOException {
+        throw new SplittingNodeCreationFailedException();
       }
-;
     }
-    String node=ZKAssign.getNodeName(regionServer.getZooKeeper(),regions.get(0).getRegionInfo().getEncodedName());
+;
+    String node=ZKAssign.getNodeName(regionServer.getZooKeeper(),region.getRegionInfo().getEncodedName());
     regionServer.getZooKeeper().sync(node);
     for (int i=0; i < 100; i++) {
       if (ZKUtil.checkExists(regionServer.getZooKeeper(),node) != -1) {
@@ -34,11 +22,12 @@
       }
     }
     try {
+      st.prepare();
       st.execute(regionServer,regionServer);
     }
  catch (    IOException e) {
       assertTrue("Should be instance of CreateSplittingNodeFailedException",e instanceof SplittingNodeCreationFailedException);
-      node=ZKAssign.getNodeName(regionServer.getZooKeeper(),regions.get(0).getRegionInfo().getEncodedName());
+      node=ZKAssign.getNodeName(regionServer.getZooKeeper(),region.getRegionInfo().getEncodedName());
 {
         assertTrue(ZKUtil.checkExists(regionServer.getZooKeeper(),node) == -1);
       }
@@ -47,9 +36,6 @@
     }
   }
   finally {
-    if (admin.isTableAvailable(tableName) && admin.isTableEnabled(tableName)) {
-      admin.disableTable(tableName);
-      admin.deleteTable(tableName);
-    }
+    TESTING_UTIL.deleteTable(tableName);
   }
 }

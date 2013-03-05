@@ -6,20 +6,22 @@
   int tableRegionIndex=ensureTableRegionNotOnSameServerAsMeta(admin,hri);
   int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
   HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
-  this.admin.setBalancerRunning(false,false);
+  this.admin.setBalancerRunning(false,true);
   cluster.getMaster().setCatalogJanitorEnabled(false);
   try {
     HRegionServer server=cluster.getRegionServer(tableRegionIndex);
     printOutRegions(server,"Initial regions: ");
-    SplitTransaction st=null;
-    st=new MockedSplitTransaction(regions.get(0),null);
+    final HRegion region=findSplittableRegion(regions);
+    assertTrue("not able to find a splittable region",region != null);
+    SplitTransaction st=new MockedSplitTransaction(region,Bytes.toBytes("row2"));
     try {
+      st.prepare();
       st.execute(regionServer,regionServer);
     }
  catch (    IOException e) {
       List<HRegion> daughters=cluster.getRegions(tableName);
       assertTrue(daughters.size() == 1);
-      String node=ZKAssign.getNodeName(regionServer.getZooKeeper(),regions.get(0).getRegionInfo().getEncodedName());
+      String node=ZKAssign.getNodeName(regionServer.getZooKeeper(),region.getRegionInfo().getEncodedName());
       assertFalse(ZKUtil.checkExists(regionServer.getZooKeeper(),node) == -1);
       assertTrue(st.rollback(regionServer,regionServer));
       assertTrue(ZKUtil.checkExists(regionServer.getZooKeeper(),node) == -1);

@@ -1,19 +1,18 @@
 {
   final byte[] tableName=Bytes.toBytes("testTableExistsIfTheSpecifiedTableRegionIsSplitParent");
-  HRegionServer regionServer=null;
-  List<HRegion> regions=null;
-  HBaseAdmin admin=new HBaseAdmin(TESTING_UTIL.getConfiguration());
+  HTable t=createTableAndWait(tableName,Bytes.toBytes("cf"));
   try {
-    HTable t=createTableAndWait(tableName,Bytes.toBytes("cf"));
-    regions=cluster.getRegions(tableName);
+    List<HRegion> regions=cluster.getRegions(tableName);
     int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
-    regionServer=cluster.getRegionServer(regionServerIndex);
+    HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
     insertData(tableName,admin,t);
-    admin.setBalancerRunning(false,false);
+    admin.setBalancerRunning(false,true);
     cluster.getMaster().setCatalogJanitorEnabled(false);
     boolean tableExists=MetaReader.tableExists(regionServer.getCatalogTracker(),Bytes.toString(tableName));
     assertEquals("The specified table should present.",true,tableExists);
-    SplitTransaction st=new SplitTransaction(regions.get(0),Bytes.toBytes("row2"));
+    final HRegion region=findSplittableRegion(regions);
+    assertTrue("not able to find a splittable region",region != null);
+    SplitTransaction st=new SplitTransaction(region,Bytes.toBytes("row2"));
     try {
       st.prepare();
       st.createDaughters(regionServer,regionServer);
@@ -26,6 +25,6 @@
   finally {
     admin.setBalancerRunning(true,false);
     cluster.getMaster().setCatalogJanitorEnabled(true);
-    admin.close();
+    t.close();
   }
 }

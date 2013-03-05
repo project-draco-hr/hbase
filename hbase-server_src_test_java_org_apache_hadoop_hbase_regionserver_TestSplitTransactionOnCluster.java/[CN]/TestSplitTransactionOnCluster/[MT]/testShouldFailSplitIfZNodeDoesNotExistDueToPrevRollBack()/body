@@ -1,6 +1,5 @@
 {
   final byte[] tableName=Bytes.toBytes("testShouldFailSplitIfZNodeDoesNotExistDueToPrevRollBack");
-  HBaseAdmin admin=new HBaseAdmin(TESTING_UTIL.getConfiguration());
   try {
     HTable t=createTableAndWait(tableName,Bytes.toBytes("cf"));
     final List<HRegion> regions=cluster.getRegions(tableName);
@@ -8,12 +7,15 @@
     int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
     final HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
     insertData(tableName,admin,t);
-    this.admin.setBalancerRunning(false,false);
+    t.close();
+    this.admin.setBalancerRunning(false,true);
     cluster.getMaster().setCatalogJanitorEnabled(false);
+    final HRegion region=findSplittableRegion(regions);
+    assertTrue("not able to find a splittable region",region != null);
     new Thread(){
       public void run(){
         SplitTransaction st=null;
-        st=new MockedSplitTransaction(regions.get(0),Bytes.toBytes("row2"));
+        st=new MockedSplitTransaction(region,Bytes.toBytes("row2"));
         try {
           st.prepare();
           st.execute(regionServer,regionServer);
@@ -27,8 +29,7 @@
       Thread.sleep(100);
     }
     assertTrue("Waited too long for rollback",callRollBack);
-    SplitTransaction st=null;
-    st=new MockedSplitTransaction(regions.get(0),Bytes.toBytes("row2"));
+    SplitTransaction st=new MockedSplitTransaction(region,Bytes.toBytes("row3"));
     try {
       secondSplit=true;
       st.prepare();
@@ -59,10 +60,6 @@
     firstSplitCompleted=false;
     callRollBack=false;
     cluster.getMaster().setCatalogJanitorEnabled(true);
-    if (admin.isTableAvailable(tableName) && admin.isTableEnabled(tableName)) {
-      admin.disableTable(tableName);
-      admin.deleteTable(tableName);
-      admin.close();
-    }
+    TESTING_UTIL.deleteTable(tableName);
   }
 }
