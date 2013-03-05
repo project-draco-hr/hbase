@@ -1,22 +1,11 @@
 {
   Path srcPath=new Path(srcPathStr);
-  FileSystem srcFs=srcPath.getFileSystem(conf);
-  FileSystem desFs=fs instanceof HFileSystem ? ((HFileSystem)fs).getBackingFs() : fs;
-  if (!srcFs.getUri().equals(desFs.getUri())) {
-    LOG.info("Bulk-load file " + srcPath + " is on different filesystem than "+ "the destination store. Copying file over to destination filesystem.");
-    Path tmpPath=getTmpPath();
-    FileUtil.copy(srcFs,srcPath,fs,tmpPath,false,conf);
-    LOG.info("Copied " + srcPath + " to temporary path on destination filesystem: "+ tmpPath);
-    srcPath=tmpPath;
-  }
-  Path dstPath=StoreFile.getRandomFilename(fs,homedir,(seqNum == -1) ? null : "_SeqId_" + seqNum + "_");
-  LOG.debug("Renaming bulk load file " + srcPath + " to "+ dstPath);
-  StoreFile.rename(fs,srcPath,dstPath);
-  StoreFile sf=new StoreFile(fs,dstPath,this.conf,this.cacheConf,this.family.getBloomFilterType(),this.dataBlockEncoder);
+  Path dstPath=fs.bulkLoadStoreFile(getColumnFamilyName(),srcPath,seqNum);
+  StoreFile sf=new StoreFile(this.getFileSystem(),dstPath,this.conf,this.cacheConf,this.family.getBloomFilterType(),this.dataBlockEncoder);
   StoreFile.Reader r=sf.createReader();
   this.storeSize+=r.length();
   this.totalUncompressedBytes+=r.getTotalUncompressedBytes();
-  LOG.info("Moved HFile " + srcPath + " into store directory "+ homedir+ " - updating store file list.");
+  LOG.info("Loaded HFile " + srcPath + " into store '"+ getColumnFamilyName()+ "' as "+ dstPath+ " - updating store file list.");
   this.lock.writeLock().lock();
   try {
     this.storeFileManager.insertNewFile(sf);

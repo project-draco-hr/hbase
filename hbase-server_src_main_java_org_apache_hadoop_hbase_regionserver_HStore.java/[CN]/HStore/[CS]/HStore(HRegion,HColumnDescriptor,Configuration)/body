@@ -1,0 +1,35 @@
+{
+  HRegionInfo info=region.getRegionInfo();
+  this.fs=region.getRegionFileSystem();
+  fs.createStoreDir(family.getNameAsString());
+  this.region=region;
+  this.family=family;
+  this.conf=new CompoundConfiguration().add(confParam).addStringMap(region.getTableDesc().getConfiguration()).addStringMap(family.getConfiguration()).addWritableMap(family.getValues());
+  this.blocksize=family.getBlocksize();
+  this.dataBlockEncoder=new HFileDataBlockEncoderImpl(family.getDataBlockEncodingOnDisk(),family.getDataBlockEncoding());
+  this.comparator=info.getComparator();
+  long timeToPurgeDeletes=Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes",0),0);
+  LOG.trace("Time to purge deletes set to " + timeToPurgeDeletes + "ms in store "+ this);
+  long ttl=determineTTLFromFamily(family);
+  scanInfo=new ScanInfo(family,ttl,timeToPurgeDeletes,this.comparator);
+  this.memstore=new MemStore(conf,this.comparator);
+  this.offPeakCompactions=new OffPeakCompactions(conf);
+  this.cacheConf=new CacheConfig(conf,family);
+  this.verifyBulkLoads=conf.getBoolean("hbase.hstore.bulkload.verify",false);
+  if (HStore.closeCheckInterval == 0) {
+    HStore.closeCheckInterval=conf.getInt("hbase.hstore.close.check.interval",10 * 1000 * 1000);
+  }
+  storeEngine=StoreEngine.create(this,this.conf,this.comparator);
+  this.storeFileManager=storeEngine.getStoreFileManager();
+  this.compactionPolicy=storeEngine.getCompactionPolicy();
+  this.storeFileManager.loadFiles(loadStoreFiles());
+  this.checksumType=getChecksumType(conf);
+  this.bytesPerChecksum=getBytesPerChecksum(conf);
+  if (HStore.flush_retries_number == 0) {
+    HStore.flush_retries_number=conf.getInt("hbase.hstore.flush.retries.number",DEFAULT_FLUSH_RETRIES_NUMBER);
+    HStore.pauseTime=conf.getInt(HConstants.HBASE_SERVER_PAUSE,HConstants.DEFAULT_HBASE_SERVER_PAUSE);
+    if (HStore.flush_retries_number <= 0) {
+      throw new IllegalArgumentException("hbase.hstore.flush.retries.number must be > 0, not " + HStore.flush_retries_number);
+    }
+  }
+}
