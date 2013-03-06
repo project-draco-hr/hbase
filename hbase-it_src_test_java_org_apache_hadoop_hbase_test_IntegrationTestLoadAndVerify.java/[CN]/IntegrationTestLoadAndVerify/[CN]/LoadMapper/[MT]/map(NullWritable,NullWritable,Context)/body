@@ -1,0 +1,29 @@
+{
+  String suffix="/" + shortTaskId;
+  byte[] row=Bytes.add(new byte[8],Bytes.toBytes(suffix));
+  int BLOCK_SIZE=(int)(recordsToWrite / 100);
+  for (long i=0; i < recordsToWrite; ) {
+    long blockStart=i;
+    for (long idxInBlock=0; idxInBlock < BLOCK_SIZE && i < recordsToWrite; idxInBlock++, i++) {
+      long byteSwapped=swapLong(i);
+      Bytes.putLong(row,0,byteSwapped);
+      Put p=new Put(row);
+      p.add(TEST_FAMILY,TEST_QUALIFIER,HConstants.EMPTY_BYTE_ARRAY);
+      if (blockStart > 0) {
+        for (int j=0; j < numBackReferencesPerRow; j++) {
+          long referredRow=blockStart - BLOCK_SIZE + rand.nextInt(BLOCK_SIZE);
+          Bytes.putLong(row,0,swapLong(referredRow));
+          p.add(TEST_FAMILY,row,HConstants.EMPTY_BYTE_ARRAY);
+        }
+        refsWritten.increment(1);
+      }
+      rowsWritten.increment(1);
+      table.put(p);
+      if (i % 100 == 0) {
+        context.setStatus("Written " + i + "/"+ recordsToWrite+ " records");
+        context.progress();
+      }
+    }
+    table.flushCommits();
+  }
+}
