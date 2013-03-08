@@ -1,3 +1,23 @@
 {
-  fullScan(catalogTracker,visitor,startrow,false);
+  Scan scan=new Scan();
+  if (startrow != null)   scan.setStartRow(startrow);
+  if (startrow == null) {
+    int caching=catalogTracker.getConnection().getConfiguration().getInt(HConstants.HBASE_META_SCANNER_CACHING,100);
+    scan.setCaching(caching);
+  }
+  scan.addFamily(HConstants.CATALOG_FAMILY);
+  HTable metaTable=getMetaHTable(catalogTracker);
+  ResultScanner scanner=metaTable.getScanner(scan);
+  try {
+    Result data;
+    while ((data=scanner.next()) != null) {
+      if (data.isEmpty())       continue;
+      if (!visitor.visit(data))       break;
+    }
+  }
+  finally {
+    scanner.close();
+    metaTable.close();
+  }
+  return;
 }

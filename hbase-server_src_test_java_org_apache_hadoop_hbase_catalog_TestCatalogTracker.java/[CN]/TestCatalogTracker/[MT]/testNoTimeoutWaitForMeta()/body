@@ -1,31 +1,11 @@
 {
-  final AdminProtocol implementation=Mockito.mock(AdminProtocol.class);
-  HConnection connection=mockConnection(implementation,null);
-  try {
-    final Result result=getMetaTableRowResult();
-    Mockito.when(connection.getRegionServerWithRetries((ServerCallable<Result>)Mockito.any())).thenReturn(result);
-    GetRegionInfoResponse.Builder builder=GetRegionInfoResponse.newBuilder();
-    builder.setRegionInfo(HRegionInfo.convert(HRegionInfo.FIRST_META_REGIONINFO));
-    Mockito.when(implementation.getRegionInfo((RpcController)Mockito.any(),(GetRegionInfoRequest)Mockito.any())).thenReturn(builder.build());
-    final CatalogTracker ct=constructAndStartCatalogTracker(connection);
-    ServerName hsa=ct.getMetaLocation();
-    Assert.assertNull(hsa);
-    Thread t=new WaitOnMetaThread(ct){
-      @Override void doWaiting() throws InterruptedException {
-        this.ct.waitForMeta();
-      }
-    }
-;
-    startWaitAliveThenWaitItLives(t,1000);
-    String node=ct.getMetaNodeTracker().getNode();
-    ZKUtil.createAndFailSilent(this.watcher,node);
-    MetaEditor.updateMetaLocation(ct,HRegionInfo.FIRST_META_REGIONINFO,SN,0);
-    ZKUtil.deleteNode(this.watcher,node);
-    Assert.assertTrue(ct.waitForMeta(10000).equals(SN));
-    t.join();
-    Assert.assertTrue(ct.waitForMeta(10000).equals(SN));
-  }
-  finally {
-    HConnectionManager.deleteConnection(UTIL.getConfiguration());
-  }
+  HConnection connection=Mockito.mock(HConnection.class);
+  final CatalogTracker ct=constructAndStartCatalogTracker(connection);
+  ServerName hsa=ct.getMetaLocation();
+  Assert.assertNull(hsa);
+  Thread t=new WaitOnMetaThread(ct);
+  startWaitAliveThenWaitItLives(t,1);
+  hsa=setMetaLocation();
+  t.join();
+  Assert.assertTrue(ct.getMetaLocation().equals(hsa));
 }

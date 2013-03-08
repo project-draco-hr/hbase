@@ -1,59 +1,25 @@
 {
   LOG.info("Merging regions " + Bytes.toStringBinary(this.region1) + " and "+ Bytes.toStringBinary(this.region2)+ " in table "+ Bytes.toString(this.tableName));
-  MetaScannerListener listener=new MetaScannerListener(region1,region2);
-  this.utils.scanRootRegion(listener);
-  HRegionInfo meta1=listener.getMeta1();
-  if (meta1 == null) {
-    throw new IOException("Could not find meta region for " + Bytes.toStringBinary(region1));
-  }
-  HRegionInfo meta2=listener.getMeta2();
-  if (meta2 == null) {
-    throw new IOException("Could not find meta region for " + Bytes.toStringBinary(region2));
-  }
-  LOG.info("Found meta for region1 " + Bytes.toStringBinary(meta1.getRegionName()) + ", meta for region2 "+ Bytes.toStringBinary(meta2.getRegionName()));
-  HRegion metaRegion1=this.utils.getMetaRegion(meta1);
+  HRegion meta=this.utils.getMetaRegion();
   Get get=new Get(region1);
   get.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-  Result result1=metaRegion1.get(get);
+  Result result1=meta.get(get);
   Preconditions.checkState(!result1.isEmpty(),"First region cells can not be null");
   HRegionInfo info1=HRegionInfo.getHRegionInfo(result1);
   if (info1 == null) {
-    throw new NullPointerException("info1 is null using key " + Bytes.toStringBinary(region1) + " in "+ meta1);
-  }
-  HRegion metaRegion2;
-  if (Bytes.equals(meta1.getRegionName(),meta2.getRegionName())) {
-    metaRegion2=metaRegion1;
-  }
- else {
-    metaRegion2=utils.getMetaRegion(meta2);
+    throw new NullPointerException("info1 is null using key " + Bytes.toStringBinary(region1) + " in "+ meta);
   }
   get=new Get(region2);
   get.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-  Result result2=metaRegion2.get(get);
+  Result result2=meta.get(get);
   Preconditions.checkState(!result2.isEmpty(),"Second region cells can not be null");
   HRegionInfo info2=HRegionInfo.getHRegionInfo(result2);
   if (info2 == null) {
-    throw new NullPointerException("info2 is null using key " + meta2);
+    throw new NullPointerException("info2 is null using key " + meta);
   }
   HTableDescriptor htd=FSTableDescriptors.getTableDescriptor(FileSystem.get(getConf()),this.rootdir,this.tableName);
-  HRegion merged=merge(htd,info1,metaRegion1,info2,metaRegion2);
-  listener=new MetaScannerListener(merged.getRegionName(),null);
-  utils.scanRootRegion(listener);
-  HRegionInfo mergedInfo=listener.getMeta1();
-  if (mergedInfo == null) {
-    throw new IOException("Could not find meta region for " + Bytes.toStringBinary(merged.getRegionName()));
-  }
-  HRegion mergeMeta;
-  if (Bytes.equals(mergedInfo.getRegionName(),meta1.getRegionName())) {
-    mergeMeta=metaRegion1;
-  }
- else   if (Bytes.equals(mergedInfo.getRegionName(),meta2.getRegionName())) {
-    mergeMeta=metaRegion2;
-  }
- else {
-    mergeMeta=utils.getMetaRegion(mergedInfo);
-  }
-  LOG.info("Adding " + merged.getRegionInfo() + " to "+ mergeMeta.getRegionInfo());
-  HRegion.addRegionToMETA(mergeMeta,merged);
+  HRegion merged=merge(htd,meta,info1,info2);
+  LOG.info("Adding " + merged.getRegionInfo() + " to "+ meta.getRegionInfo());
+  HRegion.addRegionToMETA(meta,merged);
   merged.close();
 }

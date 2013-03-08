@@ -1,0 +1,30 @@
+{
+  int assigned=0;
+  long timeout=this.conf.getLong("hbase.catalog.verification.timeout",1000);
+  status.setStatus("Assigning META region");
+  assignmentManager.getRegionStates().createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
+  boolean rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
+  ServerName currentMetaServer=null;
+  boolean metaRegionLocation=catalogTracker.verifyMetaRegionLocation(timeout);
+  if (!rit && !metaRegionLocation) {
+    currentMetaServer=this.catalogTracker.getMetaLocation();
+    splitLogAndExpireIfOnline(currentMetaServer);
+    this.assignmentManager.assignMeta();
+    enableSSHandWaitForMeta();
+    if (!isMetaLocation())     return false;
+    this.assignmentManager.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
+    assigned++;
+  }
+ else   if (rit && !metaRegionLocation) {
+    if (!isMetaLocation())     return false;
+    this.assignmentManager.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
+    assigned++;
+  }
+ else   if (metaRegionLocation) {
+    this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,this.catalogTracker.getMetaLocation());
+  }
+  enableCatalogTables(Bytes.toString(HConstants.META_TABLE_NAME));
+  LOG.info(".META. assigned=" + assigned + ", rit="+ rit+ ", location="+ catalogTracker.getMetaLocation());
+  status.setStatus("META assigned.");
+  return true;
+}
