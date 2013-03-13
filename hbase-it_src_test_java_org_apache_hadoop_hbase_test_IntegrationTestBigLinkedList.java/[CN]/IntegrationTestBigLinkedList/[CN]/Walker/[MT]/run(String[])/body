@@ -1,0 +1,45 @@
+{
+  Options options=new Options();
+  options.addOption("n","num",true,"number of queries");
+  GnuParser parser=new GnuParser();
+  CommandLine cmd=null;
+  try {
+    cmd=parser.parse(options,args);
+    if (cmd.getArgs().length != 0) {
+      throw new ParseException("Command takes no arguments");
+    }
+  }
+ catch (  ParseException e) {
+    System.err.println("Failed to parse command line " + e.getMessage());
+    System.err.println();
+    HelpFormatter formatter=new HelpFormatter();
+    formatter.printHelp(getClass().getSimpleName(),options);
+    System.exit(-1);
+  }
+  long maxQueries=Long.MAX_VALUE;
+  if (cmd.hasOption('n')) {
+    maxQueries=Long.parseLong(cmd.getOptionValue("n"));
+  }
+  HTable table=new HTable(getConf(),getTableName(getConf()));
+  Random rand=new Random();
+  long numQueries=0;
+  while (numQueries < maxQueries) {
+    CINode node=findStartNode(rand,table);
+    numQueries++;
+    while (node != null && node.prev >= 0 && numQueries < maxQueries) {
+      long prev=node.prev;
+      long t1=System.currentTimeMillis();
+      node=getNode(prev,table,node);
+      long t2=System.currentTimeMillis();
+      System.out.printf("CQ %d %016x \n",t2 - t1,prev);
+      numQueries++;
+      t1=System.currentTimeMillis();
+      node=getNode(prev,table,node);
+      t2=System.currentTimeMillis();
+      System.out.printf("HQ %d %016x \n",t2 - t1,prev);
+      numQueries++;
+    }
+  }
+  table.close();
+  return 0;
+}
