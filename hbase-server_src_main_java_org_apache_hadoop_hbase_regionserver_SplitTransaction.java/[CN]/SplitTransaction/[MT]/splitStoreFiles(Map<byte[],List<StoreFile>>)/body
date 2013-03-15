@@ -1,0 +1,47 @@
+{
+  if (hstoreFilesToSplit == null) {
+    throw new IOException("Close returned empty list of StoreFiles");
+  }
+  int nbFiles=hstoreFilesToSplit.size();
+  if (nbFiles == 0) {
+    return;
+  }
+  ThreadFactoryBuilder builder=new ThreadFactoryBuilder();
+  builder.setNameFormat("StoreFileSplitter-%1$d");
+  ThreadFactory factory=builder.build();
+  ThreadPoolExecutor threadPool=(ThreadPoolExecutor)Executors.newFixedThreadPool(nbFiles,factory);
+  List<Future<Void>> futures=new ArrayList<Future<Void>>(nbFiles);
+  for (  Map.Entry<byte[],List<StoreFile>> entry : hstoreFilesToSplit.entrySet()) {
+    for (    StoreFile sf : entry.getValue()) {
+      StoreFileSplitter sfs=new StoreFileSplitter(entry.getKey(),sf);
+      futures.add(threadPool.submit(sfs));
+    }
+  }
+  threadPool.shutdown();
+  try {
+    boolean stillRunning=!threadPool.awaitTermination(this.fileSplitTimeout,TimeUnit.MILLISECONDS);
+    if (stillRunning) {
+      threadPool.shutdownNow();
+      while (!threadPool.isTerminated()) {
+        Thread.sleep(50);
+      }
+      throw new IOException("Took too long to split the" + " files and create the references, aborting split");
+    }
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    throw new IOException("Interrupted while waiting for file splitters",e);
+  }
+  for (  Future<Void> future : futures) {
+    try {
+      future.get();
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Interrupted while trying to get the results of file splitters",e);
+    }
+catch (    ExecutionException e) {
+      throw new IOException(e);
+    }
+  }
+}

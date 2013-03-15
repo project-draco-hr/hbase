@@ -32,23 +32,28 @@ synchronized (writestate) {
     if (!abort) {
       internalFlushcache(status);
     }
-    List<StoreFile> result=new ArrayList<StoreFile>();
+    Map<byte[],List<StoreFile>> result=new TreeMap<byte[],List<StoreFile>>(Bytes.BYTES_COMPARATOR);
     if (!stores.isEmpty()) {
       ThreadPoolExecutor storeCloserThreadPool=getStoreOpenAndCloseThreadPool("StoreCloserThread-" + this.getRegionNameAsString());
-      CompletionService<Collection<StoreFile>> completionService=new ExecutorCompletionService<Collection<StoreFile>>(storeCloserThreadPool);
+      CompletionService<Pair<byte[],Collection<StoreFile>>> completionService=new ExecutorCompletionService<Pair<byte[],Collection<StoreFile>>>(storeCloserThreadPool);
       for (      final Store store : stores.values()) {
-        completionService.submit(new Callable<Collection<StoreFile>>(){
-          public Collection<StoreFile> call() throws IOException {
-            return store.close();
+        completionService.submit(new Callable<Pair<byte[],Collection<StoreFile>>>(){
+          public Pair<byte[],Collection<StoreFile>> call() throws IOException {
+            return new Pair<byte[],Collection<StoreFile>>(store.getFamily().getName(),store.close());
           }
         }
 );
       }
       try {
         for (int i=0; i < stores.size(); i++) {
-          Future<Collection<StoreFile>> future=completionService.take();
-          Collection<StoreFile> storeFileList=future.get();
-          result.addAll(storeFileList);
+          Future<Pair<byte[],Collection<StoreFile>>> future=completionService.take();
+          Pair<byte[],Collection<StoreFile>> storeFiles=future.get();
+          List<StoreFile> familyFiles=result.get(storeFiles.getFirst());
+          if (familyFiles == null) {
+            familyFiles=new ArrayList<StoreFile>();
+            result.put(storeFiles.getFirst(),familyFiles);
+          }
+          familyFiles.addAll(storeFiles.getSecond());
         }
       }
  catch (      InterruptedException e) {

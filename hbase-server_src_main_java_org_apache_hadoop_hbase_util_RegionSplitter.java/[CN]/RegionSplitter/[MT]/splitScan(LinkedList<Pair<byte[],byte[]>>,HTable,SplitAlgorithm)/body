@@ -2,9 +2,10 @@
   LinkedList<Pair<byte[],byte[]>> finished=Lists.newLinkedList();
   LinkedList<Pair<byte[],byte[]>> logicalSplitting=Lists.newLinkedList();
   LinkedList<Pair<byte[],byte[]>> physicalSplitting=Lists.newLinkedList();
-  Path hbDir=new Path(table.getConfiguration().get(HConstants.HBASE_DIR));
-  Path tableDir=HTableDescriptor.getTableDir(hbDir,table.getTableName());
+  Path rootDir=FSUtils.getRootDir(table.getConfiguration());
+  Path tableDir=HTableDescriptor.getTableDir(rootDir,table.getTableName());
   FileSystem fs=tableDir.getFileSystem(table.getConfiguration());
+  HTableDescriptor htd=table.getTableDescriptor();
   table.clearRegionCache();
   for (  Pair<byte[],byte[]> region : regionList) {
     byte[] start=region.getFirst();
@@ -26,20 +27,15 @@
       check.add(table.getRegionLocation(start).getRegionInfo());
       check.add(table.getRegionLocation(split).getRegionInfo());
       for (      HRegionInfo hri : check.toArray(new HRegionInfo[]{})) {
-        boolean refFound=false;
         byte[] sk=hri.getStartKey();
         if (sk.length == 0)         sk=splitAlgo.firstRow();
         String startKey=splitAlgo.rowToStr(sk);
-        HTableDescriptor htd=table.getTableDescriptor();
+        HRegionFileSystem regionFs=HRegionFileSystem.openRegionFromFileSystem(table.getConfiguration(),fs,tableDir,hri,true);
+        boolean refFound=false;
         for (        HColumnDescriptor c : htd.getFamilies()) {
-          Path cfDir=HStore.getStoreHomedir(tableDir,hri,c.getName());
-          if (fs.exists(cfDir)) {
-            for (            FileStatus file : fs.listStatus(cfDir)) {
-              refFound|=StoreFileInfo.isReference(file.getPath());
-              if (refFound)               break;
-            }
+          if ((refFound=regionFs.hasReferences(htd.getNameAsString()))) {
+            break;
           }
-          if (refFound)           break;
         }
         if (!refFound) {
           check.remove(hri);

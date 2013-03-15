@@ -1,14 +1,12 @@
 {
-  final String columnFamily="f";
+  final HRegionInfo hri=new HRegionInfo(Bytes.toBytes("testHFileLinkTb"));
   Configuration testConf=new Configuration(this.conf);
   FSUtils.setRootDir(testConf,this.testDir);
-  HRegionInfo hri=new HRegionInfo(Bytes.toBytes("table-link"));
-  Path storedir=new Path(new Path(this.testDir,new Path(hri.getTableNameAsString(),hri.getEncodedName())),columnFamily);
-  StoreFile.Writer writer=new StoreFile.WriterBuilder(testConf,cacheConf,this.fs,8 * 1024).withOutputDir(storedir).build();
-  Path storeFilePath=writer.getPath();
+  HRegionFileSystem regionFs=HRegionFileSystem.createRegionOnFileSystem(testConf,fs,new Path(this.testDir,hri.getTableNameAsString()),hri);
+  StoreFile.Writer writer=new StoreFile.WriterBuilder(testConf,cacheConf,this.fs,8 * 1024).withFilePath(regionFs.createTempName()).build();
   writeStoreFile(writer);
-  writer.close();
-  Path dstPath=new Path(this.testDir,new Path("test-region",columnFamily));
+  Path storeFilePath=regionFs.commitStoreFile(TEST_FAMILY,writer.getPath());
+  Path dstPath=new Path(regionFs.getTableDir(),new Path("test-region",TEST_FAMILY));
   HFileLink.create(testConf,this.fs,dstPath,hri,storeFilePath.getName());
   Path linkFilePath=new Path(dstPath,HFileLink.createHFileLinkName(hri,storeFilePath.getName()));
   StoreFileInfo storeFileInfo=new StoreFileInfo(testConf,this.fs,linkFilePath);

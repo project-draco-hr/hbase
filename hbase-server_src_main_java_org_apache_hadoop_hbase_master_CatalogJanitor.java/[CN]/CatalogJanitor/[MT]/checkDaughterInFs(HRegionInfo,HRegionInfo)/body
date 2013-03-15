@@ -1,32 +1,24 @@
 {
-  boolean references=false;
-  boolean exists=false;
   if (daughter == null) {
     return new Pair<Boolean,Boolean>(Boolean.FALSE,Boolean.FALSE);
   }
   FileSystem fs=this.services.getMasterFileSystem().getFileSystem();
   Path rootdir=this.services.getMasterFileSystem().getRootDir();
-  Path tabledir=new Path(rootdir,daughter.getTableNameAsString());
-  Path regiondir=new Path(tabledir,daughter.getEncodedName());
-  exists=fs.exists(regiondir);
-  if (!exists) {
-    LOG.warn("Daughter regiondir does not exist: " + regiondir.toString());
-    return new Pair<Boolean,Boolean>(exists,Boolean.FALSE);
+  Path tabledir=HTableDescriptor.getTableDir(rootdir,daughter.getTableName());
+  HRegionFileSystem regionFs=null;
+  try {
+    regionFs=HRegionFileSystem.openRegionFromFileSystem(this.services.getConfiguration(),fs,tabledir,daughter,true);
   }
-  HTableDescriptor parentDescriptor=getTableDescriptor(parent.getTableName());
+ catch (  IOException e) {
+    LOG.warn("Daughter region does not exist: " + daughter.getEncodedName());
+    return new Pair<Boolean,Boolean>(Boolean.FALSE,Boolean.FALSE);
+  }
+  boolean references=false;
+  HTableDescriptor parentDescriptor=getTableDescriptor(parent.getTableNameAsString());
   for (  HColumnDescriptor family : parentDescriptor.getFamilies()) {
-    Path p=HStore.getStoreHomedir(tabledir,daughter,family.getName());
-    if (!fs.exists(p))     continue;
-    FileStatus[] ps=FSUtils.listStatus(fs,p,new PathFilter(){
-      public boolean accept(      Path path){
-        return StoreFileInfo.isReference(path);
-      }
-    }
-);
-    if (ps != null && ps.length > 0) {
-      references=true;
+    if ((references=regionFs.hasReferences(family.getNameAsString()))) {
       break;
     }
   }
-  return new Pair<Boolean,Boolean>(Boolean.valueOf(exists),Boolean.valueOf(references));
+  return new Pair<Boolean,Boolean>(Boolean.TRUE,Boolean.valueOf(references));
 }
