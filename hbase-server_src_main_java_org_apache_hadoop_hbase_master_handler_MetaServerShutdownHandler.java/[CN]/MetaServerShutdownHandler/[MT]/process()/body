@@ -1,16 +1,17 @@
 {
+  boolean gotException=true;
   try {
-    LOG.info("Splitting META logs for " + serverName);
-    if (this.shouldSplitHlog) {
-      this.services.getMasterFileSystem().splitMetaLog(serverName);
+    try {
+      LOG.info("Splitting META logs for " + serverName);
+      if (this.shouldSplitHlog) {
+        this.services.getMasterFileSystem().splitMetaLog(serverName);
+      }
     }
-  }
- catch (  IOException ioe) {
-    this.services.getExecutorService().submit(this);
-    this.deadServers.add(serverName);
-    throw new IOException("failed log splitting for " + serverName + ", will retry",ioe);
-  }
-  if (isCarryingMeta()) {
+ catch (    IOException ioe) {
+      this.services.getExecutorService().submit(this);
+      this.deadServers.add(serverName);
+      throw new IOException("failed log splitting for " + serverName + ", will retry",ioe);
+    }
     if (this.services.getAssignmentManager().isCarryingMeta(serverName)) {
       LOG.info("Server " + serverName + " was carrying META. Trying to assign.");
       this.services.getAssignmentManager().regionOffline(HRegionInfo.FIRST_META_REGIONINFO);
@@ -18,6 +19,12 @@
     }
  else {
       LOG.info("META has been assigned to otherwhere, skip assigning.");
+    }
+    gotException=false;
+  }
+  finally {
+    if (gotException) {
+      this.deadServers.finish(serverName);
     }
   }
   super.process();
