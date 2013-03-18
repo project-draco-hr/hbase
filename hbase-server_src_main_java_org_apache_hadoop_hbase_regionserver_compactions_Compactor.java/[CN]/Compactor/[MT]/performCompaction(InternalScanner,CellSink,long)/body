@@ -1,0 +1,26 @@
+{
+  int bytesWritten=0;
+  List<KeyValue> kvs=new ArrayList<KeyValue>();
+  int closeCheckInterval=HStore.getCloseCheckInterval();
+  boolean hasMore;
+  do {
+    hasMore=scanner.next(kvs,compactionKVMax);
+    for (    KeyValue kv : kvs) {
+      if (kv.getMemstoreTS() <= smallestReadPoint) {
+        kv.setMemstoreTS(0);
+      }
+      writer.append(kv);
+      ++progress.currentCompactedKVs;
+      if (closeCheckInterval > 0) {
+        bytesWritten+=kv.getLength();
+        if (bytesWritten > closeCheckInterval) {
+          bytesWritten=0;
+          if (!store.areWritesEnabled())           return false;
+        }
+      }
+    }
+    kvs.clear();
+  }
+ while (hasMore);
+  return true;
+}

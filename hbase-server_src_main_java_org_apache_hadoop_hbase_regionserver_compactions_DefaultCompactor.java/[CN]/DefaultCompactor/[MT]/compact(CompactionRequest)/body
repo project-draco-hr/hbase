@@ -1,86 +1,29 @@
 {
-  final Collection<StoreFile> filesToCompact=request.getFiles();
-  boolean majorCompaction=request.isMajor();
-  long maxId=StoreFile.getMaxSequenceIdInList(filesToCompact,true);
-  int maxKeyCount=0;
-  long earliestPutTs=HConstants.LATEST_TIMESTAMP;
-  ScanType scanType=request.isMajor() ? ScanType.COMPACT_DROP_DELETES : ScanType.COMPACT_RETAIN_DELETES;
-  for (  StoreFile file : filesToCompact) {
-    StoreFile.Reader r=file.getReader();
-    if (r == null) {
-      LOG.warn("Null reader for " + file.getPath());
-      continue;
-    }
-    long keyCount=(r.getBloomFilterType() == store.getFamily().getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
-    maxKeyCount+=keyCount;
-    if (scanType == ScanType.COMPACT_DROP_DELETES) {
-      byte[] tmp=r.loadFileInfo().get(StoreFile.EARLIEST_PUT_TS);
-      if (tmp == null) {
-        earliestPutTs=HConstants.OLDEST_TIMESTAMP;
-      }
- else {
-        earliestPutTs=Math.min(earliestPutTs,Bytes.toLong(tmp));
-      }
-    }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getEncodingOnDisk()+ (majorCompaction ? ", earliestPutTs=" + earliestPutTs : ""));
-    }
-  }
-  this.progress=new CompactionProgress(maxKeyCount);
-  List<StoreFileScanner> scanners=StoreFileScanner.getScannersForStoreFiles(filesToCompact,false,false,true);
-  int compactionKVMax=this.conf.getInt(HConstants.COMPACTION_KV_MAX,10);
-  Compression.Algorithm compression=store.getFamily().getCompression();
-  Compression.Algorithm compactionCompression=(store.getFamily().getCompactionCompression() != Compression.Algorithm.NONE) ? store.getFamily().getCompactionCompression() : compression;
+  FileDetails fd=getFileDetails(request.getFiles(),request.isMajor());
+  this.progress=new CompactionProgress(fd.maxKeyCount);
+  List<StoreFileScanner> scanners=createFileScanners(request.getFiles());
   StoreFile.Writer writer=null;
   List<Path> newFiles=new ArrayList<Path>();
-  long smallestReadPoint=store.getSmallestReadPoint();
-  MultiVersionConsistencyControl.setThreadReadPoint(smallestReadPoint);
+  long smallestReadPoint=setSmallestReadPoint();
   try {
     InternalScanner scanner=null;
     try {
-      if (store.getCoprocessorHost() != null) {
-        scanner=store.getCoprocessorHost().preCompactScannerOpen(store,scanners,scanType,earliestPutTs,request);
-      }
+      ScanType scanType=request.isMajor() ? ScanType.COMPACT_DROP_DELETES : ScanType.COMPACT_RETAIN_DELETES;
+      scanner=preCreateCoprocScanner(request,scanType,fd.earliestPutTs,scanners);
       if (scanner == null) {
-        Scan scan=new Scan();
-        scan.setMaxVersions(store.getFamily().getMaxVersions());
-        scanner=new StoreScanner(store,store.getScanInfo(),scan,scanners,scanType,smallestReadPoint,earliestPutTs);
+        scanner=createScanner(store,scanners,scanType,smallestReadPoint,fd.earliestPutTs);
       }
-      if (store.getCoprocessorHost() != null) {
-        InternalScanner cpScanner=store.getCoprocessorHost().preCompact(store,scanner,scanType,request);
-        if (cpScanner == null) {
-          return newFiles;
-        }
-        scanner=cpScanner;
+      scanner=postCreateCoprocScanner(request,scanType,scanner);
+      if (scanner == null) {
+        return newFiles;
       }
-      int bytesWritten=0;
-      List<KeyValue> kvs=new ArrayList<KeyValue>();
-      int closeCheckInterval=HStore.getCloseCheckInterval();
-      boolean hasMore;
-      do {
-        hasMore=scanner.next(kvs,compactionKVMax);
-        if (writer == null) {
-          writer=store.createWriterInTmp(maxKeyCount,compactionCompression,true);
-        }
-        if (writer != null) {
-          for (          KeyValue kv : kvs) {
-            if (kv.getMemstoreTS() <= smallestReadPoint) {
-              kv.setMemstoreTS(0);
-            }
-            writer.append(kv);
-            ++progress.currentCompactedKVs;
-            if (closeCheckInterval > 0) {
-              bytesWritten+=kv.getLength();
-              if (bytesWritten > closeCheckInterval) {
-                bytesWritten=0;
-                isInterrupted(store,writer);
-              }
-            }
-          }
-        }
-        kvs.clear();
+      writer=store.createWriterInTmp(fd.maxKeyCount,this.compactionCompression,true);
+      boolean finished=performCompaction(scanner,writer,smallestReadPoint);
+      if (!finished) {
+        abortWriter(writer);
+        writer=null;
+        throw new InterruptedIOException("Aborting compaction of store " + store + " in region "+ store.getRegionInfo().getRegionNameAsString()+ " because it was interrupted.");
       }
- while (hasMore);
     }
   finally {
       if (scanner != null) {
@@ -90,7 +33,7 @@
   }
   finally {
     if (writer != null) {
-      writer.appendMetadata(maxId,majorCompaction);
+      writer.appendMetadata(fd.maxSeqId,request.isMajor());
       writer.close();
       newFiles.add(writer.getPath());
     }

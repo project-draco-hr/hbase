@@ -1,0 +1,29 @@
+{
+  FileDetails fd=new FileDetails();
+  for (  StoreFile file : filesToCompact) {
+    long seqNum=file.getMaxSequenceId();
+    fd.maxSeqId=Math.max(fd.maxSeqId,seqNum);
+    StoreFile.Reader r=file.getReader();
+    if (r == null) {
+      LOG.warn("Null reader for " + file.getPath());
+      continue;
+    }
+    long keyCount=(r.getBloomFilterType() == store.getFamily().getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
+    fd.maxKeyCount+=keyCount;
+    long earliestPutTs=0;
+    if (calculatePutTs) {
+      byte[] tmp=r.loadFileInfo().get(StoreFile.EARLIEST_PUT_TS);
+      if (tmp == null) {
+        fd.earliestPutTs=earliestPutTs=HConstants.OLDEST_TIMESTAMP;
+      }
+ else {
+        earliestPutTs=Bytes.toLong(tmp);
+        fd.earliestPutTs=Math.min(fd.earliestPutTs,earliestPutTs);
+      }
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getEncodingOnDisk()+ ", seqNum="+ seqNum+ (calculatePutTs ? ", earliestPutTs=" + earliestPutTs : ""));
+    }
+  }
+  return fd;
+}
