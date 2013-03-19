@@ -4,26 +4,28 @@
   final int numRetries=c.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
   List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
   this.globalStartTime=EnvironmentEdgeManager.currentTimeMillis();
-  for (int tries=0; tries < numRetries; tries++) {
+  for (int tries=0; ; tries++) {
+    long expectedSleep=0;
     try {
       beforeCall();
       connect(tries != 0);
       return call();
     }
  catch (    Throwable t) {
+      LOG.warn("Received exception, tries=" + tries + ", numRetries="+ numRetries+ " message="+ t.getMessage());
       t=translateException(t);
-      if (t instanceof SocketTimeoutException || t instanceof ConnectException || t instanceof RetriesExhaustedException) {
-        HRegionLocation hrl=location;
-        if (hrl != null) {
-          getConnection().clearCaches(hrl.getHostnamePort());
-        }
+      if (t instanceof SocketTimeoutException || t instanceof ConnectException || t instanceof RetriesExhaustedException|| getConnection().isDeadServer(location.getServerName())) {
+        getConnection().clearCaches(location.getServerName());
       }
       RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,EnvironmentEdgeManager.currentTimeMillis(),toString());
       exceptions.add(qt);
-      if (tries == numRetries - 1) {
+      if (tries >= numRetries - 1) {
         throw new RetriesExhaustedException(tries,exceptions);
       }
-      long expectedSleep=ConnectionUtils.getPauseTime(pause,tries);
+      expectedSleep=ConnectionUtils.getPauseTime(pause,tries);
+      if (expectedSleep < MIN_WAIT_DEAD_SERVER && getConnection().isDeadServer(location.getServerName())) {
+        expectedSleep=ConnectionUtils.addJitter(MIN_WAIT_DEAD_SERVER,0.10f);
+      }
       if (((this.endTime - this.globalStartTime) + MIN_RPC_TIMEOUT + expectedSleep) > this.callTimeout) {
         throw (SocketTimeoutException)new SocketTimeoutException("Call to access row '" + Bytes.toString(row) + "' on table '"+ Bytes.toString(tableName)+ "' failed on timeout. "+ " callTimeout="+ this.callTimeout+ ", time="+ (this.endTime - this.startTime)).initCause(t);
       }
@@ -32,12 +34,11 @@
       afterCall();
     }
     try {
-      Thread.sleep(ConnectionUtils.getPauseTime(pause,tries));
+      Thread.sleep(expectedSleep);
     }
  catch (    InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IOException("Interrupted after tries=" + tries,e);
+      throw new IOException("Interrupted after " + tries + " tries  on "+ numRetries,e);
     }
   }
-  return null;
 }
