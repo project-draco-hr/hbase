@@ -1,0 +1,26 @@
+{
+  if (cells == null)   return null;
+  ByteBufferOutputStream baos=new ByteBufferOutputStream(this.cellBlockBuildingInitialBufferSize);
+  OutputStream os=baos;
+  Compressor poolCompressor=null;
+  try {
+    if (compressor != null) {
+      if (compressor instanceof Configurable)       ((Configurable)compressor).setConf(this.conf);
+      poolCompressor=CodecPool.getCompressor(compressor);
+      os=compressor.createOutputStream(os,poolCompressor);
+    }
+    Codec.Encoder encoder=codec.getEncoder(os);
+    while (cells.advance()) {
+      encoder.write(cells.current());
+    }
+    encoder.flush();
+  }
+  finally {
+    os.close();
+    if (poolCompressor != null)     CodecPool.returnCompressor(poolCompressor);
+  }
+  if (this.cellBlockBuildingInitialBufferSize < baos.size()) {
+    LOG.warn("Buffer grew from " + this.cellBlockBuildingInitialBufferSize + " to "+ baos.size());
+  }
+  return baos.getByteBuffer();
+}

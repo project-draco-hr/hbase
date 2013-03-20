@@ -1,22 +1,37 @@
 {
   long startTime=0;
-  if (LOG.isDebugEnabled()) {
+  if (LOG.isTraceEnabled()) {
     startTime=System.currentTimeMillis();
   }
-  RpcRequestBody rpcRequest=constructRpcRequest(method,args);
-  Message val=null;
+  if (args.length != 2) {
+    throw new ServiceException(method.getName() + " didn't get two args: " + args.length);
+  }
+  PayloadCarryingRpcController controller=(PayloadCarryingRpcController)args[0];
+  CellScanner cells=null;
+  if (controller != null) {
+    cells=controller.cellScanner();
+    controller.setCellScanner(null);
+  }
+  Message param=(Message)args[1];
+  Pair<Message,CellScanner> val=null;
   try {
-    val=client.call(rpcRequest,address,protocol,ticket,rpcTimeout);
-    if (LOG.isDebugEnabled()) {
+    val=client.call(method,param,cells,address,protocol,ticket,rpcTimeout);
+    if (controller != null) {
+      if (val.getSecond() != null)       controller.setCellScanner(val.getSecond());
+    }
+ else     if (val.getSecond() != null) {
+      throw new ServiceException("Client dropping data on the floor!");
+    }
+    if (LOG.isTraceEnabled()) {
       long callTime=System.currentTimeMillis() - startTime;
       if (LOG.isTraceEnabled())       LOG.trace("Call: " + method.getName() + " "+ callTime);
     }
-    return val;
+    return val.getFirst();
   }
  catch (  Throwable e) {
     if (e instanceof RemoteException) {
       Throwable cause=((RemoteException)e).unwrapRemoteException();
-      throw new ServiceException(cause);
+      throw new ServiceException("methodName=" + method.getName(),cause);
     }
     throw new ServiceException(e);
   }

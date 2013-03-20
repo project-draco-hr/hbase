@@ -1,24 +1,27 @@
 {
+  PayloadCarryingRpcController controller=(PayloadCarryingRpcController)rpcc;
+  CellScanner cellScanner=controller != null ? controller.cellScanner() : null;
+  controller.setCellScanner(null);
   try {
     requestCount.increment();
     HRegion region=getRegion(request.getRegion());
     MutateResponse.Builder builder=MutateResponse.newBuilder();
-    Mutate mutate=request.getMutate();
+    MutationProto mutation=request.getMutation();
     if (!region.getRegionInfo().isMetaTable()) {
       cacheFlusher.reclaimMemStoreMemory();
     }
     Result r=null;
     Boolean processed=null;
-    MutateType type=mutate.getMutateType();
+    MutationType type=mutation.getMutateType();
 switch (type) {
 case APPEND:
-      r=append(region,mutate);
+      r=append(region,mutation,cellScanner);
     break;
 case INCREMENT:
-  r=increment(region,mutate);
+  r=increment(region,mutation,cellScanner);
 break;
 case PUT:
-Put put=ProtobufUtil.toPut(mutate);
+Put put=ProtobufUtil.toPut(mutation,cellScanner);
 if (request.hasCondition()) {
 Condition condition=request.getCondition();
 byte[] row=condition.getRow().toByteArray();
@@ -43,7 +46,7 @@ processed=Boolean.TRUE;
 }
 break;
 case DELETE:
-Delete delete=ProtobufUtil.toDelete(mutate);
+Delete delete=ProtobufUtil.toDelete(mutation,cellScanner);
 if (request.hasCondition()) {
 Condition condition=request.getCondition();
 byte[] row=condition.getRow().toByteArray();
@@ -70,11 +73,16 @@ break;
 default :
 throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
 }
+CellScannable cellsToReturn=null;
 if (processed != null) {
 builder.setProcessed(processed.booleanValue());
 }
  else if (r != null) {
-builder.setResult(ProtobufUtil.toResult(r));
+builder.setResult(ProtobufUtil.toResultNoData(r));
+cellsToReturn=r;
+}
+if (cellsToReturn != null) {
+controller.setCellScanner(cellsToReturn.cellScanner());
 }
 return builder.build();
 }

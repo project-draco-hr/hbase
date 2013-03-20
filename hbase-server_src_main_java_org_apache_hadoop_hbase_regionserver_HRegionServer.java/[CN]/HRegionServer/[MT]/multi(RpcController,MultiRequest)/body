@@ -1,40 +1,45 @@
 {
+  PayloadCarryingRpcController controller=(PayloadCarryingRpcController)rpcc;
+  CellScanner cellScanner=controller != null ? controller.cellScanner() : null;
+  controller.setCellScanner(null);
+  List<CellScannable> cellsToReturn=null;
   try {
     HRegion region=getRegion(request.getRegion());
     MultiResponse.Builder builder=MultiResponse.newBuilder();
+    List<MutationProto> mutations=new ArrayList<MutationProto>(request.getActionCount());
     if (request.hasAtomic() && request.getAtomic()) {
-      List<Mutate> mutates=new ArrayList<Mutate>();
       for (      ClientProtos.MultiAction actionUnion : request.getActionList()) {
-        if (actionUnion.hasMutate()) {
-          mutates.add(actionUnion.getMutate());
+        if (actionUnion.hasMutation()) {
+          mutations.add(actionUnion.getMutation());
         }
  else {
           throw new DoNotRetryIOException("Unsupported atomic action type: " + actionUnion);
         }
       }
-      mutateRows(region,mutates);
+      if (!mutations.isEmpty())       mutateRows(region,mutations,cellScanner);
     }
  else {
       ActionResult.Builder resultBuilder=null;
-      List<Mutate> mutates=new ArrayList<Mutate>();
+      cellsToReturn=new ArrayList<CellScannable>(request.getActionCount());
       for (      ClientProtos.MultiAction actionUnion : request.getActionList()) {
-        requestCount.increment();
+        this.requestCount.increment();
+        ClientProtos.Result result=null;
         try {
-          ClientProtos.Result result=null;
           if (actionUnion.hasGet()) {
             Get get=ProtobufUtil.toGet(actionUnion.getGet());
             Result r=region.get(get);
             if (r != null) {
-              result=ProtobufUtil.toResult(r);
+              result=ProtobufUtil.toResultNoData(r);
+              cellsToReturn.add(r);
             }
           }
- else           if (actionUnion.hasMutate()) {
-            Mutate mutate=actionUnion.getMutate();
-            MutateType type=mutate.getMutateType();
-            if (type != MutateType.PUT && type != MutateType.DELETE) {
-              if (!mutates.isEmpty()) {
-                doBatchOp(builder,region,mutates);
-                mutates.clear();
+ else           if (actionUnion.hasMutation()) {
+            MutationProto mutation=actionUnion.getMutation();
+            MutationType type=mutation.getMutateType();
+            if (type != MutationType.PUT && type != MutationType.DELETE) {
+              if (!mutations.isEmpty()) {
+                doBatchOp(builder,region,mutations,cellScanner);
+                mutations.clear();
               }
  else               if (!region.getRegionInfo().isMetaTable()) {
                 cacheFlusher.reclaimMemStoreMemory();
@@ -43,22 +48,21 @@
             Result r=null;
 switch (type) {
 case APPEND:
-              r=append(region,mutate);
+              r=append(region,mutation,cellScanner);
             break;
 case INCREMENT:
-          r=increment(region,mutate);
+          r=increment(region,mutation,cellScanner);
         break;
 case PUT:
-      mutates.add(mutate);
-    break;
 case DELETE:
-  mutates.add(mutate);
-break;
+      mutations.add(mutation);
+    break;
 default :
-throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
+  throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
 }
 if (r != null) {
-result=ProtobufUtil.toResult(r);
+result=ProtobufUtil.toResultNoData(r);
+cellsToReturn.add(r);
 }
 }
  else {
@@ -80,9 +84,12 @@ builder.addResult(resultBuilder.build());
 builder.addResult(ResponseConverter.buildActionResult(ie));
 }
 }
-if (!mutates.isEmpty()) {
-doBatchOp(builder,region,mutates);
+if (!mutations.isEmpty()) {
+doBatchOp(builder,region,mutations,cellScanner);
 }
+}
+if (cellsToReturn != null && !cellsToReturn.isEmpty()) {
+controller.setCellScanner(CellUtil.createCellScanner(cellsToReturn));
 }
 return builder.build();
 }
