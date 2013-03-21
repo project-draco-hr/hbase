@@ -1,0 +1,39 @@
+{
+  RegionState regionState=assignmentManager.getRegionStates().getRegionState(Bytes.toString(encodedRegionName));
+  if (regionState == null) {
+    throw new UnknownRegionException(Bytes.toStringBinary(encodedRegionName));
+  }
+  HRegionInfo hri=regionState.getRegion();
+  ServerName dest;
+  if (destServerName == null || destServerName.length == 0) {
+    LOG.info("Passed destination servername is null/empty so " + "choosing a server at random");
+    final List<ServerName> destServers=this.serverManager.createDestinationServersList(regionState.getServerName());
+    dest=balancer.randomAssignment(hri,destServers);
+  }
+ else {
+    dest=new ServerName(Bytes.toString(destServerName));
+    if (dest.equals(regionState.getServerName())) {
+      LOG.debug("Skipping move of region " + hri.getRegionNameAsString() + " because region already assigned to the same server "+ dest+ ".");
+      return;
+    }
+  }
+  RegionPlan rp=new RegionPlan(hri,regionState.getServerName(),dest);
+  try {
+    checkInitialized();
+    if (this.cpHost != null) {
+      if (this.cpHost.preMove(hri,rp.getSource(),rp.getDestination())) {
+        return;
+      }
+    }
+    LOG.info("Added move plan " + rp + ", running balancer");
+    this.assignmentManager.balance(rp);
+    if (this.cpHost != null) {
+      this.cpHost.postMove(hri,rp.getSource(),rp.getDestination());
+    }
+  }
+ catch (  IOException ioe) {
+    UnknownRegionException ure=new UnknownRegionException(Bytes.toStringBinary(encodedRegionName));
+    ure.initCause(ioe);
+    throw ure;
+  }
+}
