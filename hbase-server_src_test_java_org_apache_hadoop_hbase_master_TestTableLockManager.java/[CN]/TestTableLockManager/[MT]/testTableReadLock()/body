@@ -1,0 +1,79 @@
+{
+  prepareMiniCluster();
+  LoadTestTool loadTool=new LoadTestTool();
+  loadTool.setConf(TEST_UTIL.getConfiguration());
+  int numKeys=10000;
+  final byte[] tableName=Bytes.toBytes("testTableReadLock");
+  final HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  final HTableDescriptor desc=new HTableDescriptor(tableName);
+  final byte[] family=Bytes.toBytes("test_cf");
+  desc.addFamily(new HColumnDescriptor(family));
+  admin.createTable(desc);
+  int ret=loadTool.run(new String[]{"-tn",Bytes.toString(tableName),"-write",String.format("%d:%d:%d",1,10,10),"-num_keys",String.valueOf(numKeys),"-skip_init"});
+  if (0 != ret) {
+    String errorMsg="Load failed with error code " + ret;
+    LOG.error(errorMsg);
+    fail(errorMsg);
+  }
+  int familyValues=admin.getTableDescriptor(tableName).getFamily(family).getValues().size();
+  StoppableImplementation stopper=new StoppableImplementation();
+  Chore alterThread=new Chore("Alter Chore",10000,stopper){
+    @Override protected void chore(){
+      Random random=new Random();
+      try {
+        HTableDescriptor htd=admin.getTableDescriptor(tableName);
+        String val=String.valueOf(random.nextInt());
+        htd.getFamily(family).setValue(val,val);
+        desc.getFamily(family).setValue(val,val);
+        admin.modifyTable(tableName,htd);
+      }
+ catch (      Exception ex) {
+        LOG.warn("Caught exception",ex);
+        fail(ex.getMessage());
+      }
+    }
+  }
+;
+  Chore splitThread=new Chore("Split thread",5000,stopper){
+    @Override public void chore(){
+      try {
+        Random random=new Random();
+        List<HRegionInfo> regions=admin.getTableRegions(tableName);
+        byte[] regionName=regions.get(random.nextInt(regions.size())).getRegionName();
+        admin.flush(regionName);
+        admin.compact(regionName);
+        admin.split(regionName);
+      }
+ catch (      Exception ex) {
+        LOG.warn("Caught exception",ex);
+        fail(ex.getMessage());
+      }
+    }
+  }
+;
+  alterThread.start();
+  splitThread.start();
+  while (true) {
+    List<HRegionInfo> regions=admin.getTableRegions(tableName);
+    LOG.info(String.format("Table #regions: %d regions: %s:",regions.size(),regions));
+    assertEquals(admin.getTableDescriptor(tableName),desc);
+    for (    HRegion region : TEST_UTIL.getMiniHBaseCluster().getRegions(tableName)) {
+      assertEquals(desc,region.getTableDesc());
+    }
+    if (regions.size() >= 10) {
+      break;
+    }
+    Threads.sleep(1000);
+  }
+  stopper.stop("test finished");
+  int newFamilyValues=admin.getTableDescriptor(tableName).getFamily(family).getValues().size();
+  LOG.info(String.format("Altered the table %d times",newFamilyValues - familyValues));
+  assertTrue(newFamilyValues > familyValues);
+  ret=loadTool.run(new String[]{"-tn",Bytes.toString(tableName),"-read","100:10","-num_keys",String.valueOf(numKeys),"-skip_init"});
+  if (0 != ret) {
+    String errorMsg="Verify failed with error code " + ret;
+    LOG.error(errorMsg);
+    fail(errorMsg);
+  }
+  admin.close();
+}
