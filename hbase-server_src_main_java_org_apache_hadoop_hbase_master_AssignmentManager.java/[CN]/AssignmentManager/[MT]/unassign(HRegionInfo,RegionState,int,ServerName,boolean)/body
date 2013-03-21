@@ -1,13 +1,13 @@
 {
   ServerName server=state.getServerName();
-  if (!serverManager.isServerOnline(server)) {
-    if (transitionInZK) {
-      deleteClosingOrClosedNode(region);
-    }
-    regionOffline(region);
-    return;
-  }
   for (int i=1; i <= this.maximumAttempts; i++) {
+    if (!serverManager.isServerOnline(server)) {
+      if (transitionInZK) {
+        deleteClosingOrClosedNode(region);
+      }
+      regionOffline(region);
+      return;
+    }
     try {
       if (serverManager.sendRegionClose(server,region,versionOfClosingNode,dest,transitionInZK)) {
         LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
@@ -19,7 +19,7 @@
       if (t instanceof RemoteException) {
         t=((RemoteException)t).unwrapRemoteException();
       }
-      if (t instanceof NotServingRegionException) {
+      if (t instanceof NotServingRegionException || t instanceof RegionServerStoppedException) {
         if (transitionInZK) {
           deleteClosingOrClosedNode(region);
         }
@@ -32,5 +32,8 @@
       }
       LOG.info("Server " + server + " returned "+ t+ " for "+ region.getRegionNameAsString()+ ", try="+ i+ " of "+ this.maximumAttempts,t);
     }
+  }
+  if (!tomActivated) {
+    regionStates.updateRegionState(region,RegionState.State.FAILED_CLOSE);
   }
 }

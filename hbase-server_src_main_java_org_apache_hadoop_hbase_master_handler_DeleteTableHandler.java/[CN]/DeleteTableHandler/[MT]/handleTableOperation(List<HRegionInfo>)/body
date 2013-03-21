@@ -4,15 +4,19 @@
     cpHost.preDeleteTableHandler(this.tableName);
   }
   AssignmentManager am=this.masterServices.getAssignmentManager();
+  RegionStates states=am.getRegionStates();
   long waitTime=server.getConfiguration().getLong("hbase.master.wait.on.region",5 * 60 * 1000);
   for (  HRegionInfo region : regions) {
     long done=System.currentTimeMillis() + waitTime;
     while (System.currentTimeMillis() < done) {
-      if (!am.getRegionStates().isRegionInTransition(region))       break;
+      if (states.isRegionFailedToOpen(region)) {
+        am.regionOffline(region);
+      }
+      if (!states.isRegionInTransition(region))       break;
       Threads.sleep(waitingTimeForEvents);
       LOG.debug("Waiting on region to clear regions in transition; " + am.getRegionStates().getRegionTransitionState(region));
     }
-    if (am.getRegionStates().isRegionInTransition(region)) {
+    if (states.isRegionInTransition(region)) {
       throw new IOException("Waited hbase.master.wait.on.region (" + waitTime + "ms) for region to leave region "+ region.getRegionNameAsString()+ " in transitions");
     }
   }

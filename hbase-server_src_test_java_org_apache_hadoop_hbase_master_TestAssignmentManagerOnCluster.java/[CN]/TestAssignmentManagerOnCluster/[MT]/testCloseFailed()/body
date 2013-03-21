@@ -1,0 +1,31 @@
+{
+  String table="testCloseFailed";
+  try {
+    HTableDescriptor desc=new HTableDescriptor(table);
+    desc.addFamily(new HColumnDescriptor(FAMILY));
+    admin.createTable(desc);
+    HTable meta=new HTable(conf,HConstants.META_TABLE_NAME);
+    HRegionInfo hri=new HRegionInfo(desc.getName(),Bytes.toBytes("A"),Bytes.toBytes("Z"));
+    MetaEditor.addRegionToMeta(meta,hri);
+    HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
+    master.assignRegion(hri);
+    AssignmentManager am=master.getAssignmentManager();
+    assertTrue(am.waitForAssignment(hri));
+    TestRegionObserver.enabled=true;
+    am.unassign(hri);
+    RegionState state=am.getRegionStates().getRegionState(hri);
+    assertEquals(RegionState.State.FAILED_CLOSE,state.getState());
+    TestRegionObserver.enabled=false;
+    am.unassign(hri,true);
+    state=am.getRegionStates().getRegionState(hri);
+    assertTrue(RegionState.State.FAILED_CLOSE != state.getState());
+    am.assign(hri,true,true);
+    assertTrue(am.waitForAssignment(hri));
+    ServerName serverName=master.getAssignmentManager().getRegionStates().getRegionServerOfRegion(hri);
+    TEST_UTIL.assertRegionOnServer(hri,serverName,200);
+  }
+  finally {
+    TestRegionObserver.enabled=false;
+    TEST_UTIL.deleteTable(Bytes.toBytes(table));
+  }
+}
