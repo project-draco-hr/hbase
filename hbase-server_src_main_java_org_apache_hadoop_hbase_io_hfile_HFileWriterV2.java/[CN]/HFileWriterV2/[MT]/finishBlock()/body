@@ -7,7 +7,19 @@
   lastDataBlockOffset=outputStream.getPos();
   fsBlockWriter.writeHeaderAndData(outputStream);
   int onDiskSize=fsBlockWriter.getOnDiskSizeWithHeader();
-  dataBlockIndexWriter.addEntry(firstKeyInBlock,lastDataBlockOffset,onDiskSize);
+  if (comparator instanceof KeyComparator) {
+    byte[] fakeKey=((KeyComparator)comparator).getShortMidpointKey(lastKeyOfPreviousBlock,firstKeyInBlock);
+    if (comparator.compare(fakeKey,firstKeyInBlock) > 0) {
+      throw new IOException("Unexpected getShortMidpointKey result, fakeKey:" + fakeKey + ", firstKeyInBlock:"+ firstKeyInBlock);
+    }
+    if (lastKeyOfPreviousBlock != null && comparator.compare(lastKeyOfPreviousBlock,fakeKey) >= 0) {
+      throw new IOException("Unexpected getShortMidpointKey result, lastKeyOfPreviousBlock:" + Bytes.toString(lastKeyOfPreviousBlock) + ", fakeKey:"+ Bytes.toString(fakeKey));
+    }
+    dataBlockIndexWriter.addEntry(fakeKey,lastDataBlockOffset,onDiskSize);
+  }
+ else {
+    dataBlockIndexWriter.addEntry(firstKeyInBlock,lastDataBlockOffset,onDiskSize);
+  }
   totalUncompressedBytes+=fsBlockWriter.getUncompressedSizeWithHeader();
   HFile.offerWriteLatency(System.nanoTime() - startTimeNs);
   if (cacheConf.shouldCacheDataOnWrite()) {
