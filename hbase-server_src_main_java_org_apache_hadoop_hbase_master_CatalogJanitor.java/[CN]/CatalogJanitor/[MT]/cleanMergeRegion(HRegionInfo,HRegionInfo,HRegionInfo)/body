@@ -1,0 +1,21 @@
+{
+  FileSystem fs=this.services.getMasterFileSystem().getFileSystem();
+  Path rootdir=this.services.getMasterFileSystem().getRootDir();
+  Path tabledir=HTableDescriptor.getTableDir(rootdir,mergedRegion.getTableName());
+  HTableDescriptor htd=getTableDescriptor(mergedRegion.getTableNameAsString());
+  HRegionFileSystem regionFs=null;
+  try {
+    regionFs=HRegionFileSystem.openRegionFromFileSystem(this.services.getConfiguration(),fs,tabledir,mergedRegion,true);
+  }
+ catch (  IOException e) {
+    LOG.warn("Merged region does not exist: " + mergedRegion.getEncodedName());
+  }
+  if (regionFs == null || !regionFs.hasReferences(htd)) {
+    LOG.debug("Deleting region " + regionA.getRegionNameAsString() + " and "+ regionB.getRegionNameAsString()+ " from fs because merged region no longer holds references");
+    HFileArchiver.archiveRegion(this.services.getConfiguration(),fs,regionA);
+    HFileArchiver.archiveRegion(this.services.getConfiguration(),fs,regionB);
+    MetaEditor.deleteMergeQualifiers(server.getCatalogTracker(),mergedRegion);
+    return true;
+  }
+  return false;
+}

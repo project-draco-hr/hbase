@@ -1,0 +1,58 @@
+{
+  boolean regionAHasMergeQualifier=!catalogJanitor.cleanMergeQualifier(region_a);
+  if (regionAHasMergeQualifier || !catalogJanitor.cleanMergeQualifier(region_b)) {
+    LOG.info("Skip merging regions " + region_a.getRegionNameAsString() + ", "+ region_b.getRegionNameAsString()+ ", because region "+ (regionAHasMergeQualifier ? region_a.getEncodedName() : region_b.getEncodedName())+ " has merge qualifier");
+    return;
+  }
+  RegionStates regionStates=masterServices.getAssignmentManager().getRegionStates();
+  ServerName region_a_location=regionStates.getRegionServerOfRegion(region_a);
+  ServerName region_b_location=regionStates.getRegionServerOfRegion(region_b);
+  if (region_a_location == null || region_b_location == null) {
+    LOG.info("Skip merging regions " + region_a.getRegionNameAsString() + ", "+ region_b.getRegionNameAsString()+ ", because region "+ (region_a_location == null ? region_a.getEncodedName() : region_b.getEncodedName())+ " is not online now");
+    return;
+  }
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
+  boolean onSameRS=region_a_location.equals(region_b_location);
+  if (!onSameRS) {
+    RegionLoad loadOfRegionA=masterServices.getServerManager().getLoad(region_a_location).getRegionsLoad().get(region_a.getRegionName());
+    RegionLoad loadOfRegionB=masterServices.getServerManager().getLoad(region_b_location).getRegionsLoad().get(region_b.getRegionName());
+    if (loadOfRegionA != null && loadOfRegionB != null && loadOfRegionA.getRequestsCount() < loadOfRegionB.getRequestsCount()) {
+      HRegionInfo tmpRegion=this.region_a;
+      this.region_a=this.region_b;
+      this.region_b=tmpRegion;
+      ServerName tmpLocation=region_a_location;
+      region_a_location=region_b_location;
+      region_b_location=tmpLocation;
+    }
+    RegionPlan regionPlan=new RegionPlan(region_b,region_b_location,region_a_location);
+    masterServices.getAssignmentManager().balance(regionPlan);
+    while (!masterServices.isStopped()) {
+      try {
+        Thread.sleep(20);
+        region_b_location=masterServices.getAssignmentManager().getRegionStates().getRegionServerOfRegion(region_b);
+        onSameRS=region_a_location.equals(region_b_location);
+        if (onSameRS || !regionStates.isRegionInTransition(region_b)) {
+          break;
+        }
+        if ((EnvironmentEdgeManager.currentTimeMillis() - startTime) > timeout)         break;
+      }
+ catch (      InterruptedException e) {
+        InterruptedIOException iioe=new InterruptedIOException();
+        iioe.initCause(e);
+        throw iioe;
+      }
+    }
+  }
+  if (onSameRS) {
+    try {
+      masterServices.getServerManager().sendRegionsMerge(region_a_location,region_a,region_b,forcible);
+      LOG.info("Successfully send MERGE REGIONS RPC to server " + region_a_location.toString() + " for region "+ region_a.getRegionNameAsString()+ ","+ region_b.getRegionNameAsString()+ ", focible="+ forcible);
+    }
+ catch (    IOException ie) {
+      LOG.info("Failed send MERGE REGIONS RPC to server " + region_a_location.toString() + " for region "+ region_a.getRegionNameAsString()+ ","+ region_b.getRegionNameAsString()+ ", focible="+ forcible+ ", "+ ie.getMessage());
+    }
+  }
+ else {
+    LOG.info("Cancel merging regions " + region_a.getRegionNameAsString() + ", "+ region_b.getRegionNameAsString()+ ", because can't move them together after "+ (EnvironmentEdgeManager.currentTimeMillis() - startTime)+ "ms");
+  }
+}

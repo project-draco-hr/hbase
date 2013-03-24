@@ -1,0 +1,40 @@
+{
+  if (this.server.isStopping() || this.server.isStopped()) {
+    LOG.debug("Skipping merge because server is stopping=" + this.server.isStopping() + " or stopped="+ this.server.isStopped());
+    return;
+  }
+  try {
+    final long startTime=EnvironmentEdgeManager.currentTimeMillis();
+    RegionMergeTransaction mt=new RegionMergeTransaction(region_a,region_b,forcible);
+    if (!mt.prepare(this.server))     return;
+    try {
+      mt.execute(this.server,this.server);
+    }
+ catch (    Exception e) {
+      if (this.server.isStopping() || this.server.isStopped()) {
+        LOG.info("Skip rollback/cleanup of failed merge of " + region_a + " and "+ region_b+ " because server is"+ (this.server.isStopping() ? " stopping" : " stopped"),e);
+        return;
+      }
+      try {
+        LOG.warn("Running rollback/cleanup of failed merge of " + region_a + " and "+ region_b+ "; "+ e.getMessage(),e);
+        if (mt.rollback(this.server,this.server)) {
+          LOG.info("Successful rollback of failed merge of " + region_a + " and "+ region_b);
+        }
+ else {
+          this.server.abort("Abort; we got an error after point-of-no-return" + "when merging " + region_a + " and "+ region_b);
+        }
+      }
+ catch (      RuntimeException ee) {
+        String msg="Failed rollback of failed merge of " + region_a + " and "+ region_b+ " -- aborting server";
+        LOG.info(msg,ee);
+        this.server.abort(msg);
+      }
+      return;
+    }
+    LOG.info("Regions merged, META updated, and report to master. region_a=" + region_a + ", region_b="+ region_b+ ",merged region="+ mt.getMergedRegionInfo().getRegionNameAsString()+ ". Region merge took "+ StringUtils.formatTimeDiff(EnvironmentEdgeManager.currentTimeMillis(),startTime));
+  }
+ catch (  IOException ex) {
+    LOG.error("Merge failed " + this,RemoteExceptionHandler.checkIOException(ex));
+    server.checkFileSystem();
+  }
+}

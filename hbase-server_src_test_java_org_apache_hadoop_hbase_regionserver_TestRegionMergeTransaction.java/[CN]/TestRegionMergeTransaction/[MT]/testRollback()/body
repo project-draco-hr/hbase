@@ -1,0 +1,38 @@
+{
+  final int rowCountOfRegionA=loadRegion(this.region_a,CF,true);
+  final int rowCountOfRegionB=loadRegion(this.region_b,CF,true);
+  assertTrue(rowCountOfRegionA > 0 && rowCountOfRegionB > 0);
+  assertEquals(rowCountOfRegionA,countRows(this.region_a));
+  assertEquals(rowCountOfRegionB,countRows(this.region_b));
+  RegionMergeTransaction mt=prepareOnGoodRegions();
+  when(mt.createMergedRegionFromMerges(region_a,region_b,mt.getMergedRegionInfo())).thenThrow(new MockedFailedMergedRegionCreation());
+  boolean expectedException=false;
+  Server mockServer=Mockito.mock(Server.class);
+  when(mockServer.getConfiguration()).thenReturn(TEST_UTIL.getConfiguration());
+  try {
+    mt.execute(mockServer,null);
+  }
+ catch (  MockedFailedMergedRegionCreation e) {
+    expectedException=true;
+  }
+  assertTrue(expectedException);
+  assertTrue(mt.rollback(null,null));
+  int rowCountOfRegionA2=countRows(this.region_a);
+  assertEquals(rowCountOfRegionA,rowCountOfRegionA2);
+  int rowCountOfRegionB2=countRows(this.region_b);
+  assertEquals(rowCountOfRegionB,rowCountOfRegionB2);
+  assertTrue(!this.fs.exists(HRegion.getRegionDir(this.testdir,mt.getMergedRegionInfo())));
+  assertTrue(!this.region_a.lock.writeLock().isHeldByCurrentThread());
+  assertTrue(!this.region_b.lock.writeLock().isHeldByCurrentThread());
+  assertTrue(mt.prepare(null));
+  HRegion mergedRegion=mt.execute(mockServer,null);
+  try {
+    int mergedRegionRowCount=countRows(mergedRegion);
+    assertEquals((rowCountOfRegionA + rowCountOfRegionB),mergedRegionRowCount);
+  }
+  finally {
+    HRegion.closeHRegion(mergedRegion);
+  }
+  assertTrue(!this.region_a.lock.writeLock().isHeldByCurrentThread());
+  assertTrue(!this.region_b.lock.writeLock().isHeldByCurrentThread());
+}

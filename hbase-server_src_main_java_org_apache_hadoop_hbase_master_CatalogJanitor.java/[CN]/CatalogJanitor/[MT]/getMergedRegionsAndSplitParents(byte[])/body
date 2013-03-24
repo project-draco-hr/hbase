@@ -1,0 +1,26 @@
+{
+  final boolean isTableSpecified=(tableName != null && tableName.length != 0);
+  final AtomicInteger count=new AtomicInteger(0);
+  final Map<HRegionInfo,Result> splitParents=new TreeMap<HRegionInfo,Result>(new SplitParentFirstComparator());
+  final Map<HRegionInfo,Result> mergedRegions=new TreeMap<HRegionInfo,Result>();
+  MetaReader.Visitor visitor=new MetaReader.Visitor(){
+    @Override public boolean visit(    Result r) throws IOException {
+      if (r == null || r.isEmpty())       return true;
+      count.incrementAndGet();
+      HRegionInfo info=HRegionInfo.getHRegionInfo(r);
+      if (info == null)       return true;
+      if (isTableSpecified && Bytes.compareTo(info.getTableName(),tableName) > 0) {
+        return false;
+      }
+      if (info.isSplitParent())       splitParents.put(info,r);
+      if (r.getValue(HConstants.CATALOG_FAMILY,HConstants.MERGEA_QUALIFIER) != null) {
+        mergedRegions.put(info,r);
+      }
+      return true;
+    }
+  }
+;
+  byte[] startRow=(!isTableSpecified) ? HConstants.EMPTY_START_ROW : HRegionInfo.createRegionName(tableName,HConstants.EMPTY_START_ROW,HConstants.ZEROES,false);
+  MetaReader.fullScan(this.server.getCatalogTracker(),visitor,startRow);
+  return new Triple<Integer,Map<HRegionInfo,Result>,Map<HRegionInfo,Result>>(count.get(),mergedRegions,splitParents);
+}

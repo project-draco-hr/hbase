@@ -3,14 +3,28 @@
     if (!alreadyRunning.compareAndSet(false,true)) {
       return 0;
     }
-    Pair<Integer,Map<HRegionInfo,Result>> pair=getSplitParents();
-    int count=pair.getFirst();
-    Map<HRegionInfo,Result> splitParents=pair.getSecond();
-    int cleaned=0;
+    Triple<Integer,Map<HRegionInfo,Result>,Map<HRegionInfo,Result>> scanTriple=getMergedRegionsAndSplitParents();
+    int count=scanTriple.getFirst();
+    int mergeCleaned=0;
+    Map<HRegionInfo,Result> mergedRegions=scanTriple.getSecond();
+    for (    Map.Entry<HRegionInfo,Result> e : mergedRegions.entrySet()) {
+      HRegionInfo regionA=HRegionInfo.getHRegionInfo(e.getValue(),HConstants.MERGEA_QUALIFIER);
+      HRegionInfo regionB=HRegionInfo.getHRegionInfo(e.getValue(),HConstants.MERGEB_QUALIFIER);
+      if (regionA == null || regionB == null) {
+        LOG.warn("Unexpected references regionA=" + (regionA == null ? "null" : regionA.getRegionNameAsString()) + ",regionB="+ (regionB == null ? "null" : regionB.getRegionNameAsString())+ " in merged region "+ e.getKey().getRegionNameAsString());
+      }
+ else {
+        if (cleanMergeRegion(e.getKey(),regionA,regionB)) {
+          mergeCleaned++;
+        }
+      }
+    }
+    Map<HRegionInfo,Result> splitParents=scanTriple.getThird();
+    int splitCleaned=0;
     HashSet<String> parentNotCleaned=new HashSet<String>();
     for (    Map.Entry<HRegionInfo,Result> e : splitParents.entrySet()) {
       if (!parentNotCleaned.contains(e.getKey().getEncodedName()) && cleanParent(e.getKey(),e.getValue())) {
-        cleaned++;
+        splitCleaned++;
       }
  else {
         PairOfSameType<HRegionInfo> daughters=HRegionInfo.getDaughterRegions(e.getValue());
@@ -18,13 +32,13 @@
         parentNotCleaned.add(daughters.getSecond().getEncodedName());
       }
     }
-    if (cleaned != 0) {
-      LOG.info("Scanned " + count + " catalog row(s) and gc'd "+ cleaned+ " unreferenced parent region(s)");
+    if ((mergeCleaned + splitCleaned) != 0) {
+      LOG.info("Scanned " + count + " catalog row(s), gc'd "+ mergeCleaned+ " unreferenced merged region(s) and "+ splitCleaned+ " unreferenced parent region(s)");
     }
  else     if (LOG.isDebugEnabled()) {
-      LOG.debug("Scanned " + count + " catalog row(s) and gc'd "+ cleaned+ " unreferenced parent region(s)");
+      LOG.debug("Scanned " + count + " catalog row(s), gc'd "+ mergeCleaned+ " unreferenced merged region(s) and "+ splitCleaned+ " unreferenced parent region(s)");
     }
-    return cleaned;
+    return mergeCleaned + splitCleaned;
   }
   finally {
     alreadyRunning.set(false);
