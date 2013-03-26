@@ -4,7 +4,6 @@
     LOG.info("Starting testRegionShouldNotBeDeployed.");
     MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
     assertTrue(cluster.waitForActiveAndReadyMaster());
-    ZooKeeperWatcher zkw=HBaseTestingUtility.getZooKeeperWatcher(TEST_UTIL);
     FileSystem filesystem=FileSystem.get(conf);
     Path rootdir=FSUtils.getRootDir(conf);
     byte[][] SPLIT_KEYS=new byte[][]{new byte[0],Bytes.toBytes("aaa"),Bytes.toBytes("bbb"),Bytes.toBytes("ccc"),Bytes.toBytes("ddd")};
@@ -13,43 +12,14 @@
     FSTableDescriptors.createTableDescriptor(filesystem,rootdir,htdDisabled);
     List<HRegionInfo> disabledRegions=TEST_UTIL.createMultiRegionsInMeta(TEST_UTIL.getConfiguration(),htdDisabled,SPLIT_KEYS);
     HRegionServer hrs=cluster.getRegionServer(0);
-    ServerName serverName=hrs.getServerName();
     TEST_UTIL.getHBaseAdmin().disableTable(table);
     TEST_UTIL.getHBaseAdmin().enableTable(table);
     TEST_UTIL.getHBaseAdmin().disableTable(table);
-    ZKTable zkTable=cluster.getMaster().getAssignmentManager().getZKTable();
-    zkTable.setEnabledTable(table);
     HRegionInfo region=disabledRegions.remove(0);
     byte[] regionName=region.getRegionName();
     assertTrue(cluster.getServerWith(regionName) == -1);
-    ZKAssign.createNodeOffline(zkw,region,serverName);
-    ProtobufUtil.openRegion(hrs,region);
-    int iTimes=0;
-    while (true) {
-      if (cluster.getServerWith(regionName) != -1) {
-        List<HRegionInfo> regions=ProtobufUtil.getOnlineRegions(hrs);
-        boolean found=false;
-        for (        HRegionInfo hri : regions) {
-          if (Bytes.equals(hri.getRegionName(),regionName)) {
-            found=true;
-            break;
-          }
-        }
-        if (!found) {
-          LOG.info("Region was deployed but not in online " + "region list. This should be transient. Waiting longer");
-        }
- else {
-          zkTable.setDisabledTable(table);
-          break;
-        }
-      }
-      Thread.sleep(100);
-      iTimes++;
-      if (iTimes >= REGION_ONLINE_TIMEOUT) {
-        break;
-      }
-    }
-    assertTrue(iTimes < REGION_ONLINE_TIMEOUT);
+    HRegion r=HRegion.openHRegion(region,htdDisabled,hrs.getWAL(region),conf);
+    hrs.addToOnlineRegions(r);
     HBaseFsck hbck=doFsck(conf,false);
     assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.SHOULD_NOT_BE_DEPLOYED});
     doFsck(conf,true);
