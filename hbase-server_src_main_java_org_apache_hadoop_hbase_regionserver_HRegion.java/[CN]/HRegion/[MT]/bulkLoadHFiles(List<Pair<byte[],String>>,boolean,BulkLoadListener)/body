@@ -12,7 +12,6 @@
       if (store == null) {
         IOException ioe=new org.apache.hadoop.hbase.exceptions.DoNotRetryIOException("No such column family " + Bytes.toStringBinary(familyName));
         ioes.add(ioe);
-        failures.add(p);
       }
  else {
         try {
@@ -26,6 +25,11 @@ catch (        IOException ioe) {
         }
       }
     }
+    if (ioes.size() != 0) {
+      IOException e=MultipleIOException.createIOException(ioes);
+      LOG.error("There were one or more IO errors when checking if the bulk load is ok.",e);
+      throw e;
+    }
     if (failures.size() != 0) {
       StringBuilder list=new StringBuilder();
       for (      Pair<byte[],String> p : failures) {
@@ -33,11 +37,6 @@ catch (        IOException ioe) {
       }
       LOG.warn("There was a recoverable bulk load failure likely due to a" + " split.  These (family, HFile) pairs were not loaded: " + list);
       return false;
-    }
-    if (ioes.size() != 0) {
-      IOException e=MultipleIOException.createIOException(ioes);
-      LOG.error("There were one or more IO errors when checking if the bulk load is ok.",e);
-      throw e;
     }
     for (    Pair<byte[],String> p : familyPaths) {
       byte[] familyName=p.getFirst();
