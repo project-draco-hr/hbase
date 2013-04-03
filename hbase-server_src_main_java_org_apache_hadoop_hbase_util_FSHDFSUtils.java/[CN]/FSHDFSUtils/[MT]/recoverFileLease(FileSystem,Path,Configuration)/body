@@ -1,67 +1,39 @@
 {
-  if (!isAppendSupported(conf)) {
-    LOG.warn("Running on HDFS without append enabled may result in data loss");
-    return;
-  }
   if (!(fs instanceof DistributedFileSystem)) {
     return;
   }
+  DistributedFileSystem dfs=(DistributedFileSystem)fs;
   LOG.info("Recovering file " + p);
-  long startWaiting=System.currentTimeMillis();
+  long startWaiting=EnvironmentEdgeManager.currentTimeMillis();
+  long recoveryTimeout=conf.getInt("hbase.lease.recovery.timeout",900000) + startWaiting;
   boolean recovered=false;
-  long recoveryTimeout=conf.getInt("hbase.lease.recovery.timeout",300000);
-  boolean triggerAppend=conf.getBoolean(TEST_TRIGGER_DFS_APPEND,false);
-  Exception ex=null;
+  int nbAttempt=0;
   while (!recovered) {
+    nbAttempt++;
     try {
-      try {
-        DistributedFileSystem dfs=(DistributedFileSystem)fs;
-        if (triggerAppend)         throw new IOException();
-        try {
-          recovered=(Boolean)DistributedFileSystem.class.getMethod("recoverLease",new Class[]{Path.class}).invoke(dfs,p);
-          if (!recovered)           LOG.debug("recoverLease returned false");
-        }
- catch (        InvocationTargetException ite) {
-          throw (IOException)ite.getCause();
-        }
-      }
- catch (      Exception e) {
-        LOG.debug("Failed fs.recoverLease invocation, " + e.toString() + ", trying fs.append instead");
-        ex=e;
-      }
-      if (ex != null || System.currentTimeMillis() - startWaiting > recoveryTimeout) {
-        LOG.debug("trying fs.append for " + p + " with "+ ex);
-        ex=null;
-        FSDataOutputStream out=fs.append(p);
-        out.close();
-        recovered=true;
-        LOG.debug("fs.append passed");
-      }
-      if (recovered)       break;
+      recovered=dfs.recoverLease(p);
+      LOG.info("Attempt " + nbAttempt + " to recoverLease on file "+ p+ " returned "+ recovered+ ", trying for "+ (EnvironmentEdgeManager.currentTimeMillis() - startWaiting)+ "ms");
     }
  catch (    IOException e) {
-      e=RemoteExceptionHandler.checkIOException(e);
-      if (e instanceof AlreadyBeingCreatedException) {
-        long waitedFor=System.currentTimeMillis() - startWaiting;
-        if (waitedFor > LEASE_SOFTLIMIT_PERIOD) {
-          LOG.warn("Waited " + waitedFor + "ms for lease recovery on "+ p+ ":"+ e.getMessage());
-        }
+      if (e instanceof LeaseExpiredException && e.getMessage().contains("File does not exist")) {
+        throw new FileNotFoundException("The given HLog wasn't found at " + p);
       }
- else       if (e instanceof LeaseExpiredException && e.getMessage().contains("File does not exist")) {
-        throw new FileNotFoundException("The given HLog wasn't found at " + p.toString());
+      LOG.warn("Got IOException on attempt " + nbAttempt + " to recover lease for file "+ p+ ", retrying.",e);
+    }
+    if (!recovered) {
+      if (nbAttempt > 2 && recoveryTimeout < EnvironmentEdgeManager.currentTimeMillis()) {
+        LOG.error("Can't recoverLease after " + nbAttempt + " attempts and "+ (EnvironmentEdgeManager.currentTimeMillis() - startWaiting)+ "ms "+ " for "+ p+ " - continuing without the lease, but we could have a data loss.");
       }
  else {
-        throw new IOException("Failed to open " + p + " for append",e);
+        try {
+          Thread.sleep(nbAttempt < 3 ? 500 : 1000);
+        }
+ catch (        InterruptedException ie) {
+          InterruptedIOException iioe=new InterruptedIOException();
+          iioe.initCause(ie);
+          throw iioe;
+        }
       }
     }
-    try {
-      Thread.sleep(1000);
-    }
- catch (    InterruptedException ie) {
-      InterruptedIOException iioe=new InterruptedIOException();
-      iioe.initCause(ie);
-      throw iioe;
-    }
   }
-  LOG.info("Finished lease recover attempt for " + p);
 }
