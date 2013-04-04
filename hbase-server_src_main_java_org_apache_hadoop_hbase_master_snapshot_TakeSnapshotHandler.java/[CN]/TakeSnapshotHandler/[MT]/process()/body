@@ -1,5 +1,7 @@
 {
-  LOG.info("Running table snapshot operation " + eventType + " on table "+ snapshot.getTable());
+  String msg="Running " + snapshot.getType() + " table snapshot "+ snapshot.getName()+ " "+ eventType+ " on table "+ snapshot.getTable();
+  LOG.info(msg);
+  status.setStatus(msg);
   try {
     SnapshotDescriptionUtils.writeSnapshotInfo(snapshot,workingDir,this.fs);
     new TableInfoCopyTask(monitor,snapshot,fs,rootDir).call();
@@ -10,10 +12,13 @@
     for (    Pair<HRegionInfo,ServerName> p : regionsAndLocations) {
       serverNames.add(p.getSecond().toString());
     }
+    status.setStatus("Verifying snapshot: " + snapshot.getName());
     verifier.verifySnapshot(this.workingDir,serverNames);
     completeSnapshot(this.snapshotDir,this.workingDir,this.fs);
+    status.markComplete("Snapshot " + snapshot.getName() + " of table "+ snapshot.getTable()+ " completed");
   }
  catch (  Exception e) {
+    status.abort("Failed to complete snapshot " + snapshot.getName() + " on table "+ snapshot.getTable()+ " because "+ e.getMessage());
     String reason="Failed taking snapshot " + ClientSnapshotDescriptionUtils.toString(snapshot) + " due to exception:"+ e.getMessage();
     LOG.error(reason,e);
     ForeignException ee=new ForeignException(reason,e);

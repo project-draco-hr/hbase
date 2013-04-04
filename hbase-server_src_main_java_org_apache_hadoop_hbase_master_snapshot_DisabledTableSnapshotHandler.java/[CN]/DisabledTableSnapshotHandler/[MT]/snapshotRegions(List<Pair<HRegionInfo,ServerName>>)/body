@@ -8,7 +8,9 @@
       regions.add(p.getFirst());
       serverNames.add(p.getSecond().toString());
     }
-    LOG.info("Starting to write region info and WALs for regions for offline snapshot:" + ClientSnapshotDescriptionUtils.toString(snapshot));
+    String msg="Starting to write region info and WALs for regions for offline snapshot:" + ClientSnapshotDescriptionUtils.toString(snapshot);
+    LOG.info(msg);
+    status.setStatus(msg);
     for (    HRegionInfo regionInfo : regions) {
       HRegionFileSystem regionFs=HRegionFileSystem.createRegionOnFileSystem(conf,fs,snapshotDir,regionInfo);
       monitor.rethrowException();
@@ -16,18 +18,22 @@
       Path snapshotRegionDir=regionFs.getRegionDir();
       new CopyRecoveredEditsTask(snapshot,monitor,fs,regionDir,snapshotRegionDir).call();
       monitor.rethrowException();
+      status.setStatus("Completed copying recovered edits for offline snapshot of table: " + snapshot.getTable());
       new ReferenceRegionHFilesTask(snapshot,monitor,regionDir,fs,snapshotRegionDir).call();
       monitor.rethrowException();
+      status.setStatus("Completed referencing HFiles for offline snapshot of table: " + snapshot.getTable());
     }
     LOG.info("Starting to copy tableinfo for offline snapshot: " + ClientSnapshotDescriptionUtils.toString(snapshot));
     TableInfoCopyTask tableInfoCopyTask=new TableInfoCopyTask(this.monitor,snapshot,fs,FSUtils.getRootDir(conf));
     tableInfoCopyTask.call();
     monitor.rethrowException();
+    status.setStatus("Finished copying tableinfo for snapshot of table: " + snapshot.getTable());
   }
  catch (  Exception e) {
     String reason="Failed snapshot " + ClientSnapshotDescriptionUtils.toString(snapshot) + " due to exception:"+ e.getMessage();
     ForeignException ee=new ForeignException(reason,e);
     monitor.receive(ee);
+    status.abort("Snapshot of table: " + snapshot.getTable() + " failed because "+ e.getMessage());
   }
  finally {
     LOG.debug("Marking snapshot" + ClientSnapshotDescriptionUtils.toString(snapshot) + " as finished.");

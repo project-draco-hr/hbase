@@ -1,18 +1,21 @@
 {
+  status.setStatus("Creating regions for table: " + tableName);
   FileSystem fs=fileSystemManager.getFileSystem();
   Path rootDir=fileSystemManager.getRootDir();
   Path tableDir=new Path(tableRootDir,tableName);
   try {
     Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot,rootDir);
-    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(conf,fs,snapshot,snapshotDir,hTableDescriptor,tableDir,monitor);
+    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(conf,fs,snapshot,snapshotDir,hTableDescriptor,tableDir,monitor,status);
     RestoreSnapshotHelper.RestoreMetaChanges metaChanges=restoreHelper.restoreHdfsRegions();
     Preconditions.checkArgument(!metaChanges.hasRegionsToRestore(),"A clone should not have regions to restore");
     Preconditions.checkArgument(!metaChanges.hasRegionsToRemove(),"A clone should not have regions to remove");
-    LOG.info("Clone snapshot=" + snapshot.getName() + " on table="+ tableName+ " completed!");
+    String msg="Clone snapshot=" + snapshot.getName() + " on table="+ tableName+ " completed!";
+    LOG.info(msg);
+    status.setStatus(msg + " Waiting for table to be enabled...");
     return metaChanges.getRegionsToAdd();
   }
  catch (  Exception e) {
-    String msg="clone snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot) + " failed";
+    String msg="clone snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot) + " failed because "+ e.getMessage();
     LOG.error(msg,e);
     IOException rse=new RestoreSnapshotException(msg,e,snapshot);
     this.monitor.receive(new ForeignException(NAME,rse));
