@@ -1,0 +1,40 @@
+{
+  final byte[] tableName=Bytes.toBytes("testSplitRegionWithNoStoreFiles");
+  createTableAndWait(tableName,HConstants.CATALOG_FAMILY);
+  List<HRegion> regions=cluster.getRegions(tableName);
+  HRegionInfo hri=getAndCheckSingleTableRegion(regions);
+  ensureTableRegionNotOnSameServerAsMeta(admin,hri);
+  int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
+  HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
+  this.admin.setBalancerRunning(false,true);
+  cluster.getMaster().setCatalogJanitorEnabled(false);
+  try {
+    printOutRegions(regionServer,"Initial regions: ");
+    Configuration conf=cluster.getConfiguration();
+    HBaseFsck.debugLsr(conf,new Path("/"));
+    Path rootDir=FSUtils.getRootDir(conf);
+    FileSystem fs=TESTING_UTIL.getDFSCluster().getFileSystem();
+    Map<String,Path> storefiles=FSUtils.getTableStoreFilePathMap(null,fs,rootDir,tableName);
+    assertEquals("Expected nothing but found " + storefiles.toString(),storefiles.size(),0);
+    regions=cluster.getRegions(tableName);
+    final HRegion region=findSplittableRegion(regions);
+    assertTrue("not able to find a splittable region",region != null);
+    SplitTransaction st=new MockedSplitTransaction(region,Bytes.toBytes("row2"));
+    try {
+      st.prepare();
+      st.execute(regionServer,regionServer);
+    }
+ catch (    IOException e) {
+      fail("Split execution should have succeeded with no exceptions thrown");
+    }
+    List<HRegion> daughters=cluster.getRegions(tableName);
+    assertTrue(daughters.size() == 2);
+    HBaseFsck.debugLsr(conf,new Path("/"));
+    Map<String,Path> storefilesAfter=FSUtils.getTableStoreFilePathMap(null,fs,rootDir,tableName);
+    assertEquals("Expected nothing but found " + storefilesAfter.toString(),storefilesAfter.size(),0);
+  }
+  finally {
+    admin.setBalancerRunning(true,false);
+    cluster.getMaster().setCatalogJanitorEnabled(true);
+  }
+}
