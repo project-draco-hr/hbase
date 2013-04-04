@@ -26,7 +26,7 @@
   assertTrue(master.isInitialized());
   master.balanceSwitch(false);
   byte[] FAMILY=Bytes.toBytes("family");
-  byte[][] SPLIT_KEYS=new byte[][]{new byte[0],Bytes.toBytes("aaa"),Bytes.toBytes("bbb"),Bytes.toBytes("ccc"),Bytes.toBytes("ddd"),Bytes.toBytes("eee"),Bytes.toBytes("fff"),Bytes.toBytes("ggg"),Bytes.toBytes("hhh"),Bytes.toBytes("iii"),Bytes.toBytes("jjj")};
+  byte[][] SPLIT_KEYS=TEST_UTIL.getRegionSplitStartKeys(Bytes.toBytes("aaa"),Bytes.toBytes("zzz"),30);
   byte[] enabledTable=Bytes.toBytes("enabledTable");
   HTableDescriptor htdEnabled=new HTableDescriptor(enabledTable);
   htdEnabled.addFamily(new HColumnDescriptor(FAMILY));
@@ -51,11 +51,11 @@
   HRegionServer hrsDead=hrsDeadThread.getRegionServer();
   ServerName deadServerName=hrsDead.getServerName();
   List<HRegionInfo> enabledAndAssignedRegions=new ArrayList<HRegionInfo>();
-  enabledAndAssignedRegions.add(enabledRegions.remove(0));
-  enabledAndAssignedRegions.add(enabledRegions.remove(0));
+  enabledAndAssignedRegions.addAll(enabledRegions.subList(0,6));
+  enabledRegions.removeAll(enabledAndAssignedRegions);
   List<HRegionInfo> disabledAndAssignedRegions=new ArrayList<HRegionInfo>();
-  disabledAndAssignedRegions.add(disabledRegions.remove(0));
-  disabledAndAssignedRegions.add(disabledRegions.remove(0));
+  disabledAndAssignedRegions.addAll(disabledRegions.subList(0,6));
+  disabledRegions.removeAll(disabledAndAssignedRegions);
   for (  HRegionInfo hri : enabledAndAssignedRegions) {
     master.assignmentManager.regionPlans.put(hri.getEncodedName(),new RegionPlan(hri,null,hrs.getServerName()));
     master.assignRegion(hri);
@@ -64,13 +64,17 @@
     master.assignmentManager.regionPlans.put(hri.getEncodedName(),new RegionPlan(hri,null,hrs.getServerName()));
     master.assignRegion(hri);
   }
+  log("Waiting for assignment to finish");
+  ZKAssign.blockUntilNoRIT(zkw);
+  master.assignmentManager.waitUntilNoRegionsInTransition(60000);
+  log("Assignment completed");
   assertTrue(" Table must be enabled.",master.getAssignmentManager().getZKTable().isEnabledTable("enabledTable"));
   List<HRegionInfo> enabledAndOnDeadRegions=new ArrayList<HRegionInfo>();
-  enabledAndOnDeadRegions.add(enabledRegions.remove(0));
-  enabledAndOnDeadRegions.add(enabledRegions.remove(0));
+  enabledAndOnDeadRegions.addAll(enabledRegions.subList(0,6));
+  enabledRegions.removeAll(enabledAndOnDeadRegions);
   List<HRegionInfo> disabledAndOnDeadRegions=new ArrayList<HRegionInfo>();
-  disabledAndOnDeadRegions.add(disabledRegions.remove(0));
-  disabledAndOnDeadRegions.add(disabledRegions.remove(0));
+  disabledAndOnDeadRegions.addAll(disabledRegions.subList(0,6));
+  disabledRegions.removeAll(disabledAndOnDeadRegions);
   for (  HRegionInfo hri : enabledAndOnDeadRegions) {
     master.assignmentManager.regionPlans.put(hri.getEncodedName(),new RegionPlan(hri,null,deadServerName));
     master.assignRegion(hri);
@@ -81,7 +85,16 @@
   }
   log("Waiting for assignment to finish");
   ZKAssign.blockUntilNoRIT(zkw);
+  master.assignmentManager.waitUntilNoRegionsInTransition(60000);
   log("Assignment completed");
+  verifyRegionLocation(hrs,enabledAndAssignedRegions);
+  verifyRegionLocation(hrs,disabledAndAssignedRegions);
+  verifyRegionLocation(hrsDead,enabledAndOnDeadRegions);
+  verifyRegionLocation(hrsDead,disabledAndOnDeadRegions);
+  assertTrue(" Didn't get enough regions of enabledTalbe on live rs.",enabledAndAssignedRegions.size() >= 2);
+  assertTrue(" Didn't get enough regions of disalbedTable on live rs.",disabledAndAssignedRegions.size() >= 2);
+  assertTrue(" Didn't get enough regions of enabledTalbe on dead rs.",enabledAndOnDeadRegions.size() >= 2);
+  assertTrue(" Didn't get enough regions of disalbedTable on dead rs.",disabledAndOnDeadRegions.size() >= 2);
   log("Aborting master");
   cluster.abortMaster(0);
   cluster.waitOnMaster(0);
