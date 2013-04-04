@@ -1,0 +1,43 @@
+{
+  SortedMap<String,SortedSet<String>> queues=new TreeMap<String,SortedSet<String>>();
+  String deadRSZnodePath=ZKUtil.joinZNode(this.queuesZNode,znode);
+  List<String> peerIdsToProcess=null;
+  List<ZKUtilOp> listOfOps=new ArrayList<ZKUtil.ZKUtilOp>();
+  try {
+    peerIdsToProcess=ZKUtil.listChildrenNoWatch(this.zookeeper,deadRSZnodePath);
+    if (peerIdsToProcess == null)     return queues;
+    for (    String peerId : peerIdsToProcess) {
+      String newPeerId=peerId + "-" + znode;
+      String newPeerZnode=ZKUtil.joinZNode(this.myQueuesZnode,newPeerId);
+      String oldClusterZnode=ZKUtil.joinZNode(deadRSZnodePath,peerId);
+      List<String> hlogs=ZKUtil.listChildrenNoWatch(this.zookeeper,oldClusterZnode);
+      if (hlogs == null || hlogs.size() == 0) {
+        listOfOps.add(ZKUtilOp.deleteNodeFailSilent(oldClusterZnode));
+        continue;
+      }
+      SortedSet<String> logQueue=new TreeSet<String>();
+      queues.put(newPeerId,logQueue);
+      ZKUtilOp op=ZKUtilOp.createAndFailSilent(newPeerZnode,HConstants.EMPTY_BYTE_ARRAY);
+      listOfOps.add(op);
+      for (      String hlog : hlogs) {
+        String oldHlogZnode=ZKUtil.joinZNode(oldClusterZnode,hlog);
+        byte[] logOffset=ZKUtil.getData(this.zookeeper,oldHlogZnode);
+        LOG.debug("Creating " + hlog + " with data "+ Bytes.toString(logOffset));
+        String newLogZnode=ZKUtil.joinZNode(newPeerZnode,hlog);
+        listOfOps.add(ZKUtilOp.createAndFailSilent(newLogZnode,logOffset));
+        listOfOps.add(ZKUtilOp.deleteNodeFailSilent(oldHlogZnode));
+        logQueue.add(hlog);
+      }
+      listOfOps.add(ZKUtilOp.deleteNodeFailSilent(oldClusterZnode));
+    }
+    listOfOps.add(ZKUtilOp.deleteNodeFailSilent(deadRSZnodePath));
+    LOG.debug(" The multi list size is: " + listOfOps.size());
+    ZKUtil.multiOrSequential(this.zookeeper,listOfOps,false);
+    LOG.info("Atomically moved the dead regionserver logs. ");
+  }
+ catch (  KeeperException e) {
+    LOG.warn("Got exception in copyQueuesFromRSUsingMulti: ",e);
+    queues.clear();
+  }
+  return queues;
+}

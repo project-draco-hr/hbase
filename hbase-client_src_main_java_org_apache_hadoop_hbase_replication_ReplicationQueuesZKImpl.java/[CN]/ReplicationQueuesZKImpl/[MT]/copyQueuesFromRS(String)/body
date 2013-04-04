@@ -1,0 +1,42 @@
+{
+  SortedMap<String,SortedSet<String>> queues=new TreeMap<String,SortedSet<String>>();
+  try {
+    String nodePath=ZKUtil.joinZNode(this.queuesZNode,znode);
+    List<String> clusters=ZKUtil.listChildrenNoWatch(this.zookeeper,nodePath);
+    if (clusters == null || clusters.size() <= 1) {
+      return queues;
+    }
+    clusters.remove(RS_LOCK_ZNODE);
+    for (    String cluster : clusters) {
+      String newCluster=cluster + "-" + znode;
+      String newClusterZnode=ZKUtil.joinZNode(this.myQueuesZnode,newCluster);
+      String clusterPath=ZKUtil.joinZNode(nodePath,cluster);
+      List<String> hlogs=ZKUtil.listChildrenNoWatch(this.zookeeper,clusterPath);
+      if (hlogs == null || hlogs.size() == 0) {
+        continue;
+      }
+      ZKUtil.createNodeIfNotExistsAndWatch(this.zookeeper,newClusterZnode,HConstants.EMPTY_BYTE_ARRAY);
+      SortedSet<String> logQueue=new TreeSet<String>();
+      queues.put(newCluster,logQueue);
+      for (      String hlog : hlogs) {
+        String z=ZKUtil.joinZNode(clusterPath,hlog);
+        byte[] positionBytes=ZKUtil.getData(this.zookeeper,z);
+        long position=0;
+        try {
+          position=parseHLogPositionFrom(positionBytes);
+        }
+ catch (        DeserializationException e) {
+          LOG.warn("Failed parse of hlog position from the following znode: " + z);
+        }
+        LOG.debug("Creating " + hlog + " with data "+ position);
+        String child=ZKUtil.joinZNode(newClusterZnode,hlog);
+        ZKUtil.createAndWatch(this.zookeeper,child,positionBytes);
+        logQueue.add(hlog);
+      }
+    }
+  }
+ catch (  KeeperException e) {
+    this.abortable.abort("Copy queues from rs",e);
+  }
+  return queues;
+}
