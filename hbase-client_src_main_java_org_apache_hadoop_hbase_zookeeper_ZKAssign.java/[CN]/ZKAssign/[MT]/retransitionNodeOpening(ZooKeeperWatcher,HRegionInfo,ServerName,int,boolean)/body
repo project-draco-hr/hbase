@@ -1,0 +1,42 @@
+{
+  String encoded=region.getEncodedName();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug(zkw.prefix("Attempting to retransition the opening state of node " + HRegionInfo.prettyPrint(encoded)));
+  }
+  String node=getNodeName(zkw,encoded);
+  zkw.sync(node);
+  Stat stat=new Stat();
+  byte[] existingBytes=ZKUtil.getDataNoWatch(zkw,node,stat);
+  if (existingBytes == null) {
+    return -1;
+  }
+  RegionTransition rt=getRegionTransition(existingBytes);
+  if (expectedVersion != -1 && stat.getVersion() != expectedVersion) {
+    LOG.warn(zkw.prefix("Attempt to retransition the opening state of the " + "unassigned node for " + encoded + " failed, "+ "the node existed but was version "+ stat.getVersion()+ " not the expected version "+ expectedVersion));
+    return -1;
+  }
+  EventType et=rt.getEventType();
+  if (!et.equals(EventType.RS_ZK_REGION_OPENING)) {
+    String existingServer=(rt.getServerName() == null) ? "<unknown>" : rt.getServerName().toString();
+    LOG.warn(zkw.prefix("Attempt to retransition the opening state of the unassigned node for " + encoded + " failed, the node existed but was in the state "+ et+ " set by the server "+ existingServer));
+    return -1;
+  }
+  if (!updateZNode) {
+    return expectedVersion;
+  }
+  try {
+    rt=RegionTransition.createRegionTransition(EventType.RS_ZK_REGION_OPENING,region.getRegionName(),serverName,null);
+    if (!ZKUtil.setData(zkw,node,rt.toByteArray(),stat.getVersion())) {
+      LOG.warn(zkw.prefix("Attempt to retransition the opening state of the " + "unassigned node for " + encoded + " failed, "+ "the node existed and was in the expected state but then when "+ "setting data we got a version mismatch"));
+      return -1;
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(zkw.prefix("Successfully retransition the opening state of node " + encoded));
+    }
+    return stat.getVersion() + 1;
+  }
+ catch (  KeeperException.NoNodeException nne) {
+    LOG.warn(zkw.prefix("Attempt to retransition the opening state of the " + "unassigned node for " + encoded + " failed, "+ "the node existed and was in the expected state but then when "+ "setting data it no longer existed"));
+    return -1;
+  }
+}
