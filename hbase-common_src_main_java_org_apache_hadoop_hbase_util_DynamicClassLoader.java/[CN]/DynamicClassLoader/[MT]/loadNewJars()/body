@@ -1,0 +1,58 @@
+{
+  for (  File file : localDir.listFiles()) {
+    String fileName=file.getName();
+    if (jarModifiedTime.containsKey(fileName)) {
+      continue;
+    }
+    if (file.isFile() && fileName.endsWith(".jar")) {
+      jarModifiedTime.put(fileName,Long.valueOf(file.lastModified()));
+      try {
+        URL url=file.toURI().toURL();
+        addURL(url);
+      }
+ catch (      MalformedURLException mue) {
+        LOG.warn("Failed to load new jar " + fileName,mue);
+      }
+    }
+  }
+  FileStatus[] statuses=null;
+  if (remoteDir != null) {
+    try {
+      statuses=remoteDirFs.listStatus(remoteDir);
+    }
+ catch (    IOException ioe) {
+      LOG.warn("Failed to check remote dir status " + remoteDir,ioe);
+    }
+  }
+  if (statuses == null || statuses.length == 0) {
+    return;
+  }
+  for (  FileStatus status : statuses) {
+    if (status.isDir())     continue;
+    Path path=status.getPath();
+    String fileName=path.getName();
+    if (!fileName.endsWith(".jar")) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Ignored non-jar file " + fileName);
+      }
+      continue;
+    }
+    Long cachedLastModificationTime=jarModifiedTime.get(fileName);
+    if (cachedLastModificationTime != null) {
+      long lastModified=status.getModificationTime();
+      if (lastModified < cachedLastModificationTime.longValue()) {
+        continue;
+      }
+    }
+    try {
+      File dst=new File(localDir,fileName);
+      remoteDirFs.copyToLocalFile(path,new Path(dst.getPath()));
+      jarModifiedTime.put(fileName,Long.valueOf(dst.lastModified()));
+      URL url=dst.toURI().toURL();
+      addURL(url);
+    }
+ catch (    IOException ioe) {
+      LOG.warn("Failed to load new jar " + fileName,ioe);
+    }
+  }
+}
