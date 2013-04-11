@@ -3,53 +3,46 @@
     LOG.debug("Skipping load balance as cluster has only one node.");
     return null;
   }
-  long startTime=System.currentTimeMillis();
-  List<ServerName> servers=new ArrayList<ServerName>(clusterState.keySet());
-  Map<HRegionInfo,ServerName> initialRegionMapping=createRegionMapping(clusterState);
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
   double currentCost, newCost, initCost;
-  currentCost=newCost=initCost=computeCost(initialRegionMapping,clusterState);
-  int computedMaxSteps=Math.min(this.maxSteps,(initialRegionMapping.size() * this.stepsPerRegion));
-  for (int step=0; step < computedMaxSteps; step++) {
-    for (    ServerName leftServer : servers) {
-      ServerName rightServer=pickOtherServer(leftServer,servers);
-      if (rightServer == null) {
+  Cluster cluster=new Cluster(clusterState,loads,regionFinder);
+  currentCost=newCost=initCost=computeCost(cluster);
+  int computedMaxSteps=Math.min(this.maxSteps,(cluster.numRegions * this.stepsPerRegion));
+  int step;
+  for (step=0; step < computedMaxSteps; step++) {
+    for (int leftServer=0; leftServer < cluster.numServers; leftServer++) {
+      int rightServer=pickOtherServer(leftServer,cluster);
+      if (rightServer < 0) {
         continue;
       }
-      List<HRegionInfo> leftRegionList=clusterState.get(leftServer);
-      List<HRegionInfo> rightRegionList=clusterState.get(rightServer);
-      HRegionInfo lRegion=pickRandomRegion(leftRegionList,0);
-      HRegionInfo rRegion=pickRandomRegion(rightRegionList,0.5);
-      if (lRegion == null && rRegion == null) {
+      int lRegion=pickRandomRegion(cluster,leftServer,0);
+      int rRegion=pickRandomRegion(cluster,rightServer,0.5);
+      if (lRegion < 0 && rRegion < 0) {
         continue;
       }
-      if (rRegion != null) {
-        leftRegionList.add(rRegion);
-      }
-      if (lRegion != null) {
-        rightRegionList.add(lRegion);
-      }
-      newCost=computeCost(initialRegionMapping,clusterState);
+      cluster.moveOrSwapRegion(leftServer,rightServer,lRegion,rRegion);
+      newCost=computeCost(cluster);
       if (newCost < currentCost) {
         currentCost=newCost;
       }
  else {
-        if (rRegion != null) {
-          leftRegionList.remove(rRegion);
-          rightRegionList.add(rRegion);
-        }
-        if (lRegion != null) {
-          rightRegionList.remove(lRegion);
-          leftRegionList.add(lRegion);
-        }
+        cluster.moveOrSwapRegion(leftServer,rightServer,rRegion,lRegion);
       }
     }
+    if (EnvironmentEdgeManager.currentTimeMillis() - startTime > maxRunningTime) {
+      break;
+    }
   }
-  long endTime=System.currentTimeMillis();
+  long endTime=EnvironmentEdgeManager.currentTimeMillis();
   if (initCost > currentCost) {
-    List<RegionPlan> plans=createRegionPlans(initialRegionMapping,clusterState);
-    LOG.debug("Finished computing new laod balance plan.  Computation took " + (endTime - startTime) + "ms to try "+ computedMaxSteps+ " different iterations.  Found a solution that moves "+ plans.size()+ " regions; Going from a computed cost of "+ initCost+ " to a new cost of "+ currentCost);
+    List<RegionPlan> plans=createRegionPlans(cluster);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Finished computing new laod balance plan.  Computation took " + (endTime - startTime) + "ms to try "+ step+ " different iterations.  Found a solution that moves "+ plans.size()+ " regions; Going from a computed cost of "+ initCost+ " to a new cost of "+ currentCost);
+    }
     return plans;
   }
-  LOG.debug("Could not find a better load balance plan.  Tried " + computedMaxSteps + " different configurations in "+ (endTime - startTime)+ "ms, and did not find anything with a computed cost less than "+ initCost);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Could not find a better load balance plan.  Tried " + step + " different configurations in "+ (endTime - startTime)+ "ms, and did not find anything with a computed cost less than "+ initCost);
+  }
   return null;
 }

@@ -1,0 +1,74 @@
+{
+  serversToIndex=new HashMap<ServerName,Integer>(clusterState.size());
+  tablesToIndex=new HashMap<Integer,Integer>();
+  tables=new ArrayList<byte[]>();
+  numServers=clusterState.size();
+  numRegions=0;
+  for (  Entry<ServerName,List<HRegionInfo>> entry : clusterState.entrySet()) {
+    numRegions+=entry.getValue().size();
+  }
+  regionsPerServer=new int[clusterState.size()][];
+  servers=new ServerName[numServers];
+  regions=new HRegionInfo[numRegions];
+  regionIndexToServerIndex=new int[numRegions];
+  initialRegionIndexToServerIndex=new int[numRegions];
+  regionIndexToTableIndex=new int[numRegions];
+  regionLoads=new List[numRegions];
+  regionLocations=new int[numRegions][];
+  int tableIndex=0, serverIndex=0, regionIndex=0, regionPerServerIndex=0;
+  for (  Entry<ServerName,List<HRegionInfo>> entry : clusterState.entrySet()) {
+    servers[serverIndex]=entry.getKey();
+    regionsPerServer[serverIndex]=new int[entry.getValue().size()];
+    serversToIndex.put(servers[serverIndex],Integer.valueOf(serverIndex));
+    regionPerServerIndex=0;
+    for (    HRegionInfo region : entry.getValue()) {
+      byte[] tableName=region.getTableName();
+      int tableHash=Bytes.mapKey(tableName);
+      Integer idx=tablesToIndex.get(tableHash);
+      if (idx == null) {
+        tables.add(tableName);
+        idx=tableIndex;
+        tablesToIndex.put(tableHash,tableIndex++);
+      }
+      regions[regionIndex]=region;
+      regionIndexToServerIndex[regionIndex]=serverIndex;
+      initialRegionIndexToServerIndex[regionIndex]=serverIndex;
+      regionIndexToTableIndex[regionIndex]=idx;
+      regionsPerServer[serverIndex][regionPerServerIndex++]=regionIndex;
+      if (loads != null) {
+        List<RegionLoad> rl=loads.get(region.getRegionNameAsString());
+        if (rl == null) {
+          rl=loads.get(region.getEncodedName());
+        }
+        regionLoads[regionIndex]=rl;
+      }
+      if (regionFinder != null) {
+        List<ServerName> loc=regionFinder.getTopBlockLocations(region);
+        regionLocations[regionIndex]=new int[loc.size()];
+        for (int i=0; i < loc.size(); i++) {
+          regionLocations[regionIndex][i]=serversToIndex.get(loc.get(i));
+        }
+      }
+      regionIndex++;
+    }
+    serverIndex++;
+  }
+  numTables=tables.size();
+  numRegionsPerServerPerTable=new int[numServers][numTables];
+  for (int i=0; i < numServers; i++) {
+    for (int j=0; j < numTables; j++) {
+      numRegionsPerServerPerTable[i][j]=0;
+    }
+  }
+  for (int i=0; i < regionIndexToServerIndex.length; i++) {
+    numRegionsPerServerPerTable[regionIndexToServerIndex[i]][regionIndexToTableIndex[i]]++;
+  }
+  numMaxRegionsPerTable=new int[numTables];
+  for (serverIndex=0; serverIndex < numRegionsPerServerPerTable.length; serverIndex++) {
+    for (tableIndex=0; tableIndex < numRegionsPerServerPerTable[serverIndex].length; tableIndex++) {
+      if (numRegionsPerServerPerTable[serverIndex][tableIndex] > numMaxRegionsPerTable[tableIndex]) {
+        numMaxRegionsPerTable[tableIndex]=numRegionsPerServerPerTable[serverIndex][tableIndex];
+      }
+    }
+  }
+}
