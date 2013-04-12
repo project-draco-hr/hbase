@@ -1,0 +1,21 @@
+{
+  TableLockManager tableLockManager=TableLockManager.createTableLockManager(zkWatcher.getConfiguration(),zkWatcher,null);
+  final long expireDate=EnvironmentEdgeManager.currentTimeMillis() - expireTimeout;
+  MetadataHandler handler=new MetadataHandler(){
+    @Override public void handleMetadata(    byte[] ownerMetadata){
+      ZooKeeperProtos.TableLock data=TableLockManager.fromBytes(ownerMetadata);
+      String msg="Table lock acquire attempt found:";
+      if (data != null) {
+        msg=msg + String.format("[tableName=%s, lockOwner=%s, threadId=%s, " + "purpose=%s, isShared=%s, createTime=%s]",Bytes.toString(data.getTableName().toByteArray()),ProtobufUtil.toServerName(data.getLockOwner()),data.getThreadId(),data.getPurpose(),data.getIsShared(),data.getCreateTime());
+      }
+      if (data.hasCreateTime() && data.getCreateTime() < expireDate) {
+        errorReporter.reportError(HBaseFsck.ErrorReporter.ERROR_CODE.EXPIRED_TABLE_LOCK,msg);
+      }
+ else {
+        errorReporter.print(msg);
+      }
+    }
+  }
+;
+  tableLockManager.visitAllLocks(handler);
+}
