@@ -1,0 +1,74 @@
+{
+  if (!results.isEmpty()) {
+    throw new IllegalArgumentException("First parameter should be an empty list");
+  }
+  RpcCallContext rpcCall=HBaseServer.getCurrentCall();
+  while (true) {
+    if (rpcCall != null) {
+      rpcCall.throwExceptionIfCallerDisconnected();
+    }
+    KeyValue current=this.storeHeap.peek();
+    byte[] currentRow=null;
+    int offset=0;
+    short length=0;
+    if (current != null) {
+      currentRow=current.getBuffer();
+      offset=current.getRowOffset();
+      length=current.getRowLength();
+    }
+    boolean stopRow=isStopRow(currentRow,offset,length);
+    if (joinedContinuationRow == null) {
+      if (stopRow) {
+        if (filter != null && filter.hasFilterRow()) {
+          filter.filterRow(results);
+        }
+        return false;
+      }
+      if (filterRowKey(currentRow,offset,length)) {
+        boolean moreRows=nextRow(currentRow,offset,length);
+        if (!moreRows)         return false;
+        results.clear();
+        continue;
+      }
+      KeyValue nextKv=populateResult(results,this.storeHeap,limit,currentRow,offset,length);
+      if (nextKv == KV_LIMIT) {
+        if (this.filter != null && filter.hasFilterRow()) {
+          throw new IncompatibleFilterException("Filter whose hasFilterRow() returns true is incompatible with scan with limit!");
+        }
+        return true;
+      }
+      stopRow=nextKv == null || isStopRow(nextKv.getBuffer(),nextKv.getRowOffset(),nextKv.getRowLength());
+      final boolean isEmptyRow=results.isEmpty();
+      if (filter != null && filter.hasFilterRow()) {
+        filter.filterRow(results);
+      }
+      if (isEmptyRow) {
+        boolean moreRows=nextRow(currentRow,offset,length);
+        if (!moreRows)         return false;
+        results.clear();
+        if (!stopRow)         continue;
+        return false;
+      }
+      if (this.joinedHeap != null) {
+        KeyValue nextJoinedKv=joinedHeap.peek();
+        boolean mayHaveData=(nextJoinedKv != null && nextJoinedKv.matchingRow(currentRow,offset,length)) || (this.joinedHeap.requestSeek(KeyValue.createFirstOnRow(currentRow,offset,length),true,true) && joinedHeap.peek() != null && joinedHeap.peek().matchingRow(currentRow,offset,length));
+        if (mayHaveData) {
+          joinedContinuationRow=current;
+          populateFromJoinedHeap(results,limit);
+        }
+      }
+    }
+ else {
+      populateFromJoinedHeap(results,limit);
+    }
+    if (joinedContinuationRow != null) {
+      return true;
+    }
+    if (results.isEmpty()) {
+      boolean moreRows=nextRow(currentRow,offset,length);
+      if (!moreRows)       return false;
+      if (!stopRow)       continue;
+    }
+    return !stopRow;
+  }
+}
