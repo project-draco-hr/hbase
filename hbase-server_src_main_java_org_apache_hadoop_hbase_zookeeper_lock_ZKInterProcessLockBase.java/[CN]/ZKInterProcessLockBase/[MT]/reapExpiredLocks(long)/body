@@ -8,12 +8,17 @@
     throw new IOException("Unexpected ZooKeeper exception",e);
   }
   KeeperException deferred=null;
+  Stat stat=new Stat();
+  long expireDate=System.currentTimeMillis() - timeout;
   for (  String child : children) {
-    if (isChildWriteLock(child)) {
+    if (isChildOfSameType(child)) {
       String znode=ZKUtil.joinZNode(parentLockNode,child);
-      LOG.info("Reaping write lock for znode:" + znode);
       try {
-        ZKUtil.deleteNodeFailSilent(zkWatcher,znode);
+        ZKUtil.getDataNoWatch(zkWatcher,znode,stat);
+        if (stat.getCtime() < expireDate) {
+          LOG.info("Reaping lock for znode:" + znode);
+          ZKUtil.deleteNodeFailSilent(zkWatcher,znode);
+        }
       }
  catch (      KeeperException ex) {
         LOG.warn("Error reaping the znode for write lock :" + znode);
