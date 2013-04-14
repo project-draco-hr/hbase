@@ -1,14 +1,44 @@
 {
-  try {
-    if (logReaderClass == null) {
-      logReaderClass=conf.getClass("hbase.regionserver.hlog.reader.impl",SequenceFileLogReader.class,Reader.class);
-    }
-    HLog.Reader reader=logReaderClass.newInstance();
-    reader.init(fs,path,conf);
-    return reader;
+  if (logReaderClass == null) {
+    logReaderClass=conf.getClass("hbase.regionserver.hlog.reader.impl",SequenceFileLogReader.class,Reader.class);
   }
- catch (  IOException e) {
-    throw e;
+  try {
+    long startWaiting=EnvironmentEdgeManager.currentTimeMillis();
+    long openTimeout=conf.getInt("hbase.hlog.open.timeout",300000) + startWaiting;
+    int nbAttempt=0;
+    while (true) {
+      try {
+        HLog.Reader reader=logReaderClass.newInstance();
+        reader.init(fs,path,conf);
+        return reader;
+      }
+ catch (      IOException e) {
+        String msg=e.getMessage();
+        if (msg != null && msg.contains("Cannot obtain block length")) {
+          if (++nbAttempt == 1) {
+            LOG.warn("Lease should have recovered. This is not expected. Will retry",e);
+          }
+          if (nbAttempt > 2 && openTimeout < EnvironmentEdgeManager.currentTimeMillis()) {
+            LOG.error("Can't open after " + nbAttempt + " attempts and "+ (EnvironmentEdgeManager.currentTimeMillis() - startWaiting)+ "ms "+ " for "+ path);
+          }
+ else {
+            try {
+              Thread.sleep(nbAttempt < 3 ? 500 : 1000);
+              continue;
+            }
+ catch (            InterruptedException ie) {
+              InterruptedIOException iioe=new InterruptedIOException();
+              iioe.initCause(ie);
+              throw iioe;
+            }
+          }
+        }
+        throw e;
+      }
+    }
+  }
+ catch (  IOException ie) {
+    throw ie;
   }
 catch (  Exception e) {
     throw new IOException("Cannot get log reader",e);
