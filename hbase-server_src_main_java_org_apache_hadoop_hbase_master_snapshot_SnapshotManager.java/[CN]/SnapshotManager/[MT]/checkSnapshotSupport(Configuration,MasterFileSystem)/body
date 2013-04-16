@@ -8,6 +8,13 @@
   Set<String> logCleaners=new HashSet<String>();
   cleaners=conf.getStrings(HConstants.HBASE_MASTER_LOGCLEANER_PLUGINS);
   if (cleaners != null)   Collections.addAll(logCleaners,cleaners);
+  Path oldSnapshotDir=new Path(mfs.getRootDir(),HConstants.OLD_SNAPSHOT_DIR_NAME);
+  FileSystem fs=mfs.getFileSystem();
+  List<SnapshotDescription> ss=getCompletedSnapshots(new Path(rootDir,oldSnapshotDir));
+  if (ss != null && !ss.isEmpty()) {
+    LOG.error("Snapshots from an earlier release were found under: " + oldSnapshotDir);
+    LOG.error("Please rename the directory as " + HConstants.SNAPSHOT_DIR_NAME);
+  }
   if (snapshotEnabled) {
     hfileCleaners.add(SnapshotHFileCleaner.class.getName());
     hfileCleaners.add(HFileLinkCleaner.class.getName());
@@ -25,7 +32,6 @@
   if (!snapshotEnabled) {
     LOG.info("Snapshot feature is not enabled, missing log and hfile cleaners.");
     Path snapshotDir=SnapshotDescriptionUtils.getSnapshotsDir(mfs.getRootDir());
-    FileSystem fs=mfs.getFileSystem();
     if (fs.exists(snapshotDir)) {
       FileStatus[] snapshots=FSUtils.listStatus(fs,snapshotDir,new SnapshotDescriptionUtils.CompletedSnaphotDirectoriesFilter(fs));
       if (snapshots != null) {
