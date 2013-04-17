@@ -1,40 +1,43 @@
 {
   boolean isCorrupted=false;
   Preconditions.checkState(status == null);
-  status=TaskMonitor.get().createStatus("Splitting log file " + logfile.getPath() + "into a temporary staging area.");
   boolean skipErrors=conf.getBoolean("hbase.hlog.split.skip.errors",HLog.SPLIT_SKIP_ERRORS_DEFAULT);
   int interval=conf.getInt("hbase.splitlog.report.interval.loglines",1024);
   Path logPath=logfile.getPath();
-  long logLength=logfile.getLen();
-  LOG.info("Splitting hlog: " + logPath + ", length="+ logLength);
-  status.setStatus("Opening log file");
-  Reader in=null;
-  try {
-    in=getReader(fs,logfile,conf,skipErrors);
-  }
- catch (  CorruptedLogFileException e) {
-    LOG.warn("Could not get reader, corrupted log file " + logPath,e);
-    ZKSplitLog.markCorrupted(rootDir,logfile.getPath().getName(),fs);
-    isCorrupted=true;
-  }
-  if (in == null) {
-    status.markComplete("Was nothing to split in log file");
-    LOG.warn("Nothing to split in log file " + logPath);
-    return true;
-  }
-  this.setDistributedLogSplittingHelper(new DistributedLogSplittingHelper(reporter));
-  if (!reportProgressIfIsDistributedLogSplitting()) {
-    return false;
-  }
+  boolean outputSinkStarted=false;
   boolean progress_failed=false;
-  int numOpenedFilesBeforeReporting=conf.getInt("hbase.splitlog.report.openedfiles",3);
-  int numOpenedFilesLastCheck=0;
-  outputSink.startWriterThreads();
-  Map<byte[],Long> lastFlushedSequenceIds=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
-  Entry entry;
   int editsCount=0;
   int editsSkipped=0;
   try {
+    status=TaskMonitor.get().createStatus("Splitting log file " + logfile.getPath() + "into a temporary staging area.");
+    long logLength=logfile.getLen();
+    LOG.info("Splitting hlog: " + logPath + ", length="+ logLength);
+    status.setStatus("Opening log file");
+    if (reporter != null && !reporter.progress()) {
+      progress_failed=true;
+      return false;
+    }
+    Reader in=null;
+    try {
+      in=getReader(fs,logfile,conf,skipErrors,reporter);
+    }
+ catch (    CorruptedLogFileException e) {
+      LOG.warn("Could not get reader, corrupted log file " + logPath,e);
+      ZKSplitLog.markCorrupted(rootDir,logfile.getPath().getName(),fs);
+      isCorrupted=true;
+    }
+    if (in == null) {
+      status.markComplete("Was nothing to split in log file");
+      LOG.warn("Nothing to split in log file " + logPath);
+      return true;
+    }
+    int numOpenedFilesBeforeReporting=conf.getInt("hbase.splitlog.report.openedfiles",3);
+    int numOpenedFilesLastCheck=0;
+    outputSink.setReporter(reporter);
+    outputSink.startWriterThreads();
+    outputSinkStarted=true;
+    Map<byte[],Long> lastFlushedSequenceIds=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
+    Entry entry;
     while ((entry=getNextLogLine(in,logPath,skipErrors)) != null) {
       byte[] region=entry.getKey().getEncodedRegionName();
       Long lastFlushedSequenceId=-1l;
@@ -55,7 +58,8 @@
         numOpenedFilesLastCheck=outputSink.logWriters.size();
         String countsStr=(editsCount - editsSkipped) + " edits, skipped " + editsSkipped+ " edits.";
         status.setStatus("Split " + countsStr);
-        if (!reportProgressIfIsDistributedLogSplitting()) {
+        if (reporter != null && !reporter.progress()) {
+          progress_failed=true;
           return false;
         }
       }
@@ -77,9 +81,10 @@ catch (  IOException e) {
   }
  finally {
     LOG.info("Finishing writing output logs and closing down.");
-    progress_failed=outputSink.finishWritingAndClose() == null;
+    if (outputSinkStarted) {
+      progress_failed=outputSink.finishWritingAndClose() == null;
+    }
     String msg="Processed " + editsCount + " edits across "+ outputSink.getOutputCounts().size()+ " regions; log file="+ logPath+ " is corrupted = "+ isCorrupted+ " progress failed = "+ progress_failed;
-    ;
     LOG.info(msg);
     status.markComplete(msg);
   }
