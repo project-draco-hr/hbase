@@ -1,0 +1,22 @@
+{
+  List<KeyValue> kvList=new ArrayList<KeyValue>();
+  for (int i=0; i < NUM_ROWS_PER_BATCH; ++i) {
+    kvList.clear();
+    encodeSeeker.setCurrentBuffer(encodedData);
+    KeyValue firstOnRow=KeyValue.createFirstOnRow(getRowKey(batchId,i));
+    encodeSeeker.seekToKeyInBlock(firstOnRow.getBuffer(),firstOnRow.getKeyOffset(),firstOnRow.getKeyLength(),false);
+    boolean hasMoreOfEncodeScanner=encodeSeeker.next();
+    CollectionBackedScanner collectionScanner=new CollectionBackedScanner(this.kvset);
+    boolean hasMoreOfCollectionScanner=collectionScanner.seek(firstOnRow);
+    if (hasMoreOfEncodeScanner != hasMoreOfCollectionScanner) {
+      dumpInputKVSet();
+      fail("Get error result after seeking " + firstOnRow);
+    }
+    if (hasMoreOfEncodeScanner) {
+      if (KeyValue.COMPARATOR.compare(encodeSeeker.getKeyValue(),collectionScanner.peek()) != 0) {
+        dumpInputKVSet();
+        fail("Expected " + collectionScanner.peek() + " actual "+ encodeSeeker.getKeyValue()+ ", after seeking "+ firstOnRow);
+      }
+    }
+  }
+}
