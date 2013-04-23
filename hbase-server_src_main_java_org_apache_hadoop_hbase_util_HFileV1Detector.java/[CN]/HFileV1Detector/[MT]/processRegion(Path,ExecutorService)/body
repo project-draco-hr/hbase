@@ -1,0 +1,44 @@
+{
+  LOG.info("processing region: " + regionDir);
+  Callable<Path> regionCallable=new Callable<Path>(){
+    @Override public Path call() throws Exception {
+      for (      Path familyDir : FSUtils.getFamilyDirs(fs,regionDir)) {
+        FileStatus[] storeFiles=FSUtils.listStatus(fs,familyDir);
+        if (storeFiles == null || storeFiles.length == 0)         continue;
+        for (        FileStatus storeFile : storeFiles) {
+          Path storeFilePath=storeFile.getPath();
+          FSDataInputStream fsdis=null;
+          long lenToRead=0;
+          try {
+            if (StoreFileInfo.isReference(storeFilePath))             continue;
+ else             if (HFileLink.isHFileLink(storeFilePath)) {
+              HFileLink fileLink=new HFileLink(getConf(),storeFilePath);
+              fsdis=fileLink.open(fs);
+              lenToRead=fileLink.getFileStatus(fs).getLen();
+            }
+ else {
+              fsdis=fs.open(storeFilePath);
+              lenToRead=storeFile.getLen();
+            }
+            FixedFileTrailer trailer=FixedFileTrailer.readFromStream(fsdis,lenToRead);
+            int version=trailer.getMajorVersion();
+            if (version == 1) {
+              hFileV1Set.add(storeFilePath);
+              return regionDir;
+            }
+          }
+ catch (          Exception iae) {
+            corruptedHFiles.add(storeFilePath);
+          }
+ finally {
+            if (fsdis != null)             fsdis.close();
+          }
+        }
+      }
+      return null;
+    }
+  }
+;
+  Future<Path> f=exec.submit(regionCallable);
+  return f;
+}
