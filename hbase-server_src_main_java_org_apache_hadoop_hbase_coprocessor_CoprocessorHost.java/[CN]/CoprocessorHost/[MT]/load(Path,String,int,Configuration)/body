@@ -11,55 +11,7 @@
     }
   }
  else {
-    cl=classLoadersCache.get(path);
-    if (cl != null) {
-      LOG.debug("Found classloader " + cl + "for "+ path.toString());
-      try {
-        implClass=cl.loadClass(className);
-      }
- catch (      ClassNotFoundException e) {
-        LOG.info("Class " + className + " needs to be loaded from a file - "+ path+ ".");
-      }
-    }
-  }
-  if (implClass == null) {
-    if (path == null) {
-      throw new IOException("No jar path specified for " + className);
-    }
-    if (!path.toString().endsWith(".jar")) {
-      throw new IOException(path.toString() + ": not a jar file?");
-    }
-    FileSystem fs=path.getFileSystem(this.conf);
-    File parentDir=new File(this.conf.get("hbase.local.dir") + COPROCESSOR_JARS_DIR);
-    parentDir.mkdirs();
-    File dst=new File(parentDir,"." + pathPrefix + "."+ className+ "."+ System.currentTimeMillis()+ ".jar");
-    fs.copyToLocalFile(path,new Path(dst.toString()));
-    dst.deleteOnExit();
-    final List<URL> paths=new ArrayList<URL>();
-    URL url=dst.getCanonicalFile().toURL();
-    paths.add(url);
-    JarFile jarFile=new JarFile(dst.toString());
-    Enumeration<JarEntry> entries=jarFile.entries();
-    while (entries.hasMoreElements()) {
-      JarEntry entry=entries.nextElement();
-      if (entry.getName().matches("/lib/[^/]+\\.jar")) {
-        File file=new File(parentDir,"." + pathPrefix + "."+ className+ "."+ System.currentTimeMillis()+ "."+ entry.getName().substring(5));
-        IOUtils.copyBytes(jarFile.getInputStream(entry),new FileOutputStream(file),conf,true);
-        file.deleteOnExit();
-        paths.add(file.toURL());
-      }
-    }
-    jarFile.close();
-    cl=AccessController.doPrivileged(new PrivilegedAction<CoprocessorClassLoader>(){
-      @Override public CoprocessorClassLoader run(){
-        return new CoprocessorClassLoader(paths,this.getClass().getClassLoader());
-      }
-    }
-);
-    ClassLoader prev=classLoadersCache.putIfAbsent(path,cl);
-    if (prev != null) {
-      cl=prev;
-    }
+    cl=CoprocessorClassLoader.getClassLoader(path,getClass().getClassLoader(),pathPrefix,conf);
     try {
       implClass=cl.loadClass(className);
     }
