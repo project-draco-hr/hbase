@@ -1,21 +1,37 @@
 {
   List<StoreFile> bestSelection=new ArrayList<StoreFile>(0);
+  List<StoreFile> smallest=new ArrayList<StoreFile>(0);
   long bestSize=0;
+  long smallestSize=Long.MAX_VALUE;
+  boolean mightBeStuck=candidates.size() >= filesNeededToForce;
   for (int start=0; start < candidates.size(); start++) {
     for (int currentEnd=start + comConf.getMinFilesToCompact() - 1; currentEnd < candidates.size(); currentEnd++) {
       List<StoreFile> potentialMatchFiles=candidates.subList(start,currentEnd + 1);
-      if (potentialMatchFiles.size() < comConf.getMinFilesToCompact())       continue;
-      if (potentialMatchFiles.size() > comConf.getMaxFilesToCompact())       continue;
-      if (!filesInRatio(potentialMatchFiles,mayUseOffPeak))       continue;
-      long size=0;
-      for (      StoreFile s : potentialMatchFiles) {
-        size+=s.getReader().length();
+      if (potentialMatchFiles.size() < comConf.getMinFilesToCompact()) {
+        continue;
+      }
+      if (potentialMatchFiles.size() > comConf.getMaxFilesToCompact()) {
+        continue;
+      }
+      long size=getTotalStoreSize(potentialMatchFiles);
+      if (size < smallestSize) {
+        smallest=potentialMatchFiles;
+        smallestSize=size;
+      }
+      if (size >= comConf.getMinCompactSize() && !filesInRatio(potentialMatchFiles,mayUseOffPeak)) {
+        continue;
+      }
+      if (size > comConf.getMaxCompactSize()) {
+        continue;
       }
       if (potentialMatchFiles.size() > bestSelection.size() || (potentialMatchFiles.size() == bestSelection.size() && size < bestSize)) {
         bestSelection=potentialMatchFiles;
         bestSize=size;
       }
     }
+  }
+  if (bestSelection.size() == 0 && mightBeStuck) {
+    return new ArrayList<StoreFile>(smallest);
   }
   return new ArrayList<StoreFile>(bestSelection);
 }
