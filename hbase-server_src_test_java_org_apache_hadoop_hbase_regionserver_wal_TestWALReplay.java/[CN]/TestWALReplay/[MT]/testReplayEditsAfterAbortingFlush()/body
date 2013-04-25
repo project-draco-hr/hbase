@@ -8,23 +8,11 @@
   region3.close();
   region3.getLog().closeAndDelete();
   HLog wal=createWAL(this.conf);
-  final AtomicBoolean throwExceptionWhenFlushing=new AtomicBoolean(false);
   RegionServerServices rsServices=Mockito.mock(RegionServerServices.class);
   Mockito.doReturn(false).when(rsServices).isAborted();
-  HRegion region=new HRegion(basedir,wal,this.fs,this.conf,hri,htd,rsServices){
-    @Override protected HStore instantiateHStore(    final HColumnDescriptor family) throws IOException {
-      return new HStore(this,family,conf){
-        @Override protected Path flushCache(        final long logCacheFlushId,        SortedSet<KeyValue> snapshot,        TimeRangeTracker snapshotTimeRangeTracker,        AtomicLong flushedSize,        MonitoredTask status) throws IOException {
-          if (throwExceptionWhenFlushing.get()) {
-            throw new IOException("Simulated exception by tests");
-          }
-          return super.flushCache(logCacheFlushId,snapshot,snapshotTimeRangeTracker,flushedSize,status);
-        }
-      }
-;
-    }
-  }
-;
+  Configuration customConf=new Configuration(this.conf);
+  customConf.set(DefaultStoreEngine.DEFAULT_STORE_FLUSHER_CLASS_KEY,CustomStoreFlusher.class.getName());
+  HRegion region=new HRegion(basedir,wal,this.fs,customConf,hri,htd,rsServices);
   long seqid=region.initialize();
   wal.setSequenceNumber(seqid);
   int writtenRowCount=10;
@@ -36,7 +24,7 @@
   }
   RegionScanner scanner=region.getScanner(new Scan());
   assertEquals(writtenRowCount,getScannedCount(scanner));
-  throwExceptionWhenFlushing.set(true);
+  CustomStoreFlusher.throwExceptionWhenFlushing.set(true);
   try {
     region.flushcache();
     fail("Injected exception hasn't been thrown");
@@ -52,7 +40,7 @@
     region.put(put);
   }
   writtenRowCount+=moreRow;
-  throwExceptionWhenFlushing.set(false);
+  CustomStoreFlusher.throwExceptionWhenFlushing.set(false);
   try {
     region.flushcache();
   }

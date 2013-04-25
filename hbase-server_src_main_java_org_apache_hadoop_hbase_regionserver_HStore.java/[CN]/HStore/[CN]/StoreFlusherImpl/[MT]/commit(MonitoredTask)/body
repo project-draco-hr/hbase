@@ -1,10 +1,31 @@
 {
-  if (storeFilePath == null) {
+  if (this.tempFiles == null || this.tempFiles.isEmpty()) {
     return false;
   }
-  storeFile=HStore.this.commitFile(storeFilePath,cacheFlushId,snapshotTimeRangeTracker,flushedSize,status);
-  if (HStore.this.getCoprocessorHost() != null) {
-    HStore.this.getCoprocessorHost().postFlush(HStore.this,storeFile);
+  List<StoreFile> storeFiles=new ArrayList<StoreFile>(this.tempFiles.size());
+  for (  Path storeFilePath : tempFiles) {
+    try {
+      storeFiles.add(HStore.this.commitFile(storeFilePath,cacheFlushSeqNum,snapshotTimeRangeTracker,flushedSize,status));
+    }
+ catch (    IOException ex) {
+      LOG.error("Failed to commit store file " + storeFilePath,ex);
+      for (      StoreFile sf : storeFiles) {
+        Path pathToDelete=sf.getPath();
+        try {
+          sf.deleteReader();
+        }
+ catch (        IOException deleteEx) {
+          LOG.fatal("Failed to delete store file we committed, halting " + pathToDelete,ex);
+          Runtime.getRuntime().halt(1);
+        }
+      }
+      throw new IOException("Failed to commit the flush",ex);
+    }
   }
-  return HStore.this.updateStorefiles(storeFile,snapshot);
+  if (HStore.this.getCoprocessorHost() != null) {
+    for (    StoreFile sf : storeFiles) {
+      HStore.this.getCoprocessorHost().postFlush(HStore.this,sf);
+    }
+  }
+  return HStore.this.updateStorefiles(storeFiles,snapshot);
 }

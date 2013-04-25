@@ -15,7 +15,7 @@
   this.updatesLock.writeLock().lock();
   long flushsize=this.memstoreSize.get();
   status.setStatus("Preparing to flush by snapshotting stores");
-  List<StoreFlusher> storeFlushers=new ArrayList<StoreFlusher>(stores.size());
+  List<StoreFlushContext> storeFlushCtxs=new ArrayList<StoreFlushContext>(stores.size());
   long flushSeqId=-1L;
   try {
     w=mvcc.beginMemstoreInsert();
@@ -32,10 +32,10 @@
       flushSeqId=myseqid;
     }
     for (    Store s : stores.values()) {
-      storeFlushers.add(s.getStoreFlusher(flushSeqId));
+      storeFlushCtxs.add(s.createFlushContext(flushSeqId));
     }
-    for (    StoreFlusher flusher : storeFlushers) {
-      flusher.prepare();
+    for (    StoreFlushContext flush : storeFlushCtxs) {
+      flush.prepare();
     }
   }
   finally {
@@ -52,16 +52,16 @@
   LOG.debug("Finished snapshotting, commencing flushing stores");
   boolean compactionRequested=false;
   try {
-    for (    StoreFlusher flusher : storeFlushers) {
-      flusher.flushCache(status);
+    for (    StoreFlushContext flush : storeFlushCtxs) {
+      flush.flushCache(status);
     }
-    for (    StoreFlusher flusher : storeFlushers) {
-      boolean needsCompaction=flusher.commit(status);
+    for (    StoreFlushContext flush : storeFlushCtxs) {
+      boolean needsCompaction=flush.commit(status);
       if (needsCompaction) {
         compactionRequested=true;
       }
     }
-    storeFlushers.clear();
+    storeFlushCtxs.clear();
     this.addAndGetGlobalMemstoreSize(-flushsize);
   }
  catch (  Throwable t) {

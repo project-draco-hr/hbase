@@ -1,0 +1,36 @@
+{
+  ArrayList<Path> result=new ArrayList<Path>();
+  if (snapshot.size() == 0)   return result;
+  long smallestReadPoint=store.getSmallestReadPoint();
+  KeyValueScanner memstoreScanner=new CollectionBackedScanner(snapshot,store.getComparator());
+  InternalScanner scanner=preCreateCoprocScanner(memstoreScanner);
+  if (scanner == null) {
+    scanner=createStoreScanner(smallestReadPoint,memstoreScanner);
+  }
+  scanner=postCreateCoprocScanner(scanner);
+  if (scanner == null) {
+    return result;
+  }
+  StoreFile.Writer writer;
+  long flushed=0;
+  try {
+synchronized (flushLock) {
+      status.setStatus("Flushing " + store + ": creating writer");
+      writer=store.createWriterInTmp(snapshot.size(),store.getFamily().getCompression(),false,true);
+      writer.setTimeRangeTracker(snapshotTimeRangeTracker);
+      try {
+        flushed=performFlush(scanner,writer,smallestReadPoint);
+      }
+  finally {
+        finalizeWriter(writer,cacheFlushId,status);
+      }
+    }
+  }
+  finally {
+    flushedSize.set(flushed);
+    scanner.close();
+  }
+  LOG.info("Flushed, sequenceid=" + cacheFlushId + ", memsize="+ StringUtils.humanReadableInt(flushed)+ ", into tmp file "+ writer.getPath());
+  result.add(writer.getPath());
+  return result;
+}
