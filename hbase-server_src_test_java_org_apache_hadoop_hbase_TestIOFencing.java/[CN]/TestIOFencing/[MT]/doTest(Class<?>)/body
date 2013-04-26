@@ -1,0 +1,72 @@
+{
+  Configuration c=TEST_UTIL.getConfiguration();
+  c.setClass(HConstants.REGION_IMPL,regionClass,HRegion.class);
+  c.setBoolean("dfs.support.append",true);
+  c.setLong("hbase.hregion.memstore.flush.size",200000);
+  c.set(HConstants.HBASE_REGION_SPLIT_POLICY_KEY,ConstantSizeRegionSplitPolicy.class.getName());
+  c.setInt("hbase.hstore.compactionThreshold",1000);
+  c.setLong("hbase.hstore.blockingStoreFiles",1000);
+  c.setInt("hbase.regionserver.thread.splitcompactcheckfrequency",1000);
+  LOG.info("Starting mini cluster");
+  TEST_UTIL.startMiniCluster(1);
+  CompactionBlockerRegion compactingRegion=null;
+  HBaseAdmin admin=null;
+  try {
+    LOG.info("Creating admin");
+    admin=new HBaseAdmin(c);
+    LOG.info("Creating table");
+    TEST_UTIL.createTable(TABLE_NAME,FAMILY);
+    HTable table=new HTable(c,TABLE_NAME);
+    LOG.info("Loading test table");
+    TEST_UTIL.loadNumericRows(table,FAMILY,0,FIRST_BATCH_COUNT);
+    List<HRegion> testRegions=TEST_UTIL.getMiniHBaseCluster().findRegionsForTable(TABLE_NAME);
+    assertEquals(1,testRegions.size());
+    compactingRegion=(CompactionBlockerRegion)testRegions.get(0);
+    assertTrue(compactingRegion.countStoreFiles() > 1);
+    final byte REGION_NAME[]=compactingRegion.getRegionName();
+    LOG.info("Blocking compactions");
+    compactingRegion.stopCompactions();
+    LOG.info("Asking for compaction");
+    admin.majorCompact(TABLE_NAME);
+    LOG.info("Waiting for compaction to be about to start");
+    compactingRegion.waitForCompactionToBlock();
+    LOG.info("Starting a new server");
+    RegionServerThread newServerThread=TEST_UTIL.getMiniHBaseCluster().startRegionServer();
+    HRegionServer newServer=newServerThread.getRegionServer();
+    LOG.info("Killing region server ZK lease");
+    TEST_UTIL.expireRegionServerSession(0);
+    CompactionBlockerRegion newRegion=null;
+    long startWaitTime=System.currentTimeMillis();
+    while (newRegion == null) {
+      LOG.info("Waiting for the new server to pick up the region " + Bytes.toString(REGION_NAME));
+      Thread.sleep(100);
+      newRegion=(CompactionBlockerRegion)newServer.getOnlineRegion(REGION_NAME);
+      assertTrue("Timed out waiting for new server to open region",System.currentTimeMillis() - startWaitTime < 60000);
+    }
+    LOG.info("Allowing compaction to proceed");
+    compactingRegion.allowCompactions();
+    while (compactingRegion.compactCount == 0) {
+      Thread.sleep(1000);
+    }
+    LOG.info("Compaction finished");
+    FileSystem fs=newRegion.getFilesystem();
+    for (    String f : newRegion.getStoreFileList(new byte[][]{FAMILY})) {
+      assertTrue("After compaction, does not exist: " + f,fs.exists(new Path(f)));
+    }
+    TEST_UTIL.loadNumericRows(table,FAMILY,FIRST_BATCH_COUNT,FIRST_BATCH_COUNT + SECOND_BATCH_COUNT);
+    admin.majorCompact(TABLE_NAME);
+    startWaitTime=System.currentTimeMillis();
+    while (newRegion.compactCount == 0) {
+      Thread.sleep(1000);
+      assertTrue("New region never compacted",System.currentTimeMillis() - startWaitTime < 30000);
+    }
+    assertEquals(FIRST_BATCH_COUNT + SECOND_BATCH_COUNT,TEST_UTIL.countRows(table));
+  }
+  finally {
+    if (compactingRegion != null) {
+      compactingRegion.allowCompactions();
+    }
+    admin.close();
+    TEST_UTIL.shutdownMiniCluster();
+  }
+}

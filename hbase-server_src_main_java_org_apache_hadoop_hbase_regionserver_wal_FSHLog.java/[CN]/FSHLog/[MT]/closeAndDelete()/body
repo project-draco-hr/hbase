@@ -2,23 +2,25 @@
   close();
   if (!fs.exists(this.dir))   return;
   FileStatus[] files=fs.listStatus(this.dir);
-  for (  FileStatus file : files) {
-    Path p=getHLogArchivePath(this.oldLogDir,file.getPath());
-    if (!this.listeners.isEmpty()) {
-      for (      WALActionsListener i : this.listeners) {
-        i.preLogArchive(file.getPath(),p);
+  if (files != null) {
+    for (    FileStatus file : files) {
+      Path p=getHLogArchivePath(this.oldLogDir,file.getPath());
+      if (!this.listeners.isEmpty()) {
+        for (        WALActionsListener i : this.listeners) {
+          i.preLogArchive(file.getPath(),p);
+        }
+      }
+      if (!fs.rename(file.getPath(),p)) {
+        throw new IOException("Unable to rename " + file.getPath() + " to "+ p);
+      }
+      if (!this.listeners.isEmpty()) {
+        for (        WALActionsListener i : this.listeners) {
+          i.postLogArchive(file.getPath(),p);
+        }
       }
     }
-    if (!fs.rename(file.getPath(),p)) {
-      throw new IOException("Unable to rename " + file.getPath() + " to "+ p);
-    }
-    if (!this.listeners.isEmpty()) {
-      for (      WALActionsListener i : this.listeners) {
-        i.postLogArchive(file.getPath(),p);
-      }
-    }
+    LOG.debug("Moved " + files.length + " log files to "+ FSUtils.getPath(this.oldLogDir));
   }
-  LOG.debug("Moved " + files.length + " log files to "+ FSUtils.getPath(this.oldLogDir));
   if (!fs.delete(dir,true)) {
     LOG.info("Unable to delete " + dir);
   }

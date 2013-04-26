@@ -1,0 +1,61 @@
+{
+  String method="testRecoveredEditsReplayCompaction";
+  byte[] tableName=Bytes.toBytes(method);
+  byte[] family=Bytes.toBytes("family");
+  this.region=initHRegion(tableName,method,conf,family);
+  try {
+    Path regiondir=region.getRegionFileSystem().getRegionDir();
+    FileSystem fs=region.getRegionFileSystem().getFileSystem();
+    byte[] regionName=region.getRegionInfo().getEncodedNameAsBytes();
+    long maxSeqId=3;
+    long minSeqId=0;
+    for (long i=minSeqId; i < maxSeqId; i++) {
+      Put put=new Put(Bytes.toBytes(i));
+      put.add(family,Bytes.toBytes(i),Bytes.toBytes(i));
+      region.put(put);
+      region.flushcache();
+    }
+    assertEquals(3,region.getStore(family).getStorefilesCount());
+    List<Path> storeFiles=new ArrayList<Path>(3);
+    for (    StoreFile sf : region.getStore(family).getStorefiles()) {
+      storeFiles.add(sf.getPath());
+    }
+    conf.setBoolean("hbase.hstore.compaction.complete",false);
+    region.compactStores();
+    assertEquals(3,region.getStore(family).getStorefilesCount());
+    Path tmpDir=region.getRegionFileSystem().getTempDir();
+    FileStatus[] files=region.getRegionFileSystem().getFileSystem().listStatus(tmpDir);
+    assertEquals(1,files.length);
+    Path newFile=region.getRegionFileSystem().commitStoreFile(Bytes.toString(family),files[0].getPath());
+    CompactionDescriptor compactionDescriptor=ProtobufUtil.toCompactionDescriptor(this.region.getRegionInfo(),family,storeFiles,Lists.newArrayList(newFile),region.getRegionFileSystem().getStoreDir(Bytes.toString(family)));
+    HLogUtil.writeCompactionMarker(region.getLog(),this.region.getTableDesc(),this.region.getRegionInfo(),compactionDescriptor);
+    Path recoveredEditsDir=HLogUtil.getRegionDirRecoveredEditsDir(regiondir);
+    Path recoveredEdits=new Path(recoveredEditsDir,String.format("%019d",1000));
+    fs.create(recoveredEdits);
+    HLog.Writer writer=HLogFactory.createWriter(fs,recoveredEdits,conf);
+    long time=System.nanoTime();
+    writer.append(new HLog.Entry(new HLogKey(regionName,tableName,10,time,HConstants.DEFAULT_CLUSTER_ID),WALEdit.createCompaction(compactionDescriptor)));
+    writer.close();
+    HTableDescriptor htd=region.getTableDesc();
+    HRegionInfo info=region.getRegionInfo();
+    region.close();
+    region=HRegion.openHRegion(conf,fs,regiondir.getParent().getParent(),info,htd,null);
+    Collection<StoreFile> sfs=region.getStore(family).getStorefiles();
+    for (    StoreFile sf : sfs) {
+      LOG.info(sf.getPath());
+    }
+    assertEquals(1,region.getStore(family).getStorefilesCount());
+    files=region.getRegionFileSystem().getFileSystem().listStatus(tmpDir);
+    assertEquals(0,files.length);
+    for (long i=minSeqId; i < maxSeqId; i++) {
+      Get get=new Get(Bytes.toBytes(i));
+      Result result=region.get(get);
+      byte[] value=result.getValue(family,Bytes.toBytes(i));
+      assertEquals(Bytes.toBytes(i),value);
+    }
+  }
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
+}
