@@ -1,9 +1,6 @@
 {
-  FSDataInputStream is=this.istreamNoFsChecksum;
-  boolean doVerificationThruHBaseChecksum=this.useHBaseChecksum;
-  if (!doVerificationThruHBaseChecksum) {
-    is=this.istream;
-  }
+  boolean doVerificationThruHBaseChecksum=streamWrapper.shouldUseHBaseChecksum();
+  FSDataInputStream is=streamWrapper.getStream(doVerificationThruHBaseChecksum);
   HFileBlock blk=readBlockDataInternal(is,offset,onDiskSizeWithHeaderL,uncompressedSize,pread,doVerificationThruHBaseChecksum);
   if (blk == null) {
     HFile.LOG.warn("HBase checksum verification failed for file " + path + " at offset "+ offset+ " filesize "+ fileSize+ ". Retrying read with HDFS checksums turned on...");
@@ -13,10 +10,8 @@
       throw new IOException(msg);
     }
     HFile.checksumFailures.incrementAndGet();
-    this.checksumOffCount=CHECKSUM_VERIFICATION_NUM_IO_THRESHOLD;
-    this.useHBaseChecksum=false;
+    is=this.streamWrapper.fallbackToFsChecksum(CHECKSUM_VERIFICATION_NUM_IO_THRESHOLD);
     doVerificationThruHBaseChecksum=false;
-    is=this.istream;
     blk=readBlockDataInternal(is,offset,onDiskSizeWithHeaderL,uncompressedSize,pread,doVerificationThruHBaseChecksum);
     if (blk != null) {
       HFile.LOG.warn("HDFS checksum verification suceeded for file " + path + " at offset "+ offset+ " filesize "+ fileSize);
@@ -27,10 +22,6 @@
     HFile.LOG.warn(msg);
     throw new IOException(msg);
   }
-  if (!this.useHBaseChecksum && this.useHBaseChecksumConfigured) {
-    if (this.checksumOffCount-- < 0) {
-      this.useHBaseChecksum=true;
-    }
-  }
+  streamWrapper.checksumOk();
   return blk;
 }
