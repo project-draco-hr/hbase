@@ -1,0 +1,23 @@
+{
+  formatRowNum=true;
+  PrefixTreeCodec encoder=new PrefixTreeCodec();
+  int batchId=numBatchesWritten++;
+  ByteBuffer dataBuffer=generateFixedTestData(kvset,batchId,false);
+  HFileBlockEncodingContext blkEncodingCtx=new HFileBlockDefaultEncodingContext(Algorithm.NONE,DataBlockEncoding.PREFIX_TREE,new byte[0]);
+  encoder.encodeKeyValues(dataBuffer,false,blkEncodingCtx);
+  EncodedSeeker seeker=encoder.createSeeker(KeyValue.KEY_COMPARATOR,false);
+  byte[] onDiskBytes=blkEncodingCtx.getOnDiskBytesWithHeader();
+  ByteBuffer readBuffer=ByteBuffer.wrap(onDiskBytes,DataBlockEncoding.ID_SIZE,onDiskBytes.length - DataBlockEncoding.ID_SIZE);
+  seeker.setCurrentBuffer(readBuffer);
+  KeyValue seekKey=KeyValue.createFirstDeleteFamilyOnRow(getRowKey(batchId,0),CF_BYTES);
+  seeker.seekToKeyInBlock(seekKey.getBuffer(),seekKey.getKeyOffset(),seekKey.getKeyLength(),true);
+  assertEquals(null,seeker.getKeyValue());
+  seekKey=KeyValue.createFirstDeleteFamilyOnRow(getRowKey(batchId,NUM_ROWS_PER_BATCH / 3),CF_BYTES);
+  seeker.seekToKeyInBlock(seekKey.getBuffer(),seekKey.getKeyOffset(),seekKey.getKeyLength(),true);
+  assertNotNull(seeker.getKeyValue());
+  assertArrayEquals(getRowKey(batchId,NUM_ROWS_PER_BATCH / 3 - 1),seeker.getKeyValue().getRow());
+  seekKey=KeyValue.createFirstDeleteFamilyOnRow(Bytes.toBytes("zzzz"),CF_BYTES);
+  seeker.seekToKeyInBlock(seekKey.getBuffer(),seekKey.getKeyOffset(),seekKey.getKeyLength(),true);
+  assertNotNull(seeker.getKeyValue());
+  assertArrayEquals(getRowKey(batchId,NUM_ROWS_PER_BATCH - 1),seeker.getKeyValue().getRow());
+}
