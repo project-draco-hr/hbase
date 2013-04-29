@@ -1,5 +1,7 @@
 {
   ArrayList<StoreFile> candidateSelection=new ArrayList<StoreFile>(candidateFiles);
+  int futureFiles=filesCompacting.isEmpty() ? 0 : 1;
+  boolean mayBeStuck=(candidateFiles.size() - filesCompacting.size() + futureFiles) >= storeConfigInfo.getBlockingFileCount();
   candidateSelection=getCurrentEligibleFiles(candidateSelection,filesCompacting);
   long cfTtl=this.storeConfigInfo.getStoreFileTtl();
   if (!forceMajor) {
@@ -14,14 +16,10 @@
   boolean majorCompaction=((forceMajor && isUserCompaction) || ((forceMajor || isMajorCompaction(candidateSelection)) && (candidateSelection.size() < comConf.getMaxFilesToCompact())) || StoreUtils.hasReferences(candidateSelection));
   if (!majorCompaction) {
     candidateSelection=filterBulk(candidateSelection);
-    candidateSelection=applyCompactionPolicy(candidateSelection,mayUseOffPeak);
+    candidateSelection=applyCompactionPolicy(candidateSelection,mayUseOffPeak,mayBeStuck);
     candidateSelection=checkMinFilesCriteria(candidateSelection);
   }
   candidateSelection=removeExcessFiles(candidateSelection,isUserCompaction,majorCompaction);
-  if (candidateSelection.size() == 0 && candidateFiles.size() >= storeConfigInfo.getBlockingFileCount()) {
-    candidateSelection=new ArrayList<StoreFile>(candidateFiles);
-    candidateSelection.subList(0,Math.max(0,candidateSelection.size() - comConf.getMinFilesToCompact())).clear();
-  }
   CompactionRequest result=new CompactionRequest(candidateSelection);
   result.setOffPeak(!candidateSelection.isEmpty() && !majorCompaction && mayUseOffPeak);
   return result;
