@@ -1,0 +1,34 @@
+{
+  WALKey.Builder builder=WALKey.newBuilder();
+  boolean hasNext=false;
+  try {
+    hasNext=builder.mergeDelimitedFrom(inputStream);
+  }
+ catch (  InvalidProtocolBufferException ipbe) {
+    LOG.error("Invalid PB while reading WAL, probably an unexpected EOF, ignoring",ipbe);
+  }
+  if (!hasNext)   return false;
+  if (!builder.isInitialized()) {
+    LOG.error("Partial PB while reading WAL, probably an unexpected EOF, ignoring");
+    return false;
+  }
+  WALKey walKey=builder.build();
+  entry.getKey().readFieldsFromPb(walKey,this.byteStringUncompressor);
+  try {
+    int expectedCells=walKey.getFollowingKvCount();
+    int actualCells=entry.getEdit().readFromCells(cellDecoder,expectedCells);
+    if (expectedCells != actualCells) {
+      throw new EOFException("Unable to read " + expectedCells + " cells, got "+ actualCells);
+    }
+  }
+ catch (  EOFException ex) {
+    LOG.error("EOF while reading KVs, ignoring",ex);
+    return false;
+  }
+catch (  Exception ex) {
+    IOException realEofEx=extractHiddenEofOrRethrow(ex);
+    LOG.error("EOF while reading KVs, ignoring",realEofEx);
+    return false;
+  }
+  return true;
+}

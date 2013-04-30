@@ -1,19 +1,25 @@
 {
-  SequenceFileLogReader in=new SequenceFileLogReader();
-  SequenceFileLogWriter out=new SequenceFileLogWriter();
+  Configuration conf=HBaseConfiguration.create();
+  FileSystem inFS=input.getFileSystem(conf);
+  FileSystem outFS=output.getFileSystem(conf);
+  HLog.Reader in=HLogFactory.createReader(inFS,input,conf,null,false);
+  HLog.Writer out=null;
   try {
-    Configuration conf=HBaseConfiguration.create();
-    FileSystem inFS=input.getFileSystem(conf);
-    FileSystem outFS=output.getFileSystem(conf);
-    in.init(inFS,input,conf);
-    boolean compress=in.reader.isWALCompressionEnabled();
+    if (!(in instanceof ReaderBase)) {
+      System.err.println("Cannot proceed, invalid reader type: " + in.getClass().getName());
+      return;
+    }
+    boolean compress=((ReaderBase)in).hasCompression();
     conf.setBoolean(HConstants.ENABLE_WAL_COMPRESSION,!compress);
-    out.init(outFS,output,conf);
+    out=HLogFactory.createWriter(outFS,output,conf);
     HLog.Entry e=null;
     while ((e=in.next()) != null)     out.append(e);
   }
   finally {
     in.close();
-    out.close();
+    if (out != null) {
+      out.close();
+      out=null;
+    }
   }
 }

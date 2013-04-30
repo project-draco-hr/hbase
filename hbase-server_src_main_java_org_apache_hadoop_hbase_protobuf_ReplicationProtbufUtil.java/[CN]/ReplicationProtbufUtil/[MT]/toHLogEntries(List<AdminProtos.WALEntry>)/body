@@ -1,24 +1,18 @@
 {
   List<HLog.Entry> entries=new ArrayList<HLog.Entry>();
   for (  AdminProtos.WALEntry entry : protoList) {
-    AdminProtos.WALEntry.WALKey walKey=entry.getKey();
-    java.util.UUID clusterId=HConstants.DEFAULT_CLUSTER_ID;
-    if (walKey.hasClusterId()) {
-      AdminProtos.UUID protoUuid=walKey.getClusterId();
-      clusterId=new java.util.UUID(protoUuid.getMostSigBits(),protoUuid.getLeastSigBits());
-    }
-    HLogKey key=new HLogKey(walKey.getEncodedRegionName().toByteArray(),walKey.getTableName().toByteArray(),walKey.getLogSequenceNumber(),walKey.getWriteTime(),clusterId);
-    AdminProtos.WALEntry.WALEdit walEdit=entry.getEdit();
+    WALProtos.WALKey walKey=entry.getKey();
+    HLogKey key=new HLogKey(walKey);
     WALEdit edit=new WALEdit();
-    for (    ByteString keyValue : walEdit.getKeyValueBytesList()) {
+    for (    ByteString keyValue : entry.getKeyValueBytesList()) {
       edit.add(new KeyValue(keyValue.toByteArray()));
     }
-    if (walEdit.getFamilyScopeCount() > 0) {
+    if (walKey.getScopesCount() > 0) {
       TreeMap<byte[],Integer> scopes=new TreeMap<byte[],Integer>(Bytes.BYTES_COMPARATOR);
-      for (      AdminProtos.WALEntry.WALEdit.FamilyScope scope : walEdit.getFamilyScopeList()) {
+      for (      WALProtos.FamilyScope scope : walKey.getScopesList()) {
         scopes.put(scope.getFamily().toByteArray(),Integer.valueOf(scope.getScopeType().ordinal()));
       }
-      edit.setScopes(scopes);
+      key.setScopes(scopes);
     }
     entries.add(new HLog.Entry(key,edit));
   }
