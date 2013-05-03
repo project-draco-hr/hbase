@@ -1,0 +1,60 @@
+{
+  if (shouldCloseConnection.get())   return;
+  touch();
+  int totalSize=-1;
+  try {
+    totalSize=in.readInt();
+    ResponseHeader responseHeader=ResponseHeader.parseDelimitedFrom(in);
+    int id=responseHeader.getCallId();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(getName() + ": got response header " + TextFormat.shortDebugString(responseHeader)+ ", totalSize: "+ totalSize+ " bytes");
+    }
+    Call call=calls.get(id);
+    if (call == null) {
+      int readSoFar=IPCUtil.getTotalSizeWhenWrittenDelimited(responseHeader);
+      int whatIsLeftToRead=totalSize - readSoFar;
+      LOG.debug("Unknown callId: " + id + ", skipping over this response of "+ whatIsLeftToRead+ " bytes");
+      IOUtils.skipFully(in,whatIsLeftToRead);
+    }
+    if (responseHeader.hasException()) {
+      ExceptionResponse exceptionResponse=responseHeader.getException();
+      RemoteException re=createRemoteException(exceptionResponse);
+      if (isFatalConnectionException(exceptionResponse)) {
+        markClosed(re);
+      }
+ else {
+        if (call != null)         call.setException(re);
+      }
+    }
+ else {
+      Message value=null;
+      if (call != null && call.responseDefaultType != null) {
+        Builder builder=call.responseDefaultType.newBuilderForType();
+        builder.mergeDelimitedFrom(in);
+        value=builder.build();
+      }
+      CellScanner cellBlockScanner=null;
+      if (responseHeader.hasCellBlockMeta()) {
+        int size=responseHeader.getCellBlockMeta().getLength();
+        byte[] cellBlock=new byte[size];
+        IOUtils.readFully(this.in,cellBlock,0,cellBlock.length);
+        cellBlockScanner=ipcUtil.createCellScanner(this.codec,this.compressor,cellBlock);
+      }
+      if (call != null)       call.setResponse(value,cellBlockScanner);
+    }
+    if (call != null)     calls.remove(id);
+  }
+ catch (  IOException e) {
+    if (e instanceof SocketTimeoutException && remoteId.rpcTimeout > 0) {
+      closeException=e;
+    }
+ else {
+      markClosed(e);
+    }
+  }
+ finally {
+    if (remoteId.rpcTimeout > 0) {
+      cleanupCalls(remoteId.rpcTimeout);
+    }
+  }
+}

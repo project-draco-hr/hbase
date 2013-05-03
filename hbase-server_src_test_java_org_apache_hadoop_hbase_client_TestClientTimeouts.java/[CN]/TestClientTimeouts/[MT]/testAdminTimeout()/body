@@ -2,30 +2,39 @@
   long lastLimit=HConstants.DEFAULT_HBASE_CLIENT_PREFETCH_LIMIT;
   HConnection lastConnection=null;
   boolean lastFailed=false;
-  int initialInvocations=RandomTimeoutRpcEngine.getNumberOfInvocations();
-  RandomTimeoutRpcEngine engine=new RandomTimeoutRpcEngine(TEST_UTIL.getConfiguration());
+  int initialInvocations=RandomTimeoutBlockingRpcChannel.invokations.get();
+  RpcClient rpcClient=new RpcClient(TEST_UTIL.getConfiguration(),TEST_UTIL.getClusterKey()){
+    @Override public BlockingRpcChannel createBlockingRpcChannel(    ServerName sn,    User ticket,    int rpcTimeout){
+      return new RandomTimeoutBlockingRpcChannel(this,sn,ticket,rpcTimeout);
+    }
+  }
+;
   try {
     for (int i=0; i < 5 || (lastFailed && i < 100); ++i) {
       lastFailed=false;
       Configuration conf=HBaseConfiguration.create(TEST_UTIL.getConfiguration());
       conf.setLong(HConstants.HBASE_CLIENT_PREFETCH_LIMIT,++lastLimit);
+      HBaseAdmin admin=null;
       try {
-        HBaseAdmin admin=new HBaseAdmin(conf);
+        admin=new HBaseAdmin(conf);
         HConnection connection=admin.getConnection();
         assertFalse(connection == lastConnection);
         lastConnection=connection;
-        ((HConnectionManager.HConnectionImplementation)connection).setRpcEngine(engine);
+        ((HConnectionManager.HConnectionImplementation)connection).setRpcClient(rpcClient);
         HBaseAdmin.checkHBaseAvailable(conf);
         admin.setBalancerRunning(false,false);
       }
  catch (      MasterNotRunningException ex) {
         lastFailed=true;
       }
+ finally {
+        admin.close();
+      }
     }
     assertFalse(lastFailed);
-    assertTrue(RandomTimeoutRpcEngine.getNumberOfInvocations() > initialInvocations);
+    assertTrue(RandomTimeoutBlockingRpcChannel.invokations.get() > initialInvocations);
   }
   finally {
-    engine.close();
+    rpcClient.stop();
   }
 }

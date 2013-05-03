@@ -1,0 +1,49 @@
+{
+  ServerName sn=null;
+  long previousLogTime=0;
+  RegionServerStatusService.BlockingInterface master=null;
+  boolean refresh=false;
+  RegionServerStatusService.BlockingInterface intf=null;
+  while (keepLooping() && master == null) {
+    sn=this.masterAddressManager.getMasterAddress(refresh);
+    if (sn == null) {
+      if (!keepLooping()) {
+        LOG.debug("No master found and cluster is stopped; bailing out");
+        return null;
+      }
+      LOG.debug("No master found; retry");
+      previousLogTime=System.currentTimeMillis();
+      refresh=true;
+      sleeper.sleep();
+      continue;
+    }
+    InetSocketAddress isa=new InetSocketAddress(sn.getHostname(),sn.getPort());
+    LOG.info("Attempting connect to Master server at " + this.masterAddressManager.getMasterAddress());
+    try {
+      BlockingRpcChannel channel=this.rpcClient.createBlockingRpcChannel(sn,User.getCurrent(),this.rpcTimeout);
+      intf=RegionServerStatusService.newBlockingStub(channel);
+      break;
+    }
+ catch (    IOException e) {
+      e=e instanceof RemoteException ? ((RemoteException)e).unwrapRemoteException() : e;
+      if (e instanceof ServerNotRunningYetException) {
+        if (System.currentTimeMillis() > (previousLogTime + 1000)) {
+          LOG.info("Master isn't available yet, retrying");
+          previousLogTime=System.currentTimeMillis();
+        }
+      }
+ else {
+        if (System.currentTimeMillis() > (previousLogTime + 1000)) {
+          LOG.warn("Unable to connect to master. Retrying. Error was:",e);
+          previousLogTime=System.currentTimeMillis();
+        }
+      }
+      try {
+        Thread.sleep(200);
+      }
+ catch (      InterruptedException ignored) {
+      }
+    }
+  }
+  return new Pair<ServerName,RegionServerStatusService.BlockingInterface>(sn,intf);
+}

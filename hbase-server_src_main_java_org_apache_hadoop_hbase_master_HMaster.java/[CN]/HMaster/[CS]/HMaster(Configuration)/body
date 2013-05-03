@@ -1,7 +1,6 @@
 {
   this.conf=new Configuration(conf);
   this.conf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY,0.0f);
-  HConnectionManager.setServerSideHConnectionRetries(this.conf,LOG);
   String hostname=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.master.dns.interface","default"),conf.get("hbase.master.dns.nameserver","default")));
   int port=conf.getInt(HConstants.MASTER_PORT,HConstants.DEFAULT_MASTER_PORT);
   InetSocketAddress initialIsa=new InetSocketAddress(hostname,port);
@@ -15,8 +14,10 @@
       throw new IllegalArgumentException("Failed resolve of bind address " + initialIsa);
     }
   }
+  String name="master/" + initialIsa.toString();
+  HConnectionManager.setServerSideHConnectionRetries(this.conf,name,LOG);
   int numHandlers=conf.getInt("hbase.master.handler.count",conf.getInt("hbase.regionserver.handler.count",25));
-  this.rpcServer=HBaseServerRPC.getServer(MasterMonitorProtocol.class,this,new Class<?>[]{MasterMonitorProtocol.class,MasterAdminProtocol.class,RegionServerStatusProtocol.class},initialIsa.getHostName(),initialIsa.getPort(),numHandlers,0,conf.getBoolean("hbase.rpc.verbose",false),conf,0);
+  this.rpcServer=new RpcServer(this,name,getServices(),initialIsa,numHandlers,0,conf,0);
   this.isa=this.rpcServer.getListenerAddress();
   this.serverName=new ServerName(hostname,this.isa.getPort(),System.currentTimeMillis());
   this.rsFatals=new MemoryBoundedLogMessageBuffer(conf.getLong("hbase.master.buffer.for.rs.fatals",1 * 1024 * 1024));

@@ -1,0 +1,37 @@
+{
+  ZooKeeperKeepAliveConnection zkw;
+  try {
+    zkw=getKeepAliveZooKeeperWatcher();
+  }
+ catch (  IOException e) {
+    throw new ZooKeeperConnectionException("Can't connect to ZooKeeper",e);
+  }
+  try {
+    checkIfBaseNodeAvailable(zkw);
+    ServerName sn=MasterAddressTracker.getMasterAddress(zkw);
+    if (sn == null) {
+      String msg="ZooKeeper available but no active master location found";
+      LOG.info(msg);
+      throw new MasterNotRunningException(msg);
+    }
+    if (isDeadServer(sn)) {
+      throw new MasterNotRunningException(sn + " is dead.");
+    }
+    String key=getStubKey(getServiceName(),sn.getHostAndPort());
+    connectionLock.putIfAbsent(key,key);
+    Object stub=null;
+synchronized (connectionLock.get(key)) {
+      stub=stubs.get(key);
+      if (stub == null) {
+        BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(sn,User.getCurrent(),rpcTimeout);
+        stub=makeStub(channel);
+        isMasterRunning();
+        stubs.put(key,stub);
+      }
+    }
+    return stub;
+  }
+  finally {
+    zkw.close();
+  }
+}

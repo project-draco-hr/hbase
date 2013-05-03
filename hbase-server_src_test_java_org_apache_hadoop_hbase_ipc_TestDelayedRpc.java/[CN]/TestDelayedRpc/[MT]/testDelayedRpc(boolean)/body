@@ -1,16 +1,18 @@
 {
   Configuration conf=HBaseConfiguration.create();
   InetSocketAddress isa=new InetSocketAddress("localhost",0);
-  TestRpcImpl instance=new TestRpcImpl(delayReturnValue);
-  rpcServer=HBaseServerRPC.getServer(instance.getClass(),instance,new Class<?>[]{TestRpcImpl.class},isa.getHostName(),isa.getPort(),1,0,true,conf,0);
+  TestDelayedImplementation instance=new TestDelayedImplementation(delayReturnValue);
+  BlockingService service=TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
+  rpcServer=new RpcServer(null,"testDelayedRpc",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service,null)),isa,1,0,conf,0);
   rpcServer.start();
-  ProtobufRpcClientEngine clientEngine=new ProtobufRpcClientEngine(conf,HConstants.CLUSTER_ID_DEFAULT);
+  RpcClient rpcClient=new RpcClient(conf,HConstants.DEFAULT_CLUSTER_ID.toString());
   try {
-    TestRpc client=clientEngine.getProxy(TestRpc.class,rpcServer.getListenerAddress(),conf,1000);
+    BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(new ServerName(rpcServer.getListenerAddress().getHostName(),rpcServer.getListenerAddress().getPort(),System.currentTimeMillis()),User.getCurrent(),1000);
+    TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub=TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
     List<Integer> results=new ArrayList<Integer>();
-    TestThread th1=new TestThread(client,true,results);
-    TestThread th2=new TestThread(client,false,results);
-    TestThread th3=new TestThread(client,false,results);
+    TestThread th1=new TestThread(stub,true,results);
+    TestThread th2=new TestThread(stub,false,results);
+    TestThread th3=new TestThread(stub,false,results);
     th1.start();
     Thread.sleep(100);
     th2.start();
@@ -24,6 +26,6 @@
     assertEquals(results.get(2).intValue(),delayReturnValue ? DELAYED : 0xDEADBEEF);
   }
   finally {
-    clientEngine.close();
+    rpcClient.stop();
   }
 }

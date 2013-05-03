@@ -1,0 +1,52 @@
+{
+  boolean error=true;
+  boolean done=false;
+  int numElements;
+  Call call=null;
+  try {
+synchronized (responseQueue) {
+      numElements=responseQueue.size();
+      if (numElements == 0) {
+        error=false;
+        return true;
+      }
+      call=responseQueue.removeFirst();
+      SocketChannel channel=call.connection.channel;
+      int numBytes=channelWrite(channel,call.response);
+      if (numBytes < 0) {
+        return true;
+      }
+      if (!call.response.hasRemaining()) {
+        call.connection.decRpcCount();
+        if (numElements == 1) {
+          done=true;
+        }
+ else {
+          done=false;
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(getName() + ": callId: " + call.id+ " wrote "+ numBytes+ " bytes.");
+        }
+      }
+ else {
+        call.connection.responseQueue.addFirst(call);
+        if (inHandler) {
+          call.timestamp=System.currentTimeMillis();
+          if (enqueueInSelector(call))           done=true;
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(getName() + call.toString() + " partially sent, wrote "+ numBytes+ " bytes.");
+        }
+      }
+      error=false;
+    }
+  }
+  finally {
+    if (error && call != null) {
+      LOG.warn(getName() + call.toString() + ": output error");
+      done=true;
+      closeConnection(call.connection);
+    }
+  }
+  return done;
+}

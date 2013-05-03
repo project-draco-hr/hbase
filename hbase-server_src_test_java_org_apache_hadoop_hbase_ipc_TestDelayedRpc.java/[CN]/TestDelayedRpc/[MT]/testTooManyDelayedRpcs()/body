@@ -3,23 +3,25 @@
   final int MAX_DELAYED_RPC=10;
   conf.setInt("hbase.ipc.warn.delayedrpc.number",MAX_DELAYED_RPC);
   ListAppender listAppender=new ListAppender();
-  Logger log=Logger.getLogger("org.apache.hadoop.ipc.HBaseServer");
+  Logger log=Logger.getLogger("org.apache.hadoop.ipc.RpcServer");
   log.addAppender(listAppender);
   log.setLevel(Level.WARN);
   InetSocketAddress isa=new InetSocketAddress("localhost",0);
-  TestRpcImpl instance=new TestRpcImpl(true);
-  rpcServer=HBaseServerRPC.getServer(instance.getClass(),instance,new Class<?>[]{TestRpcImpl.class},isa.getHostName(),isa.getPort(),1,0,true,conf,0);
+  TestDelayedImplementation instance=new TestDelayedImplementation(true);
+  BlockingService service=TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
+  rpcServer=new RpcServer(null,"testTooManyDelayedRpcs",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service,null)),isa,1,0,conf,0);
   rpcServer.start();
-  ProtobufRpcClientEngine clientEngine=new ProtobufRpcClientEngine(conf,HConstants.CLUSTER_ID_DEFAULT);
+  RpcClient rpcClient=new RpcClient(conf,HConstants.DEFAULT_CLUSTER_ID.toString());
   try {
-    TestRpc client=clientEngine.getProxy(TestRpc.class,rpcServer.getListenerAddress(),conf,1000);
+    BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(new ServerName(rpcServer.getListenerAddress().getHostName(),rpcServer.getListenerAddress().getPort(),System.currentTimeMillis()),User.getCurrent(),1000);
+    TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub=TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
     Thread threads[]=new Thread[MAX_DELAYED_RPC + 1];
     for (int i=0; i < MAX_DELAYED_RPC; i++) {
-      threads[i]=new TestThread(client,true,null);
+      threads[i]=new TestThread(stub,true,null);
       threads[i].start();
     }
     assertTrue(listAppender.getMessages().isEmpty());
-    threads[MAX_DELAYED_RPC]=new TestThread(client,true,null);
+    threads[MAX_DELAYED_RPC]=new TestThread(stub,true,null);
     threads[MAX_DELAYED_RPC].start();
     for (int i=0; i < MAX_DELAYED_RPC; i++) {
       threads[i].join();
@@ -29,6 +31,6 @@
     log.removeAppender(listAppender);
   }
   finally {
-    clientEngine.close();
+    rpcClient.stop();
   }
 }

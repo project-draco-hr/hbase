@@ -1,0 +1,35 @@
+{
+  try {
+    status.setRPC(md.getName(),new Object[]{param},receiveTime);
+    status.setRPCPacket(param);
+    status.resume("Servicing call");
+    long startTime=System.currentTimeMillis();
+    PayloadCarryingRpcController controller=new PayloadCarryingRpcController(cellScanner);
+    Message result=service.callBlockingMethod(md,controller,param);
+    int processingTime=(int)(System.currentTimeMillis() - startTime);
+    int qTime=(int)(startTime - receiveTime);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(CurCall.get().toString() + ", response " + TextFormat.shortDebugString(result)+ " queueTime: "+ qTime+ " processingTime: "+ processingTime);
+    }
+    metrics.dequeuedCall(qTime);
+    metrics.processedCall(processingTime);
+    long responseSize=result.getSerializedSize();
+    boolean tooSlow=(processingTime > warnResponseTime && warnResponseTime > -1);
+    boolean tooLarge=(responseSize > warnResponseSize && warnResponseSize > -1);
+    if (tooSlow || tooLarge) {
+      StringBuilder buffer=new StringBuilder(256);
+      buffer.append(md.getName());
+      buffer.append("(");
+      buffer.append(param.getClass().getName());
+      buffer.append(")");
+      logResponse(new Object[]{param},md.getName(),buffer.toString(),(tooLarge ? "TooLarge" : "TooSlow"),status.getClient(),startTime,processingTime,qTime,responseSize);
+    }
+    return new Pair<Message,CellScanner>(result,controller != null ? controller.cellScanner() : null);
+  }
+ catch (  Throwable e) {
+    if (e instanceof ServiceException)     e=e.getCause();
+    if (e instanceof IOException)     throw (IOException)e;
+    LOG.error("Unexpected throwable object ",e);
+    throw new IOException(e.getMessage(),e);
+  }
+}

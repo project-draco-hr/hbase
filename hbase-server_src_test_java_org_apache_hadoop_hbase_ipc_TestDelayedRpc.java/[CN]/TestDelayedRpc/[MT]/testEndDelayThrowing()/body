@@ -1,15 +1,17 @@
 {
   Configuration conf=HBaseConfiguration.create();
   InetSocketAddress isa=new InetSocketAddress("localhost",0);
-  FaultyTestRpc instance=new FaultyTestRpc();
-  rpcServer=HBaseServerRPC.getServer(instance.getClass(),instance,new Class<?>[]{TestRpcImpl.class},isa.getHostName(),isa.getPort(),1,0,true,conf,0);
+  FaultyTestDelayedImplementation instance=new FaultyTestDelayedImplementation();
+  BlockingService service=TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
+  rpcServer=new RpcServer(null,"testEndDelayThrowing",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service,null)),isa,1,0,conf,0);
   rpcServer.start();
-  ProtobufRpcClientEngine clientEngine=new ProtobufRpcClientEngine(conf,HConstants.CLUSTER_ID_DEFAULT);
+  RpcClient rpcClient=new RpcClient(conf,HConstants.DEFAULT_CLUSTER_ID.toString());
   try {
-    TestRpc client=clientEngine.getProxy(TestRpc.class,rpcServer.getListenerAddress(),conf,1000);
+    BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(new ServerName(rpcServer.getListenerAddress().getHostName(),rpcServer.getListenerAddress().getPort(),System.currentTimeMillis()),User.getCurrent(),1000);
+    TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub=TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
     int result=0xDEADBEEF;
     try {
-      result=client.test(null,TestArg.newBuilder().setDelay(false).build()).getResponse();
+      result=stub.test(null,TestArg.newBuilder().setDelay(false).build()).getResponse();
     }
  catch (    Exception e) {
       fail("No exception should have been thrown.");
@@ -17,15 +19,17 @@
     assertEquals(result,UNDELAYED);
     boolean caughtException=false;
     try {
-      result=client.test(null,TestArg.newBuilder().setDelay(true).build()).getResponse();
+      result=stub.test(null,TestArg.newBuilder().setDelay(true).build()).getResponse();
     }
  catch (    Exception e) {
-      if (e.getCause().getMessage().contains("java.lang.Exception: Something went wrong"))       caughtException=true;
-      LOG.warn(e);
+      if (e.getCause().getMessage().contains("java.lang.Exception: Something went wrong")) {
+        caughtException=true;
+      }
+      LOG.warn("Caught exception, expected=" + caughtException);
     }
     assertTrue(caughtException);
   }
   finally {
-    clientEngine.close();
+    rpcClient.stop();
   }
 }

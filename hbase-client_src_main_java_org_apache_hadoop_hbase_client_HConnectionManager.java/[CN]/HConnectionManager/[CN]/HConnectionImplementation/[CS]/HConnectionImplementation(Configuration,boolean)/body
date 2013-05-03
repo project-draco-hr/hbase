@@ -1,27 +1,12 @@
 {
   this.conf=conf;
   this.managed=managed;
-  String adminClassName=conf.get(REGION_PROTOCOL_CLASS,DEFAULT_ADMIN_PROTOCOL_CLASS);
   this.closed=false;
-  try {
-    this.adminClass=(Class<? extends AdminProtocol>)Class.forName(adminClassName);
-  }
- catch (  ClassNotFoundException e) {
-    throw new UnsupportedOperationException("Unable to find region server interface " + adminClassName,e);
-  }
-  String clientClassName=conf.get(CLIENT_PROTOCOL_CLASS,DEFAULT_CLIENT_PROTOCOL_CLASS);
-  try {
-    this.clientClass=(Class<? extends ClientProtocol>)Class.forName(clientClassName);
-  }
- catch (  ClassNotFoundException e) {
-    throw new UnsupportedOperationException("Unable to find client protocol " + clientClassName,e);
-  }
   this.pause=conf.getLong(HConstants.HBASE_CLIENT_PAUSE,HConstants.DEFAULT_HBASE_CLIENT_PAUSE);
   this.numTries=conf.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
-  this.maxRPCAttempts=conf.getInt(HConstants.HBASE_CLIENT_RPC_MAXATTEMPTS,HConstants.DEFAULT_HBASE_CLIENT_RPC_MAXATTEMPTS);
   this.rpcTimeout=conf.getInt(HConstants.HBASE_RPC_TIMEOUT_KEY,HConstants.DEFAULT_HBASE_RPC_TIMEOUT);
   this.prefetchRegionLimit=conf.getInt(HConstants.HBASE_CLIENT_PREFETCH_LIMIT,HConstants.DEFAULT_HBASE_CLIENT_PREFETCH_LIMIT);
-  this.useServerTrackerForRetries=conf.getBoolean(RETRIES_BY_SERVER,true);
+  this.useServerTrackerForRetries=conf.getBoolean(RETRIES_BY_SERVER_KEY,true);
   long serverTrackerTimeout=0;
   if (this.useServerTrackerForRetries) {
     for (int i=0; i < this.numTries; ++i) {
@@ -30,13 +15,13 @@
   }
   this.serverTrackerTimeout=serverTrackerTimeout;
   retrieveClusterId();
-  this.rpcEngine=new ProtobufRpcClientEngine(this.conf,this.clusterId);
+  this.rpcClient=new RpcClient(this.conf,this.clusterId);
   Class<? extends ClusterStatusListener.Listener> listenerClass=conf.getClass(ClusterStatusListener.STATUS_LISTENER_CLASS,ClusterStatusListener.DEFAULT_STATUS_LISTENER_CLASS,ClusterStatusListener.Listener.class);
   if (listenerClass != null) {
     clusterStatusListener=new ClusterStatusListener(new ClusterStatusListener.DeadServerHandler(){
       @Override public void newDead(      ServerName sn){
         clearCaches(sn);
-        rpcEngine.getClient().cancelConnections(sn.getHostname(),sn.getPort(),new SocketException(sn.getServerName() + " is dead: closing its connection."));
+        rpcClient.cancelConnections(sn.getHostname(),sn.getPort(),new SocketException(sn.getServerName() + " is dead: closing its connection."));
       }
     }
 ,conf,listenerClass);

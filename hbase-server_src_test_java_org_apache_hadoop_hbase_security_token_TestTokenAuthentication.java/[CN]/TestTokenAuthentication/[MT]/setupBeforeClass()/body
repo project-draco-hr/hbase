@@ -1,15 +1,23 @@
 {
   TEST_UTIL=new HBaseTestingUtility();
   TEST_UTIL.startMiniZKCluster();
+  SecurityInfo.addInfo(AuthenticationProtos.AuthenticationService.getDescriptor().getName(),new SecurityInfo("hbase.test.kerberos.principal",AuthenticationProtos.TokenIdentifier.Kind.HBASE_AUTH_TOKEN));
   Configuration conf=TEST_UTIL.getConfiguration();
   conf.set("hadoop.security.authentication","kerberos");
   conf.set("hbase.security.authentication","kerberos");
+  conf.setBoolean(HADOOP_SECURITY_AUTHORIZATION,true);
   server=new TokenServer(conf);
   serverThread=new Thread(server);
   Threads.setDaemonThreadRunning(serverThread,"TokenServer:" + server.getServerName().toString());
   while (!server.isStarted() && !server.isStopped()) {
     Thread.sleep(10);
   }
+  server.rpcServer.refreshAuthManager(new PolicyProvider(){
+    @Override public Service[] getServices(){
+      return new Service[]{new Service("security.client.protocol.acl",AuthenticationProtos.AuthenticationService.BlockingInterface.class)};
+    }
+  }
+);
   ZKClusterId.setClusterId(server.getZooKeeper(),clusterId);
   secretManager=(AuthenticationTokenSecretManager)server.getSecretManager();
   while (secretManager.getCurrentKey() == null) {

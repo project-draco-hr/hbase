@@ -1,0 +1,42 @@
+{
+  if (this.isError)   return;
+  if (t != null)   this.isError=true;
+  ByteBufferOutputStream bbos=null;
+  try {
+    ResponseHeader.Builder headerBuilder=ResponseHeader.newBuilder();
+    Message result=(Message)m;
+    headerBuilder.setCallId(this.id);
+    if (t != null) {
+      ExceptionResponse.Builder exceptionBuilder=ExceptionResponse.newBuilder();
+      exceptionBuilder.setExceptionClassName(t.getClass().getName());
+      exceptionBuilder.setStackTrace(errorMsg);
+      exceptionBuilder.setDoNotRetry(t instanceof DoNotRetryIOException);
+      if (t instanceof RegionMovedException) {
+        RegionMovedException rme=(RegionMovedException)t;
+        exceptionBuilder.setHostname(rme.getHostname());
+        exceptionBuilder.setPort(rme.getPort());
+      }
+      headerBuilder.setException(exceptionBuilder.build());
+    }
+    ByteBuffer cellBlock=ipcUtil.buildCellBlock(this.connection.codec,this.connection.compressionCodec,cells);
+    if (cellBlock != null) {
+      CellBlockMeta.Builder cellBlockBuilder=CellBlockMeta.newBuilder();
+      cellBlockBuilder.setLength(cellBlock.limit());
+      headerBuilder.setCellBlockMeta(cellBlockBuilder.build());
+    }
+    Message header=headerBuilder.build();
+    bbos=IPCUtil.write(header,result,cellBlock);
+    if (connection.useWrap) {
+      wrapWithSasl(bbos);
+    }
+  }
+ catch (  IOException e) {
+    LOG.warn("Exception while creating response " + e);
+  }
+  ByteBuffer bb=null;
+  if (bbos != null) {
+    bb=bbos.getByteBuffer();
+    bb.position(0);
+  }
+  this.response=bb;
+}
