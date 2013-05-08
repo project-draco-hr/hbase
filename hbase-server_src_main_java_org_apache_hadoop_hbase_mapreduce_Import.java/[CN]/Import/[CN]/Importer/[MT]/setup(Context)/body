@@ -2,11 +2,18 @@
   Configuration conf=context.getConfiguration();
   cfRenameMap=createCfRenameMap(conf);
   filter=instantiateFilter(conf);
+  ReplicationZookeeper zkHelper=null;
+  ZooKeeperWatcher zkw=null;
   try {
     HConnection connection=HConnectionManager.getConnection(conf);
-    ZooKeeperWatcher zkw=connection.getZooKeeperWatcher();
-    ReplicationZookeeper zkHelper=new ReplicationZookeeper(connection,conf,zkw);
-    clusterId=zkHelper.getUUIDForCluster(zkw);
+    zkw=new ZooKeeperWatcher(conf,context.getTaskAttemptID().toString(),null);
+    zkHelper=new ReplicationZookeeper(connection,conf,zkw);
+    try {
+      this.clusterId=zkHelper.getUUIDForCluster(zkw);
+    }
+  finally {
+      if (zkHelper != null)       zkHelper.close();
+    }
   }
  catch (  ZooKeeperConnectionException e) {
     LOG.error("Problem connecting to ZooKeper during task setup",e);
@@ -16,5 +23,8 @@ catch (  KeeperException e) {
   }
 catch (  IOException e) {
     LOG.error("Problem setting up task",e);
+  }
+ finally {
+    if (zkw != null)     zkw.close();
   }
 }

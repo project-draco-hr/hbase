@@ -6,6 +6,7 @@
   int tableRegionIndex=ensureTableRegionNotOnSameServerAsMeta(admin,hri);
   this.admin.setBalancerRunning(false,true);
   cluster.getMaster().setCatalogJanitorEnabled(false);
+  ZooKeeperWatcher zkw=new ZooKeeperWatcher(t.getConfiguration(),"testMasterRestartWhenSplittingIsPartial",new UselessTestAbortable());
   try {
     TESTING_UTIL.loadTable(t,HConstants.CATALOG_FAMILY);
     HRegionServer server=cluster.getRegionServer(tableRegionIndex);
@@ -13,10 +14,10 @@
     SplitRegionHandler.TEST_SKIP=true;
     this.admin.split(hri.getRegionNameAsString());
     checkAndGetDaughters(tableName);
-    String path=ZKAssign.getNodeName(t.getConnection().getZooKeeperWatcher(),hri.getEncodedName());
-    Stat stats=t.getConnection().getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
+    String path=ZKAssign.getNodeName(zkw,hri.getEncodedName());
+    Stat stats=zkw.getRecoverableZooKeeper().exists(path,false);
     LOG.info("EPHEMERAL NODE BEFORE SERVER ABORT, path=" + path + ", stats="+ stats);
-    byte[] bytes=ZKAssign.getData(t.getConnection().getZooKeeperWatcher(),hri.getEncodedName());
+    byte[] bytes=ZKAssign.getData(zkw,hri.getEncodedName());
     RegionTransition rtd=RegionTransition.parseFrom(bytes);
     assertTrue(rtd.getEventType().equals(EventType.RS_ZK_REGION_SPLIT) || rtd.getEventType().equals(EventType.RS_ZK_REGION_SPLITTING));
     MockMasterWithoutCatalogJanitor master=abortAndWaitForMaster();
@@ -31,5 +32,6 @@
     admin.setBalancerRunning(true,false);
     cluster.getMaster().setCatalogJanitorEnabled(true);
     t.close();
+    zkw.close();
   }
 }
