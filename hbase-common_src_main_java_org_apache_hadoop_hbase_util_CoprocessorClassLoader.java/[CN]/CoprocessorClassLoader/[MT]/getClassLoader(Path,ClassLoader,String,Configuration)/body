@@ -1,19 +1,35 @@
 {
   CoprocessorClassLoader cl=getIfCached(path);
+  String pathStr=path.toString();
   if (cl != null) {
-    LOG.debug("Found classloader " + cl + "for "+ path.toString());
+    LOG.debug("Found classloader " + cl + " for "+ pathStr);
     return cl;
   }
-  cl=AccessController.doPrivileged(new PrivilegedAction<CoprocessorClassLoader>(){
-    @Override public CoprocessorClassLoader run(){
-      return new CoprocessorClassLoader(parent);
+  if (!pathStr.endsWith(".jar")) {
+    throw new IOException(pathStr + ": not a jar file?");
+  }
+  Lock lock=locker.acquireLock(pathStr);
+  try {
+    cl=getIfCached(path);
+    if (cl != null) {
+      LOG.debug("Found classloader " + cl + " for "+ pathStr);
+      return cl;
     }
-  }
+    cl=AccessController.doPrivileged(new PrivilegedAction<CoprocessorClassLoader>(){
+      @Override public CoprocessorClassLoader run(){
+        return new CoprocessorClassLoader(parent);
+      }
+    }
 );
-  cl.init(path,pathPrefix,conf);
-  CoprocessorClassLoader prev=classLoadersCache.putIfAbsent(path,cl);
-  if (prev != null) {
-    cl=prev;
+    cl.init(path,pathPrefix,conf);
+    CoprocessorClassLoader prev=classLoadersCache.putIfAbsent(path,cl);
+    if (prev != null) {
+      LOG.warn("THIS SHOULD NOT HAPPEN, a class loader" + " is already cached for " + pathStr);
+      cl=prev;
+    }
+    return cl;
   }
-  return cl;
+  finally {
+    lock.unlock();
+  }
 }

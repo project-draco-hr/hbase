@@ -1,17 +1,18 @@
 {
-  if (path == null) {
-    throw new IOException("The jar path is null");
-  }
-  if (!path.toString().endsWith(".jar")) {
-    throw new IOException(path.toString() + ": not a jar file?");
-  }
-  String parentDirPath=conf.get(LOCAL_DIR_KEY,DEFAULT_LOCAL_DIR) + TMP_JARS_DIR;
-  File parentDir=new File(parentDirPath);
-  if (!parentDir.mkdirs() && !parentDir.isDirectory()) {
-    throw new RuntimeException("Failed to create local dir " + parentDir.getPath() + ", CoprocessorClassLoader failed to init");
+  String parentDirStr=conf.get(LOCAL_DIR_KEY,DEFAULT_LOCAL_DIR) + TMP_JARS_DIR;
+synchronized (parentDirLockSet) {
+    if (!parentDirLockSet.contains(parentDirStr)) {
+      Path parentDir=new Path(parentDirStr);
+      FileSystem fs=parentDir.getFileSystem(conf);
+      fs.delete(parentDir,true);
+      parentDirLockSet.add(parentDirStr);
+      if (!fs.mkdirs(parentDir) && !fs.getFileStatus(parentDir).isDir()) {
+        throw new RuntimeException("Failed to create local dir " + parentDirStr + ", CoprocessorClassLoader failed to init");
+      }
+    }
   }
   FileSystem fs=path.getFileSystem(conf);
-  File dst=new File(parentDir,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ ".jar");
+  File dst=new File(parentDirStr,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ ".jar");
   fs.copyToLocalFile(path,new Path(dst.toString()));
   dst.deleteOnExit();
   addURL(dst.getCanonicalFile().toURI().toURL());
@@ -20,8 +21,9 @@
     Enumeration<JarEntry> entries=jarFile.entries();
     while (entries.hasMoreElements()) {
       JarEntry entry=entries.nextElement();
-      if (entry.getName().matches("[/]?lib/[^/]+\\.jar")) {
-        File file=new File(parentDir,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ "."+ entry.getName().substring(5));
+      Matcher m=libJarPattern.matcher(entry.getName());
+      if (m.matches()) {
+        File file=new File(parentDirStr,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ "."+ m.group(1));
         IOUtils.copyBytes(jarFile.getInputStream(entry),new FileOutputStream(file),conf,true);
         file.deleteOnExit();
         addURL(file.toURI().toURL());
