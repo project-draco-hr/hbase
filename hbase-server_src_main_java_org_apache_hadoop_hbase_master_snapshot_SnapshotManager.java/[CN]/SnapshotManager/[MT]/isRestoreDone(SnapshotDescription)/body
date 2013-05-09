@@ -1,23 +1,17 @@
 {
-  if (!isSnapshotCompleted(snapshot)) {
-    throw new UnknownSnapshotException("Snapshot:" + snapshot.getName() + " is not one of the known completed snapshots.");
-  }
-  SnapshotSentinel sentinel=getRestoreSnapshotSentinel(snapshot.getTable());
+  SnapshotSentinel sentinel=removeSentinelIfFinished(this.restoreHandlers,snapshot);
+  cleanupSentinels();
   if (sentinel == null) {
-    return false;
-  }
-  if (!sentinel.getSnapshot().getName().equals(snapshot.getName())) {
-    return false;
+    return true;
   }
   LOG.debug("Verify snapshot=" + snapshot.getName() + " against="+ sentinel.getSnapshot().getName()+ " table="+ snapshot.getTable());
-  ForeignException e=sentinel.getExceptionIfFailed();
-  if (e != null)   throw e;
+  sentinel.rethrowExceptionIfFailed();
   if (sentinel.isFinished()) {
     LOG.debug("Restore snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot) + " has completed. Notifying the client.");
-    return false;
+    return true;
   }
   if (LOG.isDebugEnabled()) {
     LOG.debug("Sentinel is not yet finished with restoring snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot));
   }
-  return true;
+  return false;
 }
