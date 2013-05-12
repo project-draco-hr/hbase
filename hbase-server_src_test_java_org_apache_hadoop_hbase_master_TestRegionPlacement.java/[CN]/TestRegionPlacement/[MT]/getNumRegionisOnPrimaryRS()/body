@@ -1,0 +1,54 @@
+{
+  final AtomicInteger regionOnPrimaryNum=new AtomicInteger(0);
+  final AtomicInteger totalRegionNum=new AtomicInteger(0);
+  LOG.info("The start of region placement verification");
+  MetaScannerVisitor visitor=new MetaScannerVisitor(){
+    public boolean processRow(    Result result) throws IOException {
+      try {
+        HRegionInfo info=MetaScanner.getHRegionInfo(result);
+        byte[] server=result.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+        byte[] startCode=result.getValue(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
+        byte[] favoredNodes=result.getValue(HConstants.CATALOG_FAMILY,FavoredNodeAssignmentHelper.FAVOREDNODES_QUALIFIER);
+        ServerName[] favoredServerList=FavoredNodeAssignmentHelper.getFavoredNodesList(favoredNodes);
+        favoredNodesAssignmentPlan.put(info,favoredServerList);
+        Position[] positions=Position.values();
+        if (info != null) {
+          totalRegionNum.incrementAndGet();
+          if (server != null) {
+            ServerName serverName=new ServerName(Bytes.toString(server),Bytes.toLong(startCode));
+            if (favoredNodes != null) {
+              String placement="[NOT FAVORED NODE]";
+              for (int i=0; i < favoredServerList.length; i++) {
+                if (favoredServerList[i].equals(serverName)) {
+                  placement=positions[i].toString();
+                  if (i == Position.PRIMARY.ordinal()) {
+                    regionOnPrimaryNum.incrementAndGet();
+                  }
+                  break;
+                }
+              }
+              LOG.info(info.getRegionNameAsString() + " on " + serverName+ " "+ placement);
+            }
+ else {
+              LOG.info(info.getRegionNameAsString() + " running on " + serverName+ " but there is no favored region server");
+            }
+          }
+ else {
+            LOG.info(info.getRegionNameAsString() + " not assigned to any server");
+          }
+        }
+        return true;
+      }
+ catch (      RuntimeException e) {
+        LOG.error("Result=" + result);
+        throw e;
+      }
+    }
+    @Override public void close() throws IOException {
+    }
+  }
+;
+  MetaScanner.metaScan(TEST_UTIL.getConfiguration(),visitor);
+  LOG.info("There are " + regionOnPrimaryNum.intValue() + " out of "+ totalRegionNum.intValue()+ " regions running on the primary"+ " region servers");
+  return regionOnPrimaryNum.intValue();
+}

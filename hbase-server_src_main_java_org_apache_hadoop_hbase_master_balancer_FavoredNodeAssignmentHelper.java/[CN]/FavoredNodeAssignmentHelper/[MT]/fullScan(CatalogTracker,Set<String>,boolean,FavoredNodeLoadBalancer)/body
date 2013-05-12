@@ -1,0 +1,26 @@
+{
+  final Map<HRegionInfo,ServerName> regions=new TreeMap<HRegionInfo,ServerName>();
+  final Map<HRegionInfo,ServerName[]> favoredNodesMap=new HashMap<HRegionInfo,ServerName[]>();
+  Visitor v=new Visitor(){
+    @Override public boolean visit(    Result r) throws IOException {
+      if (r == null || r.isEmpty())       return true;
+      Pair<HRegionInfo,ServerName> region=HRegionInfo.getHRegionInfoAndServerName(r);
+      HRegionInfo hri=region.getFirst();
+      if (hri == null)       return true;
+      if (hri.getTableNameAsString() == null)       return true;
+      if (disabledTables.contains(hri.getTableNameAsString()))       return true;
+      if (excludeOfflinedSplitParents && hri.isSplitParent())       return true;
+      regions.put(hri,region.getSecond());
+      byte[] favoredNodes=r.getValue(HConstants.CATALOG_FAMILY,FavoredNodeAssignmentHelper.FAVOREDNODES_QUALIFIER);
+      if (favoredNodes != null) {
+        ServerName[] favoredServerList=FavoredNodeAssignmentHelper.getFavoredNodesList(favoredNodes);
+        favoredNodesMap.put(hri,favoredServerList);
+      }
+      return true;
+    }
+  }
+;
+  MetaReader.fullScan(catalogTracker,v);
+  balancer.noteFavoredNodes(favoredNodesMap);
+  return regions;
+}

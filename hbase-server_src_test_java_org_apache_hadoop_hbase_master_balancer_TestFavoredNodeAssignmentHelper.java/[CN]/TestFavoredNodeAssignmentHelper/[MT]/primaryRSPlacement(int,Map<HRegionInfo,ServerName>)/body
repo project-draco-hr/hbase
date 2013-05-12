@@ -1,0 +1,39 @@
+{
+  Map<String,Integer> rackToServerCount=new HashMap<String,Integer>();
+  rackToServerCount.put("rack1",10);
+  rackToServerCount.put("rack2",10);
+  rackToServerCount.put("rack3",10);
+  List<ServerName> servers=getServersFromRack(rackToServerCount);
+  FavoredNodeAssignmentHelper helper=new FavoredNodeAssignmentHelper(servers,new Configuration());
+  helper.setRackManager(rackManager);
+  helper.initialize();
+  assertTrue(helper.canPlaceFavoredNodes());
+  Map<ServerName,List<HRegionInfo>> assignmentMap=new HashMap<ServerName,List<HRegionInfo>>();
+  if (primaryRSMap == null)   primaryRSMap=new HashMap<HRegionInfo,ServerName>();
+  List<HRegionInfo> regions=new ArrayList<HRegionInfo>(regionCount);
+  for (int i=0; i < regionCount; i++) {
+    HRegionInfo region=new HRegionInfo(("foobar" + i).getBytes());
+    regions.add(region);
+  }
+  helper.placePrimaryRSAsRoundRobin(assignmentMap,primaryRSMap,regions);
+  int regionsOnRack1=0;
+  int regionsOnRack2=0;
+  int regionsOnRack3=0;
+  for (  Map.Entry<HRegionInfo,ServerName> entry : primaryRSMap.entrySet()) {
+    if (rackManager.getRack(entry.getValue()).equals("rack1")) {
+      regionsOnRack1++;
+    }
+ else     if (rackManager.getRack(entry.getValue()).equals("rack2")) {
+      regionsOnRack2++;
+    }
+ else     if (rackManager.getRack(entry.getValue()).equals("rack3")) {
+      regionsOnRack3++;
+    }
+  }
+  int numRegionsPerRack=(int)Math.ceil((double)regionCount / 3);
+  assertTrue(regionsOnRack1 == numRegionsPerRack && regionsOnRack2 == numRegionsPerRack && regionsOnRack3 == numRegionsPerRack);
+  int numServersPerRack=(int)Math.ceil((double)regionCount / 30);
+  for (  Map.Entry<ServerName,List<HRegionInfo>> entry : assignmentMap.entrySet()) {
+    assertTrue(entry.getValue().size() == numServersPerRack);
+  }
+}
