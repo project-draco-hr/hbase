@@ -1,0 +1,35 @@
+{
+  final Configuration conf=TESTUTIL.getConfiguration();
+  final ServerName newServer=new ServerName("test.sample",1,101);
+  final ServerName deadServer=new ServerName("test.sample",1,100);
+  final MockRegionServer rs0=new MockRegionServer(conf,newServer);
+  HMaster master=new HMaster(conf){
+    @Override boolean assignMeta(    MonitoredTask status){
+      return true;
+    }
+    @Override void initializeZKBasedSystemTrackers() throws IOException, InterruptedException, KeeperException {
+      super.initializeZKBasedSystemTrackers();
+      serverManager.recordNewServer(newServer,ServerLoad.EMPTY_SERVERLOAD);
+      List<ServerName> onlineServers=new ArrayList<ServerName>();
+      onlineServers.add(deadServer);
+      onlineServers.add(newServer);
+      regionServerTracker=Mockito.spy(regionServerTracker);
+      Mockito.doReturn(onlineServers).when(regionServerTracker).getOnlineServers();
+    }
+    @Override CatalogTracker createCatalogTracker(    ZooKeeperWatcher zk,    Configuration conf,    Abortable abortable) throws IOException {
+      HConnection connection=HConnectionTestingUtility.getMockedConnectionAndDecorate(TESTUTIL.getConfiguration(),rs0,rs0,rs0.getServerName(),HRegionInfo.ROOT_REGIONINFO);
+      return new CatalogTracker(zk,conf,connection,abortable);
+    }
+  }
+;
+  master.start();
+  try {
+    while (!master.initialized)     Threads.sleep(10);
+    LOG.info("Master is initialized");
+    assertFalse("The dead server should not be pulled in",master.serverManager.isServerOnline(deadServer));
+  }
+  finally {
+    master.stopMaster();
+    master.join();
+  }
+}
