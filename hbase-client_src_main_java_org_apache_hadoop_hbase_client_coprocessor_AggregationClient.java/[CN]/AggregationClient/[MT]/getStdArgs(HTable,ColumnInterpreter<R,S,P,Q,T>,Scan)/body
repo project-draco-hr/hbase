@@ -1,0 +1,51 @@
+{
+  final AggregateArgument requestArg=validateArgAndGetPB(scan,ci);
+class StdCallback implements Batch.Callback<Pair<List<S>,Long>> {
+    long rowCountVal=0l;
+    S sumVal=null, sumSqVal=null;
+    public Pair<List<S>,Long> getStdParams(){
+      List<S> l=new ArrayList<S>();
+      l.add(sumVal);
+      l.add(sumSqVal);
+      Pair<List<S>,Long> p=new Pair<List<S>,Long>(l,rowCountVal);
+      return p;
+    }
+    @Override public synchronized void update(    byte[] region,    byte[] row,    Pair<List<S>,Long> result){
+      if (result.getFirst().size() > 0) {
+        sumVal=ci.add(sumVal,result.getFirst().get(0));
+        sumSqVal=ci.add(sumSqVal,result.getFirst().get(1));
+        rowCountVal+=result.getSecond();
+      }
+    }
+  }
+  StdCallback stdCallback=new StdCallback();
+  table.coprocessorService(AggregateService.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateService,Pair<List<S>,Long>>(){
+    @Override public Pair<List<S>,Long> call(    AggregateService instance) throws IOException {
+      ServerRpcController controller=new ServerRpcController();
+      BlockingRpcCallback<AggregateResponse> rpcCallback=new BlockingRpcCallback<AggregateResponse>();
+      instance.getStd(controller,requestArg,rpcCallback);
+      AggregateResponse response=rpcCallback.get();
+      if (controller.failedOnException()) {
+        throw controller.getFailedOn();
+      }
+      Pair<List<S>,Long> pair=new Pair<List<S>,Long>(new ArrayList<S>(),0L);
+      if (response.getFirstPartCount() == 0) {
+        return pair;
+      }
+      List<S> list=new ArrayList<S>();
+      for (int i=0; i < response.getFirstPartCount(); i++) {
+        ByteString b=response.getFirstPart(i);
+        T t=ProtobufUtil.getParsedGenericInstance(ci.getClass(),4,b);
+        S s=ci.getPromotedValueFromProto(t);
+        list.add(s);
+      }
+      pair.setFirst(list);
+      ByteBuffer bb=ByteBuffer.allocate(8).put(getBytesFromResponse(response.getSecondPart()));
+      bb.rewind();
+      pair.setSecond(bb.getLong());
+      return pair;
+    }
+  }
+,stdCallback);
+  return stdCallback.getStdParams();
+}

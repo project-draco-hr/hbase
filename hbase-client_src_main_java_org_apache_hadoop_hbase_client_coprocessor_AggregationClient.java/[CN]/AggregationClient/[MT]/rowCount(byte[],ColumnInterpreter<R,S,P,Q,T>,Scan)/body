@@ -1,39 +1,12 @@
 {
-  final AggregateArgument requestArg=validateArgAndGetPB(scan,ci);
-class RowNumCallback implements Batch.Callback<Long> {
-    private final AtomicLong rowCountL=new AtomicLong(0);
-    public long getRowNumCount(){
-      return rowCountL.get();
-    }
-    @Override public void update(    byte[] region,    byte[] row,    Long result){
-      rowCountL.addAndGet(result.longValue());
-    }
-  }
-  RowNumCallback rowNum=new RowNumCallback();
   HTable table=null;
   try {
     table=new HTable(conf,tableName);
-    table.coprocessorService(AggregateService.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateService,Long>(){
-      @Override public Long call(      AggregateService instance) throws IOException {
-        ServerRpcController controller=new ServerRpcController();
-        BlockingRpcCallback<AggregateResponse> rpcCallback=new BlockingRpcCallback<AggregateResponse>();
-        instance.getRowNum(controller,requestArg,rpcCallback);
-        AggregateResponse response=rpcCallback.get();
-        if (controller.failedOnException()) {
-          throw controller.getFailedOn();
-        }
-        byte[] bytes=getBytesFromResponse(response.getFirstPart(0));
-        ByteBuffer bb=ByteBuffer.allocate(8).put(bytes);
-        bb.rewind();
-        return bb.getLong();
-      }
-    }
-,rowNum);
+    return rowCount(table,ci,scan);
   }
   finally {
     if (table != null) {
       table.close();
     }
   }
-  return rowNum.getRowNumCount();
 }

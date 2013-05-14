@@ -1,42 +1,12 @@
 {
-  final AggregateArgument requestArg=validateArgAndGetPB(scan,ci);
-class MinCallBack implements Batch.Callback<R> {
-    private R min=null;
-    public R getMinimum(){
-      return min;
-    }
-    @Override public synchronized void update(    byte[] region,    byte[] row,    R result){
-      min=(min == null || (result != null && ci.compare(result,min) < 0)) ? result : min;
-    }
-  }
-  MinCallBack minCallBack=new MinCallBack();
   HTable table=null;
   try {
     table=new HTable(conf,tableName);
-    table.coprocessorService(AggregateService.class,scan.getStartRow(),scan.getStopRow(),new Batch.Call<AggregateService,R>(){
-      @Override public R call(      AggregateService instance) throws IOException {
-        ServerRpcController controller=new ServerRpcController();
-        BlockingRpcCallback<AggregateResponse> rpcCallback=new BlockingRpcCallback<AggregateResponse>();
-        instance.getMin(controller,requestArg,rpcCallback);
-        AggregateResponse response=rpcCallback.get();
-        if (controller.failedOnException()) {
-          throw controller.getFailedOn();
-        }
-        if (response.getFirstPartCount() > 0) {
-          ByteString b=response.getFirstPart(0);
-          Q q=ProtobufUtil.getParsedGenericInstance(ci.getClass(),3,b);
-          return ci.getCellValueFromProto(q);
-        }
-        return null;
-      }
-    }
-,minCallBack);
+    return min(table,ci,scan);
   }
   finally {
     if (table != null) {
       table.close();
     }
   }
-  log.debug("Min fom all regions is: " + minCallBack.getMinimum());
-  return minCallBack.getMinimum();
 }

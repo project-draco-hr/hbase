@@ -1,0 +1,64 @@
+{
+  Pair<NavigableMap<byte[],List<S>>,List<S>> p=getMedianArgs(table,ci,scan);
+  byte[] startRow=null;
+  byte[] colFamily=scan.getFamilies()[0];
+  NavigableSet<byte[]> quals=scan.getFamilyMap().get(colFamily);
+  NavigableMap<byte[],List<S>> map=p.getFirst();
+  S sumVal=p.getSecond().get(0);
+  S sumWeights=p.getSecond().get(1);
+  double halfSumVal=ci.divideForAvg(sumVal,2L);
+  double movingSumVal=0;
+  boolean weighted=false;
+  if (quals.size() > 1) {
+    weighted=true;
+    halfSumVal=ci.divideForAvg(sumWeights,2L);
+  }
+  for (  Map.Entry<byte[],List<S>> entry : map.entrySet()) {
+    S s=weighted ? entry.getValue().get(1) : entry.getValue().get(0);
+    double newSumVal=movingSumVal + ci.divideForAvg(s,1L);
+    if (newSumVal > halfSumVal)     break;
+    movingSumVal=newSumVal;
+    startRow=entry.getKey();
+  }
+  Scan scan2=new Scan(scan);
+  if (startRow != null)   scan2.setStartRow(startRow);
+  ResultScanner scanner=null;
+  try {
+    int cacheSize=scan2.getCaching();
+    if (!scan2.getCacheBlocks() || scan2.getCaching() < 2) {
+      scan2.setCacheBlocks(true);
+      cacheSize=5;
+      scan2.setCaching(cacheSize);
+    }
+    scanner=table.getScanner(scan2);
+    Result[] results=null;
+    byte[] qualifier=quals.pollFirst();
+    byte[] weightQualifier=weighted ? quals.pollLast() : qualifier;
+    R value=null;
+    do {
+      results=scanner.next(cacheSize);
+      if (results != null && results.length > 0) {
+        for (int i=0; i < results.length; i++) {
+          Result r=results[i];
+          KeyValue kv=r.getColumnLatest(colFamily,weightQualifier);
+          R newValue=ci.getValue(colFamily,weightQualifier,kv);
+          S s=ci.castToReturnType(newValue);
+          double newSumVal=movingSumVal + ci.divideForAvg(s,1L);
+          if (newSumVal > halfSumVal) {
+            return value;
+          }
+          movingSumVal=newSumVal;
+          kv=r.getColumnLatest(colFamily,qualifier);
+          value=ci.getValue(colFamily,qualifier,kv);
+        }
+      }
+    }
+ while (results != null && results.length > 0);
+  }
+  finally {
+    if (scanner != null) {
+      scanner.close();
+    }
+  }
+  return null;
+}
