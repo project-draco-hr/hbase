@@ -1,0 +1,22 @@
+{
+  HRegionLocation loc=hconn.getRegionLocation(table,row,false);
+  if (loc == null) {
+    throw new IOException("Can't locate location for row:" + Bytes.toString(row) + " of table:"+ Bytes.toString(table));
+  }
+  if (onlineRegions.contains(loc.getRegionInfo().getEncodedName())) {
+    return loc;
+  }
+  Long lastFlushedSequenceId=-1l;
+  loc=waitUntilRegionOnline(loc,row,this.waitRegionOnlineTimeOut);
+  Long cachedLastFlushedSequenceId=lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
+  onlineRegions.add(loc.getRegionInfo().getEncodedName());
+  lastFlushedSequenceId=SplitLogManager.getLastFlushedSequenceId(watcher,loc.getServerName().getServerName(),loc.getRegionInfo().getEncodedName());
+  if (cachedLastFlushedSequenceId == null || lastFlushedSequenceId > cachedLastFlushedSequenceId) {
+    lastFlushedSequenceIds.put(loc.getRegionInfo().getEncodedName(),lastFlushedSequenceId);
+  }
+ else   if (loc.getRegionInfo().isRecovering() == false) {
+    lastFlushedSequenceIds.put(loc.getRegionInfo().getEncodedName(),Long.MAX_VALUE);
+    LOG.info("logReplay skip region: " + loc.getRegionInfo().getEncodedName() + " because it's not in recovering.");
+  }
+  return loc;
+}

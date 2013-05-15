@@ -1,0 +1,43 @@
+{
+  regions.remove(HRegionInfo.FIRST_META_REGIONINFO);
+  byte[] table=Bytes.toBytes(tname);
+  HTableDescriptor htd=new HTableDescriptor(tname);
+  byte[] value=new byte[edit_size];
+  List<HRegionInfo> hris=new ArrayList<HRegionInfo>();
+  for (  HRegionInfo region : regions) {
+    if (!region.getTableNameAsString().equalsIgnoreCase(tname)) {
+      continue;
+    }
+    hris.add(region);
+  }
+  for (int i=0; i < edit_size; i++) {
+    value[i]=(byte)('a' + (i % 26));
+  }
+  int n=hris.size();
+  int[] counts=new int[n];
+  if (n > 0) {
+    for (int i=0; i < num_edits; i+=1) {
+      WALEdit e=new WALEdit();
+      HRegionInfo curRegionInfo=hris.get(i % n);
+      byte[] startRow=curRegionInfo.getStartKey();
+      if (startRow == null || startRow.length == 0) {
+        startRow=new byte[]{0,0,0,0,1};
+      }
+      byte[] row=Bytes.incrementBytes(startRow,counts[i % n]);
+      row=Arrays.copyOfRange(row,3,8);
+      byte[] family=Bytes.toBytes(fname);
+      byte[] qualifier=Bytes.toBytes("c" + Integer.toString(i));
+      e.add(new KeyValue(row,family,qualifier,System.currentTimeMillis(),value));
+      log.append(curRegionInfo,table,e,System.currentTimeMillis(),htd);
+      counts[i % n]+=1;
+    }
+  }
+  log.sync();
+  if (closeLog) {
+    log.close();
+  }
+  for (int i=0; i < n; i++) {
+    LOG.info("region " + hris.get(i).getRegionNameAsString() + " has "+ counts[i]+ " edits");
+  }
+  return;
+}

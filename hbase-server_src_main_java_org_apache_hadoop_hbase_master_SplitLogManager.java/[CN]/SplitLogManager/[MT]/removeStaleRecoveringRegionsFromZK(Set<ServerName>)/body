@@ -1,0 +1,64 @@
+{
+  if (!this.distributedLogReplay) {
+    return;
+  }
+  Set<String> knownFailedServers=new HashSet<String>();
+  if (failedServers != null) {
+    for (    ServerName tmpServerName : failedServers) {
+      knownFailedServers.add(tmpServerName.getServerName());
+    }
+  }
+  this.recoveringRegionLock.lock();
+  try {
+    List<String> tasks=ZKUtil.listChildrenNoWatch(watcher,watcher.splitLogZNode);
+    if (tasks != null) {
+      for (      String t : tasks) {
+        byte[] data=ZKUtil.getData(this.watcher,ZKUtil.joinZNode(watcher.splitLogZNode,t));
+        if (data != null) {
+          SplitLogTask slt=null;
+          try {
+            slt=SplitLogTask.parseFrom(data);
+          }
+ catch (          DeserializationException e) {
+            LOG.warn("Failed parse data for znode " + t,e);
+          }
+          if (slt != null && slt.isDone()) {
+            continue;
+          }
+        }
+        t=ZKSplitLog.getFileName(t);
+        ServerName serverName=HLogUtil.getServerNameFromHLogDirectoryName(new Path(t));
+        if (serverName != null) {
+          knownFailedServers.add(serverName.getServerName());
+        }
+ else {
+          LOG.warn("Found invalid WAL log file name:" + t);
+        }
+      }
+    }
+    List<String> regions=ZKUtil.listChildrenNoWatch(watcher,watcher.recoveringRegionsZNode);
+    if (regions != null) {
+      for (      String region : regions) {
+        String nodePath=ZKUtil.joinZNode(watcher.recoveringRegionsZNode,region);
+        List<String> regionFailedServers=ZKUtil.listChildrenNoWatch(watcher,nodePath);
+        if (regionFailedServers == null || regionFailedServers.isEmpty()) {
+          ZKUtil.deleteNode(watcher,nodePath);
+          continue;
+        }
+        boolean needMoreRecovery=false;
+        for (        String tmpFailedServer : regionFailedServers) {
+          if (knownFailedServers.contains(tmpFailedServer)) {
+            needMoreRecovery=true;
+            break;
+          }
+        }
+        if (!needMoreRecovery) {
+          ZKUtil.deleteNode(watcher,nodePath);
+        }
+      }
+    }
+  }
+  finally {
+    this.recoveringRegionLock.unlock();
+  }
+}

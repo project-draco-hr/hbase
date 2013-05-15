@@ -1,0 +1,25 @@
+{
+  LOG.info("Starting testRemoveStaleRecoveringRegionsDuringMasterInitialization");
+  HMaster master=UTIL.getMiniHBaseCluster().getMaster();
+  MasterFileSystem fs=master.getMasterFileSystem();
+  String failedRegion="failedRegoin1";
+  String staleRegion="staleRegion";
+  ServerName inRecoveryServerName=new ServerName("mgr,1,1");
+  ServerName previouselyFaildServerName=new ServerName("previous,1,1");
+  String walPath="/hbase/data/.logs/" + inRecoveryServerName.getServerName() + "-splitting/test";
+  ZooKeeperWatcher zkw=HBaseTestingUtility.getZooKeeperWatcher(UTIL);
+  zkw.getRecoverableZooKeeper().create(ZKSplitLog.getEncodedNodeName(zkw,walPath),new SplitLogTask.Owned(inRecoveryServerName).toByteArray(),Ids.OPEN_ACL_UNSAFE,CreateMode.PERSISTENT);
+  String staleRegionPath=ZKUtil.joinZNode(zkw.recoveringRegionsZNode,staleRegion);
+  ZKUtil.createWithParents(zkw,staleRegionPath);
+  String inRecoveringRegionPath=ZKUtil.joinZNode(zkw.recoveringRegionsZNode,failedRegion);
+  inRecoveringRegionPath=ZKUtil.joinZNode(inRecoveringRegionPath,inRecoveryServerName.getServerName());
+  ZKUtil.createWithParents(zkw,inRecoveringRegionPath);
+  Set<ServerName> servers=new HashSet<ServerName>();
+  servers.add(previouselyFaildServerName);
+  fs.removeStaleRecoveringRegionsFromZK(servers);
+  assertFalse(ZKUtil.checkExists(zkw,staleRegionPath) != -1);
+  assertTrue(ZKUtil.checkExists(zkw,inRecoveringRegionPath) != -1);
+  ZKUtil.deleteChildrenRecursively(zkw,zkw.recoveringRegionsZNode);
+  ZKUtil.deleteChildrenRecursively(zkw,zkw.splitLogZNode);
+  zkw.close();
+}

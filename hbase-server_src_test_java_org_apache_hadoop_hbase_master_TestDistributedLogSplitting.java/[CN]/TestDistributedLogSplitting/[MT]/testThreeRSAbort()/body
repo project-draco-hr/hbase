@@ -3,7 +3,7 @@
   final int NUM_REGIONS_TO_CREATE=40;
   final int NUM_ROWS_PER_REGION=100;
   startCluster(NUM_RS);
-  ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"distributed log splitting test",null);
+  final ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"distributed log splitting test",null);
   HTable ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE);
   populateDataInTable(NUM_ROWS_PER_REGION,"family");
   List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
@@ -25,6 +25,13 @@
     }
     Thread.sleep(200);
   }
+  TEST_UTIL.waitFor(180000,200,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      List<String> recoveringRegions=zkw.getRecoverableZooKeeper().getChildren(zkw.recoveringRegionsZNode,false);
+      return (recoveringRegions != null && recoveringRegions.size() == 0);
+    }
+  }
+);
   assertEquals(NUM_REGIONS_TO_CREATE * NUM_ROWS_PER_REGION,TEST_UTIL.countRows(ht));
   ht.close();
 }

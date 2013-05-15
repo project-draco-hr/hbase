@@ -1,0 +1,36 @@
+{
+  List<Entry> entries=buffer.entryBuffer;
+  if (entries.isEmpty()) {
+    LOG.warn("got an empty buffer, skipping");
+    return;
+  }
+  if (disablingOrDisabledTables.contains(Bytes.toString(buffer.tableName))) {
+    logRecoveredEditsOutputSink.append(buffer);
+    hasEditsInDisablingOrDisabledTables=true;
+    addToRecoveredRegions(Bytes.toString(buffer.encodedRegionName));
+    return;
+  }
+  groupEditsByServer(entries);
+  String maxLocKey=null;
+  int maxSize=0;
+  List<Pair<HRegionLocation,Row>> maxQueue=null;
+synchronized (this.serverToBufferQueueMap) {
+    for (    String key : this.serverToBufferQueueMap.keySet()) {
+      List<Pair<HRegionLocation,Row>> curQueue=this.serverToBufferQueueMap.get(key);
+      if (curQueue.size() > maxSize) {
+        maxSize=curQueue.size();
+        maxQueue=curQueue;
+        maxLocKey=key;
+      }
+    }
+    if (maxSize < minBatchSize && entryBuffers.totalBuffered < BUFFER_THRESHOLD * entryBuffers.maxHeapUsage) {
+      return;
+    }
+ else     if (maxSize > 0) {
+      this.serverToBufferQueueMap.remove(maxLocKey);
+    }
+  }
+  if (maxSize > 0) {
+    processWorkItems(maxLocKey,maxQueue);
+  }
+}

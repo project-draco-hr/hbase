@@ -1,0 +1,38 @@
+{
+  final long endTime=EnvironmentEdgeManager.currentTimeMillis() + timeout;
+  final long pause=conf.getLong(HConstants.HBASE_CLIENT_PAUSE,HConstants.DEFAULT_HBASE_CLIENT_PAUSE);
+  boolean reloadLocation=false;
+  byte[] tableName=loc.getRegionInfo().getTableName();
+  int tries=0;
+  Throwable cause=null;
+  while (endTime > EnvironmentEdgeManager.currentTimeMillis()) {
+    try {
+      HConnection hconn=getConnectionByTableName(tableName);
+      if (reloadLocation) {
+        loc=hconn.getRegionLocation(tableName,row,true);
+      }
+      BlockingInterface remoteSvr=hconn.getAdmin(loc.getServerName());
+      HRegionInfo region=loc.getRegionInfo();
+      if ((region=ProtobufUtil.getRegionInfo(remoteSvr,region.getRegionName())) != null) {
+        loc.getRegionInfo().setRecovering(region.isRecovering());
+        return loc;
+      }
+    }
+ catch (    IOException e) {
+      cause=e.getCause();
+      if (!(cause instanceof RegionOpeningException)) {
+        reloadLocation=true;
+      }
+    }
+    long expectedSleep=ConnectionUtils.getPauseTime(pause,tries);
+    try {
+      Thread.sleep(expectedSleep);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Interrupted when waiting regon " + loc.getRegionInfo().getEncodedName() + " online.",e);
+    }
+    tries++;
+  }
+  throw new IOException("Timeout when waiting region " + loc.getRegionInfo().getEncodedName() + " online for "+ timeout+ " milliseconds.",cause);
+}

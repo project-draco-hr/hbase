@@ -17,7 +17,32 @@
 synchronized (taskReadyLock) {
       while (seq_start == taskReadySeq) {
         try {
-          taskReadyLock.wait();
+          taskReadyLock.wait(checkInterval);
+          if (this.server != null) {
+            Map<String,HRegion> recoveringRegions=this.server.getRecoveringRegions();
+            if (!recoveringRegions.isEmpty()) {
+              List<String> tmpCopy=new ArrayList<String>(recoveringRegions.keySet());
+              for (              String region : tmpCopy) {
+                String nodePath=ZKUtil.joinZNode(this.watcher.recoveringRegionsZNode,region);
+                try {
+                  if (ZKUtil.checkExists(this.watcher,nodePath) == -1) {
+                    HRegion r=recoveringRegions.remove(region);
+                    if (r != null) {
+                      r.setRecovering(false);
+                    }
+                    LOG.debug("Mark recovering region:" + region + " up.");
+                  }
+ else {
+                    break;
+                  }
+                }
+ catch (                KeeperException e) {
+                  LOG.debug("Got a zookeeper when trying to open a recovering region",e);
+                  break;
+                }
+              }
+            }
+          }
         }
  catch (        InterruptedException e) {
           LOG.info("SplitLogWorker interrupted while waiting for task," + " exiting: " + e.toString() + (exitWorker ? "" : " (ERROR: exitWorker is not set, exiting anyway)"));

@@ -1,0 +1,30 @@
+{
+  BatchOperationInProgress<Pair<Mutation,Integer>> batchOp=new BatchOperationInProgress<Pair<Mutation,Integer>>(mutationsAndLocks);
+  boolean initialized=false;
+  while (!batchOp.isDone()) {
+    if (!isReplay) {
+      checkReadOnly();
+    }
+    checkResources();
+    long newSize;
+    startRegionOperation();
+    try {
+      if (!initialized) {
+        if (!isReplay) {
+          this.writeRequestsCount.increment();
+          doPreMutationHook(batchOp);
+        }
+        initialized=true;
+      }
+      long addedSize=doMiniBatchMutation(batchOp,isReplay);
+      newSize=this.addAndGetGlobalMemstoreSize(addedSize);
+    }
+  finally {
+      closeRegionOperation();
+    }
+    if (isFlushSize(newSize)) {
+      requestFlush();
+    }
+  }
+  return batchOp.retCodeDetails;
+}

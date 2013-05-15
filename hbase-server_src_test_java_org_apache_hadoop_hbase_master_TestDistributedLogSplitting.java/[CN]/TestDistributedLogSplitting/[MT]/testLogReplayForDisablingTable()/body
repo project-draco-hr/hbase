@@ -1,0 +1,89 @@
+{
+  LOG.info("testLogReplayWithNonMetaRSDown");
+  Configuration curConf=HBaseConfiguration.create();
+  curConf.setBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,true);
+  startCluster(NUM_RS,curConf);
+  final int NUM_REGIONS_TO_CREATE=40;
+  final int NUM_LOG_LINES=1000;
+  master.balanceSwitch(false);
+  List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
+  final ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"table-creation",null);
+  HTable disablingHT=installTable(zkw,"disableTable","family",NUM_REGIONS_TO_CREATE);
+  HTable ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE,NUM_REGIONS_TO_CREATE);
+  List<HRegionInfo> regions=null;
+  HRegionServer hrs=null;
+  for (int i=0; i < NUM_RS; i++) {
+    boolean isCarryingMeta=false;
+    hrs=rsts.get(i).getRegionServer();
+    regions=ProtobufUtil.getOnlineRegions(hrs);
+    for (    HRegionInfo region : regions) {
+      if (region.isMetaRegion()) {
+        isCarryingMeta=true;
+        break;
+      }
+    }
+    if (isCarryingMeta) {
+      continue;
+    }
+    break;
+  }
+  LOG.info("#regions = " + regions.size());
+  Iterator<HRegionInfo> it=regions.iterator();
+  while (it.hasNext()) {
+    HRegionInfo region=it.next();
+    if (region.isMetaTable()) {
+      it.remove();
+    }
+  }
+  makeHLog(hrs.getWAL(),regions,"disableTable","family",NUM_LOG_LINES,100,false);
+  makeHLog(hrs.getWAL(),regions,"table","family",NUM_LOG_LINES,100);
+  LOG.info("Disabling table\n");
+  TEST_UTIL.getHBaseAdmin().disableTable(Bytes.toBytes("disableTable"));
+  LOG.info("Aborting region server: " + hrs.getServerName());
+  hrs.abort("testing");
+  TEST_UTIL.waitFor(120000,200,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return (cluster.getLiveRegionServerThreads().size() <= (NUM_RS - 1));
+    }
+  }
+);
+  TEST_UTIL.waitFor(180000,200,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return (getAllOnlineRegions(cluster).size() >= (NUM_REGIONS_TO_CREATE + 1));
+    }
+  }
+);
+  TEST_UTIL.waitFor(180000,200,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      List<String> recoveringRegions=zkw.getRecoverableZooKeeper().getChildren(zkw.recoveringRegionsZNode,false);
+      return (recoveringRegions != null && recoveringRegions.size() == 0);
+    }
+  }
+);
+  int count=0;
+  FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  Path rootdir=FSUtils.getRootDir(conf);
+  Path tdir=HTableDescriptor.getTableDir(rootdir,Bytes.toBytes("disableTable"));
+  for (  HRegionInfo hri : regions) {
+    @SuppressWarnings("deprecation") Path editsdir=HLogUtil.getRegionDirRecoveredEditsDir(HRegion.getRegionDir(tdir,hri.getEncodedName()));
+    LOG.debug("checking edits dir " + editsdir);
+    FileStatus[] files=fs.listStatus(editsdir);
+    if (files != null) {
+      for (      FileStatus file : files) {
+        int c=countHLog(file.getPath(),fs,conf);
+        count+=c;
+        LOG.info(c + " edits in " + file.getPath());
+      }
+    }
+  }
+  LOG.info("Verify edits in recovered.edits files");
+  assertEquals(NUM_LOG_LINES,count);
+  LOG.info("Verify replayed edits");
+  assertEquals(NUM_LOG_LINES,TEST_UTIL.countRows(ht));
+  for (  HRegionInfo hri : regions) {
+    @SuppressWarnings("deprecation") Path editsdir=HLogUtil.getRegionDirRecoveredEditsDir(HRegion.getRegionDir(tdir,hri.getEncodedName()));
+    fs.delete(editsdir,true);
+  }
+  disablingHT.close();
+  ht.close();
+}

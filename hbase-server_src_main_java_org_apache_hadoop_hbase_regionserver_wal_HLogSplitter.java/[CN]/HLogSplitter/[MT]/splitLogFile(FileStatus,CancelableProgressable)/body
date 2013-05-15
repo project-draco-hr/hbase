@@ -12,6 +12,7 @@
     status=TaskMonitor.get().createStatus("Splitting log file " + logfile.getPath() + "into a temporary staging area.");
     long logLength=logfile.getLen();
     LOG.info("Splitting hlog: " + logPath + ", length="+ logLength);
+    LOG.info("DistributedLogReplay = " + this.distributedLogReplay);
     status.setStatus("Opening log file");
     if (reporter != null && !reporter.progress()) {
       progress_failed=true;
@@ -31,21 +32,39 @@
       LOG.warn("Nothing to split in log file " + logPath);
       return true;
     }
+    if (watcher != null) {
+      try {
+        disablingOrDisabledTables=ZKTable.getDisabledOrDisablingTables(watcher);
+      }
+ catch (      KeeperException e) {
+        throw new IOException("Can't get disabling/disabled tables",e);
+      }
+    }
     int numOpenedFilesBeforeReporting=conf.getInt("hbase.splitlog.report.openedfiles",3);
     int numOpenedFilesLastCheck=0;
     outputSink.setReporter(reporter);
     outputSink.startWriterThreads();
     outputSinkStarted=true;
-    Map<byte[],Long> lastFlushedSequenceIds=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
     Entry entry;
+    Long lastFlushedSequenceId=-1L;
+    ServerName serverName=HLogUtil.getServerNameFromHLogDirectoryName(logPath);
+    String serverNameStr=(serverName == null) ? "" : serverName.getServerName();
     while ((entry=getNextLogLine(in,logPath,skipErrors)) != null) {
       byte[] region=entry.getKey().getEncodedRegionName();
-      Long lastFlushedSequenceId=-1l;
-      if (sequenceIdChecker != null) {
-        lastFlushedSequenceId=lastFlushedSequenceIds.get(region);
-        if (lastFlushedSequenceId == null) {
+      String key=Bytes.toString(region);
+      lastFlushedSequenceId=lastFlushedSequenceIds.get(key);
+      if (lastFlushedSequenceId == null) {
+        if (this.distributedLogReplay) {
+          lastFlushedSequenceId=SplitLogManager.getLastFlushedSequenceId(this.watcher,serverNameStr,key);
+        }
+ else         if (sequenceIdChecker != null) {
           lastFlushedSequenceId=sequenceIdChecker.getLastSequenceId(region);
-          lastFlushedSequenceIds.put(region,lastFlushedSequenceId);
+        }
+        if (lastFlushedSequenceId != null) {
+          lastFlushedSequenceIds.put(key,lastFlushedSequenceId);
+        }
+ else {
+          lastFlushedSequenceId=-1L;
         }
       }
       if (lastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
@@ -54,9 +73,10 @@
       }
       entryBuffers.appendEntry(entry);
       editsCount++;
-      if (editsCount % interval == 0 || (outputSink.logWriters.size() - numOpenedFilesLastCheck) > numOpenedFilesBeforeReporting) {
-        numOpenedFilesLastCheck=outputSink.logWriters.size();
-        String countsStr=(editsCount - editsSkipped) + " edits, skipped " + editsSkipped+ " edits.";
+      int moreWritersFromLastCheck=this.getNumOpenWriters() - numOpenedFilesLastCheck;
+      if (editsCount % interval == 0 || moreWritersFromLastCheck > numOpenedFilesBeforeReporting) {
+        numOpenedFilesLastCheck=this.getNumOpenWriters();
+        String countsStr=(editsCount - (editsSkipped + outputSink.getSkippedEdits())) + " edits, skipped " + editsSkipped+ " edits.";
         status.setStatus("Split " + countsStr);
         if (reporter != null && !reporter.progress()) {
           progress_failed=true;
@@ -84,7 +104,7 @@ catch (  IOException e) {
     if (outputSinkStarted) {
       progress_failed=outputSink.finishWritingAndClose() == null;
     }
-    String msg="Processed " + editsCount + " edits across "+ outputSink.getOutputCounts().size()+ " regions; log file="+ logPath+ " is corrupted = "+ isCorrupted+ " progress failed = "+ progress_failed;
+    String msg="Processed " + editsCount + " edits across "+ outputSink.getNumberOfRecoveredRegions()+ " regions; log file="+ logPath+ " is corrupted = "+ isCorrupted+ " progress failed = "+ progress_failed;
     LOG.info(msg);
     status.markComplete(msg);
   }

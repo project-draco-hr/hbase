@@ -1,22 +1,8 @@
 {
   final ServerName serverName=this.serverName;
   try {
-    try {
-      if (this.shouldSplitHlog) {
-        LOG.info("Splitting logs for " + serverName);
-        this.services.getMasterFileSystem().splitLog(serverName);
-      }
- else {
-        LOG.info("Skipping log splitting for " + serverName);
-      }
-    }
- catch (    IOException ioe) {
-      this.services.getExecutorService().submit((ServerShutdownHandler)this);
-      this.deadServers.add(serverName);
-      throw new IOException("failed log splitting for " + serverName + ", will retry",ioe);
-    }
     if (isCarryingMeta() || !services.getAssignmentManager().isFailoverCleanupDone()) {
-      this.services.getServerManager().processDeadServer(serverName);
+      this.services.getServerManager().processDeadServer(serverName,this.shouldSplitHlog);
       return;
     }
     NavigableMap<HRegionInfo,Result> hris=null;
@@ -36,6 +22,25 @@ catch (      IOException ioe) {
     }
     if (this.server.isStopped()) {
       throw new IOException("Server is stopped");
+    }
+    try {
+      if (this.shouldSplitHlog) {
+        LOG.info("Splitting logs for " + serverName + " before assignment.");
+        if (this.distributedLogReplay) {
+          Set<ServerName> serverNames=new HashSet<ServerName>();
+          serverNames.add(serverName);
+          this.services.getMasterFileSystem().prepareLogReplay(serverNames);
+        }
+ else {
+          this.services.getMasterFileSystem().splitLog(serverName);
+        }
+      }
+ else {
+        LOG.info("Skipping log splitting for " + serverName);
+      }
+    }
+ catch (    IOException ioe) {
+      resubmit(serverName,ioe);
     }
     AssignmentManager am=services.getAssignmentManager();
     List<HRegionInfo> regionsInTransition=am.processServerShutdown(serverName);
@@ -92,6 +97,24 @@ catch (      IOException ioe) {
  catch (    InterruptedException ie) {
       LOG.error("Caught " + ie + " during round-robin assignment");
       throw new IOException(ie);
+    }
+    try {
+      if (this.shouldSplitHlog && this.distributedLogReplay) {
+        for (        HRegionInfo hri : toAssignRegions) {
+          if (!am.waitOnRegionToClearRegionsInTransition(hri,regionAssignmentWaitTimeout)) {
+            throw new IOException("Region " + hri.getEncodedName() + " didn't complete assignment in time");
+          }
+        }
+        this.services.getMasterFileSystem().splitLog(serverName);
+      }
+    }
+ catch (    Exception ex) {
+      if (ex instanceof IOException) {
+        resubmit(serverName,(IOException)ex);
+      }
+ else {
+        throw new IOException(ex);
+      }
     }
   }
   finally {

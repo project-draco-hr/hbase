@@ -1,0 +1,49 @@
+{
+  List<IOException> result=null;
+  if (!writersClosed) {
+    result=Lists.newArrayList();
+    try {
+      for (      WriterThread t : writerThreads) {
+        while (t.isAlive()) {
+          t.shouldStop=true;
+          t.interrupt();
+          try {
+            t.join(10);
+          }
+ catch (          InterruptedException e) {
+            IOException iie=new InterruptedIOException();
+            iie.initCause(e);
+            throw iie;
+          }
+        }
+      }
+    }
+  finally {
+synchronized (writers) {
+        for (        String locationKey : writers.keySet()) {
+          RegionServerWriter tmpW=writers.get(locationKey);
+          try {
+            tmpW.close();
+          }
+ catch (          IOException ioe) {
+            LOG.error("Couldn't close writer for region server:" + locationKey,ioe);
+            result.add(ioe);
+          }
+        }
+      }
+synchronized (this.tableNameToHConnectionMap) {
+        for (        byte[] tableName : this.tableNameToHConnectionMap.keySet()) {
+          HConnection hconn=this.tableNameToHConnectionMap.get(tableName);
+          try {
+            hconn.close();
+          }
+ catch (          IOException ioe) {
+            result.add(ioe);
+          }
+        }
+      }
+      writersClosed=true;
+    }
+  }
+  return result;
+}

@@ -1,0 +1,26 @@
+{
+  if (!r.isRecovering()) {
+    return;
+  }
+  HRegionInfo region=r.getRegionInfo();
+  ZooKeeperWatcher zkw=getZooKeeper();
+  String previousRSName=this.getLastFailedRSFromZK(region.getEncodedName());
+  long minSeqIdForLogReplay=r.getMinSeqIdForLogReplay();
+  long lastRecordedFlushedSequenceId=-1;
+  String nodePath=ZKUtil.joinZNode(this.zooKeeper.recoveringRegionsZNode,region.getEncodedName());
+  byte[] data=ZKUtil.getData(zkw,nodePath);
+  if (data != null) {
+    lastRecordedFlushedSequenceId=SplitLogManager.parseLastFlushedSequenceIdFrom(data);
+  }
+  if (data == null || lastRecordedFlushedSequenceId < minSeqIdForLogReplay) {
+    ZKUtil.setData(zkw,nodePath,ZKUtil.positionToByteArray(minSeqIdForLogReplay));
+  }
+  if (previousRSName != null) {
+    nodePath=ZKUtil.joinZNode(nodePath,previousRSName);
+    ZKUtil.setData(zkw,nodePath,ZKUtil.positionToByteArray(minSeqIdForLogReplay));
+    LOG.debug("Update last flushed sequence id of region " + region.getEncodedName() + " for "+ previousRSName);
+  }
+ else {
+    LOG.warn("Can't find failed region server for recovering region " + region.getEncodedName());
+  }
+}

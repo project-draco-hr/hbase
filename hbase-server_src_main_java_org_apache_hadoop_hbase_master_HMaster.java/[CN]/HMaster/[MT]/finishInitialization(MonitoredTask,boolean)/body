@@ -33,10 +33,24 @@
   if (!masterRecovery) {
     this.assignmentManager.startTimeOutMonitor();
   }
-  status.setStatus("Splitting logs after master startup");
-  splitLogAfterStartup(this.fileSystemManager);
-  if (!assignMeta(status))   return;
+  Set<ServerName> previouslyFailedServers=this.fileSystemManager.getFailedServersFromLogFolders();
+  this.fileSystemManager.removeStaleRecoveringRegionsFromZK(previouslyFailedServers);
+  ServerName oldMetaServerLocation=this.catalogTracker.getMetaLocation();
+  if (oldMetaServerLocation != null && previouslyFailedServers.contains(oldMetaServerLocation)) {
+    splitMetaLogBeforeAssignment(oldMetaServerLocation);
+  }
+  this.initializationBeforeMetaAssignment=true;
+  status.setStatus("Assigning Meta Region");
+  assignMeta(status);
+  if (this.distributedLogReplay && oldMetaServerLocation != null && previouslyFailedServers.contains(oldMetaServerLocation)) {
+    status.setStatus("replaying log for Meta Region");
+    this.fileSystemManager.splitMetaLog(oldMetaServerLocation);
+  }
   enableServerShutdownHandler();
+  status.setStatus("Submitting log splitting work for previously failed region servers");
+  for (  ServerName tmpServer : previouslyFailedServers) {
+    this.serverManager.processDeadServer(tmpServer,true);
+  }
   org.apache.hadoop.hbase.catalog.MetaMigrationConvertingToPB.updateMetaIfNecessary(this);
   this.balancer.setMasterServices(this);
   status.setStatus("Starting assignment manager");

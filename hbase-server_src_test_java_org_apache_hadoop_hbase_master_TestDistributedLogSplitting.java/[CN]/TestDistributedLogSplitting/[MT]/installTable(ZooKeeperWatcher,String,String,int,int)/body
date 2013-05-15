@@ -1,0 +1,28 @@
+{
+  byte[] table=Bytes.toBytes(tname);
+  byte[] family=Bytes.toBytes(fname);
+  LOG.info("Creating table with " + nrs + " regions");
+  HTable ht=TEST_UTIL.createTable(table,family);
+  int numRegions=TEST_UTIL.createMultiRegions(conf,ht,family,nrs);
+  assertEquals(nrs,numRegions);
+  LOG.info("Waiting for no more RIT\n");
+  blockUntilNoRIT(zkw,master);
+  LOG.debug("Disabling table\n");
+  TEST_UTIL.getHBaseAdmin().disableTable(table);
+  LOG.debug("Waiting for no more RIT\n");
+  blockUntilNoRIT(zkw,master);
+  NavigableSet<String> regions=getAllOnlineRegions(cluster);
+  LOG.debug("Verifying only catalog regions are assigned\n");
+  if (regions.size() != 1) {
+    for (    String oregion : regions)     LOG.debug("Region still online: " + oregion);
+  }
+  assertEquals(1 + existingRegions,regions.size());
+  LOG.debug("Enabling table\n");
+  TEST_UTIL.getHBaseAdmin().enableTable(table);
+  LOG.debug("Waiting for no more RIT\n");
+  blockUntilNoRIT(zkw,master);
+  LOG.debug("Verifying there are " + numRegions + " assigned on cluster\n");
+  regions=getAllOnlineRegions(cluster);
+  assertEquals(numRegions + 1 + existingRegions,regions.size());
+  return ht;
+}
