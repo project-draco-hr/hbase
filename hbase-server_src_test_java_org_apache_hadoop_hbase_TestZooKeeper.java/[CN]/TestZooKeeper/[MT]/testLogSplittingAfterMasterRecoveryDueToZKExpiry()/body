@@ -3,33 +3,40 @@
   cluster.startRegionServer();
   HMaster m=cluster.getMaster();
   HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
-  byte[][] SPLIT_KEYS=new byte[][]{Bytes.toBytes("1"),Bytes.toBytes("2"),Bytes.toBytes("3"),Bytes.toBytes("4"),Bytes.toBytes("5")};
-  String tableName="testLogSplittingAfterMasterRecoveryDueToZKExpiry";
-  HTableDescriptor htd=new HTableDescriptor(tableName);
-  HColumnDescriptor hcd=new HColumnDescriptor("col");
-  htd.addFamily(hcd);
-  admin.createTable(htd,SPLIT_KEYS);
-  ZooKeeperWatcher zooKeeperWatcher=HBaseTestingUtility.getZooKeeperWatcher(TEST_UTIL);
-  ZKAssign.blockUntilNoRIT(zooKeeperWatcher);
-  HTable table=new HTable(TEST_UTIL.getConfiguration(),tableName);
-  Put p;
-  int numberOfPuts;
-  for (numberOfPuts=0; numberOfPuts < 6; numberOfPuts++) {
-    p=new Put(Bytes.toBytes(numberOfPuts));
-    p.add(Bytes.toBytes("col"),Bytes.toBytes("ql"),Bytes.toBytes("value" + numberOfPuts));
-    table.put(p);
+  HTable table=null;
+  try {
+    byte[][] SPLIT_KEYS=new byte[][]{Bytes.toBytes("1"),Bytes.toBytes("2"),Bytes.toBytes("3"),Bytes.toBytes("4"),Bytes.toBytes("5")};
+    String tableName="testLogSplittingAfterMasterRecoveryDueToZKExpiry";
+    HTableDescriptor htd=new HTableDescriptor(tableName);
+    HColumnDescriptor hcd=new HColumnDescriptor("col");
+    htd.addFamily(hcd);
+    admin.createTable(htd,SPLIT_KEYS);
+    ZooKeeperWatcher zooKeeperWatcher=HBaseTestingUtility.getZooKeeperWatcher(TEST_UTIL);
+    ZKAssign.blockUntilNoRIT(zooKeeperWatcher);
+    table=new HTable(TEST_UTIL.getConfiguration(),tableName);
+    Put p;
+    int numberOfPuts;
+    for (numberOfPuts=0; numberOfPuts < 6; numberOfPuts++) {
+      p=new Put(Bytes.toBytes(numberOfPuts));
+      p.add(Bytes.toBytes("col"),Bytes.toBytes("ql"),Bytes.toBytes("value" + numberOfPuts));
+      table.put(p);
+    }
+    m.getZooKeeperWatcher().close();
+    m.abort("Test recovery from zk session expired",new KeeperException.SessionExpiredException());
+    assertFalse(m.isStopped());
+    cluster.getRegionServer(0).abort("Aborting");
+    Scan scan=new Scan();
+    int numberOfRows=0;
+    ResultScanner scanner=table.getScanner(scan);
+    Result[] result=scanner.next(1);
+    while (result != null && result.length > 0) {
+      numberOfRows++;
+      result=scanner.next(1);
+    }
+    assertEquals("Number of rows should be equal to number of puts.",numberOfPuts,numberOfRows);
   }
-  m.getZooKeeperWatcher().close();
-  m.abort("Test recovery from zk session expired",new KeeperException.SessionExpiredException());
-  assertFalse(m.isStopped());
-  cluster.getRegionServer(0).abort("Aborting");
-  Scan scan=new Scan();
-  int numberOfRows=0;
-  ResultScanner scanner=table.getScanner(scan);
-  Result[] result=scanner.next(1);
-  while (result != null && result.length > 0) {
-    numberOfRows++;
-    result=scanner.next(1);
+  finally {
+    if (table != null)     table.close();
+    admin.close();
   }
-  assertEquals("Number of rows should be equal to number of puts.",numberOfPuts,numberOfRows);
 }
