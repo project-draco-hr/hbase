@@ -15,12 +15,12 @@
   }
   sleepMultiplier=1;
   LOG.info("Replicating " + clusterId + " -> "+ peerClusterId);
-  if (this.queueRecovered) {
+  if (this.replicationQueueInfo.isQueueRecovered()) {
     try {
       this.repLogReader.setPosition(this.zkHelper.getHLogRepPosition(this.peerClusterZnode,this.queue.peek().getName()));
     }
  catch (    KeeperException e) {
-      this.terminate("Couldn't get the position of this recovered queue " + peerClusterZnode,e);
+      this.terminate("Couldn't get the position of this recovered queue " + this.peerClusterZnode,e);
     }
   }
   while (isActive()) {
@@ -42,7 +42,7 @@
       continue;
     }
     boolean currentWALisBeingWrittenTo=false;
-    if (!this.queueRecovered && queue.size() == 0) {
+    if (!this.replicationQueueInfo.isQueueRecovered() && queue.size() == 0) {
       currentWALisBeingWrittenTo=true;
     }
     if (!openReader(sleepMultiplier)) {
@@ -65,24 +65,24 @@
       }
     }
  catch (    IOException ioe) {
-      LOG.warn(peerClusterZnode + " Got: ",ioe);
+      LOG.warn(this.peerClusterZnode + " Got: ",ioe);
       gotIOE=true;
       if (ioe.getCause() instanceof EOFException) {
         boolean considerDumping=false;
-        if (this.queueRecovered) {
+        if (this.replicationQueueInfo.isQueueRecovered()) {
           try {
             FileStatus stat=this.fs.getFileStatus(this.currentPath);
             if (stat.getLen() == 0) {
-              LOG.warn(peerClusterZnode + " Got EOF and the file was empty");
+              LOG.warn(this.peerClusterZnode + " Got EOF and the file was empty");
             }
             considerDumping=true;
           }
  catch (          IOException e) {
-            LOG.warn(peerClusterZnode + " Got while getting file size: ",e);
+            LOG.warn(this.peerClusterZnode + " Got while getting file size: ",e);
           }
         }
  else         if (currentNbEntries != 0) {
-          LOG.warn(peerClusterZnode + " Got EOF while reading, " + "looks like this file is broken? "+ currentPath);
+          LOG.warn(this.peerClusterZnode + " Got EOF while reading, " + "looks like this file is broken? "+ currentPath);
           considerDumping=true;
           currentNbEntries=0;
         }
@@ -103,7 +103,7 @@
     }
     if (this.isActive() && (gotIOE || currentNbEntries == 0)) {
       if (this.lastLoggedPosition != this.repLogReader.getPosition()) {
-        this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.repLogReader.getPosition(),queueRecovered,currentWALisBeingWrittenTo);
+        this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.repLogReader.getPosition(),this.replicationQueueInfo.isQueueRecovered(),currentWALisBeingWrittenTo);
         this.lastLoggedPosition=this.repLogReader.getPosition();
       }
       if (sleepForRetries("Nothing to replicate",sleepMultiplier)) {
@@ -122,6 +122,6 @@
       LOG.debug("Attempt to close connection failed",e);
     }
   }
-  LOG.debug("Source exiting " + peerId);
+  LOG.debug("Source exiting " + this.peerId);
   metrics.clear();
 }
