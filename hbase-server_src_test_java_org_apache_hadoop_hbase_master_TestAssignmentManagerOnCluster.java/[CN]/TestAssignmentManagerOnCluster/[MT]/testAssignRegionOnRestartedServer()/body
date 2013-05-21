@@ -1,0 +1,34 @@
+{
+  String table="testAssignRegionOnRestartedServer";
+  ServerName deadServer=null;
+  HMaster master=null;
+  try {
+    HTableDescriptor desc=new HTableDescriptor(table);
+    desc.addFamily(new HColumnDescriptor(FAMILY));
+    admin.createTable(desc);
+    HTable meta=new HTable(conf,HConstants.META_TABLE_NAME);
+    HRegionInfo hri=new HRegionInfo(desc.getName(),Bytes.toBytes("A"),Bytes.toBytes("Z"));
+    MetaEditor.addRegionToMeta(meta,hri);
+    master=TEST_UTIL.getHBaseCluster().getMaster();
+    Set<ServerName> onlineServers=master.serverManager.getOnlineServers().keySet();
+    assertFalse("There should be some servers online",onlineServers.isEmpty());
+    ServerName destServer=onlineServers.iterator().next();
+    deadServer=new ServerName(destServer.getHostname(),destServer.getPort(),destServer.getStartcode() - 100L);
+    master.serverManager.recordNewServer(deadServer,ServerLoad.EMPTY_SERVERLOAD);
+    AssignmentManager am=master.getAssignmentManager();
+    RegionPlan plan=new RegionPlan(hri,null,deadServer);
+    am.addPlan(hri.getEncodedName(),plan);
+    master.assignRegion(hri);
+    int version=ZKAssign.transitionNode(master.getZooKeeper(),hri,destServer,EventType.M_ZK_REGION_OFFLINE,EventType.RS_ZK_REGION_OPENING,0);
+    assertEquals("TansitionNode should fail",-1,version);
+    Thread.sleep(2000);
+    assertTrue("Region should still be in transition",am.getRegionStates().isRegionInTransition(hri));
+    assertEquals("Assign node should still be in version 0",0,ZKAssign.getVersion(master.getZooKeeper(),hri));
+  }
+  finally {
+    if (deadServer != null) {
+      master.serverManager.expireServer(deadServer);
+    }
+    TEST_UTIL.deleteTable(Bytes.toBytes(table));
+  }
+}
