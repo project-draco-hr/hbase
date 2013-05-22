@@ -32,7 +32,6 @@
       RegionScannerHolder rsh=null;
       boolean moreResults=true;
       boolean closeScanner=false;
-      Long resultsWireSize=null;
       ScanResponse.Builder builder=ScanResponse.newBuilder();
       if (request.hasCloseScanner()) {
         closeScanner=request.getCloseScanner();
@@ -58,7 +57,6 @@
           scan.setLoadColumnFamiliesOnDemand(region.isLoadingCfsOnDemandDefault());
         }
         byte[] hasMetrics=scan.getAttribute(Scan.SCAN_ATTRIBUTES_METRICS_ENABLE);
-        resultsWireSize=(hasMetrics != null && Bytes.toBoolean(hasMetrics)) ? 0L : null;
         region.prepareScanner(scan);
         if (region.getCoprocessorHost() != null) {
           scanner=region.getCoprocessorHost().preScannerOpen(scan);
@@ -146,18 +144,14 @@ synchronized (scanner) {
             results=null;
           }
  else {
-            for (            Result result : results) {
-              if (result != null) {
-                ClientProtos.Result pbResult=ProtobufUtil.toResult(result);
-                if (resultsWireSize != null) {
-                  resultsWireSize+=pbResult.getSerializedSize();
-                }
-                builder.addResult(pbResult);
-              }
+            ResultCellMeta.Builder rcmBuilder=ResultCellMeta.newBuilder();
+            List<CellScannable> cellScannables=new ArrayList<CellScannable>(results.size());
+            for (            Result res : results) {
+              cellScannables.add(res);
+              rcmBuilder.addCellsLength(res.size());
             }
-            if (resultsWireSize != null) {
-              builder.setResultSizeBytes(resultsWireSize.longValue());
-            }
+            builder.setResultCellMeta(rcmBuilder.build());
+            ((PayloadCarryingRpcController)controller).setCellScanner(CellUtil.createCellScanner(cellScannables));
           }
         }
   finally {

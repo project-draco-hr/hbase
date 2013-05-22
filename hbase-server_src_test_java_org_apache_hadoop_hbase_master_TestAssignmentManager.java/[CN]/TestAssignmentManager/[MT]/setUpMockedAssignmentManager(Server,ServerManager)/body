@@ -2,14 +2,28 @@
   CatalogTracker ct=Mockito.mock(CatalogTracker.class);
   ClientProtos.ClientService.BlockingInterface ri=Mockito.mock(ClientProtos.ClientService.BlockingInterface.class);
   Result r=MetaMockingUtil.getMetaTableRowResult(REGIONINFO,SERVERNAME_A);
-  ScanResponse.Builder builder=ScanResponse.newBuilder();
+  final ScanResponse.Builder builder=ScanResponse.newBuilder();
   builder.setMoreResults(true);
-  builder.addResult(ProtobufUtil.toResult(r));
+  ResultCellMeta.Builder metaBuilder=ResultCellMeta.newBuilder();
+  metaBuilder.addCellsLength(r.size());
+  builder.setResultCellMeta(metaBuilder.build());
+  final List<CellScannable> rows=new ArrayList<CellScannable>(1);
+  rows.add(r);
+  Answer<ScanResponse> ans=new Answer<ClientProtos.ScanResponse>(){
+    public ScanResponse answer(    InvocationOnMock invocation) throws Throwable {
+      PayloadCarryingRpcController controller=(PayloadCarryingRpcController)invocation.getArguments()[0];
+      if (controller != null) {
+        controller.setCellScanner(CellUtil.createCellScanner(rows));
+      }
+      return builder.build();
+    }
+  }
+;
   if (enabling) {
-    Mockito.when(ri.scan((RpcController)Mockito.any(),(ScanRequest)Mockito.any())).thenReturn(builder.build()).thenReturn(builder.build()).thenReturn(builder.build()).thenReturn(builder.build()).thenReturn(builder.build()).thenReturn(ScanResponse.newBuilder().setMoreResults(false).build());
+    Mockito.when(ri.scan((RpcController)Mockito.any(),(ScanRequest)Mockito.any())).thenAnswer(ans).thenAnswer(ans).thenAnswer(ans).thenAnswer(ans).thenAnswer(ans).thenReturn(ScanResponse.newBuilder().setMoreResults(false).build());
   }
  else {
-    Mockito.when(ri.scan((RpcController)Mockito.any(),(ScanRequest)Mockito.any())).thenReturn(builder.build());
+    Mockito.when(ri.scan((RpcController)Mockito.any(),(ScanRequest)Mockito.any())).thenAnswer(ans);
   }
   GetResponse.Builder getBuilder=GetResponse.newBuilder();
   getBuilder.setResult(ProtobufUtil.toResult(r));
