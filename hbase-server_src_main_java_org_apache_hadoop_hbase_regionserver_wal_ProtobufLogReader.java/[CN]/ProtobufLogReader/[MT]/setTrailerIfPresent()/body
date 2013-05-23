@@ -1,0 +1,32 @@
+{
+  try {
+    long trailerSizeOffset=this.fileLength - (PB_WAL_COMPLETE_MAGIC.length + Bytes.SIZEOF_INT);
+    if (trailerSizeOffset <= 0)     return false;
+    this.seekOnFs(trailerSizeOffset);
+    int trailerSize=this.inputStream.readInt();
+    ByteBuffer buf=ByteBuffer.allocate(ProtobufLogReader.PB_WAL_COMPLETE_MAGIC.length);
+    this.inputStream.readFully(buf.array(),buf.arrayOffset(),buf.capacity());
+    if (!Arrays.equals(buf.array(),PB_WAL_COMPLETE_MAGIC)) {
+      LOG.warn("No trailer found.");
+      return false;
+    }
+    if (trailerSize < 0) {
+      LOG.warn("Invalid trailer Size " + trailerSize + ", ignoring the trailer");
+      return false;
+    }
+ else     if (trailerSize > this.trailerWarnSize) {
+      LOG.warn("Please investigate WALTrailer usage. Trailer size > maximum configured size : " + trailerSize + " > "+ this.trailerWarnSize);
+    }
+    long positionOfTrailer=trailerSizeOffset - trailerSize;
+    this.seekOnFs(positionOfTrailer);
+    buf=ByteBuffer.allocate(trailerSize);
+    this.inputStream.readFully(buf.array(),buf.arrayOffset(),buf.capacity());
+    trailer=WALTrailer.parseFrom(buf.array());
+    this.walEditsStopOffset=positionOfTrailer;
+    return true;
+  }
+ catch (  IOException ioe) {
+    LOG.warn("Got IOE while reading the trailer. Continuing as if no trailer is present.",ioe);
+  }
+  return false;
+}
