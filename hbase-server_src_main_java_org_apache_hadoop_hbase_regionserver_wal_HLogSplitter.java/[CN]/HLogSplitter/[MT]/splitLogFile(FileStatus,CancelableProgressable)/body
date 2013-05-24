@@ -48,19 +48,23 @@
     Entry entry;
     Long lastFlushedSequenceId=-1L;
     ServerName serverName=HLogUtil.getServerNameFromHLogDirectoryName(logPath);
-    String serverNameStr=(serverName == null) ? "" : serverName.getServerName();
+    failedServerName=(serverName == null) ? "" : serverName.getServerName();
     while ((entry=getNextLogLine(in,logPath,skipErrors)) != null) {
       byte[] region=entry.getKey().getEncodedRegionName();
       String key=Bytes.toString(region);
       lastFlushedSequenceId=lastFlushedSequenceIds.get(key);
       if (lastFlushedSequenceId == null) {
         if (this.distributedLogReplay) {
-          lastFlushedSequenceId=SplitLogManager.getLastFlushedSequenceId(this.watcher,serverNameStr,key);
+          lastFlushedSequenceId=-1L;
+          RegionStoreSequenceIds ids=SplitLogManager.getRegionFlushedSequenceId(this.watcher,failedServerName,key);
+          if (ids != null) {
+            lastFlushedSequenceId=ids.getLastFlushedSequenceId();
+          }
         }
  else         if (sequenceIdChecker != null) {
           lastFlushedSequenceId=sequenceIdChecker.getLastSequenceId(region);
         }
-        if (lastFlushedSequenceId != null) {
+        if (lastFlushedSequenceId != null && lastFlushedSequenceId >= 0) {
           lastFlushedSequenceIds.put(key,lastFlushedSequenceId);
         }
  else {

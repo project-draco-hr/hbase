@@ -5,7 +5,14 @@
   HRegionInfo region=r.getRegionInfo();
   ZooKeeperWatcher zkw=getZooKeeper();
   String previousRSName=this.getLastFailedRSFromZK(region.getEncodedName());
-  long minSeqIdForLogReplay=r.getMinSeqIdForLogReplay();
+  Map<byte[],Long> maxSeqIdInStores=r.getMaxStoreSeqIdForLogReplay();
+  long minSeqIdForLogReplay=-1;
+  for (  byte[] columnFamily : maxSeqIdInStores.keySet()) {
+    Long storeSeqIdForReplay=maxSeqIdInStores.get(columnFamily);
+    if (minSeqIdForLogReplay == -1 || storeSeqIdForReplay < minSeqIdForLogReplay) {
+      minSeqIdForLogReplay=storeSeqIdForReplay;
+    }
+  }
   long lastRecordedFlushedSequenceId=-1;
   String nodePath=ZKUtil.joinZNode(this.zooKeeper.recoveringRegionsZNode,region.getEncodedName());
   byte[] data=ZKUtil.getData(zkw,nodePath);
@@ -17,7 +24,7 @@
   }
   if (previousRSName != null) {
     nodePath=ZKUtil.joinZNode(nodePath,previousRSName);
-    ZKUtil.setData(zkw,nodePath,ZKUtil.positionToByteArray(minSeqIdForLogReplay));
+    ZKUtil.setData(zkw,nodePath,ZKUtil.regionSequenceIdsToByteArray(minSeqIdForLogReplay,maxSeqIdInStores));
     LOG.debug("Update last flushed sequence id of region " + region.getEncodedName() + " for "+ previousRSName);
   }
  else {
