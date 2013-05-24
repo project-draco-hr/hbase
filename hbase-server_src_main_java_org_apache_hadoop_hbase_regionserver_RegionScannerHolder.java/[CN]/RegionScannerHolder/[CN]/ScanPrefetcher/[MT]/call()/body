@@ -1,0 +1,91 @@
+{
+  ScanResult scanResult=null;
+  Leases.Lease lease=null;
+  try {
+    lease=leases.removeLease(scannerName);
+    List<Result> results=new ArrayList<Result>(rows);
+    long currentScanResultSize=0;
+    boolean moreResults=true;
+    boolean done=false;
+    long maxResultSize=scanner.getMaxResultSize();
+    if (maxResultSize <= 0) {
+      maxResultSize=maxScannerResultSize;
+    }
+    String threadName=Thread.currentThread().getName();
+    boolean prefetchingThread=threadName.startsWith(PREFETCHER_THREAD_PREFIX);
+    if (region != null && region.getCoprocessorHost() != null) {
+      Boolean bypass=region.getCoprocessorHost().preScannerNext(scanner,results,rows);
+      if (!results.isEmpty() && (prefetchingThread || maxResultSize < Long.MAX_VALUE)) {
+        for (        Result r : results) {
+          for (          KeyValue kv : r.raw()) {
+            currentScanResultSize+=kv.heapSize();
+          }
+        }
+      }
+      if (bypass != null && bypass.booleanValue()) {
+        done=true;
+      }
+    }
+    if (!done) {
+      List<KeyValue> values=new ArrayList<KeyValue>();
+      MultiVersionConsistencyControl.setThreadReadPoint(scanner.getMvccReadPoint());
+      region.startRegionOperation();
+      try {
+        int i=0;
+synchronized (scanner) {
+          for (; i < rows && currentScanResultSize < maxResultSize; i++) {
+            boolean moreRows=scanner.nextRaw(values);
+            if (!values.isEmpty()) {
+              if (prefetchingThread || maxResultSize < Long.MAX_VALUE) {
+                for (                KeyValue kv : values) {
+                  currentScanResultSize+=kv.heapSize();
+                }
+              }
+              results.add(new Result(values));
+            }
+            if (!moreRows) {
+              break;
+            }
+            values.clear();
+          }
+        }
+        region.readRequestsCount.add(i);
+      }
+  finally {
+        region.closeRegionOperation();
+      }
+      if (region != null && region.getCoprocessorHost() != null) {
+        region.getCoprocessorHost().postScannerNext(scanner,results,rows,true);
+      }
+    }
+    if (scanner.isFilterDone() && results.isEmpty()) {
+      moreResults=false;
+      results=null;
+    }
+    scanResult=new ScanResult(moreResults,results);
+    if (prefetchingThread && currentScanResultSize > 0) {
+synchronized (prefetcher) {
+        if (!scannerClosing) {
+          globalPrefetchedResultSize.addAndGet(currentScanResultSize);
+          prefetchedResultSize=currentScanResultSize;
+        }
+      }
+    }
+  }
+ catch (  IOException e) {
+    scanResult=new ScanResult(e);
+  }
+ finally {
+    if (scanners.containsKey(scannerName)) {
+      if (lease != null) {
+        try {
+          leases.addLease(lease);
+        }
+ catch (        LeaseStillHeldException e) {
+          LOG.error("THIS SHOULD NOT HAPPEN",e);
+        }
+      }
+    }
+  }
+  return scanResult;
+}
