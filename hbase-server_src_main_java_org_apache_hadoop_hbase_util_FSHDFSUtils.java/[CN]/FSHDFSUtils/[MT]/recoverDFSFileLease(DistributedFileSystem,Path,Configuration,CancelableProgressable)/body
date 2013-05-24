@@ -1,0 +1,33 @@
+{
+  LOG.info("Recovering lease on dfs file " + p);
+  long startWaiting=EnvironmentEdgeManager.currentTimeMillis();
+  long recoveryTimeout=conf.getInt("hbase.lease.recovery.timeout",900000) + startWaiting;
+  long firstPause=conf.getInt("hbase.lease.recovery.first.pause",3000);
+  long subsequentPause=conf.getInt("hbase.lease.recovery.dfs.timeout",61 * 1000);
+  boolean recovered=false;
+  for (int nbAttempt=0; true; nbAttempt++) {
+    recovered=recoverLease(dfs,nbAttempt,p,startWaiting);
+    if (recovered)     break;
+    checkIfCancelled(reporter);
+    if (checkIfTimedout(conf,recoveryTimeout,nbAttempt,p,startWaiting))     break;
+    try {
+      if (nbAttempt == 0) {
+        Thread.sleep(firstPause);
+      }
+ else {
+        long localStartWaiting=EnvironmentEdgeManager.currentTimeMillis();
+        while ((EnvironmentEdgeManager.currentTimeMillis() - localStartWaiting) < subsequentPause) {
+          Thread.sleep(conf.getInt("hbase.lease.recovery.pause",1000));
+          if (isFileClosed(dfs,p))           break;
+          checkIfCancelled(reporter);
+        }
+      }
+    }
+ catch (    InterruptedException ie) {
+      InterruptedIOException iioe=new InterruptedIOException();
+      iioe.initCause(ie);
+      throw iioe;
+    }
+  }
+  return recovered;
+}
