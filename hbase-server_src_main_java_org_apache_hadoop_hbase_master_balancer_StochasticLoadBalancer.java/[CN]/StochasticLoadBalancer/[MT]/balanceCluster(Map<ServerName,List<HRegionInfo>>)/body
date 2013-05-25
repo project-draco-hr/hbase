@@ -1,32 +1,32 @@
 {
-  if (!needsBalance(new ClusterLoadState(clusterState))) {
-    return null;
-  }
   long startTime=EnvironmentEdgeManager.currentTimeMillis();
-  double currentCost, newCost, initCost;
   Cluster cluster=new Cluster(clusterState,loads,regionFinder);
-  currentCost=newCost=initCost=computeCost(cluster);
-  int computedMaxSteps=Math.min(this.maxSteps,(cluster.numRegions * this.stepsPerRegion));
-  int step;
+  double currentCost=computeCost(cluster,Double.MAX_VALUE);
+  double initCost=currentCost;
+  double newCost=currentCost;
+  long computedMaxSteps=Math.min(this.maxSteps,((long)cluster.numRegions * (long)this.stepsPerRegion * (long)cluster.numServers));
+  long step;
   for (step=0; step < computedMaxSteps; step++) {
-    for (int leftServer=0; leftServer < cluster.numServers; leftServer++) {
-      int rightServer=pickOtherServer(leftServer,cluster);
-      if (rightServer < 0) {
-        continue;
-      }
-      int lRegion=pickRandomRegion(cluster,leftServer,0);
-      int rRegion=pickRandomRegion(cluster,rightServer,0.5);
-      if (lRegion < 0 && rRegion < 0) {
-        continue;
-      }
-      cluster.moveOrSwapRegion(leftServer,rightServer,lRegion,rRegion);
-      newCost=computeCost(cluster);
-      if (newCost < currentCost) {
-        currentCost=newCost;
-      }
+    int pickerIdx=RANDOM.nextInt(pickers.length);
+    RegionPicker p=pickers[pickerIdx];
+    Pair<Pair<Integer,Integer>,Pair<Integer,Integer>> picks=p.pick(cluster);
+    int leftServer=picks.getFirst().getFirst();
+    int leftRegion=picks.getFirst().getSecond();
+    int rightServer=picks.getSecond().getFirst();
+    int rightRegion=picks.getSecond().getSecond();
+    if (rightServer < 0 || leftServer < 0) {
+      continue;
+    }
+    if (leftRegion < 0 && rightRegion < 0) {
+      continue;
+    }
+    cluster.moveOrSwapRegion(leftServer,rightServer,leftRegion,rightRegion);
+    newCost=computeCost(cluster,currentCost);
+    if (newCost < currentCost) {
+      currentCost=newCost;
+    }
  else {
-        cluster.moveOrSwapRegion(leftServer,rightServer,rRegion,lRegion);
-      }
+      cluster.moveOrSwapRegion(leftServer,rightServer,rightRegion,leftRegion);
     }
     if (EnvironmentEdgeManager.currentTimeMillis() - startTime > maxRunningTime) {
       break;
