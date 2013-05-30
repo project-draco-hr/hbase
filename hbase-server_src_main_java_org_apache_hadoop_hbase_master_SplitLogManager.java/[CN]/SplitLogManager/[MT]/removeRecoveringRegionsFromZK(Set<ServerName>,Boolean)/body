@@ -2,6 +2,7 @@
   if (!this.distributedLogReplay) {
     return;
   }
+  final String metaEncodeRegionName=HRegionInfo.FIRST_META_REGIONINFO.getEncodedName();
   int count=0;
   Set<String> recoveredServerNameSet=new HashSet<String>();
   if (serverNames != null) {
@@ -27,6 +28,11 @@
       List<String> regions=ZKUtil.listChildrenNoWatch(watcher,watcher.recoveringRegionsZNode);
       if (regions != null) {
         for (        String region : regions) {
+          if (isMetaRecovery != null) {
+            if ((isMetaRecovery && !region.equalsIgnoreCase(metaEncodeRegionName)) || (!isMetaRecovery && region.equalsIgnoreCase(metaEncodeRegionName))) {
+              continue;
+            }
+          }
           String nodePath=ZKUtil.joinZNode(watcher.recoveringRegionsZNode,region);
           List<String> failedServers=ZKUtil.listChildrenNoWatch(watcher,nodePath);
           if (failedServers == null || failedServers.isEmpty()) {
@@ -51,7 +57,7 @@
  catch (  KeeperException ke) {
     LOG.warn("removeRecoveringRegionsFromZK got zookeeper exception. Will retry",ke);
     if (serverNames != null && !serverNames.isEmpty()) {
-      this.failedRecoveringRegionDeletions.addAll(serverNames);
+      this.failedRecoveringRegionDeletions.add(new Pair<Set<ServerName>,Boolean>(serverNames,isMetaRecovery));
     }
   }
  finally {
