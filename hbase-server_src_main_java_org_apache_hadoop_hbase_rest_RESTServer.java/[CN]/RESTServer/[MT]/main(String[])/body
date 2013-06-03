@@ -1,10 +1,26 @@
 {
   Log LOG=LogFactory.getLog("RESTServer");
   VersionInfo.logVersion();
+  FilterHolder authFilter=null;
   Configuration conf=HBaseConfiguration.create();
   if (User.isSecurityEnabled() && User.isHBaseSecurityEnabled(conf)) {
     String machineName=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.rest.dns.interface","default"),conf.get("hbase.rest.dns.nameserver","default")));
-    User.login(conf,"hbase.rest.keytab.file","hbase.rest.kerberos.principal",machineName);
+    User.login(conf,REST_KEYTAB_KEY,REST_PRINCIPAL_KEY,machineName);
+    if ("kerberos".equalsIgnoreCase(conf.get(REST_SECURITY_KEY))) {
+      Map<String,String> params=new HashMap<String,String>();
+      String principalInConf=conf.get(REST_SPNEGO_PRINCIPAL_KEY);
+      Preconditions.checkArgument(principalInConf != null && !principalInConf.isEmpty(),REST_SPNEGO_PRINCIPAL_KEY + " should be set if authentication is enabled");
+      params.put("kerberos.principal",SecurityUtil.getServerPrincipal(principalInConf,machineName));
+      String httpKeytab=conf.get(REST_KEYTAB_KEY);
+      Preconditions.checkArgument(httpKeytab != null && !httpKeytab.isEmpty(),REST_KEYTAB_KEY + " should be set if authentication is enabled");
+      params.put("kerberos.keytab",httpKeytab);
+      params.put(AuthenticationFilter.AUTH_TYPE,"kerberos");
+      params.put(AuthenticationFilter.COOKIE_PATH,"/");
+      authFilter=new FilterHolder();
+      authFilter.setName("AuthenticationFilter");
+      authFilter.setClassName(AuthenticationFilter.class.getName());
+      authFilter.setInitParameters(params);
+    }
   }
   RESTServlet servlet=RESTServlet.getInstance(conf);
   Options options=new Options();
@@ -71,6 +87,9 @@
   Context context=new Context(server,"/",Context.SESSIONS);
   context.addServlet(shPojoMap,"/status/cluster");
   context.addServlet(sh,"/*");
+  if (authFilter != null) {
+    context.addFilter(authFilter,"/*",1);
+  }
   context.addFilter(GzipFilter.class,"/*",0);
   int port=conf.getInt("hbase.rest.info.port",8085);
   if (port >= 0) {
