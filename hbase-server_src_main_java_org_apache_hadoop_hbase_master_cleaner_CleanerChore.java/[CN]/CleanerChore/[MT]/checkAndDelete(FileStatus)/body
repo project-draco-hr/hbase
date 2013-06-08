@@ -1,0 +1,29 @@
+{
+  Path filePath=fStat.getPath();
+  if (!validate(filePath)) {
+    LOG.warn("Found a wrongly formatted file: " + filePath.getName() + " deleting it.");
+    boolean success=this.fs.delete(filePath,true);
+    if (!success)     LOG.warn("Attempted to delete: " + filePath + ", but couldn't. Run cleaner chain and attempt to delete on next pass.");
+    return success;
+  }
+  for (  T cleaner : cleanersChain) {
+    if (cleaner.isStopped() || this.stopper.isStopped()) {
+      LOG.warn("A file cleaner" + this.getName() + " is stopped, won't delete any file in:"+ this.oldFileDir);
+      return false;
+    }
+    if (!cleaner.isFileDeletable(fStat)) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(filePath + " is not deletable according to:" + cleaner);
+      }
+      return false;
+    }
+  }
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("Removing: " + filePath + " from archive");
+  }
+  boolean success=this.fs.delete(filePath,false);
+  if (!success) {
+    LOG.warn("Attempted to delete:" + filePath + ", but couldn't. Run cleaner chain and attempt to delete on next pass.");
+  }
+  return success;
+}
