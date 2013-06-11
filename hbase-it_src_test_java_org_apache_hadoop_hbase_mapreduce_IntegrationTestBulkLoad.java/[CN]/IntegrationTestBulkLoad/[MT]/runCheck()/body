@@ -1,0 +1,23 @@
+{
+  Configuration conf=getConf();
+  String jobName=tableName + "_check" + EnvironmentEdgeManager.currentTimeMillis();
+  Path p=util.getDataTestDirOnTestFS(jobName);
+  Job job=new Job(conf);
+  job.setJarByClass(getClass());
+  job.setPartitionerClass(NaturalKeyPartitioner.class);
+  job.setGroupingComparatorClass(NaturalKeyGroupingComparator.class);
+  job.setSortComparatorClass(CompositeKeyComparator.class);
+  Scan s=new Scan();
+  s.addFamily(CHAIN_FAM);
+  s.addFamily(SORT_FAM);
+  s.setMaxVersions(1);
+  s.setCacheBlocks(false);
+  s.setBatch(100);
+  TableMapReduceUtil.initTableMapperJob(Bytes.toBytes(tableName),new Scan(),LinkedListCheckingMapper.class,LinkKey.class,LinkChain.class,job);
+  job.setReducerClass(LinkedListCheckingReducer.class);
+  job.setOutputKeyClass(NullWritable.class);
+  job.setOutputValueClass(NullWritable.class);
+  FileOutputFormat.setOutputPath(job,p);
+  assertEquals(true,job.waitForCompletion(true));
+  util.getTestFileSystem().delete(p,true);
+}
