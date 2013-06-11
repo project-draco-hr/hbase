@@ -1,0 +1,18 @@
+{
+  if (this.server.isStopped()) {
+    return null;
+  }
+  CompactionContext compaction=null;
+  if (selectNow) {
+    compaction=selectCompaction(r,s,priority,request);
+    if (compaction == null)     return null;
+  }
+  long size=selectNow ? compaction.getRequest().getSize() : 0;
+  ThreadPoolExecutor pool=(!selectNow && s.throttleCompaction(size)) ? largeCompactions : smallCompactions;
+  pool.execute(new CompactionRunner(s,r,compaction,pool));
+  if (LOG.isDebugEnabled()) {
+    String type=(pool == smallCompactions) ? "Small " : "Large ";
+    LOG.debug(type + "Compaction requested: " + (selectNow ? compaction.toString() : "system")+ (why != null && !why.isEmpty() ? "; Because: " + why : "")+ "; "+ this);
+  }
+  return selectNow ? compaction.getRequest() : null;
+}
