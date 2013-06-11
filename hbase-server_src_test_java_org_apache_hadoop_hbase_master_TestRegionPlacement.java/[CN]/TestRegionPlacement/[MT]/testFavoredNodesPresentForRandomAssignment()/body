@@ -1,0 +1,27 @@
+{
+  LoadBalancer balancer=LoadBalancerFactory.getLoadBalancer(TEST_UTIL.getConfiguration());
+  balancer.setMasterServices(TEST_UTIL.getMiniHBaseCluster().getMaster());
+  List<ServerName> servers=new ArrayList<ServerName>();
+  for (int i=0; i < SLAVES; i++) {
+    ServerName server=TEST_UTIL.getMiniHBaseCluster().getRegionServer(i).getServerName();
+    servers.add(server);
+  }
+  List<HRegionInfo> regions=new ArrayList<HRegionInfo>(1);
+  HRegionInfo region=new HRegionInfo(("foobar").getBytes());
+  regions.add(region);
+  ServerName serverBefore=balancer.randomAssignment(region,servers);
+  List<ServerName> favoredNodesBefore=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(region);
+  assertTrue(favoredNodesBefore.size() == 3);
+  assertTrue(ServerName.isSameHostnameAndPort(serverBefore,favoredNodesBefore.get(PRIMARY)));
+  removeMatchingServers(serverBefore,servers);
+  ServerName serverAfter=balancer.randomAssignment(region,servers);
+  List<ServerName> favoredNodesAfter=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(region);
+  assertTrue(favoredNodesAfter.size() == 3);
+  assertTrue(favoredNodesAfter.containsAll(favoredNodesBefore));
+  assertTrue(ServerName.isSameHostnameAndPort(serverAfter,favoredNodesBefore.get(SECONDARY)) || ServerName.isSameHostnameAndPort(serverAfter,favoredNodesBefore.get(TERTIARY)));
+  removeMatchingServers(favoredNodesAfter,servers);
+  balancer.randomAssignment(region,servers);
+  List<ServerName> favoredNodesNow=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(region);
+  assertTrue(favoredNodesNow.size() == 3);
+  assertTrue(!favoredNodesNow.contains(favoredNodesAfter.get(PRIMARY)) && !favoredNodesNow.contains(favoredNodesAfter.get(SECONDARY)) && !favoredNodesNow.contains(favoredNodesAfter.get(TERTIARY)));
+}

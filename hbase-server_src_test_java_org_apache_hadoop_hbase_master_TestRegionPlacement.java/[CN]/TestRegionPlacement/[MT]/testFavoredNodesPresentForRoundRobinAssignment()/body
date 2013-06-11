@@ -1,0 +1,33 @@
+{
+  LoadBalancer balancer=LoadBalancerFactory.getLoadBalancer(TEST_UTIL.getConfiguration());
+  balancer.setMasterServices(TEST_UTIL.getMiniHBaseCluster().getMaster());
+  List<ServerName> servers=new ArrayList<ServerName>();
+  for (int i=0; i < SLAVES; i++) {
+    ServerName server=TEST_UTIL.getMiniHBaseCluster().getRegionServer(i).getServerName();
+    servers.add(server);
+  }
+  List<HRegionInfo> regions=new ArrayList<HRegionInfo>(1);
+  HRegionInfo region=new HRegionInfo(("foobar").getBytes());
+  regions.add(region);
+  Map<ServerName,List<HRegionInfo>> assignmentMap=balancer.roundRobinAssignment(regions,servers);
+  Set<ServerName> serverBefore=assignmentMap.keySet();
+  List<ServerName> favoredNodesBefore=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(region);
+  assertTrue(favoredNodesBefore.size() == 3);
+  assertTrue(ServerName.isSameHostnameAndPort(serverBefore.iterator().next(),favoredNodesBefore.get(PRIMARY)));
+  List<ServerName> removedServers=removeMatchingServers(serverBefore,servers);
+  assignmentMap=balancer.roundRobinAssignment(regions,servers);
+  List<ServerName> favoredNodesAfter=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(region);
+  assertTrue(favoredNodesAfter.size() == 3);
+  assertTrue(favoredNodesAfter.containsAll(favoredNodesBefore));
+  Set<ServerName> serverAfter=assignmentMap.keySet();
+  assertTrue(ServerName.isSameHostnameAndPort(serverAfter.iterator().next(),favoredNodesBefore.get(SECONDARY)) || ServerName.isSameHostnameAndPort(serverAfter.iterator().next(),favoredNodesBefore.get(TERTIARY)));
+  servers.addAll(removedServers);
+  assignmentMap=balancer.roundRobinAssignment(regions,servers);
+  Set<ServerName> serverWithPrimary=assignmentMap.keySet();
+  assertTrue(serverBefore.containsAll(serverWithPrimary));
+  removeMatchingServers(favoredNodesAfter,servers);
+  assignmentMap=balancer.roundRobinAssignment(regions,servers);
+  List<ServerName> favoredNodesNow=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(region);
+  assertTrue(favoredNodesNow.size() == 3);
+  assertTrue(!favoredNodesNow.contains(favoredNodesAfter.get(PRIMARY)) && !favoredNodesNow.contains(favoredNodesAfter.get(SECONDARY)) && !favoredNodesNow.contains(favoredNodesAfter.get(TERTIARY)));
+}
