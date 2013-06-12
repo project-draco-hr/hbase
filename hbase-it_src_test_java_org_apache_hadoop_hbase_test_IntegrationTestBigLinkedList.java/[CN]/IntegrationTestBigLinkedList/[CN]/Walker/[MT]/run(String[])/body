@@ -1,6 +1,8 @@
 {
   Options options=new Options();
   options.addOption("n","num",true,"number of queries");
+  options.addOption("s","start",true,"key to start at, binary string");
+  options.addOption("l","logevery",true,"log every N queries");
   GnuParser parser=new GnuParser();
   CommandLine cmd=null;
   try {
@@ -20,24 +22,37 @@
   if (cmd.hasOption('n')) {
     maxQueries=Long.parseLong(cmd.getOptionValue("n"));
   }
-  HTable table=new HTable(getConf(),getTableName(getConf()));
   Random rand=new Random();
+  boolean isSpecificStart=cmd.hasOption('s');
+  byte[] startKey=isSpecificStart ? Bytes.toBytesBinary(cmd.getOptionValue('s')) : null;
+  int logEvery=cmd.hasOption('l') ? Integer.parseInt(cmd.getOptionValue('l')) : 1;
+  HTable table=new HTable(getConf(),getTableName(getConf()));
   long numQueries=0;
-  while (numQueries < maxQueries) {
-    CINode node=findStartNode(rand,table);
+  while (numQueries < maxQueries && (numQueries == 0 || !isSpecificStart)) {
+    if (!isSpecificStart) {
+      startKey=new byte[ROWKEY_LENGTH];
+      rand.nextBytes(startKey);
+    }
+    CINode node=findStartNode(table,startKey);
+    if (node == null && isSpecificStart) {
+      System.err.printf("Start node not found: %s \n",Bytes.toStringBinary(startKey));
+    }
     numQueries++;
-    while (node != null && node.prev >= 0 && numQueries < maxQueries) {
-      long prev=node.prev;
+    while (node != null && node.prev.length != NO_KEY.length && numQueries < maxQueries) {
+      byte[] prev=node.prev;
       long t1=System.currentTimeMillis();
       node=getNode(prev,table,node);
       long t2=System.currentTimeMillis();
-      System.out.printf("CQ %d %016x \n",t2 - t1,prev);
+      if (numQueries % logEvery == 0) {
+        System.out.printf("CQ %d: %d %s \n",numQueries,t2 - t1,Bytes.toStringBinary(prev));
+      }
       numQueries++;
-      t1=System.currentTimeMillis();
-      node=getNode(prev,table,node);
-      t2=System.currentTimeMillis();
-      System.out.printf("HQ %d %016x \n",t2 - t1,prev);
-      numQueries++;
+      if (node == null) {
+        System.err.printf("UNDEFINED NODE %s \n",Bytes.toStringBinary(prev));
+      }
+ else       if (node.prev.length == NO_KEY.length) {
+        System.err.printf("TERMINATING NODE %s \n",Bytes.toStringBinary(node.key));
+      }
     }
   }
   table.close();
