@@ -1,0 +1,56 @@
+{
+  if (responses == null) {
+    LOG.info("Attempt #" + numAttempt + " failed for all operations on server "+ location.getServerName()+ " , trying to resubmit.");
+    resubmitAll(initialActions,rsActions,location,numAttempt + 1,null,errorsByServer);
+    return;
+  }
+  List<Action<Row>> toReplay=new ArrayList<Action<Row>>();
+  Throwable throwable=null;
+  int failureCount=0;
+  boolean canRetry=true;
+  for (  Map.Entry<byte[],List<Pair<Integer,Object>>> resultsForRS : responses.getResults().entrySet()) {
+    for (    Pair<Integer,Object> regionResult : resultsForRS.getValue()) {
+      Object result=regionResult.getSecond();
+      if (result == null || result instanceof Throwable) {
+        throwable=(Throwable)result;
+        Action<Row> correspondingAction=initialActions.get(regionResult.getFirst());
+        Row row=correspondingAction.getAction();
+        if (failureCount++ == 0) {
+          hConnection.updateCachedLocations(this.tableName,row.getRow(),result,location);
+          if (errorsByServer != null) {
+            errorsByServer.reportServerError(location);
+            canRetry=errorsByServer.canRetryMore();
+          }
+        }
+        if (manageError(numAttempt,correspondingAction.getOriginalIndex(),row,canRetry,throwable,location)) {
+          toReplay.add(correspondingAction);
+        }
+      }
+ else {
+        if (callback != null) {
+          Action<Row> correspondingAction=initialActions.get(regionResult.getFirst());
+          Row row=correspondingAction.getAction();
+          this.callback.success(correspondingAction.getOriginalIndex(),resultsForRS.getKey(),row,(CResult)result);
+        }
+      }
+    }
+  }
+  if (!toReplay.isEmpty()) {
+    if (numAttempt > 2) {
+      LOG.debug("Attempt #" + numAttempt + " failed for "+ failureCount+ " operations on server "+ location.getServerName()+ ", resubmitting "+ toReplay.size()+ ", tableName="+ Bytes.toString(tableName)+ ", last exception was: "+ throwable);
+    }
+    long backOffTime=(errorsByServer != null ? errorsByServer.calculateBackoffTime(location,pause) : ConnectionUtils.getPauseTime(pause,numAttempt));
+    try {
+      Thread.sleep(backOffTime);
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Not sent: " + toReplay.size() + " operations,  tableName="+ Bytes.toString(tableName),e);
+      Thread.interrupted();
+      return;
+    }
+    submit(initialActions,toReplay,numAttempt + 1,true,errorsByServer);
+  }
+ else   if (failureCount != 0) {
+    LOG.warn("Attempt #" + numAttempt + " failed for "+ failureCount+ " operations on server "+ location.getServerName()+ " NOT resubmitting."+ ", tableName="+ Bytes.toString(tableName));
+  }
+}

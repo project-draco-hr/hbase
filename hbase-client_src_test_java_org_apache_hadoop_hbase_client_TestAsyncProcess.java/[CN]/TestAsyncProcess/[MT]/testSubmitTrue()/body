@@ -1,0 +1,32 @@
+{
+  HConnection hc=createHConnection();
+  MyCB mcb=new MyCB();
+  final AsyncProcess<Object> ap=new MyAsyncProcess<Object>(hc,mcb,conf);
+  ap.tasksSent.incrementAndGet();
+  final AtomicInteger ai=new AtomicInteger(1);
+  ap.taskCounterPerRegion.put(hri1.getEncodedName(),ai);
+  final AtomicBoolean checkPoint=new AtomicBoolean(false);
+  final AtomicBoolean checkPoint2=new AtomicBoolean(false);
+  Thread t=new Thread(){
+    @Override public void run(){
+      Threads.sleep(1000);
+      Assert.assertFalse(checkPoint.get());
+      ai.decrementAndGet();
+      ap.tasksDone.incrementAndGet();
+      checkPoint2.set(true);
+    }
+  }
+;
+  List<Put> puts=new ArrayList<Put>();
+  Put p=createPut(true,true);
+  puts.add(p);
+  ap.submit(puts,false);
+  Assert.assertFalse(puts.isEmpty());
+  t.start();
+  ap.submit(puts,true);
+  Assert.assertTrue(puts.isEmpty());
+  checkPoint.set(true);
+  while (!checkPoint2.get()) {
+    Threads.sleep(1);
+  }
+}
