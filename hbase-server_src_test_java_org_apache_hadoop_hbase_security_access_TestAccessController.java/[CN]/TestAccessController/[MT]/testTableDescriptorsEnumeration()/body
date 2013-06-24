@@ -1,0 +1,42 @@
+{
+  User TABLE_ADMIN=User.createUserForTesting(conf,"UserA",new String[0]);
+  HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  try {
+    BlockingRpcChannel service=acl.coprocessorService(TEST_TABLE.getTableName());
+    AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+    ProtobufUtil.grant(protocol,TABLE_ADMIN.getShortName(),TEST_TABLE.getTableName(),null,null,Permission.Action.ADMIN);
+  }
+  finally {
+    acl.close();
+  }
+  PrivilegedExceptionAction listTablesAction=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+      try {
+        admin.listTables();
+      }
+  finally {
+        admin.close();
+      }
+      return null;
+    }
+  }
+;
+  PrivilegedExceptionAction getTableDescAction=new PrivilegedExceptionAction(){
+    public Object run() throws Exception {
+      HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+      try {
+        admin.getTableDescriptor(TEST_TABLE.getTableName());
+      }
+  finally {
+        admin.close();
+      }
+      return null;
+    }
+  }
+;
+  verifyAllowed(listTablesAction,SUPERUSER,USER_ADMIN);
+  verifyDenied(listTablesAction,USER_CREATE,USER_RW,USER_RO,USER_NONE,TABLE_ADMIN);
+  verifyAllowed(getTableDescAction,SUPERUSER,USER_ADMIN,USER_CREATE,TABLE_ADMIN);
+  verifyDenied(getTableDescAction,USER_RW,USER_RO,USER_NONE);
+}
