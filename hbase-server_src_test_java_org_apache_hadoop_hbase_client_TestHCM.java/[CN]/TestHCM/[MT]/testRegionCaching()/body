@@ -1,6 +1,10 @@
 {
-  HTable table=TEST_UTIL.createTable(TABLE_NAME,FAM_NAM);
+  TEST_UTIL.createTable(TABLE_NAME,FAM_NAM).close();
+  Configuration conf=new Configuration(TEST_UTIL.getConfiguration());
+  conf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,1);
+  HTable table=new HTable(conf,TABLE_NAME);
   TEST_UTIL.createMultiRegions(table,FAM_NAM);
+  TEST_UTIL.waitUntilAllRegionsAssigned(table.getTableName());
   Put put=new Put(ROW);
   put.add(FAM_NAM,ROW,ROW);
   table.put(put);
@@ -51,26 +55,17 @@
   Assert.assertFalse(destServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
   Assert.assertFalse(curServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
   Assert.assertFalse(conn.getCachedLocation(TABLE_NAME,ROW).getPort() == destServerName.getPort());
-  Field numTries=conn.getClass().getDeclaredField("numTries");
-  numTries.setAccessible(true);
-  Field modifiersField=Field.class.getDeclaredField("modifiers");
-  modifiersField.setAccessible(true);
-  modifiersField.setInt(numTries,numTries.getModifiers() & ~Modifier.FINAL);
-  final int prevNumRetriesVal=(Integer)numTries.get(conn);
-  numTries.set(conn,1);
   LOG.info("Put starting");
   Put put3=new Put(ROW);
   put3.add(FAM_NAM,ROW,ROW);
   try {
     table.put(put3);
-    Assert.assertFalse("Unreachable point",true);
+    Assert.fail("Unreachable point");
   }
- catch (  Throwable e) {
+ catch (  RetriesExhaustedWithDetailsException e) {
     LOG.info("Put done, exception caught: " + e.getClass());
-    Assert.assertTrue(e instanceof RetriesExhaustedWithDetailsException);
-    RetriesExhaustedWithDetailsException re=(RetriesExhaustedWithDetailsException)e;
-    Assert.assertTrue(re.getNumExceptions() == 1);
-    Assert.assertTrue(Arrays.equals(re.getRow(0).getRow(),ROW));
+    Assert.assertEquals(1,e.getNumExceptions());
+    Assert.assertArrayEquals(e.getRow(0).getRow(),ROW);
   }
   Assert.assertNotNull(conn.getCachedLocation(TABLE_NAME,ROW));
   Assert.assertEquals("Previous server was " + curServer.getServerName().getHostAndPort(),destServerName.getPort(),conn.getCachedLocation(TABLE_NAME,ROW).getPort());
@@ -87,18 +82,19 @@
   Assert.assertFalse(conn.getCachedLocation(TABLE_NAME,ROW).getPort() == curServer.getServerName().getPort());
   Scan sc=new Scan();
   sc.setStopRow(ROW);
-  sc.setStopRow(ROW);
+  sc.setStartRow(ROW);
+  TEST_UTIL.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,1);
   try {
     ResultScanner rs=table.getScanner(sc);
     while (rs.next() != null) {
     }
-    Assert.assertFalse("Unreachable point",true);
+    Assert.fail("Unreachable point");
   }
- catch (  Throwable e) {
+ catch (  RetriesExhaustedException e) {
     LOG.info("Scan done, expected exception caught: " + e.getClass());
   }
   Assert.assertNotNull(conn.getCachedLocation(TABLE_NAME,ROW));
   Assert.assertEquals("Previous server was " + destServer.getServerName().getHostAndPort(),curServer.getServerName().getPort(),conn.getCachedLocation(TABLE_NAME,ROW).getPort());
-  numTries.set(conn,prevNumRetriesVal);
+  TEST_UTIL.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
   table.close();
 }
