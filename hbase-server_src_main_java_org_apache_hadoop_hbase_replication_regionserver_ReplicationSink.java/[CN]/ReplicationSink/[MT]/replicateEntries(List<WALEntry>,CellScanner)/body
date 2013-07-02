@@ -1,0 +1,45 @@
+{
+  if (entries.isEmpty())   return;
+  if (cells == null)   throw new NullPointerException("TODO: Add handling of null CellScanner");
+  try {
+    long totalReplicated=0;
+    Map<byte[],List<Row>> rows=new TreeMap<byte[],List<Row>>(Bytes.BYTES_COMPARATOR);
+    for (    WALEntry entry : entries) {
+      byte[] table=entry.getKey().getTableName().toByteArray();
+      Cell previousCell=null;
+      Mutation m=null;
+      java.util.UUID uuid=toUUID(entry.getKey().getClusterId());
+      int count=entry.getAssociatedCellCount();
+      for (int i=0; i < count; i++) {
+        if (!cells.advance()) {
+          throw new ArrayIndexOutOfBoundsException("Expected=" + count + ", index="+ i);
+        }
+        Cell cell=cells.current();
+        if (isNewRowOrType(previousCell,cell)) {
+          m=CellUtil.isDelete(cell) ? new Delete(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength()) : new Put(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
+          m.setClusterId(uuid);
+          addToMultiMap(rows,table,m);
+        }
+        if (CellUtil.isDelete(cell)) {
+          ((Delete)m).addDeleteMarker(KeyValueUtil.ensureKeyValue(cell));
+        }
+ else {
+          ((Put)m).add(KeyValueUtil.ensureKeyValue(cell));
+        }
+        previousCell=cell;
+      }
+      totalReplicated++;
+    }
+    for (    Entry<byte[],List<Row>> entry : rows.entrySet()) {
+      batch(entry.getKey(),entry.getValue());
+    }
+    int size=entries.size();
+    this.metrics.setAgeOfLastAppliedOp(entries.get(size - 1).getKey().getWriteTime());
+    this.metrics.applyBatch(size);
+    this.totalReplicatedEdits.addAndGet(totalReplicated);
+  }
+ catch (  IOException ex) {
+    LOG.error("Unable to accept edit because:",ex);
+    throw ex;
+  }
+}
