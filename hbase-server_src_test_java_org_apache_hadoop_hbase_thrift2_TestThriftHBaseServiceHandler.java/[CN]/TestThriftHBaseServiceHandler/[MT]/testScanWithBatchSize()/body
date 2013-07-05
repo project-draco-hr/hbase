@@ -1,0 +1,45 @@
+{
+  ThriftHBaseServiceHandler handler=createHandler();
+  ByteBuffer table=wrap(tableAname);
+  List<TColumnValue> columnValues=new ArrayList<TColumnValue>();
+  for (int i=0; i < 100; i++) {
+    String colNum=pad(i,(byte)3);
+    TColumnValue columnValue=new TColumnValue(wrap(familyAname),wrap(("col" + colNum).getBytes()),wrap(("val" + colNum).getBytes()));
+    columnValues.add(columnValue);
+  }
+  TPut put=new TPut(wrap(("testScanWithBatchSize").getBytes()),columnValues);
+  handler.put(table,put);
+  TScan scan=new TScan();
+  List<TColumn> columns=new ArrayList<TColumn>();
+  TColumn column=new TColumn();
+  column.setFamily(familyAname);
+  columns.add(column);
+  scan.setColumns(columns);
+  scan.setStartRow("testScanWithBatchSize".getBytes());
+  scan.setStopRow("testScanWithBatchSize\uffff".getBytes());
+  scan.setBatchSize(10);
+  int scanId=handler.openScanner(table,scan);
+  List<TResult> results=null;
+  for (int i=0; i < 10; i++) {
+    System.out.println("batch: " + i);
+    results=handler.getScannerRows(scanId,1);
+    assertEquals(1,results.size());
+    List<TColumnValue> cols=results.get(0).getColumnValues();
+    assertEquals(10,cols.size());
+    for (int y=0; y < 10; y++) {
+      int colNum=y + (10 * i);
+      String colNumPad=pad(colNum,(byte)3);
+      System.out.println("col" + colNumPad + ": "+ new String(cols.get(y).getQualifier()));
+      assertArrayEquals(("col" + colNumPad).getBytes(),cols.get(y).getQualifier());
+    }
+  }
+  results=handler.getScannerRows(scanId,1);
+  assertEquals(0,results.size());
+  handler.closeScanner(scanId);
+  try {
+    handler.getScannerRows(scanId,1);
+    fail("Scanner id should be invalid");
+  }
+ catch (  TIllegalArgument e) {
+  }
+}
