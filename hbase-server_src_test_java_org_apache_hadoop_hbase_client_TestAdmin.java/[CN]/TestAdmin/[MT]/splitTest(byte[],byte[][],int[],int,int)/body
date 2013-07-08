@@ -31,6 +31,7 @@
   scan=new Scan();
   scanner=table.getScanner(scan);
   scanner.next();
+  this.admin.split(tableName,splitPoint);
   final AtomicInteger count=new AtomicInteger(0);
   Thread t=new Thread("CheckForSplit"){
     public void run(){
@@ -53,11 +54,12 @@
         if (count.get() >= 2)         break;
         LOG.debug("Cycle waiting on split");
       }
+      LOG.debug("CheckForSplit thread exited, current region count: " + count.get());
     }
   }
 ;
+  t.setPriority(Thread.NORM_PRIORITY - 2);
   t.start();
-  this.admin.split(tableName,splitPoint);
   t.join();
   rows=1;
   for (  @SuppressWarnings("unused") Result result : scanner) {
@@ -88,9 +90,12 @@
     if (familyNames.length > 1) {
       int splitKey=Bytes.toInt(r[0].getEndKey());
       int deltaForLargestFamily=Math.abs(rowCount / 2 - splitKey);
+      LOG.debug("SplitKey=" + splitKey + "&deltaForLargestFamily="+ deltaForLargestFamily);
       for (int index=0; index < familyNames.length; index++) {
         int delta=Math.abs(rowCounts[index] / 2 - splitKey);
-        assertTrue(delta >= deltaForLargestFamily);
+        if (delta < deltaForLargestFamily) {
+          assertTrue("Delta " + delta + " for family "+ index+ " should be at least deltaForLargestFamily "+ deltaForLargestFamily,false);
+        }
       }
     }
   }
