@@ -1,0 +1,26 @@
+{
+  int maxIters=util.getHBaseClusterInterface().isDistributedCluster() ? 10 : 3;
+  ArrayList<Long> timesPutMs=new ArrayList<Long>(maxIters);
+  ArrayList<Long> timesScanMs=new ArrayList<Long>(maxIters);
+  ArrayList<Long> timesAdminMs=new ArrayList<Long>(maxIters);
+  long start=System.nanoTime();
+  for (int fullIterations=0; fullIterations < maxIters; fullIterations++) {
+    Future<Boolean> monkeyFuture=executorService.submit(monkeyCallable);
+    Future<Long> putFuture=executorService.submit(new PutCallable(monkeyFuture));
+    Future<Long> scanFuture=executorService.submit(new ScanCallable(monkeyFuture));
+    Future<Long> adminFuture=executorService.submit(new AdminCallable(monkeyFuture));
+    Future<Boolean> loadFuture=executorService.submit(new LoadCallable(monkeyFuture));
+    monkeyFuture.get();
+    loadFuture.get();
+    long putTime=TimeUnit.MILLISECONDS.convert(putFuture.get(),TimeUnit.NANOSECONDS);
+    long scanTime=TimeUnit.MILLISECONDS.convert(scanFuture.get(),TimeUnit.NANOSECONDS);
+    long adminTime=TimeUnit.MILLISECONDS.convert(adminFuture.get(),TimeUnit.NANOSECONDS);
+    timesPutMs.add(putTime);
+    timesScanMs.add(scanTime);
+    timesAdminMs.add(adminTime);
+    Thread.sleep(5000l);
+  }
+  long runtimeMs=TimeUnit.MILLISECONDS.convert(System.nanoTime() - start,TimeUnit.NANOSECONDS);
+  Objects.ToStringHelper helper=Objects.toStringHelper("MTTRResults").add("timesPutMs",timesPutMs).add("timesScanMs",timesScanMs).add("timesAdminMs",timesAdminMs).add("totalRuntimeMs",runtimeMs).add("name",testName);
+  LOG.info(helper.toString());
+}
