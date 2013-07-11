@@ -1,0 +1,38 @@
+{
+  method=method + "_" + tableDurability.name()+ "_"+ mutationDurability.name();
+  byte[] tableName=Bytes.toBytes(method);
+  byte[] family=Bytes.toBytes("family");
+  Path logDir=new Path(new Path(DIR + method),"log");
+  HLog hlog=HLogFactory.createHLog(fs,logDir,UUID.randomUUID().toString(),conf);
+  final HLog log=spy(hlog);
+  this.region=initHRegion(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,conf,false,tableDurability,log,new byte[][]{family});
+  Put put=new Put(Bytes.toBytes("r1"));
+  put.add(family,Bytes.toBytes("q1"),Bytes.toBytes("v1"));
+  put.setDurability(mutationDurability);
+  region.put(put);
+  verify(log,expectAppend ? times(1) : never()).appendNoSync((HRegionInfo)any(),eq(tableName),(WALEdit)any(),(UUID)any(),anyLong(),(HTableDescriptor)any());
+  if (expectSync || expectSyncFromLogSyncer) {
+    TEST_UTIL.waitFor(timeout,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        try {
+          if (expectSync) {
+            verify(log,times(1)).sync(anyLong());
+          }
+ else           if (expectSyncFromLogSyncer) {
+            verify(log,times(1)).sync();
+          }
+        }
+ catch (        Throwable ignore) {
+        }
+        return true;
+      }
+    }
+);
+  }
+ else {
+    verify(log,never()).sync(anyLong());
+    verify(log,never()).sync();
+  }
+  hlog.close();
+  region.close();
+}
