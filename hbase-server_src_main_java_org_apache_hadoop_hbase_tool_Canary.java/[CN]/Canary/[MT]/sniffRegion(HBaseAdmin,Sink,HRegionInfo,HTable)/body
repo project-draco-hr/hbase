@@ -1,0 +1,40 @@
+{
+  HTableDescriptor tableDesc=table.getTableDescriptor();
+  StopWatch stopWatch=new StopWatch();
+  for (  HColumnDescriptor column : tableDesc.getColumnFamilies()) {
+    stopWatch.reset();
+    byte[] startKey=region.getStartKey();
+    if (startKey == null || startKey.length <= 0) {
+      Scan scan=new Scan();
+      scan.addFamily(column.getName());
+      scan.setBatch(1);
+      ResultScanner scanner=null;
+      try {
+        stopWatch.start();
+        scanner=table.getScanner(scan);
+        scanner.next();
+        stopWatch.stop();
+        sink.publishReadTiming(region,column,stopWatch.getTime());
+      }
+ catch (      Exception e) {
+        sink.publishReadFailure(region,column,e);
+      }
+ finally {
+        if (scanner != null)         scanner.close();
+      }
+    }
+ else {
+      Get get=new Get(region.getStartKey());
+      get.addFamily(column.getName());
+      try {
+        stopWatch.start();
+        table.get(get);
+        stopWatch.stop();
+        sink.publishReadTiming(region,column,stopWatch.getTime());
+      }
+ catch (      Exception e) {
+        sink.publishReadFailure(region,column,e);
+      }
+    }
+  }
+}
