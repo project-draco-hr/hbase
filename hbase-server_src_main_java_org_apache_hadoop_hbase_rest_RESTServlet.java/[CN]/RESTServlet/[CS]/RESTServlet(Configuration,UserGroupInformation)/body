@@ -1,0 +1,35 @@
+{
+  this.conf=conf;
+  this.ugi=ugi;
+  int maxSize=conf.getInt("hbase.rest.htablepool.size",10);
+  if (ugi == null) {
+    pool=new HTablePool(conf,maxSize);
+    admin=new HBaseAdmin(conf);
+  }
+ else {
+    admin=new HBaseAdmin(new HConnectionWrapper(ugi,HConnectionManager.getConnection(new Configuration(conf))));
+    pool=new HTablePool(conf,maxSize){
+      /** 
+ * A HTablePool adapter. It makes sure the real user is
+ * always used in creating any table so that the HConnection
+ * is not any proxy user in case impersonation with
+ * RESTServletContainer.
+ */
+      @Override protected HTableInterface createHTable(      final String tableName){
+        return ugi.doAs(new PrivilegedAction<HTableInterface>(){
+          @Override public HTableInterface run(){
+            return callCreateHTable(tableName);
+          }
+        }
+);
+      }
+      /** 
+ * A helper method used to call super.createHTable.
+ */
+      HTableInterface callCreateHTable(      final String tableName){
+        return super.createHTable(tableName);
+      }
+    }
+;
+  }
+}

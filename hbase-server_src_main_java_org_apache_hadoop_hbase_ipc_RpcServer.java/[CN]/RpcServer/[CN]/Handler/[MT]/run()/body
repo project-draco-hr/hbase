@@ -24,7 +24,19 @@
         if (call.tinfo != null) {
           currentRequestSpan=Trace.startSpan("handling " + call.toShortString(),call.tinfo,Sampler.ALWAYS);
         }
-        RequestContext.set(User.create(call.connection.user),getRemoteIp(),call.connection.service);
+        User user;
+        if (call.effectiveUser == null) {
+          user=User.create(call.connection.user);
+        }
+ else {
+          UserGroupInformation ugi=UserGroupInformation.createProxyUser(call.effectiveUser,call.connection.user);
+          ProxyUsers.authorize(ugi,call.connection.getHostAddress(),conf);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Authorized " + call.connection.user + " to impersonate "+ call.effectiveUser);
+          }
+          user=User.create(ugi);
+        }
+        RequestContext.set(user,getRemoteIp(),call.connection.service);
         resultPair=call(call.service,call.md,call.param,call.cellScanner,call.timestamp,status);
       }
  catch (      Throwable e) {

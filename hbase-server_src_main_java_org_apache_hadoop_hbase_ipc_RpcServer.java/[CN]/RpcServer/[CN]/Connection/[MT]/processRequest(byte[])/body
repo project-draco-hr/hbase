@@ -11,7 +11,7 @@
     LOG.trace("RequestHeader " + TextFormat.shortDebugString(header) + " totalRequestSize: "+ totalRequestSize+ " bytes");
   }
   if ((totalRequestSize + callQueueSize.get()) > maxQueueSize) {
-    final Call callTooBig=new Call(id,this.service,null,null,null,this,responder,totalRequestSize,null);
+    final Call callTooBig=new Call(id,this.service,null,null,null,this,responder,totalRequestSize,null,null);
     ByteArrayOutputStream responseBuffer=new ByteArrayOutputStream();
     setupResponse(responseBuffer,callTooBig,new CallQueueTooBigException(),"Call queue is full, is ipc.server.max.callqueue.size too small?");
     responder.doRespond(callTooBig);
@@ -20,6 +20,7 @@
   MethodDescriptor md=null;
   Message param=null;
   CellScanner cellScanner=null;
+  String effectiveUser=null;
   try {
     if (header.hasRequestParam() && header.getRequestParam()) {
       md=this.service.getDescriptorForType().findMethodByName(header.getMethodName());
@@ -35,11 +36,14 @@
     if (header.hasCellBlockMeta()) {
       cellScanner=ipcUtil.createCellScanner(this.codec,this.compressionCodec,buf,offset,buf.length);
     }
+    if (header.hasEffectiveUser()) {
+      effectiveUser=header.getEffectiveUser();
+    }
   }
  catch (  Throwable t) {
     String msg="Unable to read call parameter from client " + getHostAddress();
     LOG.warn(msg,t);
-    final Call readParamsFailedCall=new Call(id,this.service,null,null,null,this,responder,totalRequestSize,null);
+    final Call readParamsFailedCall=new Call(id,this.service,null,null,null,this,responder,totalRequestSize,null,null);
     ByteArrayOutputStream responseBuffer=new ByteArrayOutputStream();
     setupResponse(responseBuffer,readParamsFailedCall,t,msg + "; " + t.getMessage());
     responder.doRespond(readParamsFailedCall);
@@ -47,10 +51,10 @@
   }
   Call call=null;
   if (header.hasTraceInfo()) {
-    call=new Call(id,this.service,md,param,cellScanner,this,responder,totalRequestSize,new TraceInfo(header.getTraceInfo().getTraceId(),header.getTraceInfo().getParentId()));
+    call=new Call(id,this.service,md,param,cellScanner,this,responder,totalRequestSize,new TraceInfo(header.getTraceInfo().getTraceId(),header.getTraceInfo().getParentId()),effectiveUser);
   }
  else {
-    call=new Call(id,this.service,md,param,cellScanner,this,responder,totalRequestSize,null);
+    call=new Call(id,this.service,md,param,cellScanner,this,responder,totalRequestSize,null,effectiveUser);
   }
   callQueueSize.add(totalRequestSize);
   Pair<RequestHeader,Message> headerAndParam=new Pair<RequestHeader,Message>(header,param);
