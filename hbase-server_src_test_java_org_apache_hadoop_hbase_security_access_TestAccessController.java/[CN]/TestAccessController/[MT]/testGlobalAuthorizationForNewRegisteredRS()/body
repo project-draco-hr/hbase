@@ -13,12 +13,13 @@
     acl.close();
   }
   HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
-  HTableDescriptor htd=new HTableDescriptor(TEST_TABLE2);
+  final byte[] tableName=Bytes.toBytes("testGlobalAuthorizationForNewRegisteredRS");
+  HTableDescriptor htd=new HTableDescriptor(tableName);
   htd.addFamily(new HColumnDescriptor(TEST_FAMILY));
   admin.createTable(htd);
   JVMClusterUtil.RegionServerThread newRsThread=hbaseCluster.startRegionServer();
   final HRegionServer newRs=newRsThread.getRegionServer();
-  HTable table=new HTable(TEST_UTIL.getConfiguration(),TEST_TABLE2);
+  HTable table=new HTable(TEST_UTIL.getConfiguration(),tableName);
   try {
     NavigableMap<HRegionInfo,ServerName> regions=table.getRegionLocations();
     final Map.Entry<HRegionInfo,ServerName> firstRegion=regions.entrySet().iterator().next();
@@ -31,23 +32,23 @@
     }
 ;
     SUPERUSER.runAs(moveAction);
-    final int RETRIES_LIMIT=10;
+    final int RETRIES_LIMIT=100;
     int retries=0;
-    while (newRs.getOnlineRegions(TEST_TABLE2).size() < 1 && retries < RETRIES_LIMIT) {
-      LOG.debug("Waiting for region to be opened. Already retried " + retries + " times.");
+    while (newRs.getOnlineRegions(tableName).size() < 1 && retries < RETRIES_LIMIT) {
+      LOG.debug("Waiting for a region to be opened. Already retried " + retries + " times.");
       try {
-        Thread.sleep(200);
+        Thread.sleep(1000);
       }
  catch (      InterruptedException e) {
       }
       retries++;
       if (retries == RETRIES_LIMIT - 1) {
-        fail("Retry exhaust for waiting region to be opened.");
+        fail("Retry exhaust for waiting region to be opened: " + newRs.getOnlineRegions(tableName));
       }
     }
     PrivilegedExceptionAction putAction=new PrivilegedExceptionAction(){
       public Object run() throws Exception {
-        HTable table=new HTable(TEST_UTIL.getConfiguration(),TEST_TABLE2);
+        HTable table=new HTable(TEST_UTIL.getConfiguration(),tableName);
         Put put=new Put(Bytes.toBytes("test"));
         put.add(TEST_FAMILY,Bytes.toBytes("qual"),Bytes.toBytes("value"));
         table.put(put);
