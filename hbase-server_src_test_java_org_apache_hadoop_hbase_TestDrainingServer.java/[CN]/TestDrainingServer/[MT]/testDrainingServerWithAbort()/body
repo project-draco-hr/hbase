@@ -8,7 +8,7 @@
   final int regionsOnDrainingServer=drainingServer.getNumberOfOnlineRegions();
   Assert.assertTrue(regionsOnDrainingServer > 0);
   ServerManager sm=master.getServerManager();
-  Collection<HRegion> regionsBefore=drainingServer.getCopyOfOnlineRegionsSortedBySize().values();
+  Collection<HRegion> regionsBefore=drainingServer.getOnlineRegionsLocalContext();
   LOG.info("Regions of drained server are: " + regionsBefore);
   try {
     setDrainingServer(drainingServer);
@@ -22,10 +22,17 @@
       HRegionServer hrs=TEST_UTIL.getMiniHBaseCluster().getRegionServer(aborted + 1);
       hrs.abort("Aborting");
     }
-    waitForAllRegionsOnline();
-    Collection<HRegion> regionsAfter=drainingServer.getCopyOfOnlineRegionsSortedBySize().values();
+    Collection<HRegion> regionsAfter=null;
+    for (int i=0; i < 1000; i++) {
+      waitForAllRegionsOnline();
+      regionsAfter=getRegions();
+      if (regionsAfter.size() >= regionCount)       break;
+      LOG.info("Expecting " + regionCount + " but only "+ regionsAfter);
+      Threads.sleep(10);
+    }
     LOG.info("Regions of drained server: " + regionsAfter + ", all regions: "+ getRegions());
     Assert.assertEquals("Test conditions are not met: regions were" + " created/deleted during the test. ",regionCount,TEST_UTIL.getMiniHBaseCluster().countServedRegions());
+    regionsAfter=drainingServer.getOnlineRegionsLocalContext();
     StringBuilder result=new StringBuilder();
     for (    HRegion r : regionsAfter) {
       if (!regionsBefore.contains(r)) {
