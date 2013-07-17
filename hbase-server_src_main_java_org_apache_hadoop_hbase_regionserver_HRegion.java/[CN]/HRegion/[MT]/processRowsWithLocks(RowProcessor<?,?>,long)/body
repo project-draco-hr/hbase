@@ -26,20 +26,16 @@
   MultiVersionConsistencyControl.WriteEntry writeEntry=null;
   boolean locked=false;
   boolean walSyncSuccessful=false;
-  List<Integer> acquiredLocks=null;
+  List<RowLock> acquiredRowLocks=null;
   long addedSize=0;
   List<KeyValue> mutations=new ArrayList<KeyValue>();
   Collection<byte[]> rowsToLock=processor.getRowsToLock();
   try {
-    acquiredLocks=new ArrayList<Integer>(rowsToLock.size());
+    acquiredRowLocks=new ArrayList<RowLock>(rowsToLock.size());
     for (    byte[] row : rowsToLock) {
-      Integer lid=getLock(null,row,true);
-      if (lid == null) {
-        throw new IOException("Failed to acquire lock on " + Bytes.toStringBinary(row));
-      }
-      acquiredLocks.add(lid);
+      acquiredRowLocks.add(getRowLock(row));
     }
-    lock(this.updatesLock.readLock(),acquiredLocks.size());
+    lock(this.updatesLock.readLock(),acquiredRowLocks.size());
     locked=true;
     long now=EnvironmentEdgeManager.currentTimeMillis();
     try {
@@ -60,12 +56,7 @@
           this.updatesLock.readLock().unlock();
           locked=false;
         }
-        if (acquiredLocks != null) {
-          for (          Integer lid : acquiredLocks) {
-            releaseRowLock(lid);
-          }
-          acquiredLocks=null;
-        }
+        releaseRowLocks(acquiredRowLocks);
         if (txid != 0) {
           syncOrDefer(txid,getEffectiveDurability(processor.useDurability()));
         }
@@ -87,11 +78,7 @@
         this.updatesLock.readLock().unlock();
         locked=false;
       }
-      if (acquiredLocks != null) {
-        for (        Integer lid : acquiredLocks) {
-          releaseRowLock(lid);
-        }
-      }
+      releaseRowLocks(acquiredRowLocks);
     }
     processor.postProcess(this,walEdit);
   }
