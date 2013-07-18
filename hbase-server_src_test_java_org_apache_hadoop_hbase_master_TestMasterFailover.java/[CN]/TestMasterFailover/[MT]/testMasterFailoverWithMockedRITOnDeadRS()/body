@@ -207,7 +207,7 @@
   ZKAssign.blockUntilNoRIT(zkw);
   log("No more RIT in ZK");
   long now=System.currentTimeMillis();
-  final long maxTime=120000;
+  long maxTime=120000;
   boolean done=master.assignmentManager.waitUntilNoRegionsInTransition(maxTime);
   if (!done) {
     LOG.info("rit=" + master.getAssignmentManager().getRegionStates().getRegionsInTransition());
@@ -216,9 +216,20 @@
   assertTrue("Elapsed=" + elapsed + ", maxTime="+ maxTime+ ", done="+ done,elapsed < maxTime);
   log("No more RIT in RIT map, doing final test verification");
   Set<HRegionInfo> onlineRegions=new TreeSet<HRegionInfo>();
+  now=System.currentTimeMillis();
+  maxTime=30000;
   for (  JVMClusterUtil.RegionServerThread rst : cluster.getRegionServerThreads()) {
     try {
-      onlineRegions.addAll(ProtobufUtil.getOnlineRegions(rst.getRegionServer()));
+      HRegionServer rs=rst.getRegionServer();
+      while (!rs.getRegionsInTransitionInRS().isEmpty()) {
+        elapsed=System.currentTimeMillis() - now;
+        assertTrue("Test timed out in getting online regions",elapsed < maxTime);
+        if (rs.isAborted() || rs.isStopped()) {
+          break;
+        }
+        Thread.sleep(100);
+      }
+      onlineRegions.addAll(ProtobufUtil.getOnlineRegions(rs));
     }
  catch (    RegionServerStoppedException e) {
       LOG.info("Got RegionServerStoppedException",e);
