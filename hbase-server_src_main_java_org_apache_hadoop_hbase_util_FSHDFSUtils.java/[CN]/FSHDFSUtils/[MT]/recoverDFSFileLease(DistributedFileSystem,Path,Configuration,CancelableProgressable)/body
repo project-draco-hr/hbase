@@ -4,8 +4,10 @@
   long recoveryTimeout=conf.getInt("hbase.lease.recovery.timeout",900000) + startWaiting;
   long firstPause=conf.getInt("hbase.lease.recovery.first.pause",4000);
   long subsequentPause=conf.getInt("hbase.lease.recovery.dfs.timeout",61 * 1000);
+  Method isFileClosedMeth=null;
+  boolean findIsFileClosedMeth=true;
   boolean recovered=false;
-  for (int nbAttempt=0; true; nbAttempt++) {
+  for (int nbAttempt=0; !recovered; nbAttempt++) {
     recovered=recoverLease(dfs,nbAttempt,p,startWaiting);
     if (recovered)     break;
     checkIfCancelled(reporter);
@@ -18,7 +20,21 @@
         long localStartWaiting=EnvironmentEdgeManager.currentTimeMillis();
         while ((EnvironmentEdgeManager.currentTimeMillis() - localStartWaiting) < subsequentPause) {
           Thread.sleep(conf.getInt("hbase.lease.recovery.pause",1000));
-          if (isFileClosed(dfs,p))           break;
+          if (findIsFileClosedMeth) {
+            try {
+              isFileClosedMeth=dfs.getClass().getMethod("isFileClosed",new Class[]{Path.class});
+            }
+ catch (            NoSuchMethodException nsme) {
+              LOG.debug("isFileClosed not available");
+            }
+ finally {
+              findIsFileClosedMeth=false;
+            }
+          }
+          if (isFileClosedMeth != null && isFileClosed(dfs,isFileClosedMeth,p)) {
+            recovered=true;
+            break;
+          }
           checkIfCancelled(reporter);
         }
       }
