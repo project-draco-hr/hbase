@@ -1,0 +1,39 @@
+{
+  this.callTimeout=callTimeout;
+  List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
+  this.globalStartTime=EnvironmentEdgeManager.currentTimeMillis();
+  for (int tries=0; ; tries++) {
+    long expectedSleep=0;
+    try {
+      beforeCall();
+      callable.prepare(tries != 0);
+      return callable.call();
+    }
+ catch (    Throwable t) {
+      LOG.warn("Call exception, tries=" + tries + ", retries="+ retries+ ", retryTime="+ (this.globalStartTime - System.currentTimeMillis())+ "ms",t);
+      t=translateException(t);
+      callable.throwable(t,retries != 1);
+      RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,EnvironmentEdgeManager.currentTimeMillis(),toString());
+      exceptions.add(qt);
+      if (tries >= retries - 1) {
+        throw new RetriesExhaustedException(tries,exceptions);
+      }
+      expectedSleep=callable.sleep(pause,tries + 1);
+      long duration=singleCallDuration(expectedSleep);
+      if (duration > this.callTimeout) {
+        String msg="callTimeout=" + this.callTimeout + ", callDuration="+ duration+ ": "+ callable.getExceptionMessageAdditionalDetail();
+        throw (SocketTimeoutException)(new SocketTimeoutException(msg).initCause(t));
+      }
+    }
+ finally {
+      afterCall();
+    }
+    try {
+      Thread.sleep(expectedSleep);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new InterruptedIOException("Interrupted after " + tries + " tries  on "+ retries);
+    }
+  }
+}

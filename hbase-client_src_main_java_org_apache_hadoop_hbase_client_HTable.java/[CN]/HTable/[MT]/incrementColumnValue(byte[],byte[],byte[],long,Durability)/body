@@ -12,12 +12,12 @@
   if (npe != null) {
     throw new IOException("Invalid arguments to incrementColumnValue",npe);
   }
-  return new ServerCallable<Long>(connection,tableName,row,operationTimeout){
+  RegionServerCallable<Long> callable=new RegionServerCallable<Long>(connection,getTableName(),row){
     public Long call() throws IOException {
       try {
-        MutateRequest request=RequestConverter.buildMutateRequest(location.getRegionInfo().getRegionName(),row,family,qualifier,amount,durability);
+        MutateRequest request=RequestConverter.buildMutateRequest(getLocation().getRegionInfo().getRegionName(),row,family,qualifier,amount,durability);
         PayloadCarryingRpcController rpcController=new PayloadCarryingRpcController();
-        MutateResponse response=stub.mutate(rpcController,request);
+        MutateResponse response=getStub().mutate(rpcController,request);
         Result result=ProtobufUtil.toResult(response.getResult(),rpcController.cellScanner());
         return Long.valueOf(Bytes.toLong(result.getValue(family,qualifier)));
       }
@@ -26,5 +26,6 @@
       }
     }
   }
-.withRetries();
+;
+  return new RpcRetryingCaller<Long>().callWithRetries(callable,getConfiguration(),this.operationTimeout);
 }
