@@ -1,0 +1,37 @@
+{
+  LOG.info("Starting testMerge");
+  final byte[] tableName=Bytes.toBytes("testMerge");
+  try {
+    HTable table=createTableAndLoadData(master,tableName);
+    RegionStates regionStates=master.getAssignmentManager().getRegionStates();
+    List<HRegionInfo> regions=regionStates.getRegionsOfTable(tableName);
+    HRegionInfo a=regions.get(0);
+    HRegionInfo b=regions.get(1);
+    regionStates.regionOffline(a);
+    try {
+      admin.mergeRegions(a.getEncodedNameAsBytes(),b.getEncodedNameAsBytes(),false);
+      fail("Offline regions should not be able to merge");
+    }
+ catch (    IOException ie) {
+      assertTrue("Exception should mention regions not online",ie.getMessage().contains("regions not online") && ie instanceof MergeRegionException);
+    }
+    try {
+      admin.mergeRegions(b.getEncodedNameAsBytes(),b.getEncodedNameAsBytes(),true);
+      fail("A region should not be able to merge with itself, even forcifully");
+    }
+ catch (    IOException ie) {
+      assertTrue("Exception should mention regions not online",ie.getMessage().contains("region to itself") && ie instanceof MergeRegionException);
+    }
+    try {
+      admin.mergeRegions(Bytes.toBytes("-f1"),Bytes.toBytes("-f2"),true);
+      fail("Unknown region could not be merged");
+    }
+ catch (    IOException ie) {
+      assertTrue("UnknownRegionException should be thrown",ie instanceof UnknownRegionException);
+    }
+    table.close();
+  }
+  finally {
+    TEST_UTIL.deleteTable(tableName);
+  }
+}
