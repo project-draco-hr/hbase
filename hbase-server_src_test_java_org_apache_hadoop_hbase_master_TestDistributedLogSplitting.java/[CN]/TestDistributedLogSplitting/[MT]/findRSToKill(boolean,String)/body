@@ -1,0 +1,45 @@
+{
+  List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
+  int numOfRSs=rsts.size();
+  List<HRegionInfo> regions=null;
+  HRegionServer hrs=null;
+  for (int i=0; i < numOfRSs; i++) {
+    boolean isCarryingMeta=false;
+    boolean foundTableRegion=false;
+    hrs=rsts.get(i).getRegionServer();
+    regions=ProtobufUtil.getOnlineRegions(hrs);
+    for (    HRegionInfo region : regions) {
+      if (region.isMetaRegion()) {
+        isCarryingMeta=true;
+      }
+      if (tableName == null || region.getTableNameAsString().equalsIgnoreCase(tableName)) {
+        foundTableRegion=true;
+      }
+      if (foundTableRegion && (isCarryingMeta || !hasMetaRegion)) {
+        break;
+      }
+    }
+    if (isCarryingMeta && hasMetaRegion) {
+      if (!foundTableRegion) {
+        final HRegionServer destRS=hrs;
+        List<HRegionInfo> tableRegions=TEST_UTIL.getHBaseAdmin().getTableRegions(Bytes.toBytes(tableName));
+        final HRegionInfo hri=tableRegions.get(0);
+        TEST_UTIL.getHBaseAdmin().move(hri.getEncodedNameAsBytes(),Bytes.toBytes(destRS.getServerName().getServerName()));
+        final RegionStates regionStates=TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionStates();
+        TEST_UTIL.waitFor(45000,200,new Waiter.Predicate<Exception>(){
+          @Override public boolean evaluate() throws Exception {
+            ServerName sn=regionStates.getRegionServerOfRegion(hri);
+            return (sn != null && sn.equals(destRS.getServerName()));
+          }
+        }
+);
+      }
+      return hrs;
+    }
+ else     if (hasMetaRegion || isCarryingMeta) {
+      continue;
+    }
+    if (foundTableRegion)     break;
+  }
+  return hrs;
+}
