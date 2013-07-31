@@ -1,0 +1,49 @@
+{
+  long threshold=context.getConfiguration().getLong("reducer.row.threshold",1L * (1 << 30));
+  Iterator<Text> iter=lines.iterator();
+  while (iter.hasNext()) {
+    Set<KeyValue> kvs=new TreeSet<KeyValue>(KeyValue.COMPARATOR);
+    long curSize=0;
+    while (iter.hasNext() && curSize < threshold) {
+      Text line=iter.next();
+      byte[] lineBytes=line.getBytes();
+      try {
+        ImportTsv.TsvParser.ParsedLine parsed=parser.parse(lineBytes,line.getLength());
+        ts=parsed.getTimestamp(ts);
+        for (int i=0; i < parsed.getColumnCount(); i++) {
+          if (i == parser.getRowKeyColumnIndex() || i == parser.getTimestampKeyColumnIndex()) {
+            continue;
+          }
+          KeyValue kv=new KeyValue(lineBytes,parsed.getRowKeyOffset(),parsed.getRowKeyLength(),parser.getFamily(i),0,parser.getFamily(i).length,parser.getQualifier(i),0,parser.getQualifier(i).length,ts,KeyValue.Type.Put,lineBytes,parsed.getColumnOffset(i),parsed.getColumnLength(i));
+          kvs.add(kv);
+          curSize+=kv.heapSize();
+        }
+      }
+ catch (      ImportTsv.TsvParser.BadTsvLineException badLine) {
+        if (skipBadLines) {
+          System.err.println("Bad line." + badLine.getMessage());
+          incrementBadLineCount(1);
+          return;
+        }
+        throw new IOException(badLine);
+      }
+catch (      IllegalArgumentException e) {
+        if (skipBadLines) {
+          System.err.println("Bad line." + e.getMessage());
+          incrementBadLineCount(1);
+          return;
+        }
+        throw new IOException(e);
+      }
+    }
+    context.setStatus("Read " + kvs.size() + " entries of "+ kvs.getClass()+ "("+ StringUtils.humanReadableInt(curSize)+ ")");
+    int index=0;
+    for (    KeyValue kv : kvs) {
+      context.write(rowKey,kv);
+      if (++index > 0 && index % 100 == 0)       context.setStatus("Wrote " + index + " key values.");
+    }
+    if (iter.hasNext()) {
+      context.write(null,null);
+    }
+  }
+}
