@@ -11,8 +11,10 @@
       }
       continue;
     }
+    SinkPeer sinkPeer=null;
     try {
-      AdminService.BlockingInterface rrs=getRS();
+      sinkPeer=replicationSinkMgr.getReplicationSink();
+      BlockingInterface rrs=sinkPeer.getRegionServer();
       if (LOG.isTraceEnabled()) {
         LOG.trace("Replicating " + this.currentNbEntries + " entries");
       }
@@ -47,29 +49,17 @@
         }
  else         if (ioe instanceof ConnectException) {
           LOG.warn("Peer is unavailable, rechecking all sinks: ",ioe);
-          chooseSinks();
+          replicationSinkMgr.chooseSinks();
         }
  else {
           LOG.warn("Can't replicate because of a local or network error: ",ioe);
         }
       }
-      try {
-        boolean down;
-        do {
-          down=isSlaveDown();
-          if (down) {
-            if (sleepForRetries("Since we are unable to replicate",sleepMultiplier)) {
-              sleepMultiplier++;
-            }
- else {
-              chooseSinks();
-            }
-          }
-        }
- while (this.isActive() && down);
+      if (sinkPeer != null) {
+        replicationSinkMgr.reportBadSink(sinkPeer);
       }
- catch (      InterruptedException e) {
-        LOG.debug("Interrupted while trying to contact the peer cluster");
+      if (sleepForRetries("Since we are unable to replicate",sleepMultiplier)) {
+        sleepMultiplier++;
       }
     }
   }
