@@ -4,11 +4,11 @@
   final Configuration conf=context.getConfiguration();
   final FileSystem fs=outputdir.getFileSystem(conf);
   final long maxsize=conf.getLong(HConstants.HREGION_MAX_FILESIZE,HConstants.DEFAULT_MAX_FILE_SIZE);
-  final int blocksize=conf.getInt("hbase.mapreduce.hfileoutputformat.blocksize",HConstants.DEFAULT_BLOCKSIZE);
   final String defaultCompression=conf.get("hfile.compression",Compression.Algorithm.NONE.getName());
   final boolean compactionExclude=conf.getBoolean("hbase.mapreduce.hfileoutputformat.compaction.exclude",false);
   final Map<byte[],String> compressionMap=createFamilyCompressionMap(conf);
   final Map<byte[],String> bloomTypeMap=createFamilyBloomMap(conf);
+  final Map<byte[],String> blockSizeMap=createFamilyBlockSizeMap(conf);
   String dataBlockEncodingStr=conf.get(DATABLOCK_ENCODING_CONF_KEY);
   final HFileDataBlockEncoder encoder;
   if (dataBlockEncodingStr == null) {
@@ -74,9 +74,11 @@
       if (bloomTypeStr != null) {
         bloomType=BloomType.valueOf(bloomTypeStr);
       }
+      String blockSizeString=blockSizeMap.get(family);
+      int blockSize=blockSizeString == null ? HConstants.DEFAULT_BLOCKSIZE : Integer.parseInt(blockSizeString);
       Configuration tempConf=new Configuration(conf);
       tempConf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY,0.0f);
-      wl.writer=new StoreFile.WriterBuilder(conf,new CacheConfig(tempConf),fs,blocksize).withOutputDir(familydir).withCompression(AbstractHFileWriter.compressionByName(compression)).withBloomType(bloomType).withComparator(KeyValue.COMPARATOR).withDataBlockEncoder(encoder).withChecksumType(HStore.getChecksumType(conf)).withBytesPerChecksum(HStore.getBytesPerChecksum(conf)).build();
+      wl.writer=new StoreFile.WriterBuilder(conf,new CacheConfig(tempConf),fs,blockSize).withOutputDir(familydir).withCompression(AbstractHFileWriter.compressionByName(compression)).withBloomType(bloomType).withComparator(KeyValue.COMPARATOR).withDataBlockEncoder(encoder).withChecksumType(HStore.getChecksumType(conf)).withBytesPerChecksum(HStore.getBytesPerChecksum(conf)).build();
       this.writers.put(family,wl);
       return wl;
     }
