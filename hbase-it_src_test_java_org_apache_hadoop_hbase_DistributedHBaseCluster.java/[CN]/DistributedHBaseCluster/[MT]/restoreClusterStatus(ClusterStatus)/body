@@ -1,19 +1,16 @@
 {
   ClusterStatus current=getClusterStatus();
   if (!ServerName.isSameHostnameAndPort(initial.getMaster(),current.getMaster())) {
-    boolean foundOldMaster=false;
+    LOG.info("Initial active master : " + initial.getMaster().getHostname() + " has changed to : "+ current.getMaster().getHostname());
+    if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,initial.getMaster().getHostname())) {
+      startMaster(initial.getMaster().getHostname());
+    }
     for (    ServerName currentBackup : current.getBackupMasters()) {
       if (!ServerName.isSameHostnameAndPort(currentBackup,initial.getMaster())) {
         stopMaster(currentBackup);
       }
- else {
-        foundOldMaster=true;
-      }
     }
     stopMaster(current.getMaster());
-    if (foundOldMaster) {
-      startMaster(initial.getMaster().getHostname());
-    }
     waitForActiveAndReadyMaster();
     for (    ServerName backup : initial.getBackupMasters()) {
       if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,backup.getHostname())) {
@@ -59,4 +56,12 @@
       stopRegionServer(currentServers.get(hostname));
     }
   }
+  try {
+    admin.close();
+  }
+ catch (  IOException ioe) {
+    LOG.info("While closing the old connection",ioe);
+  }
+  this.admin=new HBaseAdmin(conf);
+  LOG.info("Added new HBaseAdmin");
 }
