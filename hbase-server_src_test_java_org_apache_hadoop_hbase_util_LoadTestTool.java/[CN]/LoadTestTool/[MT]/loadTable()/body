@@ -1,0 +1,49 @@
+{
+  if (cmd.hasOption(OPT_ZK_QUORUM)) {
+    conf.set(HConstants.ZOOKEEPER_QUORUM,cmd.getOptionValue(OPT_ZK_QUORUM));
+  }
+  if (isInitOnly) {
+    LOG.info("Initializing only; no reads or writes");
+    initTestTable();
+    return 0;
+  }
+  if (!isSkipInit) {
+    initTestTable();
+  }
+  LoadTestDataGenerator dataGen=new MultiThreadedAction.DefaultDataGenerator(minColDataSize,maxColDataSize,minColsPerKey,maxColsPerKey,COLUMN_FAMILY);
+  if (isWrite) {
+    writerThreads=new MultiThreadedWriter(dataGen,conf,tableName);
+    writerThreads.setMultiPut(isMultiPut);
+  }
+  if (isRead) {
+    readerThreads=new MultiThreadedReader(dataGen,conf,tableName,verifyPercent);
+    readerThreads.setMaxErrors(maxReadErrors);
+    readerThreads.setKeyWindow(keyWindow);
+  }
+  if (isRead && isWrite) {
+    LOG.info("Concurrent read/write workload: making readers aware of the " + "write point");
+    readerThreads.linkToWriter(writerThreads);
+  }
+  if (isWrite) {
+    System.out.println("Starting to write data...");
+    writerThreads.start(startKey,endKey,numWriterThreads);
+  }
+  if (isRead) {
+    System.out.println("Starting to read data...");
+    readerThreads.start(startKey,endKey,numReaderThreads);
+  }
+  if (isWrite) {
+    writerThreads.waitForFinish();
+  }
+  if (isRead) {
+    readerThreads.waitForFinish();
+  }
+  boolean success=true;
+  if (isWrite) {
+    success=success && writerThreads.getNumWriteFailures() == 0;
+  }
+  if (isRead) {
+    success=success && readerThreads.getNumReadErrors() == 0 && readerThreads.getNumReadFailures() == 0;
+  }
+  return success ? EXIT_SUCCESS : this.EXIT_FAILURE;
+}
