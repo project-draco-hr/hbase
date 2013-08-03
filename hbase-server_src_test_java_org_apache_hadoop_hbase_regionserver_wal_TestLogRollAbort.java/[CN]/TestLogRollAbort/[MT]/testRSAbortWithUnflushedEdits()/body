@@ -1,0 +1,31 @@
+{
+  LOG.info("Starting testRSAbortWithUnflushedEdits()");
+  new HTable(TEST_UTIL.getConfiguration(),HConstants.META_TABLE_NAME).close();
+  String tableName=this.getClass().getSimpleName();
+  HTableDescriptor desc=new HTableDescriptor(tableName);
+  desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
+  desc.setDeferredLogFlush(true);
+  admin.createTable(desc);
+  HTable table=new HTable(TEST_UTIL.getConfiguration(),tableName);
+  HRegionServer server=TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
+  HLog log=server.getWAL();
+  assertTrue("Need HDFS-826 for this test",((FSHLog)log).canGetCurReplicas());
+  assertTrue("Need append support for this test",FSUtils.isAppendSupported(TEST_UTIL.getConfiguration()));
+  Put p=new Put(Bytes.toBytes("row2001"));
+  p.add(HConstants.CATALOG_FAMILY,Bytes.toBytes("col"),Bytes.toBytes(2001));
+  table.put(p);
+  log.sync();
+  p=new Put(Bytes.toBytes("row2002"));
+  p.add(HConstants.CATALOG_FAMILY,Bytes.toBytes("col"),Bytes.toBytes(2002));
+  table.put(p);
+  dfsCluster.restartDataNodes();
+  LOG.info("Restarted datanodes");
+  assertTrue("Should have an outstanding WAL edit",((FSHLog)log).hasDeferredEntries());
+  try {
+    log.rollWriter(true);
+    fail("Log roll should have triggered FailedLogCloseException");
+  }
+ catch (  FailedLogCloseException flce) {
+    assertTrue("Should have deferred flush log edits outstanding",((FSHLog)log).hasDeferredEntries());
+  }
+}
