@@ -5,18 +5,12 @@
   HRegionServer hr1=cluster.getLiveRegionServerThreads().get(1).getRegionServer();
   HRegionInfo hri=getNonMetaRegion(ProtobufUtil.getOnlineRegions(hr0));
   hr1.getRegionsInTransitionInRS().putIfAbsent(hri.getEncodedNameAsBytes(),true);
-  AtomicBoolean reopenEventProcessed=new AtomicBoolean(false);
-  EventHandlerListener openListener=new ReopenEventListener(hri.getRegionNameAsString(),reopenEventProcessed,EventType.RS_ZK_REGION_OPENED);
-  cluster.getMaster().executorService.registerListener(EventType.RS_ZK_REGION_OPENED,openListener);
   TEST_UTIL.getHBaseAdmin().move(hri.getEncodedNameAsBytes(),Bytes.toBytes(hr1.getServerName().toString()));
   assertEquals(hr1.getOnlineRegion(hri.getEncodedNameAsBytes()),null);
   hr1.getRegionsInTransitionInRS().remove(hri.getEncodedNameAsBytes());
-  reopenEventProcessed.set(false);
   hri=getNonMetaRegion(ProtobufUtil.getOnlineRegions(hr1));
-  openListener=new ReopenEventListener(hri.getRegionNameAsString(),reopenEventProcessed,EventType.RS_ZK_REGION_OPENED);
-  cluster.getMaster().executorService.registerListener(EventType.RS_ZK_REGION_OPENED,openListener);
   TEST_UTIL.getHBaseAdmin().move(hri.getEncodedNameAsBytes(),Bytes.toBytes(hr0.getServerName().toString()));
-  while (!reopenEventProcessed.get()) {
+  while (!cluster.getMaster().assignmentManager.wasOpenedHandlerCalled(hri)) {
     Threads.sleep(100);
   }
   assertTrue(hr1.getOnlineRegion(hri.getEncodedNameAsBytes()) == null);
