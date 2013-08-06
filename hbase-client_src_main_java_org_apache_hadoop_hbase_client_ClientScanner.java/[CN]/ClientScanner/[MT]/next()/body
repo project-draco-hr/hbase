@@ -6,10 +6,17 @@
     Result[] values=null;
     long remainingResultSize=maxScannerResultSize;
     int countdown=this.caching;
+    callable.setCaching(this.caching);
     boolean skipFirst=false;
     boolean retryAfterOutOfOrderException=true;
     do {
       try {
+        if (skipFirst) {
+          callable.setCaching(1);
+          values=this.caller.callWithRetries(callable);
+          callable.setCaching(this.caching);
+          skipFirst=false;
+        }
         values=this.caller.callWithRetries(callable);
         if (skipFirst && values != null && values.length == 1) {
           skipFirst=false;
@@ -57,14 +64,7 @@
       }
       lastNext=currentTime;
       if (values != null && values.length > 0) {
-        int i=0;
-        if (skipFirst) {
-          skipFirst=false;
-          countdown--;
-          i=1;
-        }
-        for (; i < values.length; i++) {
-          Result rs=values[i];
+        for (        Result rs : values) {
           cache.add(rs);
           for (          KeyValue kv : rs.raw()) {
             remainingResultSize-=kv.heapSize();
@@ -74,7 +74,7 @@
         }
       }
     }
- while (remainingResultSize > 0 && countdown > 0 && nextScanner(values == null));
+ while (remainingResultSize > 0 && countdown > 0 && nextScanner(countdown,values == null));
   }
   if (cache.size() > 0) {
     return cache.poll();

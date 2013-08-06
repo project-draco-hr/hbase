@@ -1,4 +1,5 @@
 {
+  Leases.Lease lease=null;
   String scannerName=null;
   try {
     if (!request.hasScannerId() && !request.hasScan()) {
@@ -45,7 +46,7 @@
           LOG.info("Client tried to access missing scanner " + scannerName);
           throw new UnknownScannerException("Name: " + scannerName + ", already closed?");
         }
-        scanner=rsh.scanner;
+        scanner=rsh.s;
         region=getRegion(scanner.getRegionInfo().getRegionName());
       }
  else {
@@ -56,6 +57,7 @@
         if (!isLoadingCfsOnDemandSet) {
           scan.setLoadColumnFamiliesOnDemand(region.isLoadingCfsOnDemandDefault());
         }
+        byte[] hasMetrics=scan.getAttribute(Scan.SCAN_ATTRIBUTES_METRICS_ENABLE);
         region.prepareScanner(scan);
         if (region.getCoprocessorHost() != null) {
           scanner=region.getCoprocessorHost().preScannerOpen(scan);
@@ -66,36 +68,98 @@
         if (region.getCoprocessorHost() != null) {
           scanner=region.getCoprocessorHost().postScannerOpen(scan,scanner);
         }
-        rsh=addScanner(scanner,region);
-        scannerName=rsh.scannerName;
-        scannerId=Long.parseLong(scannerName);
+        scannerId=addScanner(scanner);
+        scannerName=String.valueOf(scannerId);
         ttl=this.scannerLeaseTimeoutPeriod;
-        if (scan.getPrefetching()) {
-          rsh.enablePrefetching(scan.getCaching());
-        }
       }
       if (rows > 0) {
         if (request.hasNextCallSeq()) {
-          if (request.getNextCallSeq() != rsh.nextCallSeq) {
-            throw new OutOfOrderScannerNextException("Expected nextCallSeq: " + rsh.nextCallSeq + " But the nextCallSeq got from client: "+ request.getNextCallSeq()+ "; request="+ TextFormat.shortDebugString(request));
+          if (rsh == null) {
+            rsh=scanners.get(scannerName);
           }
-          rsh.nextCallSeq++;
-        }
-        ttl=this.scannerLeaseTimeoutPeriod;
-        ScanResult result=rsh.getScanResult(rows);
-        if (result.isException) {
-          throw result.ioException;
-        }
-        moreResults=result.moreResults;
-        if (result.results != null) {
-          List<CellScannable> cellScannables=new ArrayList<CellScannable>(result.results.size());
-          ResultCellMeta.Builder rcmBuilder=ResultCellMeta.newBuilder();
-          for (          Result res : result.results) {
-            cellScannables.add(res);
-            rcmBuilder.addCellsLength(res.size());
+          if (rsh != null) {
+            if (request.getNextCallSeq() != rsh.nextCallSeq) {
+              throw new OutOfOrderScannerNextException("Expected nextCallSeq: " + rsh.nextCallSeq + " But the nextCallSeq got from client: "+ request.getNextCallSeq()+ "; request="+ TextFormat.shortDebugString(request));
+            }
+            rsh.nextCallSeq++;
           }
-          builder.setResultCellMeta(rcmBuilder.build());
-          ((PayloadCarryingRpcController)controller).setCellScanner(CellUtil.createCellScanner(cellScannables));
+        }
+        try {
+          lease=leases.removeLease(scannerName);
+          List<Result> results=new ArrayList<Result>(rows);
+          long currentScanResultSize=0;
+          boolean done=false;
+          if (region != null && region.getCoprocessorHost() != null) {
+            Boolean bypass=region.getCoprocessorHost().preScannerNext(scanner,results,rows);
+            if (!results.isEmpty()) {
+              for (              Result r : results) {
+                if (maxScannerResultSize < Long.MAX_VALUE) {
+                  for (                  KeyValue kv : r.raw()) {
+                    currentScanResultSize+=kv.heapSize();
+                  }
+                }
+              }
+            }
+            if (bypass != null && bypass.booleanValue()) {
+              done=true;
+            }
+          }
+          if (!done) {
+            long maxResultSize=scanner.getMaxResultSize();
+            if (maxResultSize <= 0) {
+              maxResultSize=maxScannerResultSize;
+            }
+            List<KeyValue> values=new ArrayList<KeyValue>();
+            MultiVersionConsistencyControl.setThreadReadPoint(scanner.getMvccReadPoint());
+            region.startRegionOperation(Operation.SCAN);
+            try {
+              int i=0;
+synchronized (scanner) {
+                for (; i < rows && currentScanResultSize < maxResultSize; i++) {
+                  boolean moreRows=scanner.nextRaw(values);
+                  if (!values.isEmpty()) {
+                    if (maxScannerResultSize < Long.MAX_VALUE) {
+                      for (                      KeyValue kv : values) {
+                        currentScanResultSize+=kv.heapSize();
+                      }
+                    }
+                    results.add(new Result(values));
+                  }
+                  if (!moreRows) {
+                    break;
+                  }
+                  values.clear();
+                }
+              }
+              region.readRequestsCount.add(i);
+            }
+  finally {
+              region.closeRegionOperation();
+            }
+            if (region != null && region.getCoprocessorHost() != null) {
+              region.getCoprocessorHost().postScannerNext(scanner,results,rows,true);
+            }
+          }
+          if (scanner.isFilterDone() && results.isEmpty()) {
+            moreResults=false;
+            results=null;
+          }
+ else {
+            ResultCellMeta.Builder rcmBuilder=ResultCellMeta.newBuilder();
+            List<CellScannable> cellScannables=new ArrayList<CellScannable>(results.size());
+            for (            Result res : results) {
+              cellScannables.add(res);
+              rcmBuilder.addCellsLength(res.size());
+            }
+            builder.setResultCellMeta(rcmBuilder.build());
+            ((PayloadCarryingRpcController)controller).setCellScanner(CellUtil.createCellScanner(cellScannables));
+          }
+        }
+  finally {
+          if (scanners.containsKey(scannerName)) {
+            if (lease != null)             leases.addLease(lease);
+            ttl=this.scannerLeaseTimeoutPeriod;
+          }
         }
       }
       if (!moreResults || closeScanner) {
@@ -108,12 +172,9 @@
         }
         rsh=scanners.remove(scannerName);
         if (rsh != null) {
-          rsh.closeScanner();
-          try {
-            leases.cancelLease(scannerName);
-          }
- catch (          LeaseException le) {
-          }
+          scanner=rsh.s;
+          scanner.close();
+          leases.cancelLease(scannerName);
           if (region != null && region.getCoprocessorHost() != null) {
             region.getCoprocessorHost().postScannerClose(scanner);
           }
