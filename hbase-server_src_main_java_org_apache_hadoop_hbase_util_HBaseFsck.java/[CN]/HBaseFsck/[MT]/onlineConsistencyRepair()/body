@@ -1,12 +1,24 @@
 {
   clearState();
+  loadDeployedRegions();
+  if (!recordMetaRegion()) {
+    errors.reportError("Fatal error: unable to get .META. region location. Exiting...");
+    return -2;
+  }
+  if (!checkMetaRegion()) {
+    String errorMsg=".META. table is not consistent. ";
+    if (shouldFixAssignments()) {
+      errorMsg+="HBCK will try fixing it. Rerun once .META. is back to consistent state.";
+    }
+ else {
+      errorMsg+="Run HBCK with proper fix options to fix .META. inconsistency.";
+    }
+    errors.reportError(errorMsg + " Exiting...");
+    return -2;
+  }
   LOG.info("Loading regionsinfo from the .META. table");
   boolean success=loadMetaEntries();
   if (!success)   return -1;
-  if (!checkMetaRegion()) {
-    errors.reportError("Encountered fatal error. Exiting...");
-    return -2;
-  }
   reportEmptyMetaCells();
   if (shouldFixEmptyMetaCells()) {
     fixEmptyMetaCells();
@@ -14,7 +26,6 @@
   if (!checkMetaOnly) {
     reportTablesInFlux();
   }
-  loadDeployedRegions();
   if (shouldCheckHdfs()) {
     loadHdfsRegionDirs();
     loadHdfsRegionInfos();

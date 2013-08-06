@@ -1,32 +1,28 @@
 {
   List<HbckInfo> metaRegions=Lists.newArrayList();
   for (  HbckInfo value : regionInfoMap.values()) {
-    if (value.metaEntry.isMetaRegion()) {
+    if (value.metaEntry != null && value.metaEntry.isMetaRegion()) {
       metaRegions.add(value);
     }
   }
-  if (metaRegions.size() != 1) {
-    HRegionLocation rootLocation=connection.locateRegion(HConstants.ROOT_TABLE_NAME,HConstants.EMPTY_START_ROW);
-    HbckInfo root=regionInfoMap.get(rootLocation.getRegionInfo().getEncodedName());
-    if (metaRegions.size() == 0) {
+  HbckInfo metaHbckInfo=metaRegions.get(0);
+  List<ServerName> servers=metaHbckInfo.deployedOn;
+  if (servers.size() != 1) {
+    if (servers.size() == 0) {
       errors.reportError(ERROR_CODE.NO_META_REGION,".META. is not found on any region.");
       if (shouldFixAssignments()) {
         errors.print("Trying to fix a problem with .META...");
         setShouldRerun();
-        HBaseFsckRepair.fixUnassigned(admin,root.metaEntry);
-        HBaseFsckRepair.waitUntilAssigned(admin,root.getHdfsHRI());
+        HBaseFsckRepair.fixUnassigned(admin,metaHbckInfo.metaEntry);
+        HBaseFsckRepair.waitUntilAssigned(admin,metaHbckInfo.metaEntry);
       }
     }
- else     if (metaRegions.size() > 1) {
+ else     if (servers.size() > 1) {
       errors.reportError(ERROR_CODE.MULTI_META_REGION,".META. is found on more than one region.");
       if (shouldFixAssignments()) {
         errors.print("Trying to fix a problem with .META...");
         setShouldRerun();
-        List<ServerName> deployedOn=Lists.newArrayList();
-        for (        HbckInfo mRegion : metaRegions) {
-          deployedOn.add(mRegion.metaEntry.regionServer);
-        }
-        HBaseFsckRepair.fixMultiAssignment(admin,root.metaEntry,deployedOn);
+        HBaseFsckRepair.fixMultiAssignment(admin,metaHbckInfo.metaEntry,servers);
       }
     }
     return false;

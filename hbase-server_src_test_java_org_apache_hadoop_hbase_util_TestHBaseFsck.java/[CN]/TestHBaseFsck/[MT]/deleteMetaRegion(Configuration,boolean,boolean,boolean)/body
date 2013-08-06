@@ -1,0 +1,28 @@
+{
+  HConnection connection=HConnectionManager.getConnection(conf);
+  HRegionLocation metaLocation=connection.locateRegion(HConstants.META_TABLE_NAME,HConstants.EMPTY_START_ROW);
+  ServerName hsa=new ServerName(metaLocation.getHostnamePort(),0L);
+  HRegionInfo hri=metaLocation.getRegionInfo();
+  if (unassign) {
+    LOG.info("Undeploying meta region " + hri + " from server "+ hsa);
+    undeployRegion(new HBaseAdmin(conf),hsa,hri);
+  }
+  if (regionInfoOnly) {
+    LOG.info("deleting hdfs .regioninfo data: " + hri.toString() + hsa.toString());
+    Path rootDir=FSUtils.getRootDir(conf);
+    FileSystem fs=rootDir.getFileSystem(conf);
+    Path p=new Path(rootDir + "/" + HTableDescriptor.META_TABLEDESC.getNameAsString(),hri.getEncodedName());
+    Path hriPath=new Path(p,HRegionFileSystem.REGION_INFO_FILE);
+    fs.delete(hriPath,true);
+  }
+  if (hdfs) {
+    LOG.info("deleting hdfs data: " + hri.toString() + hsa.toString());
+    Path rootDir=FSUtils.getRootDir(conf);
+    FileSystem fs=rootDir.getFileSystem(conf);
+    Path p=new Path(rootDir + "/" + HTableDescriptor.META_TABLEDESC.getNameAsString(),hri.getEncodedName());
+    HBaseFsck.debugLsr(conf,p);
+    boolean success=fs.delete(p,true);
+    LOG.info("Deleted " + p + " sucessfully? "+ success);
+    HBaseFsck.debugLsr(conf,p);
+  }
+}
