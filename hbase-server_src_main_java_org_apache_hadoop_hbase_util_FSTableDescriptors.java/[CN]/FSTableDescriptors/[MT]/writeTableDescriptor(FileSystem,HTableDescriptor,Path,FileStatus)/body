@@ -1,39 +1,41 @@
 {
-  Path tmpTableDir=new Path(tableDir,".tmp");
-  int currentSequenceid=status == null ? 0 : getTableInfoSequenceid(status.getPath());
-  int sequenceid=currentSequenceid;
+  Path tmpTableDir=new Path(tableDir,TMP_DIR);
+  Path tableInfoDir=new Path(tableDir,TABLEINFO_DIR);
+  int currentSequenceId=currentDescriptorFile == null ? 0 : getTableInfoSequenceId(currentDescriptorFile.getPath());
+  int newSequenceId=currentSequenceId;
   int retries=10;
-  int retrymax=currentSequenceid + retries;
-  Path tableInfoPath=null;
+  int retrymax=currentSequenceId + retries;
+  Path tableInfoDirPath=null;
   do {
-    sequenceid+=1;
-    Path p=getTableInfoFileName(tmpTableDir,sequenceid);
-    if (fs.exists(p)) {
-      LOG.debug(p + " exists; retrying up to " + retries+ " times");
+    newSequenceId+=1;
+    String filename=getTableInfoFileName(newSequenceId);
+    Path tempPath=new Path(tmpTableDir,filename);
+    if (fs.exists(tempPath)) {
+      LOG.debug(tempPath + " exists; retrying up to " + retries+ " times");
       continue;
     }
+    tableInfoDirPath=new Path(tableInfoDir,filename);
     try {
-      writeHTD(fs,p,hTableDescriptor);
-      tableInfoPath=getTableInfoFileName(tableDir,sequenceid);
-      if (!fs.rename(p,tableInfoPath)) {
-        throw new IOException("Failed rename of " + p + " to "+ tableInfoPath);
+      writeHTD(fs,tempPath,htd);
+      fs.mkdirs(tableInfoDirPath.getParent());
+      if (!fs.rename(tempPath,tableInfoDirPath)) {
+        throw new IOException("Failed rename of " + tempPath + " to "+ tableInfoDirPath);
       }
+      LOG.debug("Wrote descriptor into: " + tableInfoDirPath);
     }
  catch (    IOException ioe) {
       LOG.debug("Failed write and/or rename; retrying",ioe);
-      if (!FSUtils.deleteDirectory(fs,p)) {
-        LOG.warn("Failed cleanup of " + p);
+      if (!FSUtils.deleteDirectory(fs,tempPath)) {
+        LOG.warn("Failed cleanup of " + tempPath);
       }
-      tableInfoPath=null;
+      tableInfoDirPath=null;
       continue;
-    }
-    if (status != null) {
-      if (!FSUtils.deleteDirectory(fs,status.getPath())) {
-        LOG.warn("Failed delete of " + status.getPath() + "; continuing");
-      }
     }
     break;
   }
- while (sequenceid < retrymax);
-  return tableInfoPath;
+ while (newSequenceId < retrymax);
+  if (tableInfoDirPath != null) {
+    deleteTableDescriptorFiles(fs,tableInfoDir,newSequenceId - 1);
+  }
+  return tableInfoDirPath;
 }
