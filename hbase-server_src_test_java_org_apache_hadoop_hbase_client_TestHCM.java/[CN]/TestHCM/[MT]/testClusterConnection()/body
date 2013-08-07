@@ -1,0 +1,31 @@
+{
+  ThreadPoolExecutor otherPool=new ThreadPoolExecutor(1,1,5,TimeUnit.SECONDS,new SynchronousQueue<Runnable>(),Threads.newDaemonThreadFactory("test-hcm"));
+  HConnection con1=HConnectionManager.createConnection(TEST_UTIL.getConfiguration());
+  HConnection con2=HConnectionManager.createConnection(TEST_UTIL.getConfiguration(),otherPool);
+  assertTrue(otherPool == ((HConnectionImplementation)con2).getCurrentBatchPool());
+  String tableName="testClusterConnection";
+  TEST_UTIL.createTable(tableName.getBytes(),FAM_NAM).close();
+  HTable t=(HTable)con1.getTable(tableName,otherPool);
+  assertNull("Internal Thread pool should be null",((HConnectionImplementation)con1).getCurrentBatchPool());
+  assertTrue(otherPool == t.getPool());
+  t.close();
+  t=(HTable)con2.getTable(tableName);
+  assertTrue(otherPool == t.getPool());
+  t.close();
+  t=(HTable)con2.getTable(Bytes.toBytes(tableName));
+  assertTrue(otherPool == t.getPool());
+  t.close();
+  t=(HTable)con1.getTable(tableName);
+  ExecutorService pool=((HConnectionImplementation)con1).getCurrentBatchPool();
+  assertNotNull("An internal Thread pool should have been created",pool);
+  assertTrue(t.getPool() == pool);
+  t.close();
+  t=(HTable)con1.getTable(tableName);
+  assertTrue(t.getPool() == pool);
+  t.close();
+  con1.close();
+  assertTrue(pool.isShutdown());
+  con2.close();
+  assertFalse(otherPool.isShutdown());
+  otherPool.shutdownNow();
+}
