@@ -1,0 +1,36 @@
+{
+  final AtomicBoolean available=new AtomicBoolean(true);
+  final AtomicInteger regionCount=new AtomicInteger(0);
+  MetaScannerVisitor visitor=new MetaScannerVisitorBase(){
+    @Override public boolean processRow(    Result row) throws IOException {
+      HRegionInfo info=MetaScanner.getHRegionInfo(row);
+      if (info != null) {
+        if (tableName.equals(info.getTableName())) {
+          ServerName server=HRegionInfo.getServerName(row);
+          if (server == null) {
+            available.set(false);
+            return false;
+          }
+          if (!Bytes.equals(info.getStartKey(),HConstants.EMPTY_BYTE_ARRAY)) {
+            for (            byte[] splitKey : splitKeys) {
+              if (Bytes.equals(info.getStartKey(),splitKey)) {
+                regionCount.incrementAndGet();
+                break;
+              }
+            }
+          }
+ else {
+            regionCount.incrementAndGet();
+          }
+        }
+ else         if (tableName.compareTo(info.getTableName()) < 0) {
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+;
+  MetaScanner.metaScan(conf,this,visitor,tableName);
+  return available.get() && (regionCount.get() == splitKeys.length + 1);
+}

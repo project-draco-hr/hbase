@@ -1,0 +1,30 @@
+{
+  Path tempdir=fileSystemManager.getTempDir();
+  FileSystem fs=fileSystemManager.getFileSystem();
+  Path tempTableDir=FSUtils.getTableDir(tempdir,tableName);
+  new FSTableDescriptors(this.conf).createTableDescriptorForTableDirectory(tempTableDir,this.hTableDescriptor,false);
+  Path tableDir=FSUtils.getTableDir(fileSystemManager.getRootDir(),tableName);
+  List<HRegionInfo> regionInfos=handleCreateHdfsRegions(tempdir,tableName);
+  if (!fs.rename(tempTableDir,tableDir)) {
+    throw new IOException("Unable to move table from temp=" + tempTableDir + " to hbase root="+ tableDir);
+  }
+  if (regionInfos != null && regionInfos.size() > 0) {
+    MetaEditor.addRegionsToMeta(this.catalogTracker,regionInfos);
+    try {
+      assignmentManager.getRegionStates().createRegionStates(regionInfos);
+      assignmentManager.assign(regionInfos);
+    }
+ catch (    InterruptedException e) {
+      LOG.error("Caught " + e + " during round-robin assignment");
+      InterruptedIOException ie=new InterruptedIOException(e.getMessage());
+      ie.initCause(e);
+      throw ie;
+    }
+  }
+  try {
+    assignmentManager.getZKTable().setEnabledTable(tableName);
+  }
+ catch (  KeeperException e) {
+    throw new IOException("Unable to ensure that " + tableName + " will be"+ " enabled because of a ZooKeeper issue",e);
+  }
+}

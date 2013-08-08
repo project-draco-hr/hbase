@@ -1,0 +1,28 @@
+{
+  TEST_UTIL.startMiniZKCluster();
+  TEST_UTIL.startMiniDFSCluster(1);
+  Path testdir=TEST_UTIL.getDataTestDir("TestNamespaceUpgrade");
+  File untar=untar(new File(testdir.toString()));
+  Configuration conf=TEST_UTIL.getConfiguration();
+  FsShell shell=new FsShell(conf);
+  FileSystem fs=FileSystem.get(conf);
+  Path hbaseRootDir=TEST_UTIL.getDefaultRootDirPath();
+  if (!fs.isDirectory(hbaseRootDir.getParent())) {
+    fs.mkdirs(hbaseRootDir.getParent());
+  }
+  doFsCommand(shell,new String[]{"-put",untar.toURI().toString(),hbaseRootDir.toString()});
+  doFsCommand(shell,new String[]{"-lsr","/"});
+  Configuration toolConf=TEST_UTIL.getConfiguration();
+  conf.set(HConstants.HBASE_DIR,TEST_UTIL.getDefaultRootDirPath().toString());
+  ToolRunner.run(toolConf,new NamespaceUpgrade(),new String[]{"--upgrade"});
+  assertTrue(FSUtils.getVersion(fs,hbaseRootDir).equals(HConstants.FILE_SYSTEM_VERSION));
+  TEST_UTIL.startMiniHBaseCluster(1,1);
+  for (  String table : tables) {
+    int count=0;
+    for (    Result res : new HTable(TEST_UTIL.getConfiguration(),table).getScanner(new Scan())) {
+      assertEquals(currentKeys[count++],Bytes.toString(res.getRow()));
+    }
+    Assert.assertEquals(currentKeys.length,count);
+  }
+  assertEquals(2,TEST_UTIL.getHBaseAdmin().listNamespaceDescriptors().length);
+}

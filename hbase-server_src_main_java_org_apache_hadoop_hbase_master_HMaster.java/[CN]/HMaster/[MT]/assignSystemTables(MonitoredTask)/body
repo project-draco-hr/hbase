@@ -1,0 +1,48 @@
+{
+  Set<TableName> disabledOrDisablingOrEnabling=ZKTable.getDisabledOrDisablingTables(zooKeeper);
+  disabledOrDisablingOrEnabling.addAll(ZKTable.getEnablingTables(zooKeeper));
+  Map<HRegionInfo,ServerName> allRegions=MetaReader.fullScan(catalogTracker,disabledOrDisablingOrEnabling,true);
+  for (Iterator<HRegionInfo> iter=allRegions.keySet().iterator(); iter.hasNext(); ) {
+    if (!HTableDescriptor.isSystemTable(iter.next().getTableName())) {
+      iter.remove();
+    }
+  }
+  int assigned=0;
+  boolean beingExpired=false;
+  status.setStatus("Assigning System Regions");
+  for (  Map.Entry<HRegionInfo,ServerName> entry : allRegions.entrySet()) {
+    HRegionInfo regionInfo=entry.getKey();
+    ServerName currServer=entry.getValue();
+    assignmentManager.getRegionStates().createRegionState(regionInfo);
+    boolean rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(regionInfo);
+    boolean regionLocation=false;
+    if (currServer != null) {
+      regionLocation=verifyRegionLocation(currServer,regionInfo);
+    }
+    if (!rit && !regionLocation) {
+      beingExpired=expireIfOnline(currServer);
+      if (beingExpired) {
+        splitLogBeforeAssignment(currServer,Sets.newHashSet(regionInfo));
+      }
+      assignmentManager.assign(regionInfo,true);
+      this.assignmentManager.waitForAssignment(regionInfo);
+      assigned++;
+      if (beingExpired && this.distributedLogReplay) {
+        this.fileSystemManager.splitLog(currServer);
+      }
+    }
+ else     if (rit && !regionLocation) {
+      if (!waitVerifiedRegionLocation(regionInfo))       return;
+      assigned++;
+    }
+ else {
+      this.assignmentManager.regionOnline(regionInfo,currServer);
+    }
+    if (!this.assignmentManager.getZKTable().isEnabledTable(regionInfo.getTableName())) {
+      this.assignmentManager.setEnabledTable(regionInfo.getTableName());
+    }
+    LOG.info("System Regions assigned=" + assigned + ", rit="+ rit+ ", location="+ catalogTracker.getMetaLocation());
+  }
+  status.setStatus("System Regions assigned.");
+  initNamespace();
+}

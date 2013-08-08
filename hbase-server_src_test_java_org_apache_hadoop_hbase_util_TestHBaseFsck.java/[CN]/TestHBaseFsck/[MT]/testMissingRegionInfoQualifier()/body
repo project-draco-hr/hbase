@@ -1,13 +1,23 @@
 {
-  String table="testMissingRegionInfoQualifier";
+  TableName table=TableName.valueOf("testMissingRegionInfoQualifier");
   try {
     setupTable(table);
-    HTable meta=new HTable(conf,HTableDescriptor.META_TABLEDESC.getName());
-    ResultScanner scanner=meta.getScanner(new Scan());
-    Result result=scanner.next();
-    Delete delete=new Delete(result.getRow());
-    delete.deleteColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-    meta.delete(delete);
+    final List<Delete> deletes=new LinkedList<Delete>();
+    HTable meta=new HTable(conf,HTableDescriptor.META_TABLEDESC.getTableName());
+    MetaScanner.metaScan(conf,new MetaScanner.MetaScannerVisitor(){
+      @Override public boolean processRow(      Result rowResult) throws IOException {
+        if (!HTableDescriptor.isSystemTable(MetaScanner.getHRegionInfo(rowResult).getTableName())) {
+          Delete delete=new Delete(rowResult.getRow());
+          delete.deleteColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+          deletes.add(delete);
+        }
+        return true;
+      }
+      @Override public void close() throws IOException {
+      }
+    }
+);
+    meta.delete(deletes);
     meta.put(new Put(Bytes.toBytes(table + ",,1361911384013.810e28f59a57da91c66")).add(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes("node1:60020")));
     meta.put(new Put(Bytes.toBytes(table + ",,1361911384013.810e28f59a57da91c66")).add(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(1362150791183L)));
     meta.close();

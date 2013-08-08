@@ -1,0 +1,29 @@
+{
+  if (tableName.equals(TableName.META_TABLE_NAME)) {
+    ServerName serverName=catalogTracker.getMetaLocation();
+    List<Pair<HRegionInfo,ServerName>> list=new ArrayList<Pair<HRegionInfo,ServerName>>();
+    list.add(new Pair<HRegionInfo,ServerName>(HRegionInfo.FIRST_META_REGIONINFO,serverName));
+    return list;
+  }
+  CollectingVisitor<Pair<HRegionInfo,ServerName>> visitor=new CollectingVisitor<Pair<HRegionInfo,ServerName>>(){
+    private Pair<HRegionInfo,ServerName> current=null;
+    @Override public boolean visit(    Result r) throws IOException {
+      HRegionInfo hri=HRegionInfo.getHRegionInfo(r,HConstants.REGIONINFO_QUALIFIER);
+      if (hri == null) {
+        LOG.warn("No serialized HRegionInfo in " + r);
+        return true;
+      }
+      if (!isInsideTable(hri,tableName))       return false;
+      if (excludeOfflinedSplitParents && hri.isSplitParent())       return true;
+      ServerName sn=HRegionInfo.getServerName(r);
+      this.current=new Pair<HRegionInfo,ServerName>(hri,sn);
+      return super.visit(r);
+    }
+    @Override void add(    Result r){
+      this.results.add(this.current);
+    }
+  }
+;
+  fullScan(catalogTracker,visitor,getTableStartRowForMeta(tableName));
+  return visitor.getResults();
+}

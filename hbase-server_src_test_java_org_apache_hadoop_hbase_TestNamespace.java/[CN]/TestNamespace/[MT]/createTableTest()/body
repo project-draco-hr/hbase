@@ -1,0 +1,36 @@
+{
+  String testName="createTableTest";
+  String nsName=prefix + "_" + testName;
+  LOG.info(testName);
+  HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(nsName + ":my_table"));
+  HColumnDescriptor colDesc=new HColumnDescriptor("my_cf");
+  desc.addFamily(colDesc);
+  try {
+    admin.createTable(desc);
+    fail("Expected no namespace constraint exception");
+  }
+ catch (  ConstraintException ex) {
+  }
+  admin.createNamespace(NamespaceDescriptor.create(nsName).build());
+  admin.createTable(desc);
+  TEST_UTIL.waitTableAvailable(desc.getTableName().getName(),10000);
+  FileSystem fs=FileSystem.get(TEST_UTIL.getConfiguration());
+  assertTrue(fs.exists(new Path(master.getMasterFileSystem().getRootDir(),new Path(HConstants.BASE_NAMESPACE_DIR,new Path(nsName,desc.getTableName().getQualifierAsString())))));
+  assertEquals(1,admin.listTables().length);
+  try {
+    admin.deleteNamespace(nsName);
+    fail("Expected non-empty namespace constraint exception");
+  }
+ catch (  Exception ex) {
+    LOG.info("Caught expected exception: " + ex);
+  }
+  HTable table=new HTable(TEST_UTIL.getConfiguration(),desc.getTableName());
+  Put p=new Put(Bytes.toBytes("row1"));
+  p.add(Bytes.toBytes("my_cf"),Bytes.toBytes("my_col"),Bytes.toBytes("value1"));
+  table.put(p);
+  admin.flush(desc.getTableName().getName());
+  Get g=new Get(Bytes.toBytes("row1"));
+  assertTrue(table.exists(g));
+  TEST_UTIL.deleteTable(desc.getTableName());
+  admin.deleteNamespace(nsName);
+}

@@ -1,0 +1,45 @@
+{
+  FileSystem fs=services.getMasterFileSystem().getFileSystem();
+  Set<String> descs=Sets.newHashSet();
+  for (  NamespaceDescriptor ns : services.listNamespaceDescriptors()) {
+    descs.add(ns.getName());
+  }
+  for (  FileStatus nsStatus : FSUtils.listStatus(fs,new Path(FSUtils.getRootDir(services.getConfiguration()),HConstants.BASE_NAMESPACE_DIR))) {
+    if (!descs.contains(nsStatus.getPath().getName()) && !NamespaceDescriptor.RESERVED_NAMESPACES.contains(nsStatus.getPath().getName())) {
+      boolean isEmpty=true;
+      for (      FileStatus status : fs.listStatus(nsStatus.getPath())) {
+        if (!HConstants.HBASE_NON_TABLE_DIRS.contains(status.getPath().getName())) {
+          isEmpty=false;
+          break;
+        }
+      }
+      if (isEmpty) {
+        try {
+          if (!fs.delete(nsStatus.getPath(),true)) {
+            LOG.error("Failed to remove namespace directory: " + nsStatus.getPath());
+          }
+        }
+ catch (        IOException ex) {
+          LOG.error("Failed to remove namespace directory: " + nsStatus.getPath(),ex);
+        }
+        LOG.debug("Removed namespace directory: " + nsStatus.getPath());
+      }
+ else {
+        LOG.debug("Skipping non-empty namespace directory: " + nsStatus.getPath());
+      }
+    }
+  }
+  String baseZnode=ZooKeeperWatcher.namespaceZNode;
+  for (  String child : ZKUtil.listChildrenNoWatch(services.getZooKeeper(),baseZnode)) {
+    if (!descs.contains(child) && !NamespaceDescriptor.RESERVED_NAMESPACES.contains(child)) {
+      String znode=ZKUtil.joinZNode(baseZnode,child);
+      try {
+        ZKUtil.deleteNode(services.getZooKeeper(),znode);
+        LOG.debug("Removed namespace znode: " + znode);
+      }
+ catch (      KeeperException ex) {
+        LOG.debug("Failed to remove namespace znode: " + znode,ex);
+      }
+    }
+  }
+}
