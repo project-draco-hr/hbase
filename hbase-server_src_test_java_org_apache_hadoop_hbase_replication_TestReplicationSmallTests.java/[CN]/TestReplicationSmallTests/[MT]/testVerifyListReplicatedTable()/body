@@ -1,0 +1,33 @@
+{
+  LOG.info("testVerifyListReplicatedTable");
+  final String tName="VerifyListReplicated_";
+  final String colFam="cf1";
+  final int numOfTables=3;
+  HBaseAdmin hadmin=new HBaseAdmin(conf1);
+  for (int i=0; i < numOfTables; i++) {
+    HTableDescriptor ht=new HTableDescriptor(TableName.valueOf(tName + i));
+    HColumnDescriptor cfd=new HColumnDescriptor(colFam);
+    cfd.setScope(HConstants.REPLICATION_SCOPE_GLOBAL);
+    ht.addFamily(cfd);
+    hadmin.createTable(ht);
+  }
+  List<HashMap<String,String>> replicationColFams=admin.listReplicated();
+  int[] match=new int[numOfTables];
+  for (int i=0; i < replicationColFams.size(); i++) {
+    HashMap<String,String> replicationEntry=replicationColFams.get(i);
+    String tn=replicationEntry.get(ReplicationAdmin.TNAME);
+    if ((tn.startsWith(tName)) && replicationEntry.get(ReplicationAdmin.CFNAME).equals(colFam)) {
+      int m=Integer.parseInt(tn.substring(tn.length() - 1));
+      match[m]++;
+    }
+  }
+  for (int i=0; i < match.length; i++) {
+    assertTrue("listReplicated() does not match table " + i,(match[i] == 1));
+  }
+  for (int i=0; i < numOfTables; i++) {
+    String ht=tName + i;
+    hadmin.disableTable(ht);
+    hadmin.deleteTable(ht);
+  }
+  hadmin.close();
+}
