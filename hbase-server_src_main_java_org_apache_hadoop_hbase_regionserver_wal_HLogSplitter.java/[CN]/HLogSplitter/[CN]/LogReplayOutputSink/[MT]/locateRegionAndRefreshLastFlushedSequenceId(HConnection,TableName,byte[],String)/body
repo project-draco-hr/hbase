@@ -11,29 +11,27 @@
     if (tmpLoc != null)     return tmpLoc;
   }
   Long lastFlushedSequenceId=-1l;
-  loc=waitUntilRegionOnline(loc,row,this.waitRegionOnlineTimeOut);
-  Long cachedLastFlushedSequenceId=lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
-  RegionStoreSequenceIds ids=SplitLogManager.getRegionFlushedSequenceId(watcher,failedServerName,loc.getRegionInfo().getEncodedName());
-  if (ids != null) {
-    lastFlushedSequenceId=ids.getLastFlushedSequenceId();
-    Map<byte[],Long> storeIds=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
-    List<StoreSequenceId> maxSeqIdInStores=ids.getStoreSequenceIdList();
-    for (    StoreSequenceId id : maxSeqIdInStores) {
-      storeIds.put(id.getFamilyName().toByteArray(),id.getSequenceId());
+  AtomicBoolean isRecovering=new AtomicBoolean(true);
+  loc=waitUntilRegionOnline(loc,row,this.waitRegionOnlineTimeOut,isRecovering);
+  if (!isRecovering.get()) {
+    lastFlushedSequenceIds.put(loc.getRegionInfo().getEncodedName(),Long.MAX_VALUE);
+    LOG.info("logReplay skip region: " + loc.getRegionInfo().getEncodedName() + " because it's not in recovering.");
+  }
+ else {
+    Long cachedLastFlushedSequenceId=lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
+    RegionStoreSequenceIds ids=SplitLogManager.getRegionFlushedSequenceId(watcher,failedServerName,loc.getRegionInfo().getEncodedName());
+    if (ids != null) {
+      lastFlushedSequenceId=ids.getLastFlushedSequenceId();
+      Map<byte[],Long> storeIds=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
+      List<StoreSequenceId> maxSeqIdInStores=ids.getStoreSequenceIdList();
+      for (      StoreSequenceId id : maxSeqIdInStores) {
+        storeIds.put(id.getFamilyName().toByteArray(),id.getSequenceId());
+      }
+      regionMaxSeqIdInStores.put(loc.getRegionInfo().getEncodedName(),storeIds);
     }
-    regionMaxSeqIdInStores.put(loc.getRegionInfo().getEncodedName(),storeIds);
-  }
-  if (cachedLastFlushedSequenceId == null || lastFlushedSequenceId > cachedLastFlushedSequenceId) {
-    lastFlushedSequenceIds.put(loc.getRegionInfo().getEncodedName(),lastFlushedSequenceId);
-  }
-  try {
-    if (SplitLogManager.isRegionMarkedRecoveringInZK(watcher,loc.getRegionInfo().getEncodedName()) == false) {
-      lastFlushedSequenceIds.put(loc.getRegionInfo().getEncodedName(),Long.MAX_VALUE);
-      LOG.info("logReplay skip region: " + loc.getRegionInfo().getEncodedName() + " because it's not in recovering.");
+    if (cachedLastFlushedSequenceId == null || lastFlushedSequenceId > cachedLastFlushedSequenceId) {
+      lastFlushedSequenceIds.put(loc.getRegionInfo().getEncodedName(),lastFlushedSequenceId);
     }
-  }
- catch (  KeeperException e) {
-    throw new IOException("Failed to retrieve recovering state of region " + loc.getRegionInfo().getEncodedName(),e);
   }
   onlineRegions.put(loc.getRegionInfo().getEncodedName(),loc);
   return loc;
