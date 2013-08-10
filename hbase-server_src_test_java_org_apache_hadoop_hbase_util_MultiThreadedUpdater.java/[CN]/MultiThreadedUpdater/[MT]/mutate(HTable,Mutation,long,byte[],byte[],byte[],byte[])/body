@@ -1,0 +1,37 @@
+{
+  long start=System.currentTimeMillis();
+  try {
+    if (m instanceof Increment) {
+      table.increment((Increment)m);
+    }
+ else     if (m instanceof Append) {
+      table.append((Append)m);
+    }
+ else     if (m instanceof Put) {
+      table.checkAndPut(row,cf,q,v,(Put)m);
+    }
+ else     if (m instanceof Delete) {
+      table.checkAndDelete(row,cf,q,v,(Delete)m);
+    }
+ else {
+      throw new IllegalArgumentException("unsupported mutation " + m.getClass().getSimpleName());
+    }
+    totalOpTimeMs.addAndGet(System.currentTimeMillis() - start);
+  }
+ catch (  IOException e) {
+    failedKeySet.add(keyBase);
+    String exceptionInfo;
+    if (e instanceof RetriesExhaustedWithDetailsException) {
+      RetriesExhaustedWithDetailsException aggEx=(RetriesExhaustedWithDetailsException)e;
+      exceptionInfo=aggEx.getExhaustiveDescription();
+    }
+ else {
+      StringWriter stackWriter=new StringWriter();
+      PrintWriter pw=new PrintWriter(stackWriter);
+      e.printStackTrace(pw);
+      pw.flush();
+      exceptionInfo=StringUtils.stringifyException(e);
+    }
+    LOG.error("Failed to mutate: " + keyBase + " after "+ (System.currentTimeMillis() - start)+ "ms; region information: "+ getRegionDebugInfoSafe(table,m.getRow())+ "; errors: "+ exceptionInfo);
+  }
+}

@@ -15,18 +15,30 @@
     writerThreads=new MultiThreadedWriter(dataGen,conf,tableName);
     writerThreads.setMultiPut(isMultiPut);
   }
+  if (isUpdate) {
+    updaterThreads=new MultiThreadedUpdater(dataGen,conf,tableName,updatePercent);
+    updaterThreads.setBatchUpdate(isBatchUpdate);
+  }
   if (isRead) {
     readerThreads=new MultiThreadedReader(dataGen,conf,tableName,verifyPercent);
     readerThreads.setMaxErrors(maxReadErrors);
     readerThreads.setKeyWindow(keyWindow);
   }
-  if (isRead && isWrite) {
-    LOG.info("Concurrent read/write workload: making readers aware of the " + "write point");
-    readerThreads.linkToWriter(writerThreads);
+  if (isUpdate && isWrite) {
+    LOG.info("Concurrent write/update workload: making updaters aware of the " + "write point");
+    updaterThreads.linkToWriter(writerThreads);
+  }
+  if (isRead && (isUpdate || isWrite)) {
+    LOG.info("Concurrent write/read workload: making readers aware of the " + "write point");
+    readerThreads.linkToWriter(isUpdate ? updaterThreads : writerThreads);
   }
   if (isWrite) {
     System.out.println("Starting to write data...");
     writerThreads.start(startKey,endKey,numWriterThreads);
+  }
+  if (isUpdate) {
+    System.out.println("Starting to mutate data...");
+    updaterThreads.start(startKey,endKey,numUpdaterThreads);
   }
   if (isRead) {
     System.out.println("Starting to read data...");
@@ -35,6 +47,9 @@
   if (isWrite) {
     writerThreads.waitForFinish();
   }
+  if (isUpdate) {
+    updaterThreads.waitForFinish();
+  }
   if (isRead) {
     readerThreads.waitForFinish();
   }
@@ -42,8 +57,11 @@
   if (isWrite) {
     success=success && writerThreads.getNumWriteFailures() == 0;
   }
+  if (isUpdate) {
+    success=success && updaterThreads.getNumWriteFailures() == 0;
+  }
   if (isRead) {
     success=success && readerThreads.getNumReadErrors() == 0 && readerThreads.getNumReadFailures() == 0;
   }
-  return success ? EXIT_SUCCESS : this.EXIT_FAILURE;
+  return success ? EXIT_SUCCESS : EXIT_FAILURE;
 }

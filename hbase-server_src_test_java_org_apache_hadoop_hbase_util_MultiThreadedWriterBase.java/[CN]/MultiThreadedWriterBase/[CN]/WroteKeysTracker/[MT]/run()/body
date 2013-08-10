@@ -1,0 +1,39 @@
+{
+  Thread.currentThread().setName(getClass().getSimpleName());
+  try {
+    long expectedKey=startKey;
+    Queue<Long> sortedKeys=new PriorityQueue<Long>();
+    while (expectedKey < endKey) {
+      Long k;
+      try {
+        k=wroteKeys.poll(1,TimeUnit.SECONDS);
+      }
+ catch (      InterruptedException e) {
+        LOG.info("Inserted key tracker thread interrupted",e);
+        break;
+      }
+      if (k == null) {
+        continue;
+      }
+      if (k == expectedKey) {
+        wroteUpToKey.set(k);
+        ++expectedKey;
+      }
+ else {
+        sortedKeys.add(k);
+      }
+      while (!sortedKeys.isEmpty() && ((k=sortedKeys.peek()) == expectedKey)) {
+        sortedKeys.poll();
+        wroteUpToKey.set(k);
+        ++expectedKey;
+      }
+      wroteKeyQueueSize.set(wroteKeys.size() + sortedKeys.size());
+    }
+  }
+ catch (  Exception ex) {
+    LOG.error("Error in inserted/updaed key tracker",ex);
+  }
+ finally {
+    numThreadsWorking.decrementAndGet();
+  }
+}
