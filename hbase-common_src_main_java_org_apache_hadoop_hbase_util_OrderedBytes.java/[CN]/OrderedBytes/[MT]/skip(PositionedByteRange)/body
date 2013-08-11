@@ -1,0 +1,97 @@
+{
+  final int start=src.getPosition();
+  byte header=src.get();
+  Order ord=(-1 == Integer.signum(header)) ? DESCENDING : ASCENDING;
+  header=ord.apply(header);
+switch (header) {
+case NULL:
+case NEG_INF:
+    return 1;
+case NEG_LARGE:
+  skipVaruint64(src,DESCENDING != ord);
+skipSignificand(src,DESCENDING != ord);
+return src.getPosition() - start;
+case NEG_MED_MIN:
+case NEG_MED_MIN + 0x01:
+case NEG_MED_MIN + 0x02:
+case NEG_MED_MIN + 0x03:
+case NEG_MED_MIN + 0x04:
+case NEG_MED_MIN + 0x05:
+case NEG_MED_MIN + 0x06:
+case NEG_MED_MIN + 0x07:
+case NEG_MED_MIN + 0x08:
+case NEG_MED_MIN + 0x09:
+case NEG_MED_MAX:
+skipSignificand(src,DESCENDING != ord);
+return src.getPosition() - start;
+case NEG_SMALL:
+skipVaruint64(src,DESCENDING == ord);
+skipSignificand(src,DESCENDING != ord);
+return src.getPosition() - start;
+case ZERO:
+return 1;
+case POS_SMALL:
+skipVaruint64(src,DESCENDING != ord);
+skipSignificand(src,DESCENDING == ord);
+return src.getPosition() - start;
+case POS_MED_MIN:
+case POS_MED_MIN + 0x01:
+case POS_MED_MIN + 0x02:
+case POS_MED_MIN + 0x03:
+case POS_MED_MIN + 0x04:
+case POS_MED_MIN + 0x05:
+case POS_MED_MIN + 0x06:
+case POS_MED_MIN + 0x07:
+case POS_MED_MIN + 0x08:
+case POS_MED_MIN + 0x09:
+case POS_MED_MAX:
+skipSignificand(src,DESCENDING == ord);
+return src.getPosition() - start;
+case POS_LARGE:
+skipVaruint64(src,DESCENDING == ord);
+skipSignificand(src,DESCENDING == ord);
+return src.getPosition() - start;
+case POS_INF:
+return 1;
+case NAN:
+return 1;
+case FIXED_INT32:
+src.setPosition(src.getPosition() + 4);
+return src.getPosition() - start;
+case FIXED_INT64:
+src.setPosition(src.getPosition() + 8);
+return src.getPosition() - start;
+case FIXED_FLOAT32:
+src.setPosition(src.getPosition() + 4);
+return src.getPosition() - start;
+case FIXED_FLOAT64:
+src.setPosition(src.getPosition() + 8);
+return src.getPosition() - start;
+case TEXT:
+do {
+header=ord.apply(src.get());
+}
+ while (header != TERM);
+return src.getPosition() - start;
+case BLOB_VAR:
+do {
+header=ord.apply(src.get());
+}
+ while ((byte)(header & 0x80) != TERM);
+return src.getPosition() - start;
+case BLOB_COPY:
+if (Order.DESCENDING == ord) {
+do {
+header=ord.apply(src.get());
+}
+ while (header != TERM);
+return src.getPosition() - start;
+}
+ else {
+src.setPosition(src.getLength());
+return src.getPosition() - start;
+}
+default :
+throw unexpectedHeader(header);
+}
+}

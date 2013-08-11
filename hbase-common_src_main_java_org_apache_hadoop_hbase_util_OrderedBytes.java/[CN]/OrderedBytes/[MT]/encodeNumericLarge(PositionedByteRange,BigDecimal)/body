@@ -1,0 +1,48 @@
+{
+  BigDecimal abs=val.abs();
+  byte[] a=dst.getBytes();
+  boolean isNeg=val.signum() == -1;
+  final int start=dst.getPosition(), offset=dst.getOffset();
+  int e=0, d, startM;
+  if (isNeg) {
+    dst.put(NEG_LARGE);
+  }
+ else {
+    dst.put(POS_LARGE);
+  }
+  while (abs.compareTo(E32) >= 0 && e <= 350) {
+    abs=abs.movePointLeft(32);
+    e+=16;
+  }
+  while (abs.compareTo(E8) >= 0 && e <= 350) {
+    abs=abs.movePointLeft(8);
+    e+=4;
+  }
+  while (abs.compareTo(BigDecimal.ONE) >= 0 && e <= 350) {
+    abs=abs.movePointLeft(2);
+    e++;
+  }
+  if (e > 10) {
+    putVaruint64(dst,e,isNeg);
+  }
+ else {
+    if (isNeg) {
+      dst.put(start,(byte)(NEG_MED_MAX - e));
+    }
+ else {
+      dst.put(start,(byte)(POS_MED_MIN + e));
+    }
+  }
+  startM=dst.getPosition();
+  for (int i=0; i < 18 && abs.compareTo(BigDecimal.ZERO) != 0; i++) {
+    abs=abs.movePointRight(2);
+    d=abs.intValue();
+    dst.put((byte)(2 * d + 1));
+    abs=abs.subtract(BigDecimal.valueOf(d));
+  }
+  a[offset + dst.getPosition() - 1]&=0xfe;
+  if (isNeg) {
+    DESCENDING.apply(a,offset + startM,dst.getPosition() - startM);
+  }
+  return dst.getPosition() - start;
+}

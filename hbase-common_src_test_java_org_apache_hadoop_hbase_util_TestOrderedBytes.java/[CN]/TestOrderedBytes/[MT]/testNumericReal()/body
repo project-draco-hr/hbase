@@ -1,0 +1,35 @@
+{
+  for (  Order ord : new Order[]{Order.ASCENDING,Order.DESCENDING}) {
+    for (int i=0; i < D_VALS.length; i++) {
+      byte[] a=new byte[D_LENGTHS[i] + 2];
+      PositionedByteRange buf1=new SimplePositionedByteRange(a,1,D_LENGTHS[i]);
+      assertEquals("Surprising return value.",D_LENGTHS[i],OrderedBytes.encodeNumeric(buf1,D_VALS[i],ord));
+      assertEquals("Surprising serialized length.",D_LENGTHS[i],buf1.getPosition());
+      assertEquals("Buffer underflow.",0,a[0]);
+      assertEquals("Buffer overflow.",0,a[a.length - 1]);
+      buf1.setPosition(0);
+      assertEquals("Surprising return value.",D_LENGTHS[i],OrderedBytes.skip(buf1));
+      assertEquals("Did not skip enough bytes.",D_LENGTHS[i],buf1.getPosition());
+      buf1.setPosition(0);
+      assertEquals("Deserialization failed.",D_VALS[i].doubleValue(),OrderedBytes.decodeNumericAsDouble(buf1),MIN_EPSILON);
+      assertEquals("Did not consume enough bytes.",D_LENGTHS[i],buf1.getPosition());
+    }
+  }
+  for (  Order ord : new Order[]{Order.ASCENDING,Order.DESCENDING}) {
+    byte[][] encoded=new byte[D_VALS.length][];
+    PositionedByteRange pbr=new SimplePositionedByteRange();
+    for (int i=0; i < D_VALS.length; i++) {
+      encoded[i]=new byte[D_LENGTHS[i]];
+      OrderedBytes.encodeNumeric(pbr.set(encoded[i]),D_VALS[i],ord);
+    }
+    Arrays.sort(encoded,Bytes.BYTES_COMPARATOR);
+    Double[] sortedVals=Arrays.copyOf(D_VALS,D_VALS.length);
+    if (ord == Order.ASCENDING)     Arrays.sort(sortedVals);
+ else     Arrays.sort(sortedVals,Collections.reverseOrder());
+    for (int i=0; i < sortedVals.length; i++) {
+      pbr.set(encoded[i]);
+      double decoded=OrderedBytes.decodeNumericAsDouble(pbr);
+      assertEquals(String.format("Encoded representations do not preserve natural order: <%s>, <%s>, %s",sortedVals[i],decoded,ord),sortedVals[i].doubleValue(),decoded,MIN_EPSILON);
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  byte[][] vals={"".getBytes(),"foo".getBytes(),"foobarbazbub".getBytes(),{(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa,(byte)0xaa},{(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55,(byte)0x55},"1".getBytes(),"22".getBytes(),"333".getBytes(),"4444".getBytes(),"55555".getBytes(),"666666".getBytes(),"7777777".getBytes(),"88888888".getBytes()};
+  for (  Order ord : new Order[]{Order.ASCENDING,Order.DESCENDING}) {
+    for (    byte[] val : vals) {
+      int expectedLen=OrderedBytes.blobVarEncodedLength(val.length);
+      byte[] a=new byte[expectedLen + 2];
+      PositionedByteRange buf1=new SimplePositionedByteRange(a,1,expectedLen);
+      assertEquals("Surprising return value.",expectedLen,OrderedBytes.encodeBlobVar(buf1,val,ord));
+      assertEquals("Surprising serialized length.",expectedLen,buf1.getPosition());
+      assertEquals("Buffer underflow.",0,a[0]);
+      assertEquals("Buffer overflow.",0,a[a.length - 1]);
+      buf1.setPosition(0);
+      assertEquals("Surprising return value.",expectedLen,OrderedBytes.skip(buf1));
+      assertEquals("Did not skip enough bytes.",expectedLen,buf1.getPosition());
+      buf1.setPosition(0);
+      assertArrayEquals("Deserialization failed.",val,OrderedBytes.decodeBlobVar(buf1));
+      assertEquals("Did not consume enough bytes.",expectedLen,buf1.getPosition());
+    }
+  }
+  for (  Order ord : new Order[]{Order.ASCENDING,Order.DESCENDING}) {
+    byte[][] encoded=new byte[vals.length][];
+    PositionedByteRange pbr=new SimplePositionedByteRange();
+    for (int i=0; i < vals.length; i++) {
+      encoded[i]=new byte[OrderedBytes.blobVarEncodedLength(vals[i].length)];
+      OrderedBytes.encodeBlobVar(pbr.set(encoded[i]),vals[i],ord);
+    }
+    Arrays.sort(encoded,Bytes.BYTES_COMPARATOR);
+    byte[][] sortedVals=Arrays.copyOf(vals,vals.length);
+    if (ord == Order.ASCENDING)     Arrays.sort(sortedVals,Bytes.BYTES_COMPARATOR);
+ else     Arrays.sort(sortedVals,Collections.reverseOrder(Bytes.BYTES_COMPARATOR));
+    for (int i=0; i < sortedVals.length; i++) {
+      pbr.set(encoded[i]);
+      byte[] decoded=OrderedBytes.decodeBlobVar(pbr);
+      assertArrayEquals(String.format("Encoded representations do not preserve natural order: <%s>, <%s>, %s",sortedVals[i],decoded,ord),sortedVals[i],decoded);
+    }
+  }
+}
