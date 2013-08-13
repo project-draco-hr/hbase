@@ -15,6 +15,7 @@
   Configuration toolConf=TEST_UTIL.getConfiguration();
   conf.set(HConstants.HBASE_DIR,TEST_UTIL.getDefaultRootDirPath().toString());
   ToolRunner.run(toolConf,new NamespaceUpgrade(),new String[]{"--upgrade"});
+  doFsCommand(shell,new String[]{"-lsr","/"});
   assertTrue(FSUtils.getVersion(fs,hbaseRootDir).equals(HConstants.FILE_SYSTEM_VERSION));
   TEST_UTIL.startMiniHBaseCluster(1,1);
   for (  String table : tables) {
@@ -25,4 +26,16 @@
     Assert.assertEquals(currentKeys.length,count);
   }
   assertEquals(2,TEST_UTIL.getHBaseAdmin().listNamespaceDescriptors().length);
+  HTable secureTable=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  ResultScanner scanner=secureTable.getScanner(new Scan());
+  int count=0;
+  for (  Result r : scanner) {
+    count++;
+  }
+  assertEquals(3,count);
+  assertFalse(TEST_UTIL.getHBaseAdmin().tableExists("_acl_"));
+  List<HRegion> regions=TEST_UTIL.getMiniHBaseCluster().getRegions(secureTable.getName());
+  for (  HRegion region : regions) {
+    assertEquals(1,region.getStores().size());
+  }
 }

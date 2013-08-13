@@ -1,0 +1,28 @@
+{
+  String userTestNamespace="userTestNsp";
+  AccessControlService.BlockingInterface protocol=null;
+  HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+  try {
+    BlockingRpcChannel service=acl.coprocessorService(HConstants.EMPTY_START_ROW);
+    protocol=AccessControlService.newBlockingStub(service);
+    ProtobufUtil.grant(protocol,userTestNamespace,TestNamespace,Permission.Action.WRITE);
+    Result result=acl.get(new Get(Bytes.toBytes(userTestNamespace)));
+    assertTrue(result != null);
+    ListMultimap<String,TablePermission> perms=AccessControlLists.getNamespacePermissions(conf,TestNamespace);
+    assertEquals(2,perms.size());
+    List<TablePermission> namespacePerms=perms.get(userTestNamespace);
+    assertTrue(perms.containsKey(userTestNamespace));
+    assertEquals(1,namespacePerms.size());
+    assertEquals(TestNamespace,namespacePerms.get(0).getNamespace());
+    assertEquals(null,namespacePerms.get(0).getFamily());
+    assertEquals(null,namespacePerms.get(0).getQualifier());
+    assertEquals(1,namespacePerms.get(0).getActions().length);
+    assertEquals(Permission.Action.WRITE,namespacePerms.get(0).getActions()[0]);
+    ProtobufUtil.revoke(protocol,userTestNamespace,TestNamespace,Permission.Action.WRITE);
+    perms=AccessControlLists.getNamespacePermissions(conf,TestNamespace);
+    assertEquals(1,perms.size());
+  }
+  finally {
+    acl.close();
+  }
+}

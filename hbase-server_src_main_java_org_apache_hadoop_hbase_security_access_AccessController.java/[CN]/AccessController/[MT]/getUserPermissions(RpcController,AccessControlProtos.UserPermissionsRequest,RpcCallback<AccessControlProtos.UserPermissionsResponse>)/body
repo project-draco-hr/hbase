@@ -1,17 +1,26 @@
 {
   AccessControlProtos.UserPermissionsResponse response=null;
-  TableName table=null;
-  if (request.hasTableName()) {
-    table=ProtobufUtil.toTableName(request.getTableName());
-  }
   try {
     if (aclRegion) {
-      requirePermission("userPermissions",table,null,null,Action.ADMIN);
-      List<UserPermission> perms=AccessControlLists.getUserPermissions(regionEnv.getConfiguration(),table);
+      List<UserPermission> perms=null;
+      if (request.getType() == AccessControlProtos.Permission.Type.Table) {
+        TableName table=null;
+        if (request.hasTableName()) {
+          table=ProtobufUtil.toTableName(request.getTableName());
+        }
+        requirePermission("userPermissions",table,null,null,Action.ADMIN);
+        perms=AccessControlLists.getUserTablePermissions(regionEnv.getConfiguration(),table);
+      }
+ else       if (request.getType() == AccessControlProtos.Permission.Type.Namespace) {
+        perms=AccessControlLists.getUserNamespacePermissions(regionEnv.getConfiguration(),request.getNamespaceName().toStringUtf8());
+      }
+ else {
+        perms=AccessControlLists.getUserPermissions(regionEnv.getConfiguration(),null);
+      }
       response=ResponseConverter.buildUserPermissionsResponse(perms);
     }
  else {
-      throw new CoprocessorException(AccessController.class,"This method " + "can only execute at " + Bytes.toString(AccessControlLists.ACL_TABLE_NAME) + " table.");
+      throw new CoprocessorException(AccessController.class,"This method " + "can only execute at " + AccessControlLists.ACL_TABLE_NAME + " table.");
     }
   }
  catch (  IOException ioe) {
