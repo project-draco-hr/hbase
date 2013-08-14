@@ -8,6 +8,7 @@
   BlockCacheKey cacheKey=new BlockCacheKey(name,dataBlockOffset,dataBlockEncoder.getEffectiveEncodingInCache(isCompaction),expectedBlockType);
   boolean useLock=false;
   IdLock.Entry lockEntry=null;
+  TraceScope traceScope=Trace.startSpan("HFileReaderV2.readBlock");
   try {
     while (true) {
       if (useLock) {
@@ -30,6 +31,9 @@
         useLock=true;
         continue;
       }
+      if (Trace.isTracing()) {
+        traceScope.getSpan().addTimelineAnnotation("blockCacheMiss");
+      }
       long startTimeNs=System.nanoTime();
       HFileBlock hfileBlock=fsBlockReader.readBlockData(dataBlockOffset,onDiskBlockSize,-1,pread);
       hfileBlock=dataBlockEncoder.diskToCacheFormat(hfileBlock,isCompaction);
@@ -46,6 +50,7 @@
     }
   }
   finally {
+    traceScope.close();
     if (lockEntry != null) {
       offsetLock.releaseLockEntry(lockEntry);
     }

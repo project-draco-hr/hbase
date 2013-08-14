@@ -1,25 +1,28 @@
 {
-  RetryCounter retryCounter=retryCounterFactory.create();
-  boolean isRetry=false;
-  while (true) {
-    try {
-      zk.delete(path,version);
-      return;
-    }
- catch (    KeeperException e) {
+  TraceScope traceScope=null;
+  try {
+    traceScope=Trace.startSpan("RecoverableZookeeper.delete");
+    RetryCounter retryCounter=retryCounterFactory.create();
+    boolean isRetry=false;
+    while (true) {
+      try {
+        zk.delete(path,version);
+        return;
+      }
+ catch (      KeeperException e) {
 switch (e.code()) {
 case NONODE:
-        if (isRetry) {
-          LOG.info("Node " + path + " already deleted. Assuming a "+ "previous attempt succeeded.");
-          return;
-        }
-      LOG.warn("Node " + path + " already deleted, retry="+ isRetry);
-    throw e;
+          if (isRetry) {
+            LOG.info("Node " + path + " already deleted. Assuming a "+ "previous attempt succeeded.");
+            return;
+          }
+        LOG.warn("Node " + path + " already deleted, retry="+ isRetry);
+      throw e;
 case CONNECTIONLOSS:
 case SESSIONEXPIRED:
 case OPERATIONTIMEOUT:
-  retryOrThrow(retryCounter,e,"delete");
-break;
+    retryOrThrow(retryCounter,e,"delete");
+  break;
 default :
 throw e;
 }
@@ -27,5 +30,9 @@ throw e;
 retryCounter.sleepUntilNextRetry();
 retryCounter.useRetry();
 isRetry=true;
+}
+}
+  finally {
+if (traceScope != null) traceScope.close();
 }
 }

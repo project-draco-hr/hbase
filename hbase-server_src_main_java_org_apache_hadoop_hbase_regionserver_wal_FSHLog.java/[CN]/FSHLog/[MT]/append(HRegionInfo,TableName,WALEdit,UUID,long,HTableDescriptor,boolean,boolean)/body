@@ -3,21 +3,27 @@
   if (this.closed) {
     throw new IOException("Cannot append; log is closed");
   }
-  long txid=0;
+  TraceScope traceScope=Trace.startSpan("FSHlog.append");
+  try {
+    long txid=0;
 synchronized (this.updateLock) {
-    long seqNum=obtainSeqNum();
-    byte[] encodedRegionName=info.getEncodedNameAsBytes();
-    if (isInMemstore)     this.oldestUnflushedSeqNums.putIfAbsent(encodedRegionName,seqNum);
-    HLogKey logKey=makeKey(encodedRegionName,tableName,seqNum,now,clusterId);
-    doWrite(info,logKey,edits,htd);
-    this.numEntries.incrementAndGet();
-    txid=this.unflushedEntries.incrementAndGet();
-    if (htd.isDeferredLogFlush()) {
-      lastDeferredTxid=txid;
+      long seqNum=obtainSeqNum();
+      byte[] encodedRegionName=info.getEncodedNameAsBytes();
+      if (isInMemstore)       this.oldestUnflushedSeqNums.putIfAbsent(encodedRegionName,seqNum);
+      HLogKey logKey=makeKey(encodedRegionName,tableName,seqNum,now,clusterId);
+      doWrite(info,logKey,edits,htd);
+      this.numEntries.incrementAndGet();
+      txid=this.unflushedEntries.incrementAndGet();
+      if (htd.isDeferredLogFlush()) {
+        lastDeferredTxid=txid;
+      }
     }
+    if (doSync && (info.isMetaRegion() || !htd.isDeferredLogFlush())) {
+      this.sync(txid);
+    }
+    return txid;
   }
-  if (doSync && (info.isMetaRegion() || !htd.isDeferredLogFlush())) {
-    this.sync(txid);
+  finally {
+    traceScope.close();
   }
-  return txid;
 }

@@ -1,22 +1,29 @@
 {
-  RetryCounter retryCounter=retryCounterFactory.create();
-  Iterable<Op> multiOps=prepareZKMulti(ops);
-  while (true) {
-    try {
-      return zk.multi(multiOps);
-    }
- catch (    KeeperException e) {
+  TraceScope traceScope=null;
+  try {
+    traceScope=Trace.startSpan("RecoverableZookeeper.multi");
+    RetryCounter retryCounter=retryCounterFactory.create();
+    Iterable<Op> multiOps=prepareZKMulti(ops);
+    while (true) {
+      try {
+        return zk.multi(multiOps);
+      }
+ catch (      KeeperException e) {
 switch (e.code()) {
 case CONNECTIONLOSS:
 case SESSIONEXPIRED:
 case OPERATIONTIMEOUT:
-        retryOrThrow(retryCounter,e,"multi");
-      break;
+          retryOrThrow(retryCounter,e,"multi");
+        break;
 default :
-    throw e;
-}
+      throw e;
+  }
 }
 retryCounter.sleepUntilNextRetry();
 retryCounter.useRetry();
+}
+}
+  finally {
+if (traceScope != null) traceScope.close();
 }
 }

@@ -1,37 +1,44 @@
 {
-  RetryCounter retryCounter=retryCounterFactory.create();
-  byte[] newData=appendMetaData(data);
-  boolean isRetry=false;
-  while (true) {
-    try {
-      return zk.setData(path,newData,version);
-    }
- catch (    KeeperException e) {
+  TraceScope traceScope=null;
+  try {
+    traceScope=Trace.startSpan("RecoverableZookeeper.setData");
+    RetryCounter retryCounter=retryCounterFactory.create();
+    byte[] newData=appendMetaData(data);
+    boolean isRetry=false;
+    while (true) {
+      try {
+        return zk.setData(path,newData,version);
+      }
+ catch (      KeeperException e) {
 switch (e.code()) {
 case CONNECTIONLOSS:
 case SESSIONEXPIRED:
 case OPERATIONTIMEOUT:
-        retryOrThrow(retryCounter,e,"setData");
-      break;
+          retryOrThrow(retryCounter,e,"setData");
+        break;
 case BADVERSION:
-    if (isRetry) {
-      try {
-        Stat stat=new Stat();
-        byte[] revData=zk.getData(path,false,stat);
-        if (Bytes.compareTo(revData,newData) == 0) {
-          return stat;
+      if (isRetry) {
+        try {
+          Stat stat=new Stat();
+          byte[] revData=zk.getData(path,false,stat);
+          if (Bytes.compareTo(revData,newData) == 0) {
+            return stat;
+          }
+        }
+ catch (        KeeperException keeperException) {
+          throw keeperException;
         }
       }
- catch (      KeeperException keeperException) {
-        throw keeperException;
-      }
-    }
 default :
-  throw e;
+    throw e;
 }
 }
 retryCounter.sleepUntilNextRetry();
 retryCounter.useRetry();
 isRetry=true;
+}
+}
+  finally {
+if (traceScope != null) traceScope.close();
 }
 }
