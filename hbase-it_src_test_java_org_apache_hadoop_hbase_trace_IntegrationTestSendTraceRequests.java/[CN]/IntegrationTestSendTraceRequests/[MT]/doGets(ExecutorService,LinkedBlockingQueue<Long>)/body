@@ -1,0 +1,42 @@
+{
+  for (int i=0; i < 100; i++) {
+    Runnable runnable=new Runnable(){
+      private TraceScope innerScope=null;
+      private final LinkedBlockingQueue<Long> rowKeyQueue=rowKeys;
+      @Override public void run(){
+        HTable ht=null;
+        try {
+          ht=new HTable(util.getConfiguration(),tableName);
+        }
+ catch (        IOException e) {
+          e.printStackTrace();
+        }
+        long accum=0;
+        for (int x=0; x < 5; x++) {
+          try {
+            innerScope=Trace.startSpan("gets",Sampler.ALWAYS);
+            long rk=rowKeyQueue.take();
+            Result r1=ht.get(new Get(Bytes.toBytes(rk)));
+            if (r1 != null) {
+              accum|=Bytes.toLong(r1.getRow());
+            }
+            Result r2=ht.get(new Get(Bytes.toBytes(rk)));
+            if (r2 != null) {
+              accum|=Bytes.toLong(r2.getRow());
+            }
+            innerScope.getSpan().addTimelineAnnotation("Accum = " + accum);
+          }
+ catch (          IOException e) {
+          }
+catch (          InterruptedException ie) {
+          }
+ finally {
+            if (innerScope != null)             innerScope.close();
+          }
+        }
+      }
+    }
+;
+    service.submit(runnable);
+  }
+}

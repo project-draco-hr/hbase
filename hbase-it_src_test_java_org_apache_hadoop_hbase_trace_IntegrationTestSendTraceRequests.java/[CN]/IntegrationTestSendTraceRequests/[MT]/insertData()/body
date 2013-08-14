@@ -1,0 +1,29 @@
+{
+  LinkedBlockingQueue<Long> rowKeys=new LinkedBlockingQueue<Long>(25000);
+  HTable ht=new HTable(util.getConfiguration(),this.tableName);
+  byte[] value=new byte[300];
+  for (int x=0; x < 5000; x++) {
+    TraceScope traceScope=Trace.startSpan("insertData",Sampler.ALWAYS);
+    try {
+      ht.setAutoFlush(false);
+      for (int i=0; i < 5; i++) {
+        long rk=random.nextLong();
+        rowKeys.add(rk);
+        Put p=new Put(Bytes.toBytes(rk));
+        for (int y=0; y < 10; y++) {
+          random.nextBytes(value);
+          p.add(Bytes.toBytes(familyName),Bytes.toBytes(random.nextLong()),value);
+        }
+        ht.put(p);
+      }
+      if ((x % 1000) == 0) {
+        admin.flush(Bytes.toBytes(tableName));
+      }
+    }
+  finally {
+      traceScope.close();
+    }
+  }
+  admin.flush(Bytes.toBytes(tableName));
+  return rowKeys;
+}
