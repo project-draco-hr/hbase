@@ -1,8 +1,14 @@
 {
-  while (!stopRequested || (stopRequested && leaseQueue.size() > 0)) {
-    Lease lease=null;
+  long toWait=leaseCheckFrequency;
+  Lease nextLease=null;
+  long nextLeaseDelay=Long.MAX_VALUE;
+  while (!stopRequested || (stopRequested && !leases.isEmpty())) {
     try {
-      lease=leaseQueue.poll(leaseCheckFrequency,TimeUnit.MILLISECONDS);
+      if (nextLease != null) {
+        toWait=nextLease.getDelay(TimeUnit.MILLISECONDS);
+      }
+      toWait=Math.min(leaseCheckFrequency,toWait);
+      Thread.sleep(toWait);
     }
  catch (    InterruptedException e) {
       continue;
@@ -14,17 +20,27 @@ catch (    Throwable e) {
       LOG.fatal("Unexpected exception killed leases thread",e);
       break;
     }
-    if (lease == null) {
-      continue;
-    }
-    if (lease.getListener() == null) {
-      LOG.error("lease listener is null for lease " + lease.getLeaseName());
-    }
+    nextLease=null;
+    nextLeaseDelay=Long.MAX_VALUE;
+    for (Iterator<Map.Entry<String,Lease>> it=leases.entrySet().iterator(); it.hasNext(); ) {
+      Map.Entry<String,Lease> entry=it.next();
+      Lease lease=entry.getValue();
+      long thisLeaseDelay=lease.getDelay(TimeUnit.MILLISECONDS);
+      if (thisLeaseDelay > 0) {
+        if (nextLease == null || thisLeaseDelay < nextLeaseDelay) {
+          nextLease=lease;
+          nextLeaseDelay=thisLeaseDelay;
+        }
+      }
  else {
-      lease.getListener().leaseExpired();
-    }
-synchronized (leaseQueue) {
-      leases.remove(lease.getLeaseName());
+        if (lease.getListener() == null) {
+          LOG.error("lease listener is null for lease " + lease.getLeaseName());
+        }
+ else {
+          lease.getListener().leaseExpired();
+        }
+        it.remove();
+      }
     }
   }
   close();
