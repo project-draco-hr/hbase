@@ -1,140 +1,146 @@
 {
-  int regionCount=regions.size();
-  if (regionCount == 0) {
-    return true;
-  }
-  LOG.debug("Assigning " + regionCount + " region(s) to "+ destination.toString());
-  Set<String> encodedNames=new HashSet<String>(regionCount);
-  for (  HRegionInfo region : regions) {
-    encodedNames.add(region.getEncodedName());
-  }
-  List<HRegionInfo> failedToOpenRegions=new ArrayList<HRegionInfo>();
-  Map<String,Lock> locks=locker.acquireLocks(encodedNames);
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
   try {
-    AtomicInteger counter=new AtomicInteger(0);
-    Map<String,Integer> offlineNodesVersions=new ConcurrentHashMap<String,Integer>();
-    OfflineCallback cb=new OfflineCallback(watcher,destination,counter,offlineNodesVersions);
-    Map<String,RegionPlan> plans=new HashMap<String,RegionPlan>(regions.size());
-    List<RegionState> states=new ArrayList<RegionState>(regions.size());
+    int regionCount=regions.size();
+    if (regionCount == 0) {
+      return true;
+    }
+    LOG.debug("Assigning " + regionCount + " region(s) to "+ destination.toString());
+    Set<String> encodedNames=new HashSet<String>(regionCount);
     for (    HRegionInfo region : regions) {
-      String encodedRegionName=region.getEncodedName();
-      RegionState state=forceRegionStateToOffline(region,true);
-      if (state != null && asyncSetOfflineInZooKeeper(state,cb,destination)) {
-        RegionPlan plan=new RegionPlan(region,state.getServerName(),destination);
-        plans.put(encodedRegionName,plan);
-        states.add(state);
-      }
- else {
-        LOG.warn("failed to force region state to offline or " + "failed to set it offline in ZK, will reassign later: " + region);
-        failedToOpenRegions.add(region);
-        Lock lock=locks.remove(encodedRegionName);
-        lock.unlock();
-      }
+      encodedNames.add(region.getEncodedName());
     }
-    int total=states.size();
-    for (int oldCounter=0; !server.isStopped(); ) {
-      int count=counter.get();
-      if (oldCounter != count) {
-        LOG.info(destination.toString() + " unassigned znodes=" + count+ " of total="+ total);
-        oldCounter=count;
-      }
-      if (count >= total)       break;
-      Threads.sleep(5);
-    }
-    if (server.isStopped()) {
-      return false;
-    }
-    this.addPlans(plans);
-    List<Triple<HRegionInfo,Integer,List<ServerName>>> regionOpenInfos=new ArrayList<Triple<HRegionInfo,Integer,List<ServerName>>>(states.size());
-    for (    RegionState state : states) {
-      HRegionInfo region=state.getRegion();
-      String encodedRegionName=region.getEncodedName();
-      Integer nodeVersion=offlineNodesVersions.get(encodedRegionName);
-      if (nodeVersion == null || nodeVersion == -1) {
-        LOG.warn("failed to offline in zookeeper: " + region);
-        failedToOpenRegions.add(region);
-        Lock lock=locks.remove(encodedRegionName);
-        lock.unlock();
-      }
- else {
-        regionStates.updateRegionState(region,RegionState.State.PENDING_OPEN,destination);
-        List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
-        if (this.shouldAssignRegionsWithFavoredNodes) {
-          favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
-        }
-        regionOpenInfos.add(new Triple<HRegionInfo,Integer,List<ServerName>>(region,nodeVersion,favoredNodes));
-      }
-    }
+    List<HRegionInfo> failedToOpenRegions=new ArrayList<HRegionInfo>();
+    Map<String,Lock> locks=locker.acquireLocks(encodedNames);
     try {
-      long maxWaitTime=System.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
-      for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
-        try {
-          List<RegionOpeningState> regionOpeningStateList=serverManager.sendRegionOpen(destination,regionOpenInfos);
-          if (regionOpeningStateList == null) {
-            return false;
-          }
-          for (int k=0, n=regionOpeningStateList.size(); k < n; k++) {
-            RegionOpeningState openingState=regionOpeningStateList.get(k);
-            if (openingState != RegionOpeningState.OPENED) {
-              HRegionInfo region=regionOpenInfos.get(k).getFirst();
-              if (openingState == RegionOpeningState.ALREADY_OPENED) {
-                processAlreadyOpenedRegion(region,destination);
-              }
- else               if (openingState == RegionOpeningState.FAILED_OPENING) {
-                failedToOpenRegions.add(region);
-              }
+      AtomicInteger counter=new AtomicInteger(0);
+      Map<String,Integer> offlineNodesVersions=new ConcurrentHashMap<String,Integer>();
+      OfflineCallback cb=new OfflineCallback(watcher,destination,counter,offlineNodesVersions);
+      Map<String,RegionPlan> plans=new HashMap<String,RegionPlan>(regions.size());
+      List<RegionState> states=new ArrayList<RegionState>(regions.size());
+      for (      HRegionInfo region : regions) {
+        String encodedRegionName=region.getEncodedName();
+        RegionState state=forceRegionStateToOffline(region,true);
+        if (state != null && asyncSetOfflineInZooKeeper(state,cb,destination)) {
+          RegionPlan plan=new RegionPlan(region,state.getServerName(),destination);
+          plans.put(encodedRegionName,plan);
+          states.add(state);
+        }
  else {
-                LOG.warn("THIS SHOULD NOT HAPPEN: unknown opening state " + openingState + " in assigning region "+ region);
+          LOG.warn("failed to force region state to offline or " + "failed to set it offline in ZK, will reassign later: " + region);
+          failedToOpenRegions.add(region);
+          Lock lock=locks.remove(encodedRegionName);
+          lock.unlock();
+        }
+      }
+      int total=states.size();
+      for (int oldCounter=0; !server.isStopped(); ) {
+        int count=counter.get();
+        if (oldCounter != count) {
+          LOG.info(destination.toString() + " unassigned znodes=" + count+ " of total="+ total);
+          oldCounter=count;
+        }
+        if (count >= total)         break;
+        Threads.sleep(5);
+      }
+      if (server.isStopped()) {
+        return false;
+      }
+      this.addPlans(plans);
+      List<Triple<HRegionInfo,Integer,List<ServerName>>> regionOpenInfos=new ArrayList<Triple<HRegionInfo,Integer,List<ServerName>>>(states.size());
+      for (      RegionState state : states) {
+        HRegionInfo region=state.getRegion();
+        String encodedRegionName=region.getEncodedName();
+        Integer nodeVersion=offlineNodesVersions.get(encodedRegionName);
+        if (nodeVersion == null || nodeVersion == -1) {
+          LOG.warn("failed to offline in zookeeper: " + region);
+          failedToOpenRegions.add(region);
+          Lock lock=locks.remove(encodedRegionName);
+          lock.unlock();
+        }
+ else {
+          regionStates.updateRegionState(region,RegionState.State.PENDING_OPEN,destination);
+          List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
+          if (this.shouldAssignRegionsWithFavoredNodes) {
+            favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
+          }
+          regionOpenInfos.add(new Triple<HRegionInfo,Integer,List<ServerName>>(region,nodeVersion,favoredNodes));
+        }
+      }
+      try {
+        long maxWaitTime=System.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
+        for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
+          try {
+            List<RegionOpeningState> regionOpeningStateList=serverManager.sendRegionOpen(destination,regionOpenInfos);
+            if (regionOpeningStateList == null) {
+              return false;
+            }
+            for (int k=0, n=regionOpeningStateList.size(); k < n; k++) {
+              RegionOpeningState openingState=regionOpeningStateList.get(k);
+              if (openingState != RegionOpeningState.OPENED) {
+                HRegionInfo region=regionOpenInfos.get(k).getFirst();
+                if (openingState == RegionOpeningState.ALREADY_OPENED) {
+                  processAlreadyOpenedRegion(region,destination);
+                }
+ else                 if (openingState == RegionOpeningState.FAILED_OPENING) {
+                  failedToOpenRegions.add(region);
+                }
+ else {
+                  LOG.warn("THIS SHOULD NOT HAPPEN: unknown opening state " + openingState + " in assigning region "+ region);
+                }
               }
             }
+            break;
           }
-          break;
-        }
- catch (        IOException e) {
-          if (e instanceof RemoteException) {
-            e=((RemoteException)e).unwrapRemoteException();
-          }
-          if (e instanceof RegionServerStoppedException) {
-            LOG.warn("The region server was shut down, ",e);
-            return false;
-          }
- else           if (e instanceof ServerNotRunningYetException) {
-            long now=System.currentTimeMillis();
-            if (now < maxWaitTime) {
-              LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",e);
-              Thread.sleep(100);
-              i--;
+ catch (          IOException e) {
+            if (e instanceof RemoteException) {
+              e=((RemoteException)e).unwrapRemoteException();
+            }
+            if (e instanceof RegionServerStoppedException) {
+              LOG.warn("The region server was shut down, ",e);
+              return false;
+            }
+ else             if (e instanceof ServerNotRunningYetException) {
+              long now=System.currentTimeMillis();
+              if (now < maxWaitTime) {
+                LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",e);
+                Thread.sleep(100);
+                i--;
+                continue;
+              }
+            }
+ else             if (e instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(destination)) {
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("Bulk assigner openRegion() to " + destination + " has timed out, but the regions might"+ " already be opened on it.",e);
+              }
               continue;
             }
+            throw e;
           }
- else           if (e instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(destination)) {
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Bulk assigner openRegion() to " + destination + " has timed out, but the regions might"+ " already be opened on it.",e);
-            }
-            continue;
-          }
-          throw e;
         }
       }
+ catch (      IOException e) {
+        LOG.info("Unable to communicate with the region server in order" + " to assign regions",e);
+        return false;
+      }
+catch (      InterruptedException e) {
+        throw new RuntimeException(e);
+      }
     }
- catch (    IOException e) {
-      LOG.info("Unable to communicate with the region server in order" + " to assign regions",e);
-      return false;
+  finally {
+      for (      Lock lock : locks.values()) {
+        lock.unlock();
+      }
     }
-catch (    InterruptedException e) {
-      throw new RuntimeException(e);
+    if (!failedToOpenRegions.isEmpty()) {
+      for (      HRegionInfo region : failedToOpenRegions) {
+        invokeAssign(region);
+      }
     }
+    LOG.debug("Bulk assigning done for " + destination.toString());
+    return true;
   }
   finally {
-    for (    Lock lock : locks.values()) {
-      lock.unlock();
-    }
+    metricsAssignmentManager.updateBulkAssignTime(EnvironmentEdgeManager.currentTimeMillis() - startTime);
   }
-  if (!failedToOpenRegions.isEmpty()) {
-    for (    HRegionInfo region : failedToOpenRegions) {
-      invokeAssign(region);
-    }
-  }
-  LOG.debug("Bulk assigning done for " + destination.toString());
-  return true;
 }

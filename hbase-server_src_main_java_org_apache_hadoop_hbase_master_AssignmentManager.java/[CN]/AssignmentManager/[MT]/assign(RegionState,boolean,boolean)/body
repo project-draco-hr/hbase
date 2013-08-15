@@ -1,157 +1,163 @@
 {
-  RegionState currentState=state;
-  int versionOfOfflineNode=-1;
-  RegionPlan plan=null;
-  long maxRegionServerStartupWaitTime=-1;
-  HRegionInfo region=state.getRegion();
-  RegionOpeningState regionOpenState;
-  for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
-    if (plan == null) {
-      try {
-        plan=getRegionPlan(region,forceNewPlan);
-      }
- catch (      HBaseIOException e) {
-        LOG.warn("Failed to get region plan",e);
-      }
-    }
-    if (plan == null) {
-      LOG.warn("Unable to determine a plan to assign " + region);
-      if (tomActivated) {
-        this.timeoutMonitor.setAllRegionServersOffline(true);
-      }
- else {
-        if (region.isMetaRegion()) {
-          try {
-            if (i != maximumAttempts) {
-              Thread.sleep(this.sleepTimeBeforeRetryingMetaAssignment);
-              continue;
-            }
-            LOG.error("Unable to determine a plan to assign META even after repeated attempts. Run HBCK to fix this");
-          }
- catch (          InterruptedException e) {
-            LOG.error("Got exception while waiting for META assignment");
-            Thread.currentThread().interrupt();
-          }
-        }
-        regionStates.updateRegionState(region,RegionState.State.FAILED_OPEN);
-      }
-      return;
-    }
-    if (setOfflineInZK && versionOfOfflineNode == -1) {
-      versionOfOfflineNode=setOfflineInZooKeeper(currentState,plan.getDestination());
-      if (versionOfOfflineNode != -1) {
-        if (isDisabledorDisablingRegionInRIT(region)) {
-          return;
-        }
-        TableName tableName=region.getTableName();
-        if (!zkTable.isEnablingTable(tableName) && !zkTable.isEnabledTable(tableName)) {
-          LOG.debug("Setting table " + tableName + " to ENABLED state.");
-          setEnabledTable(tableName);
-        }
-      }
-    }
-    if (setOfflineInZK && versionOfOfflineNode == -1) {
-      LOG.info("Unable to set offline in ZooKeeper to assign " + region);
-      if (!server.isAborted()) {
-        continue;
-      }
-    }
-    if (this.server.isStopped() || this.server.isAborted()) {
-      LOG.debug("Server stopped/aborted; skipping assign of " + region);
-      return;
-    }
-    LOG.info("Assigning " + region.getRegionNameAsString() + " to "+ plan.getDestination().toString());
-    currentState=regionStates.updateRegionState(region,RegionState.State.PENDING_OPEN,plan.getDestination());
-    boolean needNewPlan;
-    final String assignMsg="Failed assignment of " + region.getRegionNameAsString() + " to "+ plan.getDestination();
-    try {
-      List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
-      if (this.shouldAssignRegionsWithFavoredNodes) {
-        favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
-      }
-      regionOpenState=serverManager.sendRegionOpen(plan.getDestination(),region,versionOfOfflineNode,favoredNodes);
-      if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
-        needNewPlan=true;
-        LOG.warn(assignMsg + ", regionserver says 'FAILED_OPENING', " + " trying to assign elsewhere instead; "+ "try="+ i+ " of "+ this.maximumAttempts);
-      }
- else {
-        if (regionOpenState == RegionOpeningState.ALREADY_OPENED) {
-          processAlreadyOpenedRegion(region,plan.getDestination());
-        }
-        return;
-      }
-    }
- catch (    Throwable t) {
-      if (t instanceof RemoteException) {
-        t=((RemoteException)t).unwrapRemoteException();
-      }
-      boolean hold=(t instanceof RegionAlreadyInTransitionException || t instanceof ServerNotRunningYetException);
-      boolean retry=!hold && (t instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(plan.getDestination()));
-      if (hold) {
-        LOG.warn(assignMsg + ", waiting a little before trying on the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
-        if (maxRegionServerStartupWaitTime < 0) {
-          maxRegionServerStartupWaitTime=EnvironmentEdgeManager.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
-        }
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
+  try {
+    RegionState currentState=state;
+    int versionOfOfflineNode=-1;
+    RegionPlan plan=null;
+    long maxRegionServerStartupWaitTime=-1;
+    HRegionInfo region=state.getRegion();
+    RegionOpeningState regionOpenState;
+    for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
+      if (plan == null) {
         try {
-          long now=EnvironmentEdgeManager.currentTimeMillis();
-          if (now < maxRegionServerStartupWaitTime) {
-            LOG.debug("Server is not yet up; waiting up to " + (maxRegionServerStartupWaitTime - now) + "ms",t);
-            Thread.sleep(100);
-            i--;
-            needNewPlan=false;
-          }
- else {
-            LOG.debug("Server is not up for a while; try a new one",t);
-            needNewPlan=true;
-          }
+          plan=getRegionPlan(region,forceNewPlan);
         }
- catch (        InterruptedException ie) {
-          LOG.warn("Failed to assign " + region.getRegionNameAsString() + " since interrupted",ie);
-          Thread.currentThread().interrupt();
-          if (!tomActivated) {
-            regionStates.updateRegionState(region,RegionState.State.FAILED_OPEN);
-          }
-          return;
+ catch (        HBaseIOException e) {
+          LOG.warn("Failed to get region plan",e);
         }
       }
- else       if (retry) {
-        needNewPlan=false;
-        LOG.warn(assignMsg + ", trying to assign to the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
-      }
- else {
-        needNewPlan=true;
-        LOG.warn(assignMsg + ", trying to assign elsewhere instead;" + " try="+ i+ " of "+ this.maximumAttempts,t);
-      }
-    }
-    if (i == this.maximumAttempts) {
-      continue;
-    }
-    if (needNewPlan) {
-      RegionPlan newPlan=null;
-      try {
-        newPlan=getRegionPlan(region,true);
-      }
- catch (      HBaseIOException e) {
-        LOG.warn("Failed to get region plan",e);
-      }
-      if (newPlan == null) {
+      if (plan == null) {
+        LOG.warn("Unable to determine a plan to assign " + region);
         if (tomActivated) {
           this.timeoutMonitor.setAllRegionServersOffline(true);
         }
  else {
+          if (region.isMetaRegion()) {
+            try {
+              if (i != maximumAttempts) {
+                Thread.sleep(this.sleepTimeBeforeRetryingMetaAssignment);
+                continue;
+              }
+              LOG.error("Unable to determine a plan to assign META even after repeated attempts. Run HBCK to fix this");
+            }
+ catch (            InterruptedException e) {
+              LOG.error("Got exception while waiting for META assignment");
+              Thread.currentThread().interrupt();
+            }
+          }
           regionStates.updateRegionState(region,RegionState.State.FAILED_OPEN);
         }
-        LOG.warn("Unable to find a viable location to assign region " + region.getRegionNameAsString());
         return;
       }
-      if (plan != newPlan && !plan.getDestination().equals(newPlan.getDestination())) {
-        currentState=regionStates.updateRegionState(region,RegionState.State.OFFLINE);
-        versionOfOfflineNode=-1;
-        plan=newPlan;
+      if (setOfflineInZK && versionOfOfflineNode == -1) {
+        versionOfOfflineNode=setOfflineInZooKeeper(currentState,plan.getDestination());
+        if (versionOfOfflineNode != -1) {
+          if (isDisabledorDisablingRegionInRIT(region)) {
+            return;
+          }
+          TableName tableName=region.getTableName();
+          if (!zkTable.isEnablingTable(tableName) && !zkTable.isEnabledTable(tableName)) {
+            LOG.debug("Setting table " + tableName + " to ENABLED state.");
+            setEnabledTable(tableName);
+          }
+        }
+      }
+      if (setOfflineInZK && versionOfOfflineNode == -1) {
+        LOG.info("Unable to set offline in ZooKeeper to assign " + region);
+        if (!server.isAborted()) {
+          continue;
+        }
+      }
+      if (this.server.isStopped() || this.server.isAborted()) {
+        LOG.debug("Server stopped/aborted; skipping assign of " + region);
+        return;
+      }
+      LOG.info("Assigning " + region.getRegionNameAsString() + " to "+ plan.getDestination().toString());
+      currentState=regionStates.updateRegionState(region,RegionState.State.PENDING_OPEN,plan.getDestination());
+      boolean needNewPlan;
+      final String assignMsg="Failed assignment of " + region.getRegionNameAsString() + " to "+ plan.getDestination();
+      try {
+        List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
+        if (this.shouldAssignRegionsWithFavoredNodes) {
+          favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
+        }
+        regionOpenState=serverManager.sendRegionOpen(plan.getDestination(),region,versionOfOfflineNode,favoredNodes);
+        if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
+          needNewPlan=true;
+          LOG.warn(assignMsg + ", regionserver says 'FAILED_OPENING', " + " trying to assign elsewhere instead; "+ "try="+ i+ " of "+ this.maximumAttempts);
+        }
+ else {
+          if (regionOpenState == RegionOpeningState.ALREADY_OPENED) {
+            processAlreadyOpenedRegion(region,plan.getDestination());
+          }
+          return;
+        }
+      }
+ catch (      Throwable t) {
+        if (t instanceof RemoteException) {
+          t=((RemoteException)t).unwrapRemoteException();
+        }
+        boolean hold=(t instanceof RegionAlreadyInTransitionException || t instanceof ServerNotRunningYetException);
+        boolean retry=!hold && (t instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(plan.getDestination()));
+        if (hold) {
+          LOG.warn(assignMsg + ", waiting a little before trying on the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
+          if (maxRegionServerStartupWaitTime < 0) {
+            maxRegionServerStartupWaitTime=EnvironmentEdgeManager.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
+          }
+          try {
+            long now=EnvironmentEdgeManager.currentTimeMillis();
+            if (now < maxRegionServerStartupWaitTime) {
+              LOG.debug("Server is not yet up; waiting up to " + (maxRegionServerStartupWaitTime - now) + "ms",t);
+              Thread.sleep(100);
+              i--;
+              needNewPlan=false;
+            }
+ else {
+              LOG.debug("Server is not up for a while; try a new one",t);
+              needNewPlan=true;
+            }
+          }
+ catch (          InterruptedException ie) {
+            LOG.warn("Failed to assign " + region.getRegionNameAsString() + " since interrupted",ie);
+            Thread.currentThread().interrupt();
+            if (!tomActivated) {
+              regionStates.updateRegionState(region,RegionState.State.FAILED_OPEN);
+            }
+            return;
+          }
+        }
+ else         if (retry) {
+          needNewPlan=false;
+          LOG.warn(assignMsg + ", trying to assign to the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
+        }
+ else {
+          needNewPlan=true;
+          LOG.warn(assignMsg + ", trying to assign elsewhere instead;" + " try="+ i+ " of "+ this.maximumAttempts,t);
+        }
+      }
+      if (i == this.maximumAttempts) {
+        continue;
+      }
+      if (needNewPlan) {
+        RegionPlan newPlan=null;
+        try {
+          newPlan=getRegionPlan(region,true);
+        }
+ catch (        HBaseIOException e) {
+          LOG.warn("Failed to get region plan",e);
+        }
+        if (newPlan == null) {
+          if (tomActivated) {
+            this.timeoutMonitor.setAllRegionServersOffline(true);
+          }
+ else {
+            regionStates.updateRegionState(region,RegionState.State.FAILED_OPEN);
+          }
+          LOG.warn("Unable to find a viable location to assign region " + region.getRegionNameAsString());
+          return;
+        }
+        if (plan != newPlan && !plan.getDestination().equals(newPlan.getDestination())) {
+          currentState=regionStates.updateRegionState(region,RegionState.State.OFFLINE);
+          versionOfOfflineNode=-1;
+          plan=newPlan;
+        }
       }
     }
+    if (!tomActivated) {
+      regionStates.updateRegionState(region,RegionState.State.FAILED_OPEN);
+    }
   }
-  if (!tomActivated) {
-    regionStates.updateRegionState(region,RegionState.State.FAILED_OPEN);
+  finally {
+    metricsAssignmentManager.updateAssignmentTime(EnvironmentEdgeManager.currentTimeMillis() - startTime);
   }
 }
