@@ -1,0 +1,29 @@
+{
+  final byte[] tableName=Bytes.toBytes("testCreateTableWithSplitRegion");
+  final MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  final HMaster m=cluster.getMaster();
+  final HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(tableName));
+  desc.addFamily(new HColumnDescriptor(FAMILYNAME));
+  byte[] splitPoint=Bytes.toBytes("split-point");
+  long ts=System.currentTimeMillis();
+  HRegionInfo d1=new HRegionInfo(desc.getTableName(),null,splitPoint,false,ts);
+  HRegionInfo d2=new HRegionInfo(desc.getTableName(),splitPoint,null,false,ts + 1);
+  HRegionInfo parent=new HRegionInfo(desc.getTableName(),null,null,true,ts + 2);
+  parent.setOffline(true);
+  Path tempdir=m.getMasterFileSystem().getTempDir();
+  FileSystem fs=m.getMasterFileSystem().getFileSystem();
+  Path tempTableDir=FSUtils.getTableDir(tempdir,desc.getTableName());
+  fs.delete(tempTableDir,true);
+  final HRegionInfo[] hRegionInfos=new HRegionInfo[]{d1,d2,parent};
+  CreateTableHandler handler=new CreateTableHandler(m,m.getMasterFileSystem(),desc,cluster.getConfiguration(),hRegionInfos,m);
+  handler.prepare();
+  handler.process();
+  for (int i=0; i < 100; i++) {
+    if (!TEST_UTIL.getHBaseAdmin().isTableAvailable(tableName)) {
+      Thread.sleep(300);
+    }
+  }
+  assertTrue(TEST_UTIL.getHBaseAdmin().isTableEnabled(tableName));
+  RegionStates regionStates=m.getAssignmentManager().getRegionStates();
+  assertTrue("Parent should be in SPLIT state",regionStates.isRegionInState(parent,State.SPLIT));
+}
