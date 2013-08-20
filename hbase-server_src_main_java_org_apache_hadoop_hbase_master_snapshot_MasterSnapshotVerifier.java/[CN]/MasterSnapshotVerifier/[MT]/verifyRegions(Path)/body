@@ -1,8 +1,21 @@
 {
   List<HRegionInfo> regions=MetaReader.getTableRegions(this.services.getCatalogTracker(),tableName);
+  Set<String> snapshotRegions=SnapshotReferenceUtil.getSnapshotRegionNames(fs,snapshotDir);
+  if (snapshotRegions == null) {
+    String msg="Snapshot " + ClientSnapshotDescriptionUtils.toString(snapshot) + " looks empty";
+    LOG.error(msg);
+    throw new CorruptedSnapshotException(msg);
+  }
+  if (snapshotRegions.size() != regions.size()) {
+    String msg="Regions moved during the snapshot '" + ClientSnapshotDescriptionUtils.toString(snapshot) + "'. expected="+ regions.size()+ " snapshotted="+ snapshotRegions.size();
+    LOG.error(msg);
+    throw new CorruptedSnapshotException(msg);
+  }
   for (  HRegionInfo region : regions) {
-    if (region.isOffline() && (region.isSplit() || region.isSplitParent())) {
-      continue;
+    if (!snapshotRegions.contains(region.getEncodedName())) {
+      String msg="No region directory found for region:" + region;
+      LOG.error(msg);
+      throw new CorruptedSnapshotException(msg,snapshot);
     }
     verifyRegion(fs,snapshotDir,region);
   }
