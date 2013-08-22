@@ -1,0 +1,51 @@
+{
+  ZooKeeperWatcher zkw=null;
+  try {
+    zkw=new ZooKeeperWatcher(getConf(),"Check Live Processes.",new Abortable(){
+      private boolean aborted=false;
+      @Override public void abort(      String why,      Throwable e){
+        LOG.warn("Got aborted with reason: " + why + ", and error: "+ e);
+        this.aborted=true;
+      }
+      @Override public boolean isAborted(){
+        return this.aborted;
+      }
+    }
+);
+    boolean liveProcessesExists=false;
+    if (ZKUtil.checkExists(zkw,zkw.baseZNode) == -1) {
+      return false;
+    }
+    if (ZKUtil.checkExists(zkw,zkw.backupMasterAddressesZNode) != -1) {
+      List<String> backupMasters=ZKUtil.listChildrenNoWatch(zkw,zkw.backupMasterAddressesZNode);
+      if (!backupMasters.isEmpty()) {
+        LOG.warn("Backup master(s) " + backupMasters + " are alive or backup-master znodes not expired.");
+        liveProcessesExists=true;
+      }
+    }
+    if (ZKUtil.checkExists(zkw,zkw.rsZNode) != -1) {
+      List<String> regionServers=ZKUtil.listChildrenNoWatch(zkw,zkw.rsZNode);
+      if (!regionServers.isEmpty()) {
+        LOG.warn("Region server(s) " + regionServers + " are alive or rs znodes not expired.");
+        liveProcessesExists=true;
+      }
+    }
+    if (ZKUtil.checkExists(zkw,zkw.getMasterAddressZNode()) != -1) {
+      byte[] data=ZKUtil.getData(zkw,zkw.getMasterAddressZNode());
+      if (data != null && !Bytes.equals(data,HConstants.EMPTY_BYTE_ARRAY)) {
+        LOG.warn("Active master at address " + Bytes.toString(data) + " is still alive or master znode not expired.");
+        liveProcessesExists=true;
+      }
+    }
+    return liveProcessesExists;
+  }
+ catch (  Exception e) {
+    LOG.error("Got exception while checking live hbase processes",e);
+    throw new IOException(e);
+  }
+ finally {
+    if (zkw != null) {
+      zkw.close();
+    }
+  }
+}

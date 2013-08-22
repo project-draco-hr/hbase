@@ -1,0 +1,29 @@
+{
+  String replicationZnodeName=getConf().get("zookeeper.znode.replication","replication");
+  String replicationPath=ZKUtil.joinZNode(zkw.baseZNode,replicationZnodeName);
+  List<String> replicationZnodes=ZKUtil.listChildrenNoWatch(zkw,replicationPath);
+  if (replicationZnodes == null) {
+    LOG.info("No replication related znodes present to migrate. returning..");
+  }
+  for (  String child : replicationZnodes) {
+    String znode=ZKUtil.joinZNode(replicationPath,child);
+    if (child.equals(getConf().get("zookeeper.znode.replication.peers","peers"))) {
+      List<String> peers=ZKUtil.listChildrenNoWatch(zkw,znode);
+      if (peers == null || peers.isEmpty()) {
+        LOG.info("No peers present to migrate. returning..");
+        continue;
+      }
+      checkAndMigratePeerZnodesToPB(zkw,znode,peers);
+    }
+ else     if (child.equals(getConf().get("zookeeper.znode.replication.state","state"))) {
+      ZKUtil.deleteNodeRecursively(zkw,znode);
+    }
+ else     if (child.equals(getConf().get("zookeeper.znode.replication.rs","rs"))) {
+      List<String> rsList=ZKUtil.listChildrenNoWatch(zkw,znode);
+      if (rsList == null || rsList.isEmpty())       continue;
+      for (      String rs : rsList) {
+        checkAndMigrateQueuesToPB(zkw,znode,rs);
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  List<String> tables=ZKUtil.listChildrenNoWatch(zkw,zkw.tableZNode);
+  if (tables == null) {
+    LOG.info("No table present to migrate table state to PB. returning..");
+  }
+  for (  String table : tables) {
+    String znode=ZKUtil.joinZNode(zkw.tableZNode,table);
+    if (table.equals("-ROOT-") || table.equals(".META.")) {
+      ZKUtil.deleteNode(zkw,znode);
+      continue;
+    }
+    byte[] data=ZKUtil.getData(zkw,znode);
+    if (ProtobufUtil.isPBMagicPrefix(data))     continue;
+    ZooKeeperProtos.Table.Builder builder=ZooKeeperProtos.Table.newBuilder();
+    builder.setState(ZooKeeperProtos.Table.State.valueOf(Bytes.toString(data)));
+    data=ProtobufUtil.prependPBMagic(builder.build().toByteArray());
+    ZKUtil.setData(zkw,znode,data);
+  }
+}
