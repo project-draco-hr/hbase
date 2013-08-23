@@ -10,12 +10,16 @@
     Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot,rootDir);
     RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(masterServices.getConfiguration(),fs,snapshot,snapshotDir,hTableDescriptor,rootDir,monitor,status);
     RestoreSnapshotHelper.RestoreMetaChanges metaChanges=restoreHelper.restoreHdfsRegions();
-    hris.clear();
+    forceRegionsOffline(metaChanges);
     status.setStatus("Preparing to restore each region");
+    List<HRegionInfo> hrisToRemove=new LinkedList<HRegionInfo>();
+    if (metaChanges.hasRegionsToRemove())     hrisToRemove.addAll(metaChanges.getRegionsToRemove());
+    if (metaChanges.hasRegionsToRestore())     hrisToRemove.addAll(metaChanges.getRegionsToRestore());
+    MetaEditor.deleteRegions(catalogTracker,hrisToRemove);
+    hris.clear();
     if (metaChanges.hasRegionsToAdd())     hris.addAll(metaChanges.getRegionsToAdd());
     if (metaChanges.hasRegionsToRestore())     hris.addAll(metaChanges.getRegionsToRestore());
-    List<HRegionInfo> hrisToRemove=metaChanges.getRegionsToRemove();
-    MetaEditor.mutateRegions(catalogTracker,hrisToRemove,hris);
+    MetaEditor.addRegionsToMeta(catalogTracker,hris);
     metaChanges.updateMetaParentRegions(catalogTracker,hris);
     LOG.info("Restore snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot) + " on table="+ tableName+ " completed!");
   }
