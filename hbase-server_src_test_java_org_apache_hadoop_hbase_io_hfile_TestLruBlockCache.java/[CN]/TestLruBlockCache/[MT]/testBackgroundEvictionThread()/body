@@ -1,10 +1,12 @@
 {
   long maxSize=100000;
-  long blockSize=calculateBlockSizeDefault(maxSize,9);
+  int numBlocks=9;
+  long blockSize=calculateBlockSizeDefault(maxSize,numBlocks);
+  assertTrue("calculateBlockSize appears broken.",blockSize * numBlocks <= maxSize);
   LruBlockCache cache=new LruBlockCache(maxSize,blockSize);
-  CachedItem[] blocks=generateFixedBlocks(10,blockSize,"block");
   EvictionThread evictionThread=cache.getEvictionThread();
   assertTrue(evictionThread != null);
+  CachedItem[] blocks=generateFixedBlocks(numBlocks + 1,blockSize,"block");
   while (!evictionThread.isEnteringRun()) {
     Thread.sleep(1);
   }
@@ -14,8 +16,14 @@
   int n=0;
   while (cache.getEvictionCount() == 0) {
     Thread.sleep(200);
-    assertTrue(n++ < 20);
+    assertTrue("Eviction never happened.",n++ < 20);
   }
-  System.out.println("Background Evictions run: " + cache.getEvictionCount());
-  assertEquals(cache.getEvictionCount(),1);
+  n=0;
+  for (long prevCnt=0, curCnt=cache.getBlockCount(); prevCnt != curCnt; prevCnt=curCnt, curCnt=cache.getBlockCount()) {
+    Thread.sleep(200);
+    assertTrue("Cache never stabilized.",n++ < 20);
+  }
+  long evictionCount=cache.getEvictionCount();
+  assertTrue(evictionCount >= 1);
+  System.out.println("Background Evictions run: " + evictionCount);
 }
