@@ -1,0 +1,67 @@
+{
+  SnapshotOfRegionAssignmentFromMeta snapshot=this.getRegionAssignmentSnapshot();
+  FavoredNodesPlan oldPlan=snapshot.getExistingAssignmentPlan();
+  Set<TableName> tables=snapshot.getTableSet();
+  Map<TableName,List<HRegionInfo>> tableToRegionsMap=snapshot.getTableToRegionMap();
+  for (  TableName table : tables) {
+    float[] deltaLocality=new float[3];
+    float[] locality=new float[3];
+    if (!this.targetTableSet.isEmpty() && !this.targetTableSet.contains(table)) {
+      continue;
+    }
+    List<HRegionInfo> regions=tableToRegionsMap.get(table);
+    System.out.println("==================================================");
+    System.out.println("Assignment Plan Projection Report For Table: " + table);
+    System.out.println("\t Total regions: " + regions.size());
+    System.out.println("\t" + movesPerTable.get(table) + " primaries will move due to their primary has changed");
+    for (    HRegionInfo currentRegion : regions) {
+      Map<String,Float> regionLocality=regionLocalityMap.get(currentRegion.getEncodedName());
+      if (regionLocality == null) {
+        continue;
+      }
+      List<ServerName> oldServers=oldPlan.getFavoredNodes(currentRegion);
+      List<ServerName> newServers=newPlan.getFavoredNodes(currentRegion);
+      if (newServers != null && oldServers != null) {
+        int i=0;
+        for (        FavoredNodesPlan.Position p : FavoredNodesPlan.Position.values()) {
+          ServerName newServer=newServers.get(p.ordinal());
+          ServerName oldServer=oldServers.get(p.ordinal());
+          Float oldLocality=0f;
+          if (oldServers != null) {
+            oldLocality=regionLocality.get(oldServer.getHostname());
+            if (oldLocality == null) {
+              oldLocality=0f;
+            }
+            locality[i]+=oldLocality;
+          }
+          Float newLocality=regionLocality.get(newServer.getHostname());
+          if (newLocality == null) {
+            newLocality=0f;
+          }
+          deltaLocality[i]+=newLocality - oldLocality;
+          i++;
+        }
+      }
+    }
+    DecimalFormat df=new java.text.DecimalFormat("#.##");
+    for (int i=0; i < deltaLocality.length; i++) {
+      System.out.print("\t\t Baseline locality for ");
+      if (i == 0) {
+        System.out.print("primary ");
+      }
+ else       if (i == 1) {
+        System.out.print("secondary ");
+      }
+ else       if (i == 2) {
+        System.out.print("tertiary ");
+      }
+      System.out.println(df.format(100 * locality[i] / regions.size()) + "%");
+      System.out.print("\t\t Locality will change with the new plan: ");
+      System.out.println(df.format(100 * deltaLocality[i] / regions.size()) + "%");
+    }
+    System.out.println("\t Baseline dispersion");
+    printDispersionScores(table,snapshot,regions.size(),null,true);
+    System.out.println("\t Projected dispersion");
+    printDispersionScores(table,snapshot,regions.size(),newPlan,true);
+  }
+}

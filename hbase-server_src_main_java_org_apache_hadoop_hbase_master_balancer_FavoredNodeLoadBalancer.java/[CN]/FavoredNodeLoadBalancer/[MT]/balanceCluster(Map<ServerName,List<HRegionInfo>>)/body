@@ -1,3 +1,62 @@
 {
-  throw new UnsupportedOperationException("Not implemented yet");
+  List<RegionPlan> plans=new ArrayList<RegionPlan>();
+  SnapshotOfRegionAssignmentFromMeta snaphotOfRegionAssignment=new SnapshotOfRegionAssignmentFromMeta(super.services.getCatalogTracker());
+  try {
+    snaphotOfRegionAssignment.initialize();
+  }
+ catch (  IOException ie) {
+    LOG.warn("Not running balancer since exception was thrown " + ie);
+    return plans;
+  }
+  globalFavoredNodesAssignmentPlan=snaphotOfRegionAssignment.getExistingAssignmentPlan();
+  Map<ServerName,ServerName> serverNameToServerNameWithoutCode=new HashMap<ServerName,ServerName>();
+  Map<ServerName,ServerName> serverNameWithoutCodeToServerName=new HashMap<ServerName,ServerName>();
+  ServerManager serverMgr=super.services.getServerManager();
+  for (  ServerName sn : serverMgr.getOnlineServersList()) {
+    ServerName s=new ServerName(sn.getHostname(),sn.getPort(),ServerName.NON_STARTCODE);
+    serverNameToServerNameWithoutCode.put(sn,s);
+    serverNameWithoutCodeToServerName.put(s,sn);
+  }
+  for (  Map.Entry<ServerName,List<HRegionInfo>> entry : clusterState.entrySet()) {
+    ServerName currentServer=entry.getKey();
+    ServerName currentServerWithoutStartCode=new ServerName(currentServer.getHostname(),currentServer.getPort(),ServerName.NON_STARTCODE);
+    List<HRegionInfo> list=entry.getValue();
+    for (    HRegionInfo region : list) {
+      if (region.getTableName().getNamespaceAsString().equals(NamespaceDescriptor.SYSTEM_NAMESPACE_NAME_STR)) {
+        continue;
+      }
+      List<ServerName> favoredNodes=globalFavoredNodesAssignmentPlan.getFavoredNodes(region);
+      if (favoredNodes == null || favoredNodes.get(0).equals(currentServerWithoutStartCode)) {
+        continue;
+      }
+      ServerName destination=null;
+      destination=serverNameWithoutCodeToServerName.get(favoredNodes.get(0));
+      if (destination == null) {
+        if (currentServerWithoutStartCode.equals(favoredNodes.get(1)) || currentServerWithoutStartCode.equals(favoredNodes.get(2))) {
+          continue;
+        }
+        ServerLoad l1=super.services.getServerManager().getLoad(serverNameWithoutCodeToServerName.get(favoredNodes.get(1)));
+        ServerLoad l2=super.services.getServerManager().getLoad(serverNameWithoutCodeToServerName.get(favoredNodes.get(2)));
+        if (l1 != null && l2 != null) {
+          if (l1.getLoad() > l2.getLoad()) {
+            destination=serverNameWithoutCodeToServerName.get(favoredNodes.get(2));
+          }
+ else {
+            destination=serverNameWithoutCodeToServerName.get(favoredNodes.get(1));
+          }
+        }
+ else         if (l1 != null) {
+          destination=serverNameWithoutCodeToServerName.get(favoredNodes.get(1));
+        }
+ else         if (l2 != null) {
+          destination=serverNameWithoutCodeToServerName.get(favoredNodes.get(2));
+        }
+      }
+      if (destination != null) {
+        RegionPlan plan=new RegionPlan(region,currentServer,destination);
+        plans.add(plan);
+      }
+    }
+  }
+  return plans;
 }

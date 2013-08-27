@@ -1,0 +1,147 @@
+{
+  this.tableName=tableName;
+  List<HRegionInfo> regionInfoList=snapshot.getTableToRegionMap().get(tableName);
+  this.totalRegions=regionInfoList.size();
+  FavoredNodesPlan favoredNodesAssignment=snapshot.getExistingAssignmentPlan();
+  Map<HRegionInfo,ServerName> currentAssignment=snapshot.getRegionToRegionServerMap();
+  Map<ServerName,Integer> serverToHostingRegionCounterMap=new HashMap<ServerName,Integer>();
+  Map<ServerName,Integer> primaryRSToRegionCounterMap=new HashMap<ServerName,Integer>();
+  Map<ServerName,Set<ServerName>> primaryToSecTerRSMap=new HashMap<ServerName,Set<ServerName>>();
+  for (  HRegionInfo region : regionInfoList) {
+    try {
+      ServerName currentRS=currentAssignment.get(region);
+      if (currentRS == null) {
+        unAssignedRegionsList.add(region);
+        continue;
+      }
+      Integer hostRegionCounter=serverToHostingRegionCounterMap.get(currentRS);
+      if (hostRegionCounter == null) {
+        hostRegionCounter=Integer.valueOf(0);
+      }
+      hostRegionCounter=hostRegionCounter.intValue() + 1;
+      serverToHostingRegionCounterMap.put(currentRS,hostRegionCounter);
+      List<ServerName> favoredNodes=favoredNodesAssignment.getFavoredNodes(region);
+      if (favoredNodes == null || favoredNodes.size() != FavoredNodeAssignmentHelper.FAVORED_NODES_NUM) {
+        regionsWithoutValidFavoredNodes.add(region);
+        continue;
+      }
+      ServerName primaryRS=favoredNodes.get(FavoredNodesPlan.Position.PRIMARY.ordinal());
+      ServerName secondaryRS=favoredNodes.get(FavoredNodesPlan.Position.SECONDARY.ordinal());
+      ServerName tertiaryRS=favoredNodes.get(FavoredNodesPlan.Position.TERTIARY.ordinal());
+      Integer regionCounter=primaryRSToRegionCounterMap.get(primaryRS);
+      if (regionCounter == null) {
+        regionCounter=Integer.valueOf(0);
+      }
+      regionCounter=regionCounter.intValue() + 1;
+      primaryRSToRegionCounterMap.put(primaryRS,regionCounter);
+      Set<ServerName> secAndTerSet=primaryToSecTerRSMap.get(primaryRS);
+      if (secAndTerSet == null) {
+        secAndTerSet=new HashSet<ServerName>();
+      }
+      secAndTerSet.add(secondaryRS);
+      secAndTerSet.add(tertiaryRS);
+      primaryToSecTerRSMap.put(primaryRS,secAndTerSet);
+      FavoredNodesPlan.Position favoredNodePosition=FavoredNodesPlan.getFavoredServerPosition(favoredNodes,currentRS);
+      if (favoredNodePosition == null) {
+        nonFavoredAssignedRegionList.add(region);
+        continue;
+      }
+      this.favoredNodes[favoredNodePosition.ordinal()]++;
+      totalFavoredAssignments++;
+      if (regionLocalityMap != null) {
+        this.enforceLocality=true;
+        Map<String,Float> regionDegreeLocalityMap=regionLocalityMap.get(region.getEncodedName());
+        if (regionDegreeLocalityMap == null) {
+          continue;
+        }
+        for (        FavoredNodesPlan.Position p : FavoredNodesPlan.Position.values()) {
+          ServerName favoredNode=favoredNodes.get(p.ordinal());
+          Float locality=regionDegreeLocalityMap.get(favoredNode.getHostname());
+          if (locality != null) {
+            this.favoredNodesLocalitySummary[p.ordinal()]+=locality;
+          }
+        }
+        Float actualLocality=regionDegreeLocalityMap.get(currentRS.getHostname());
+        if (actualLocality != null) {
+          this.actualLocalitySummary+=actualLocality;
+        }
+      }
+    }
+ catch (    Exception e) {
+      LOG.error("Cannot verify the region assignment for region " + ((region == null) ? " null " : region.getRegionNameAsString()) + "because of "+ e);
+    }
+  }
+  float dispersionScoreSummary=0;
+  float dispersionNumSummary=0;
+  for (  Map.Entry<ServerName,Integer> entry : primaryRSToRegionCounterMap.entrySet()) {
+    ServerName primaryRS=entry.getKey();
+    Integer regionsOnPrimary=entry.getValue();
+    float dispersionScore=0;
+    int dispersionNum=0;
+    if (primaryToSecTerRSMap.get(primaryRS) != null && regionsOnPrimary.intValue() != 0) {
+      dispersionNum=primaryToSecTerRSMap.get(primaryRS).size();
+      dispersionScore=dispersionNum / ((float)regionsOnPrimary.intValue() * 2);
+    }
+    if (dispersionScore > this.maxDispersionScore) {
+      this.maxDispersionScoreServerSet.clear();
+      this.maxDispersionScoreServerSet.add(primaryRS);
+      this.maxDispersionScore=dispersionScore;
+    }
+ else     if (dispersionScore == this.maxDispersionScore) {
+      this.maxDispersionScoreServerSet.add(primaryRS);
+    }
+    if (dispersionNum > this.maxDispersionNum) {
+      this.maxDispersionNumServerSet.clear();
+      this.maxDispersionNumServerSet.add(primaryRS);
+      this.maxDispersionNum=dispersionNum;
+    }
+ else     if (dispersionNum == this.maxDispersionNum) {
+      this.maxDispersionNumServerSet.add(primaryRS);
+    }
+    if (dispersionScore < this.minDispersionScore) {
+      this.minDispersionScoreServerSet.clear();
+      this.minDispersionScoreServerSet.add(primaryRS);
+      this.minDispersionScore=dispersionScore;
+    }
+ else     if (dispersionScore == this.minDispersionScore) {
+      this.minDispersionScoreServerSet.add(primaryRS);
+    }
+    if (dispersionNum < this.minDispersionNum) {
+      this.minDispersionNumServerSet.clear();
+      this.minDispersionNumServerSet.add(primaryRS);
+      this.minDispersionNum=dispersionNum;
+    }
+ else     if (dispersionNum == this.minDispersionNum) {
+      this.minDispersionNumServerSet.add(primaryRS);
+    }
+    dispersionScoreSummary+=dispersionScore;
+    dispersionNumSummary+=dispersionNum;
+  }
+  if (primaryRSToRegionCounterMap.keySet().size() != 0) {
+    this.avgDispersionScore=dispersionScoreSummary / (float)primaryRSToRegionCounterMap.keySet().size();
+    this.avgDispersionNum=dispersionNumSummary / (float)primaryRSToRegionCounterMap.keySet().size();
+  }
+  for (  Map.Entry<ServerName,Integer> entry : serverToHostingRegionCounterMap.entrySet()) {
+    ServerName currentRS=entry.getKey();
+    int hostRegionCounter=entry.getValue().intValue();
+    if (hostRegionCounter > this.maxRegionsOnRS) {
+      maxRegionsOnRS=hostRegionCounter;
+      this.mostLoadedRSSet.clear();
+      this.mostLoadedRSSet.add(currentRS);
+    }
+ else     if (hostRegionCounter == this.maxRegionsOnRS) {
+      this.mostLoadedRSSet.add(currentRS);
+    }
+    if (hostRegionCounter < this.minRegionsOnRS) {
+      this.minRegionsOnRS=hostRegionCounter;
+      this.leastLoadedRSSet.clear();
+      this.leastLoadedRSSet.add(currentRS);
+    }
+ else     if (hostRegionCounter == this.minRegionsOnRS) {
+      this.leastLoadedRSSet.add(currentRS);
+    }
+  }
+  this.totalRegionServers=serverToHostingRegionCounterMap.keySet().size();
+  this.avgRegionsOnRS=(totalRegionServers == 0) ? 0 : (totalRegions / (float)totalRegionServers);
+  isFilledUp=true;
+}

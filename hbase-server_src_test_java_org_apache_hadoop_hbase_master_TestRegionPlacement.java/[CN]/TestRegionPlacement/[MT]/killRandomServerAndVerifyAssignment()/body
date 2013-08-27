@@ -1,0 +1,41 @@
+{
+  ClusterStatus oldStatus=TEST_UTIL.getHBaseCluster().getClusterStatus();
+  ServerName servers[]=oldStatus.getServers().toArray(new ServerName[10]);
+  ServerName serverToKill=null;
+  int killIndex=0;
+  Random random=new Random(System.currentTimeMillis());
+  ServerName metaServer=TEST_UTIL.getHBaseCluster().getServerHoldingMeta();
+  LOG.debug("Server holding meta " + metaServer);
+  do {
+    killIndex=random.nextInt(servers.length);
+    serverToKill=TEST_UTIL.getHBaseCluster().getRegionServer(killIndex).getServerName();
+  }
+ while (ServerName.isSameHostnameAndPort(metaServer,serverToKill) || TEST_UTIL.getHBaseCluster().getRegionServer(killIndex).getNumberOfOnlineRegions() == 0);
+  LOG.debug("Stopping RS " + serverToKill);
+  Map<HRegionInfo,Pair<ServerName,ServerName>> regionsToVerify=new HashMap<HRegionInfo,Pair<ServerName,ServerName>>();
+  for (  Map.Entry<HRegionInfo,ServerName[]> entry : favoredNodesAssignmentPlan.entrySet()) {
+    ServerName s=entry.getValue()[0];
+    if (ServerName.isSameHostnameAndPort(s,serverToKill)) {
+      regionsToVerify.put(entry.getKey(),new Pair<ServerName,ServerName>(entry.getValue()[1],entry.getValue()[2]));
+      LOG.debug("Adding " + entry.getKey() + " with sedcondary/tertiary "+ entry.getValue()[1]+ " "+ entry.getValue()[2]);
+    }
+  }
+  int orig=TEST_UTIL.getHBaseCluster().getMaster().assignmentManager.getNumRegionsOpened();
+  TEST_UTIL.getHBaseCluster().stopRegionServer(serverToKill);
+  TEST_UTIL.getHBaseCluster().waitForRegionServerToStop(serverToKill,60000);
+  int curr=TEST_UTIL.getHBaseCluster().getMaster().assignmentManager.getNumRegionsOpened();
+  while (curr - orig < regionsToVerify.size()) {
+    LOG.debug("Waiting for " + regionsToVerify.size() + " to come online "+ " Current #regions "+ curr+ " Original #regions "+ orig);
+    Thread.sleep(200);
+    curr=TEST_UTIL.getHBaseCluster().getMaster().assignmentManager.getNumRegionsOpened();
+  }
+  for (  Map.Entry<HRegionInfo,Pair<ServerName,ServerName>> entry : regionsToVerify.entrySet()) {
+    ServerName newDestination=TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionStates().getRegionServerOfRegion(entry.getKey());
+    Pair<ServerName,ServerName> secondaryTertiaryServers=entry.getValue();
+    LOG.debug("New destination for region " + entry.getKey().getEncodedName() + " "+ newDestination+ ". Secondary/Tertiary are "+ secondaryTertiaryServers.getFirst()+ "/"+ secondaryTertiaryServers.getSecond());
+    if (!(ServerName.isSameHostnameAndPort(newDestination,secondaryTertiaryServers.getFirst()) || ServerName.isSameHostnameAndPort(newDestination,secondaryTertiaryServers.getSecond()))) {
+      fail("Region " + entry.getKey() + " not present on any of the expected servers");
+    }
+  }
+  TEST_UTIL.getHBaseCluster().startRegionServer();
+}

@@ -1,0 +1,41 @@
+{
+  LOG.info("Start to update the region servers with the new assignment plan");
+  Map<ServerName,List<HRegionInfo>> currentAssignment=this.getRegionAssignmentSnapshot().getRegionServerToRegionMap();
+  HConnection connection=this.getHBaseAdmin().getConnection();
+  int succeededNum=0;
+  Map<ServerName,Exception> failedUpdateMap=new HashMap<ServerName,Exception>();
+  for (  Map.Entry<ServerName,List<HRegionInfo>> entry : currentAssignment.entrySet()) {
+    List<Pair<HRegionInfo,List<ServerName>>> regionUpdateInfos=new ArrayList<Pair<HRegionInfo,List<ServerName>>>();
+    try {
+      FavoredNodesPlan singleServerPlan=null;
+      for (      HRegionInfo region : entry.getValue()) {
+        List<ServerName> favoredServerList=plan.getFavoredNodes(region);
+        if (favoredServerList != null && favoredServerList.size() == FavoredNodeAssignmentHelper.FAVORED_NODES_NUM) {
+          if (singleServerPlan == null) {
+            singleServerPlan=new FavoredNodesPlan();
+          }
+          singleServerPlan.updateAssignmentPlan(region,favoredServerList);
+        }
+        regionUpdateInfos.add(new Pair<HRegionInfo,List<ServerName>>(region,favoredServerList));
+      }
+      if (singleServerPlan != null) {
+        BlockingInterface currentRegionServer=connection.getAdmin(entry.getKey());
+        UpdateFavoredNodesRequest request=RequestConverter.buildUpdateFavoredNodesRequest(regionUpdateInfos);
+        UpdateFavoredNodesResponse updateFavoredNodesResponse=currentRegionServer.updateFavoredNodes(null,request);
+        LOG.info("Region server " + ProtobufUtil.getServerInfo(currentRegionServer).getServerName() + " has updated "+ updateFavoredNodesResponse.getResponse()+ " / "+ singleServerPlan.getAssignmentMap().size()+ " regions with the assignment plan");
+        succeededNum++;
+      }
+    }
+ catch (    Exception e) {
+      failedUpdateMap.put(entry.getKey(),e);
+    }
+  }
+  LOG.info("Updated " + succeededNum + " region servers with "+ "the new assignment plan");
+  int failedNum=failedUpdateMap.size();
+  if (failedNum != 0) {
+    LOG.error("Failed to update the following + " + failedNum + " region servers with its corresponding favored nodes");
+    for (    Map.Entry<ServerName,Exception> entry : failedUpdateMap.entrySet()) {
+      LOG.error("Failed to update " + entry.getKey().getHostAndPort() + " because of "+ entry.getValue().getMessage());
+    }
+  }
+}

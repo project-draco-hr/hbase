@@ -1,0 +1,32 @@
+{
+  LOG.info("Start to scan the META for the current region assignment " + "snappshot");
+  Visitor v=new Visitor(){
+    @Override public boolean visit(    Result result) throws IOException {
+      try {
+        if (result == null || result.isEmpty())         return true;
+        Pair<HRegionInfo,ServerName> regionAndServer=HRegionInfo.getHRegionInfoAndServerName(result);
+        HRegionInfo hri=regionAndServer.getFirst();
+        if (hri == null)         return true;
+        if (hri.getTableName() == null)         return true;
+        if (disabledTables.contains(hri.getTableName())) {
+          return true;
+        }
+        if (excludeOfflinedSplitParents && hri.isSplit())         return true;
+        addAssignment(hri,regionAndServer.getSecond());
+        addRegion(hri);
+        byte[] favoredNodes=result.getValue(HConstants.CATALOG_FAMILY,FavoredNodeAssignmentHelper.FAVOREDNODES_QUALIFIER);
+        if (favoredNodes == null)         return true;
+        ServerName[] favoredServerList=FavoredNodeAssignmentHelper.getFavoredNodesList(favoredNodes);
+        existingAssignmentPlan.updateFavoredNodesMap(hri,Arrays.asList(favoredServerList));
+        return true;
+      }
+ catch (      RuntimeException e) {
+        LOG.error("Catche remote exception " + e.getMessage() + " when processing"+ result);
+        throw e;
+      }
+    }
+  }
+;
+  MetaReader.fullScan(tracker,v);
+  LOG.info("Finished to scan the META for the current region assignment" + "snapshot");
+}

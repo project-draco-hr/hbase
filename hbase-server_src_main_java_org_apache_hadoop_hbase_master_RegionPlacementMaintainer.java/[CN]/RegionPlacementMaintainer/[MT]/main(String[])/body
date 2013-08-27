@@ -1,0 +1,131 @@
+{
+  Options opt=new Options();
+  opt.addOption("w","write",false,"write the assignments to META only");
+  opt.addOption("u","update",false,"update the assignments to META and RegionServers together");
+  opt.addOption("n","dry-run",false,"do not write assignments to META");
+  opt.addOption("v","verify",false,"verify current assignments against META");
+  opt.addOption("p","print",false,"print the current assignment plan in META");
+  opt.addOption("h","help",false,"print usage");
+  opt.addOption("d","verification-details",false,"print the details of verification report");
+  opt.addOption("zk",true,"to set the zookeeper quorum");
+  opt.addOption("fs",true,"to set HDFS");
+  opt.addOption("hbase_root",true,"to set hbase_root directory");
+  opt.addOption("overwrite",false,"overwrite the favored nodes for a single region," + "for example: -update -r regionName -f server1:port,server2:port,server3:port");
+  opt.addOption("r",true,"The region name that needs to be updated");
+  opt.addOption("f",true,"The new favored nodes");
+  opt.addOption("tables",true,"The list of table names splitted by ',' ;" + "For example: -tables: t1,t2,...,tn");
+  opt.addOption("l","locality",true,"enforce the maxium locality");
+  opt.addOption("m","min-move",true,"enforce minium assignment move");
+  opt.addOption("diff",false,"calculate difference between assignment plans");
+  opt.addOption("munkres",false,"use munkres to place secondaries and tertiaries");
+  opt.addOption("ld","locality-dispersion",false,"print locality and dispersion " + "information for current plan");
+  try {
+    Logger.getLogger("org.apache.zookeeper").setLevel(Level.ERROR);
+    Logger.getLogger("org.apache.hadoop.hbase").setLevel(Level.ERROR);
+    Logger.getLogger("org.apache.hadoop.hbase.master.RegionPlacementMaintainer").setLevel(Level.INFO);
+    CommandLine cmd=new GnuParser().parse(opt,args);
+    Configuration conf=HBaseConfiguration.create();
+    boolean enforceMinAssignmentMove=true;
+    boolean enforceLocality=true;
+    boolean verificationDetails=false;
+    if ((cmd.hasOption("l") && cmd.getOptionValue("l").equalsIgnoreCase("false")) || (cmd.hasOption("locality") && cmd.getOptionValue("locality").equalsIgnoreCase("false"))) {
+      enforceLocality=false;
+    }
+    if ((cmd.hasOption("m") && cmd.getOptionValue("m").equalsIgnoreCase("false")) || (cmd.hasOption("min-move") && cmd.getOptionValue("min-move").equalsIgnoreCase("false"))) {
+      enforceMinAssignmentMove=false;
+    }
+    if (cmd.hasOption("zk")) {
+      conf.set(HConstants.ZOOKEEPER_QUORUM,cmd.getOptionValue("zk"));
+      LOG.info("Setting the zk quorum: " + conf.get(HConstants.ZOOKEEPER_QUORUM));
+    }
+    if (cmd.hasOption("fs")) {
+      conf.set(FileSystem.FS_DEFAULT_NAME_KEY,cmd.getOptionValue("fs"));
+      LOG.info("Setting the HDFS: " + conf.get(FileSystem.FS_DEFAULT_NAME_KEY));
+    }
+    if (cmd.hasOption("hbase_root")) {
+      conf.set(HConstants.HBASE_DIR,cmd.getOptionValue("hbase_root"));
+      LOG.info("Setting the hbase root directory: " + conf.get(HConstants.HBASE_DIR));
+    }
+    RegionPlacementMaintainer rp=new RegionPlacementMaintainer(conf,enforceLocality,enforceMinAssignmentMove);
+    if (cmd.hasOption("d") || cmd.hasOption("verification-details")) {
+      verificationDetails=true;
+    }
+    if (cmd.hasOption("tables")) {
+      String tableNameListStr=cmd.getOptionValue("tables");
+      String[] tableNames=StringUtils.split(tableNameListStr,",");
+      rp.setTargetTableName(tableNames);
+    }
+    if (cmd.hasOption("munkres")) {
+      USE_MUNKRES_FOR_PLACING_SECONDARY_AND_TERTIARY=true;
+    }
+    if (cmd.hasOption("v") || cmd.hasOption("verify")) {
+      rp.verifyRegionPlacement(verificationDetails);
+    }
+ else     if (cmd.hasOption("n") || cmd.hasOption("dry-run")) {
+      FavoredNodesPlan plan=rp.getNewAssignmentPlan();
+      printAssignmentPlan(plan);
+    }
+ else     if (cmd.hasOption("w") || cmd.hasOption("write")) {
+      FavoredNodesPlan plan=rp.getNewAssignmentPlan();
+      printAssignmentPlan(plan);
+      rp.updateAssignmentPlanToMeta(plan);
+    }
+ else     if (cmd.hasOption("u") || cmd.hasOption("update")) {
+      FavoredNodesPlan plan=rp.getNewAssignmentPlan();
+      printAssignmentPlan(plan);
+      rp.updateAssignmentPlan(plan);
+    }
+ else     if (cmd.hasOption("diff")) {
+      FavoredNodesPlan newPlan=rp.getNewAssignmentPlan();
+      Map<String,Map<String,Float>> locality=FSUtils.getRegionDegreeLocalityMappingFromFS(conf);
+      Map<TableName,Integer> movesPerTable=rp.getRegionsMovement(newPlan);
+      rp.checkDifferencesWithOldPlan(movesPerTable,locality,newPlan);
+      System.out.println("Do you want to update the assignment plan? [y/n]");
+      Scanner s=new Scanner(System.in);
+      String input=s.nextLine().trim();
+      if (input.equals("y")) {
+        System.out.println("Updating assignment plan...");
+        rp.updateAssignmentPlan(newPlan);
+      }
+      s.close();
+    }
+ else     if (cmd.hasOption("ld")) {
+      Map<String,Map<String,Float>> locality=FSUtils.getRegionDegreeLocalityMappingFromFS(conf);
+      rp.printLocalityAndDispersionForCurrentPlan(locality);
+    }
+ else     if (cmd.hasOption("p") || cmd.hasOption("print")) {
+      FavoredNodesPlan plan=rp.getRegionAssignmentSnapshot().getExistingAssignmentPlan();
+      printAssignmentPlan(plan);
+    }
+ else     if (cmd.hasOption("overwrite")) {
+      if (!cmd.hasOption("f") || !cmd.hasOption("r")) {
+        throw new IllegalArgumentException("Please specify: " + " -update -r regionName -f server1:port,server2:port,server3:port");
+      }
+      String regionName=cmd.getOptionValue("r");
+      String favoredNodesStr=cmd.getOptionValue("f");
+      LOG.info("Going to update the region " + regionName + " with the new favored nodes "+ favoredNodesStr);
+      List<ServerName> favoredNodes=null;
+      HRegionInfo regionInfo=rp.getRegionAssignmentSnapshot().getRegionNameToRegionInfoMap().get(regionName);
+      if (regionInfo == null) {
+        LOG.error("Cannot find the region " + regionName + " from the META");
+      }
+ else {
+        try {
+          favoredNodes=getFavoredNodeList(favoredNodesStr);
+        }
+ catch (        IllegalArgumentException e) {
+          LOG.error("Cannot parse the invalid favored nodes because " + e);
+        }
+        FavoredNodesPlan newPlan=new FavoredNodesPlan();
+        newPlan.updateAssignmentPlan(regionInfo,favoredNodes);
+        rp.updateAssignmentPlan(newPlan);
+      }
+    }
+ else {
+      printHelp(opt);
+    }
+  }
+ catch (  ParseException e) {
+    printHelp(opt);
+  }
+}

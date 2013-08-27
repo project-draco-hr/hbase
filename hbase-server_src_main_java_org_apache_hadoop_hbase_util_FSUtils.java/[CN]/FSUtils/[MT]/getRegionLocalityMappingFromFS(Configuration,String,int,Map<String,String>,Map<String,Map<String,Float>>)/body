@@ -1,0 +1,74 @@
+{
+  FileSystem fs=FileSystem.get(conf);
+  Path rootPath=FSUtils.getRootDir(conf);
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
+  Path queryPath;
+  if (null == desiredTable) {
+    queryPath=new Path(new Path(rootPath,HConstants.BASE_NAMESPACE_DIR),"/*/*/");
+  }
+ else {
+    queryPath=new Path(FSUtils.getTableDir(rootPath,TableName.valueOf(desiredTable)),"/*/");
+  }
+  PathFilter pathFilter=new PathFilter(){
+    @Override public boolean accept(    Path path){
+      if (null == path) {
+        return false;
+      }
+      Path parent=path.getParent();
+      if (null == parent) {
+        return false;
+      }
+      if (!parent.getName().equals(TableName.META_TABLE_NAME.getQualifierAsString())) {
+        return false;
+      }
+      String regionName=path.getName();
+      if (null == regionName) {
+        return false;
+      }
+      if (!regionName.toLowerCase().matches("[0-9a-f]+")) {
+        return false;
+      }
+      return true;
+    }
+  }
+;
+  FileStatus[] statusList=fs.globStatus(queryPath,pathFilter);
+  if (null == statusList) {
+    return;
+  }
+ else {
+    LOG.debug("Query Path: " + queryPath + " ; # list of files: "+ statusList.length);
+  }
+  threadPoolSize=Math.min(threadPoolSize,statusList.length);
+  ThreadPoolExecutor tpe=new ThreadPoolExecutor(threadPoolSize,threadPoolSize,60,TimeUnit.SECONDS,new ArrayBlockingQueue<Runnable>(statusList.length));
+  try {
+    for (    FileStatus regionStatus : statusList) {
+      if (null == regionStatus) {
+        continue;
+      }
+      if (!regionStatus.isDir()) {
+        continue;
+      }
+      Path regionPath=regionStatus.getPath();
+      if (null == regionPath) {
+        continue;
+      }
+      tpe.execute(new FSRegionScanner(fs,regionPath,regionToBestLocalityRSMapping,regionDegreeLocalityMapping));
+    }
+  }
+  finally {
+    tpe.shutdown();
+    int threadWakeFrequency=conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,60 * 1000);
+    try {
+      while (!tpe.awaitTermination(threadWakeFrequency,TimeUnit.MILLISECONDS)) {
+        LOG.info("Locality checking is underway: { Scanned Regions : " + tpe.getCompletedTaskCount() + "/"+ tpe.getTaskCount()+ " }");
+      }
+    }
+ catch (    InterruptedException e) {
+      throw new IOException(e);
+    }
+  }
+  long overhead=EnvironmentEdgeManager.currentTimeMillis() - startTime;
+  String overheadMsg="Scan DFS for locality info takes " + overhead + " ms";
+  LOG.info(overheadMsg);
+}
