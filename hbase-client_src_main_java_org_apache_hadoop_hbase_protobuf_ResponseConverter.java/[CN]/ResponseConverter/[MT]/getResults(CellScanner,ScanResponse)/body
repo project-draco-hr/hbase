@@ -1,27 +1,30 @@
 {
-  if (response == null || cellScanner == null)   return null;
-  ResultCellMeta resultCellMeta=response.getResultCellMeta();
-  if (resultCellMeta == null)   return null;
-  int noOfResults=resultCellMeta.getCellsLengthCount();
+  if (response == null)   return null;
+  int noOfResults=cellScanner != null ? response.getCellsPerResultCount() : response.getResultsCount();
   Result[] results=new Result[noOfResults];
   for (int i=0; i < noOfResults; i++) {
-    int noOfCells=resultCellMeta.getCellsLength(i);
-    List<Cell> cells=new ArrayList<Cell>(noOfCells);
-    for (int j=0; j < noOfCells; j++) {
-      try {
-        if (cellScanner.advance() == false) {
-          String msg="Results sent from server=" + noOfResults + ". But only got "+ i+ " results completely at client. Resetting the scanner to scan again.";
-          LOG.error(msg);
-          throw new DoNotRetryIOException(msg);
+    if (cellScanner != null) {
+      int noOfCells=response.getCellsPerResult(i);
+      List<Cell> cells=new ArrayList<Cell>(noOfCells);
+      for (int j=0; j < noOfCells; j++) {
+        try {
+          if (cellScanner.advance() == false) {
+            String msg="Results sent from server=" + noOfResults + ". But only got "+ i+ " results completely at client. Resetting the scanner to scan again.";
+            LOG.error(msg);
+            throw new DoNotRetryIOException(msg);
+          }
         }
+ catch (        IOException ioe) {
+          LOG.error("Exception while reading cells from result." + "Resetting the scanner to scan again.",ioe);
+          throw new DoNotRetryIOException("Resetting the scanner.",ioe);
+        }
+        cells.add(cellScanner.current());
       }
- catch (      IOException ioe) {
-        LOG.error("Exception while reading cells from result." + "Resetting the scanner to scan again.",ioe);
-        throw new DoNotRetryIOException("Resetting the scanner.",ioe);
-      }
-      cells.add(cellScanner.current());
+      results[i]=new Result(cells);
     }
-    results[i]=new Result(cells);
+ else {
+      results[i]=ProtobufUtil.toResult(response.getResults(i));
+    }
   }
   return results;
 }

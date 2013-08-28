@@ -7,10 +7,17 @@
     for (    Action<R> action : actions) {
       Row row=action.getAction();
       if (row instanceof RowMutations) {
+        RowMutations rms=(RowMutations)row;
+        List<CellScannable> cells=null;
+        MultiRequest multiRequest;
         try {
-          RowMutations rms=(RowMutations)row;
-          List<CellScannable> cells=new ArrayList<CellScannable>(rms.getMutations().size());
-          MultiRequest multiRequest=RequestConverter.buildNoDataMultiRequest(regionName,rms,cells);
+          if (this.cellBlock) {
+            cells=new ArrayList<CellScannable>(rms.getMutations().size());
+            multiRequest=RequestConverter.buildNoDataMultiRequest(regionName,rms,cells);
+          }
+ else {
+            multiRequest=RequestConverter.buildMultiRequest(regionName,rms);
+          }
           getStub().multi(new PayloadCarryingRpcController(cells),multiRequest);
           response.add(regionName,action.getOriginalIndex(),Result.EMPTY_RESULT);
         }
@@ -23,9 +30,16 @@
     if (actions.size() > rowMutations) {
       Exception ex=null;
       List<Object> results=null;
-      List<CellScannable> cells=new ArrayList<CellScannable>(actions.size() - rowMutations);
+      List<CellScannable> cells=null;
+      MultiRequest multiRequest;
       try {
-        MultiRequest multiRequest=RequestConverter.buildNoDataMultiRequest(regionName,actions,cells);
+        if (isCellBlock()) {
+          cells=new ArrayList<CellScannable>(actions.size() - rowMutations);
+          multiRequest=RequestConverter.buildNoDataMultiRequest(regionName,actions,cells);
+        }
+ else {
+          multiRequest=RequestConverter.buildMultiRequest(regionName,actions);
+        }
         PayloadCarryingRpcController controller=new PayloadCarryingRpcController(cells);
         ClientProtos.MultiResponse responseProto=getStub().multi(controller,multiRequest);
         results=ResponseConverter.getResults(responseProto,controller.cellScanner());
