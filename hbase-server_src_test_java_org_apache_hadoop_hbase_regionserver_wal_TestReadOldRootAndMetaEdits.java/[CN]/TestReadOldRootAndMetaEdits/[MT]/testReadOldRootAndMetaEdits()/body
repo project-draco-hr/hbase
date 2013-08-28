@@ -1,0 +1,44 @@
+{
+  LOG.debug("testReadOldRootAndMetaEdits");
+  Configuration conf=HBaseConfiguration.create();
+  conf.setClass("hbase.regionserver.hlog.writer.impl",SequenceFileLogWriter.class,HLog.Writer.class);
+  byte[] row=Bytes.toBytes("row");
+  KeyValue kv=new KeyValue(row,row,row,row);
+  List<KeyValue> kvs=new ArrayList<KeyValue>();
+  kvs.add(kv);
+  HLog.Writer writer=null;
+  HLog.Reader reader=null;
+  TableName t=TableName.valueOf("t");
+  HRegionInfo tRegionInfo=null;
+  int logCount=0;
+  long timestamp=System.currentTimeMillis();
+  Path path=new Path(dir,"t");
+  try {
+    tRegionInfo=new HRegionInfo(t,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    HLog.Entry tEntry=createAEntry(new HLogKey(tRegionInfo.getEncodedNameAsBytes(),t,++logCount,timestamp,HConstants.DEFAULT_CLUSTER_ID),kvs);
+    HLog.Entry rootEntry=createAEntry(new HLogKey(Bytes.toBytes(TableName.OLD_ROOT_STR),TableName.OLD_ROOT_TABLE_NAME,++logCount,timestamp,HConstants.DEFAULT_CLUSTER_ID),kvs);
+    HLog.Entry oldMetaEntry=createAEntry(new HLogKey(Bytes.toBytes(TableName.OLD_META_STR),TableName.OLD_META_TABLE_NAME,++logCount,timestamp,HConstants.DEFAULT_CLUSTER_ID),kvs);
+    writer=HLogFactory.createWriter(fs,path,conf);
+    writer.append(tEntry);
+    writer.append(rootEntry);
+    writer.append(oldMetaEntry);
+    writer.sync();
+    writer.close();
+    reader=HLogFactory.createReader(fs,path,conf);
+    HLog.Entry entry=reader.next();
+    assertNotNull(entry);
+    assertTrue(entry.getKey().getTablename().equals(t));
+    assertEquals(Bytes.toString(entry.getKey().getEncodedRegionName()),Bytes.toString(tRegionInfo.getEncodedNameAsBytes()));
+    entry=reader.next();
+    assertEquals(entry.getKey().getTablename(),TableName.META_TABLE_NAME);
+    assertNull(reader.next());
+  }
+  finally {
+    if (writer != null) {
+      writer.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+  }
+}
