@@ -1,0 +1,31 @@
+{
+  LOG.info("testCyclicReplication1");
+  int numClusters=3;
+  HTable[] htables=null;
+  try {
+    startMiniClusters(numClusters);
+    createTableOnClusters(table);
+    addPeer("1",0,1);
+    addPeer("1",1,2);
+    addPeer("1",2,0);
+    htables=getHTablesOnClusters(tableName);
+    putAndWait(row,famName,htables[0],htables[2]);
+    putAndWait(row1,famName,htables[1],htables[0]);
+    putAndWait(row2,famName,htables[2],htables[1]);
+    deleteAndWait(row,htables[0],htables[2]);
+    deleteAndWait(row1,htables[1],htables[0]);
+    deleteAndWait(row2,htables[2],htables[1]);
+    int[] expectedCounts=new int[]{3,3,3};
+    validateCounts(htables,put,expectedCounts);
+    validateCounts(htables,delete,expectedCounts);
+    disablePeer("1",2);
+    putAndWait(row3,famName,htables[0],htables[1]);
+    htables[1].put(new Put(row4).add(famName,row4,row4));
+    enablePeer("1",2);
+    wait(row4,htables[0],true);
+  }
+  finally {
+    close(htables);
+    shutDownMiniClusters();
+  }
+}
