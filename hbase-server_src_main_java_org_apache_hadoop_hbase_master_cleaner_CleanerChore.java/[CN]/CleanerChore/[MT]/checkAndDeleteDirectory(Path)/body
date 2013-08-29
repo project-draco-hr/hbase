@@ -1,39 +1,24 @@
 {
   if (LOG.isTraceEnabled()) {
-    LOG.trace("Checking directory: " + toCheck);
+    LOG.trace("Checking directory: " + dir);
   }
-  FileStatus[] children=FSUtils.listStatus(fs,toCheck);
-  if (children == null) {
-    try {
-      return fs.delete(toCheck,false);
-    }
- catch (    IOException e) {
-      if (LOG.isTraceEnabled()) {
-        LOG.trace("Couldn't delete directory: " + toCheck,e);
-      }
-    }
+  try {
+    FileStatus[] children=FSUtils.listStatus(fs,dir);
+    boolean allChildrenDeleted=checkAndDeleteEntries(children);
+    if (!allChildrenDeleted)     return false;
+  }
+ catch (  IOException e) {
+    e=RemoteExceptionHandler.checkIOException(e);
+    LOG.warn("Error while listing directory: " + dir,e);
     return false;
   }
-  boolean canDeleteThis=true;
-  for (  FileStatus child : children) {
-    Path path=child.getPath();
-    if (child.isDir()) {
-      if (!checkAndDeleteDirectory(path)) {
-        canDeleteThis=false;
-      }
-    }
- else     if (!checkAndDelete(child)) {
-      canDeleteThis=false;
-    }
-  }
-  if (!canDeleteThis)   return false;
   try {
-    return fs.delete(toCheck,false);
+    return fs.delete(dir,false);
   }
  catch (  IOException e) {
     if (LOG.isTraceEnabled()) {
-      LOG.trace("Couldn't delete directory: " + toCheck,e);
+      LOG.trace("Couldn't delete directory: " + dir,e);
     }
+    return false;
   }
-  return false;
 }

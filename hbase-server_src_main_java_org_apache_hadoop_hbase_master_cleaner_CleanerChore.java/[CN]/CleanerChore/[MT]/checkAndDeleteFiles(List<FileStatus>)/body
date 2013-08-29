@@ -1,0 +1,52 @@
+{
+  List<FileStatus> validFiles=Lists.newArrayListWithCapacity(files.size());
+  List<FileStatus> invalidFiles=Lists.newArrayList();
+  for (  FileStatus file : files) {
+    if (validate(file.getPath())) {
+      validFiles.add(file);
+    }
+ else {
+      LOG.warn("Found a wrongly formatted file: " + file.getPath() + " - will delete it.");
+      invalidFiles.add(file);
+    }
+  }
+  Iterable<FileStatus> deletableValidFiles=validFiles;
+  for (  T cleaner : cleanersChain) {
+    if (cleaner.isStopped() || this.stopper.isStopped()) {
+      LOG.warn("A file cleaner" + this.getName() + " is stopped, won't delete any more files in:"+ this.oldFileDir);
+      return false;
+    }
+    Iterable<FileStatus> filteredFiles=cleaner.getDeletableFiles(deletableValidFiles);
+    if (LOG.isTraceEnabled()) {
+      ImmutableSet<FileStatus> filteredFileSet=ImmutableSet.copyOf(filteredFiles);
+      for (      FileStatus file : deletableValidFiles) {
+        if (!filteredFileSet.contains(file)) {
+          LOG.trace(file.getPath() + " is not deletable according to:" + cleaner);
+        }
+      }
+    }
+    deletableValidFiles=filteredFiles;
+  }
+  Iterable<FileStatus> filesToDelete=Iterables.concat(invalidFiles,deletableValidFiles);
+  int deletedFileCount=0;
+  for (  FileStatus file : filesToDelete) {
+    Path filePath=file.getPath();
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Removing: " + filePath + " from archive");
+    }
+    try {
+      boolean success=this.fs.delete(filePath,false);
+      if (success) {
+        deletedFileCount++;
+      }
+ else {
+        LOG.warn("Attempted to delete:" + filePath + ", but couldn't. Run cleaner chain and attempt to delete on next pass.");
+      }
+    }
+ catch (    IOException e) {
+      e=RemoteExceptionHandler.checkIOException(e);
+      LOG.warn("Error while deleting: " + filePath,e);
+    }
+  }
+  return deletedFileCount == files.size();
+}
