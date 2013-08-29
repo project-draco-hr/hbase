@@ -1,0 +1,24 @@
+{
+  String userName=effectiveUser.get();
+  ConnectionInfo connInfo=connections.get(userName);
+  if (connInfo == null || !connInfo.updateAccessTime()) {
+    Lock lock=locker.acquireLock(userName);
+    try {
+      connInfo=connections.get(userName);
+      if (connInfo == null) {
+        UserGroupInformation ugi=realUser;
+        if (!userName.equals(NULL_USERNAME)) {
+          ugi=UserGroupInformation.createProxyUser(userName,realUser);
+        }
+        User user=User.create(ugi);
+        HConnection conn=HConnectionManager.createConnection(conf,user);
+        connInfo=new ConnectionInfo(conn,userName);
+        connections.put(userName,connInfo);
+      }
+    }
+  finally {
+      lock.unlock();
+    }
+  }
+  return connInfo;
+}
