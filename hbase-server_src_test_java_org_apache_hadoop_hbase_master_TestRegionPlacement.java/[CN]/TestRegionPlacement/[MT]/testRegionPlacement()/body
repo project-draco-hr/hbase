@@ -1,5 +1,6 @@
 {
-  byte[] table=Bytes.toBytes("testRegionAssignment");
+  String tableStr="testRegionAssignment";
+  byte[] table=Bytes.toBytes(tableStr);
   createTable(table,REGION_NUM);
   TEST_UTIL.waitTableAvailable(table);
   verifyRegionOnPrimaryRS(REGION_NUM);
@@ -11,6 +12,24 @@
   shuffledPlan=this.shuffleAssignmentPlan(currentPlan,FavoredNodesPlan.Position.PRIMARY,FavoredNodesPlan.Position.SECONDARY);
   rp.updateAssignmentPlan(shuffledPlan);
   verifyRegionAssignment(shuffledPlan,REGION_NUM,REGION_NUM);
+  RegionPlacementMaintainer rp=new RegionPlacementMaintainer(TEST_UTIL.getConfiguration());
+  rp.setTargetTableName(new String[]{tableStr});
+  List<AssignmentVerificationReport> reports=rp.verifyRegionPlacement(false);
+  AssignmentVerificationReport report=reports.get(0);
+  assertTrue(report.getRegionsWithoutValidFavoredNodes().size() == 0);
+  assertTrue(report.getNonFavoredAssignedRegions().size() == 0);
+  assertTrue(report.getTotalFavoredAssignments() >= REGION_NUM);
+  assertTrue(report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.PRIMARY) != 0);
+  assertTrue(report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.SECONDARY) == 0);
+  assertTrue(report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.TERTIARY) == 0);
+  assertTrue(report.getUnassignedRegions().size() == 0);
   killRandomServerAndVerifyAssignment();
+  reports=rp.verifyRegionPlacement(false);
+  report=reports.get(0);
+  assertTrue(report.getRegionsWithoutValidFavoredNodes().size() == 0);
+  assertTrue(report.getNonFavoredAssignedRegions().size() == 0);
+  assertTrue(report.getTotalFavoredAssignments() >= REGION_NUM);
+  assertTrue(report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.PRIMARY) > 0 && (report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.SECONDARY) > 0 || report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.TERTIARY) > 0));
+  assertTrue((report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.PRIMARY) + report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.SECONDARY) + report.getNumRegionsOnFavoredNodeByPosition(FavoredNodesPlan.Position.TERTIARY)) == REGION_NUM);
   RegionPlacementMaintainer.printAssignmentPlan(currentPlan);
 }
