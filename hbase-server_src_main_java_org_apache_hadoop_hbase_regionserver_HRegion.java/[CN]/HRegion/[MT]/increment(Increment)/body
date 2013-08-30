@@ -31,23 +31,21 @@
             get.addColumn(family.getKey(),kv.getQualifier());
           }
           get.setTimeRange(tr.getMin(),tr.getMax());
-          List<KeyValue> results=get(get,false);
+          List<Cell> results=get(get,false);
           int idx=0;
-          for (          Cell cell : family.getValue()) {
-            KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
-            long amount=Bytes.toLong(kv.getValue());
-            byte[] qualifier=kv.getQualifier();
-            if (idx < results.size() && results.get(idx).matchingQualifier(qualifier)) {
-              kv=results.get(idx);
-              if (kv.getValueLength() == Bytes.SIZEOF_LONG) {
-                amount+=Bytes.toLong(kv.getBuffer(),kv.getValueOffset(),Bytes.SIZEOF_LONG);
+          for (          Cell kv : family.getValue()) {
+            long amount=Bytes.toLong(CellUtil.getValueArray(kv));
+            if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),kv)) {
+              Cell c=results.get(idx);
+              if (c.getValueLength() == Bytes.SIZEOF_LONG) {
+                amount+=Bytes.toLong(c.getValueArray(),c.getValueOffset(),Bytes.SIZEOF_LONG);
               }
  else {
                 throw new org.apache.hadoop.hbase.DoNotRetryIOException("Attempted to increment field that isn't 64 bits wide");
               }
               idx++;
             }
-            KeyValue newKV=new KeyValue(row,family.getKey(),qualifier,now,Bytes.toBytes(amount));
+            KeyValue newKV=new KeyValue(row,family.getKey(),CellUtil.getQualifierArray(kv),now,Bytes.toBytes(amount));
             newKV.setMvccVersion(w.getWriteNumber());
             kvs.add(newKV);
             if (writeToWAL) {

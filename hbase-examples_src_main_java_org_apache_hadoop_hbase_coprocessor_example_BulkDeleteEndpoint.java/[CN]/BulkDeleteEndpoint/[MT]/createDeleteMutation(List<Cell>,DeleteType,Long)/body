@@ -1,0 +1,49 @@
+{
+  long ts;
+  if (timestamp == null) {
+    ts=HConstants.LATEST_TIMESTAMP;
+  }
+ else {
+    ts=timestamp;
+  }
+  byte[] row=CellUtil.getRowArray(deleteRow.get(0));
+  Delete delete=new Delete(row,ts);
+  if (deleteType == DeleteType.FAMILY) {
+    Set<byte[]> families=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+    for (    Cell kv : deleteRow) {
+      if (families.add(CellUtil.getFamilyArray(kv))) {
+        delete.deleteFamily(CellUtil.getFamilyArray(kv),ts);
+      }
+    }
+  }
+ else   if (deleteType == DeleteType.COLUMN) {
+    Set<Column> columns=new HashSet<Column>();
+    for (    Cell kv : deleteRow) {
+      Column column=new Column(CellUtil.getFamilyArray(kv),CellUtil.getQualifierArray(kv));
+      if (columns.add(column)) {
+        delete.deleteColumns(column.family,column.qualifier,ts);
+      }
+    }
+  }
+ else   if (deleteType == DeleteType.VERSION) {
+    int noOfVersionsToDelete=0;
+    if (timestamp == null) {
+      for (      Cell kv : deleteRow) {
+        delete.deleteColumn(CellUtil.getFamilyArray(kv),CellUtil.getQualifierArray(kv),kv.getTimestamp());
+        noOfVersionsToDelete++;
+      }
+    }
+ else {
+      Set<Column> columns=new HashSet<Column>();
+      for (      Cell kv : deleteRow) {
+        Column column=new Column(CellUtil.getFamilyArray(kv),CellUtil.getQualifierArray(kv));
+        if (columns.add(column)) {
+          delete.deleteColumn(column.family,column.qualifier,ts);
+          noOfVersionsToDelete++;
+        }
+      }
+    }
+    delete.setAttribute(NO_OF_VERSIONS_TO_DELETE,Bytes.toBytes(noOfVersionsToDelete));
+  }
+  return delete;
+}
