@@ -1,0 +1,35 @@
+{
+  final Server server=new MockServer(HTU);
+  final RegionServerServices rss=HTU.createMockRegionServerService();
+  HTableDescriptor htd=TEST_HTD;
+  final HRegionInfo hri=TEST_HRI;
+  HRegion region=HRegion.createHRegion(hri,HTU.getDataTestDir(),HTU.getConfiguration(),htd);
+  assertNotNull(region);
+  try {
+    OpenRegionHandler handler=new OpenRegionHandler(server,rss,hri,htd){
+      boolean transitionToOpened(      final HRegion r) throws IOException {
+        ZooKeeperWatcher zkw=this.server.getZooKeeper();
+        String node=ZKAssign.getNodeName(zkw,hri.getEncodedName());
+        try {
+          ZKUtil.deleteNodeFailSilent(zkw,node);
+        }
+ catch (        KeeperException e) {
+          throw new RuntimeException("Ugh failed delete of " + node,e);
+        }
+        return super.transitionToOpened(r);
+      }
+    }
+;
+    rss.getRegionsInTransitionInRS().put(hri.getEncodedNameAsBytes(),Boolean.TRUE);
+    handler.process();
+    rss.getRegionsInTransitionInRS().put(hri.getEncodedNameAsBytes(),Boolean.TRUE);
+    ZKAssign.createNodeOffline(server.getZooKeeper(),hri,server.getServerName());
+    handler.process();
+  }
+ catch (  IOException ioe) {
+  }
+ finally {
+    HRegion.closeHRegion(region);
+  }
+  assertTrue("region server should have aborted",rss.isAborted());
+}
