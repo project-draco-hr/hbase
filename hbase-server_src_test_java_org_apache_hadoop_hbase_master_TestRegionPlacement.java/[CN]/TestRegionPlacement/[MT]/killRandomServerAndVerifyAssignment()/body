@@ -6,11 +6,20 @@
   Random random=new Random(System.currentTimeMillis());
   ServerName metaServer=TEST_UTIL.getHBaseCluster().getServerHoldingMeta();
   LOG.debug("Server holding meta " + metaServer);
+  boolean isNamespaceServer=false;
   do {
     killIndex=random.nextInt(servers.length);
     serverToKill=TEST_UTIL.getHBaseCluster().getRegionServer(killIndex).getServerName();
+    Collection<HRegion> regs=TEST_UTIL.getHBaseCluster().getRegionServer(killIndex).getOnlineRegionsLocalContext();
+    isNamespaceServer=false;
+    for (    HRegion r : regs) {
+      if (r.getRegionInfo().getTableName().getNamespaceAsString().equals(NamespaceDescriptor.SYSTEM_NAMESPACE_NAME_STR)) {
+        isNamespaceServer=true;
+        break;
+      }
+    }
   }
- while (ServerName.isSameHostnameAndPort(metaServer,serverToKill) || TEST_UTIL.getHBaseCluster().getRegionServer(killIndex).getNumberOfOnlineRegions() == 0);
+ while (ServerName.isSameHostnameAndPort(metaServer,serverToKill) || isNamespaceServer || TEST_UTIL.getHBaseCluster().getRegionServer(killIndex).getNumberOfOnlineRegions() == 0);
   LOG.debug("Stopping RS " + serverToKill);
   Map<HRegionInfo,Pair<ServerName,ServerName>> regionsToVerify=new HashMap<HRegionInfo,Pair<ServerName,ServerName>>();
   for (  Map.Entry<HRegionInfo,ServerName[]> entry : favoredNodesAssignmentPlan.entrySet()) {
