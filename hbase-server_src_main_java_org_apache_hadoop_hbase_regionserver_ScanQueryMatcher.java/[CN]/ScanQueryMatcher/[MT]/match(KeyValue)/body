@@ -73,29 +73,29 @@ return MatchCode.SKIP;
  else if (timestampComparison <= -1) {
 return columns.getNextRowOrNextColumn(bytes,offset,qualLength);
 }
-MatchCode colChecker=columns.checkColumn(bytes,offset,qualLength,type);
-if (colChecker == MatchCode.INCLUDE) {
 ReturnCode filterResponse=ReturnCode.SKIP;
 if (filter != null) {
 filterResponse=filter.filterKeyValue(kv);
-switch (filterResponse) {
-case SKIP:
+if (filterResponse == ReturnCode.SKIP) {
 return MatchCode.SKIP;
-case NEXT_COL:
+}
+ else if (filterResponse == ReturnCode.NEXT_COL) {
 return columns.getNextRowOrNextColumn(bytes,offset,qualLength);
-case NEXT_ROW:
+}
+ else if (filterResponse == ReturnCode.NEXT_ROW) {
 stickyNextRow=true;
 return MatchCode.SEEK_NEXT_ROW;
-case SEEK_NEXT_USING_HINT:
+}
+ else if (filterResponse == ReturnCode.SEEK_NEXT_USING_HINT) {
 return MatchCode.SEEK_NEXT_USING_HINT;
-default :
-break;
 }
 }
-colChecker=columns.checkVersions(bytes,offset,qualLength,timestamp,type,kv.getMvccVersion() > maxReadPointToTrackVersions);
-stickyNextRow=colChecker == MatchCode.INCLUDE_AND_SEEK_NEXT_ROW ? true : stickyNextRow;
-return (filterResponse == ReturnCode.INCLUDE_AND_NEXT_COL && colChecker == MatchCode.INCLUDE) ? MatchCode.INCLUDE_AND_SEEK_NEXT_COL : colChecker;
+MatchCode colChecker=columns.checkColumn(bytes,offset,qualLength,timestamp,type,kv.getMvccVersion() > maxReadPointToTrackVersions);
+if (colChecker == MatchCode.SEEK_NEXT_ROW) {
+stickyNextRow=true;
 }
-stickyNextRow=(colChecker == MatchCode.SEEK_NEXT_ROW) ? true : stickyNextRow;
+ else if (filter != null && colChecker == MatchCode.INCLUDE && filterResponse == ReturnCode.INCLUDE_AND_NEXT_COL) {
+return MatchCode.INCLUDE_AND_SEEK_NEXT_COL;
+}
 return colChecker;
 }
