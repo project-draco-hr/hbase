@@ -1,0 +1,29 @@
+{
+  MutateRowsResponse response=MutateRowsResponse.getDefaultInstance();
+  try {
+    SortedSet<byte[]> rowsToLock=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+    List<MutationProto> mutateRequestList=request.getMutationRequestList();
+    List<Mutation> mutations=new ArrayList<Mutation>(mutateRequestList.size());
+    for (    MutationProto m : mutateRequestList) {
+      mutations.add(ProtobufUtil.toMutation(m));
+    }
+    HRegionInfo regionInfo=env.getRegion().getRegionInfo();
+    for (    Mutation m : mutations) {
+      if (!HRegion.rowIsInRange(regionInfo,m.getRow())) {
+        String msg="Requested row out of range '" + Bytes.toStringBinary(m.getRow()) + "'";
+        if (rowsToLock.isEmpty()) {
+          throw new WrongRegionException(msg);
+        }
+ else {
+          throw new org.apache.hadoop.hbase.DoNotRetryIOException(msg);
+        }
+      }
+      rowsToLock.add(m.getRow());
+    }
+    env.getRegion().mutateRowsWithLocks(mutations,rowsToLock);
+  }
+ catch (  IOException e) {
+    ResponseConverter.setControllerException(controller,e);
+  }
+  done.run(response);
+}
