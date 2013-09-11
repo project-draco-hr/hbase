@@ -1,25 +1,28 @@
 {
   while (true) {
     long originalPosition=this.inputStream.getPos();
-    if (trailerPresent && originalPosition == this.walEditsStopOffset)     return false;
+    if (trailerPresent && originalPosition > 0 && originalPosition == this.walEditsStopOffset) {
+      return false;
+    }
     WALKey.Builder builder=WALKey.newBuilder();
-    int size=0;
+    long size=0;
     try {
-      int originalAvailable=this.inputStream.available();
+      long available=-1;
       try {
         int firstByte=this.inputStream.read();
         if (firstByte == -1) {
           throw new EOFException("First byte is negative");
         }
         size=CodedInputStream.readRawVarint32(firstByte,this.inputStream);
-        if (this.inputStream.available() < size) {
+        available=this.inputStream.available();
+        if (available > 0 && available < size) {
           throw new EOFException("Available stream not enough for edit, " + "inputStream.available()= " + this.inputStream.available() + ", "+ "entry size= "+ size);
         }
         final InputStream limitedInput=new LimitInputStream(this.inputStream,size);
         builder.mergeFrom(limitedInput);
       }
  catch (      InvalidProtocolBufferException ipbe) {
-        throw (EOFException)new EOFException("Invalid PB, EOF? Ignoring; originalPosition=" + originalPosition + ", currentPosition="+ this.inputStream.getPos()+ ", messageSize="+ size+ ", originalAvailable="+ originalAvailable+ ", currentAvailable="+ this.inputStream.available()).initCause(ipbe);
+        throw (EOFException)new EOFException("Invalid PB, EOF? Ignoring; originalPosition=" + originalPosition + ", currentPosition="+ this.inputStream.getPos()+ ", messageSize="+ size+ ", currentAvailable="+ available).initCause(ipbe);
       }
       if (!builder.isInitialized()) {
         throw new EOFException("Partial PB while reading WAL, " + "probably an unexpected EOF, ignoring");
@@ -57,6 +60,7 @@
     }
  catch (    EOFException eof) {
       LOG.trace("Encountered a malformed edit, seeking back to last good position in file",eof);
+      if (originalPosition < 0)       throw eof;
       seekOnFs(originalPosition);
       return false;
     }
