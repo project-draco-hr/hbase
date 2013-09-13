@@ -1,0 +1,31 @@
+{
+  CallRunner generalTask=createMockTask();
+  CallRunner priorityTask=createMockTask();
+  CallRunner replicationTask=createMockTask();
+  List<CallRunner> tasks=ImmutableList.of(generalTask,priorityTask,replicationTask);
+  Map<CallRunner,Integer> qos=ImmutableMap.of(generalTask,0,priorityTask,HConstants.HIGH_QOS + 1,replicationTask,HConstants.REPLICATION_QOS);
+  PriorityFunction qosFunction=mock(PriorityFunction.class);
+  final Map<CallRunner,Thread> handlerThreads=Maps.newHashMap();
+  Answer<Void> answerToRun=new Answer<Void>(){
+    @Override public Void answer(    InvocationOnMock invocationOnMock) throws Throwable {
+      handlerThreads.put((CallRunner)invocationOnMock.getMock(),Thread.currentThread());
+      return null;
+    }
+  }
+;
+  for (  CallRunner task : tasks) {
+    doAnswer(answerToRun).when(task).run();
+  }
+  RpcScheduler scheduler=new SimpleRpcScheduler(conf,1,1,1,qosFunction,HConstants.HIGH_QOS);
+  scheduler.init(CONTEXT);
+  scheduler.start();
+  for (  CallRunner task : tasks) {
+    when(qosFunction.getPriority((RPCProtos.RequestHeader)anyObject(),(Message)anyObject())).thenReturn(qos.get(task));
+    scheduler.dispatch(task);
+  }
+  for (  CallRunner task : tasks) {
+    verify(task,timeout(1000)).run();
+  }
+  scheduler.stop();
+  assertEquals(3,ImmutableSet.copyOf(handlerThreads.values()).size());
+}
