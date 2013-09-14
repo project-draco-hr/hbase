@@ -1,5 +1,5 @@
 {
-  String table="testCloseFailed";
+  String table="testOpenCloseRacing";
   try {
     HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(table));
     desc.addFamily(new HColumnDescriptor(FAMILY));
@@ -7,23 +7,30 @@
     HTable meta=new HTable(conf,TableName.META_TABLE_NAME);
     HRegionInfo hri=new HRegionInfo(desc.getTableName(),Bytes.toBytes("A"),Bytes.toBytes("Z"));
     MetaEditor.addRegionToMeta(meta,hri);
+    MockRegionObserver.postOpenEnabled.set(true);
+    MockRegionObserver.postOpenCalled=false;
     HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
     master.assignRegion(hri);
+    long end=EnvironmentEdgeManager.currentTimeMillis() + 20000;
+    while (!MockRegionObserver.postOpenCalled) {
+      assertFalse("Timed out waiting for postOpen to be called",EnvironmentEdgeManager.currentTimeMillis() > end);
+      Thread.sleep(300);
+    }
     AssignmentManager am=master.getAssignmentManager();
-    assertTrue(am.waitForAssignment(hri));
-    MockRegionObserver.preCloseEnabled.set(true);
     am.unassign(hri);
     RegionState state=am.getRegionStates().getRegionState(hri);
-    assertEquals(RegionState.State.FAILED_CLOSE,state.getState());
-    MockRegionObserver.preCloseEnabled.set(false);
-    am.unassign(hri,true);
+    ServerName oldServerName=state.getServerName();
+    assertTrue(state.isPendingOpenOrOpening() && oldServerName != null);
+    MockRegionObserver.postOpenEnabled.set(false);
+    am.assign(hri,true,true);
     am.waitOnRegionToClearRegionsInTransition(hri);
     assertTrue(am.waitForAssignment(hri));
     ServerName serverName=master.getAssignmentManager().getRegionStates().getRegionServerOfRegion(hri);
-    TEST_UTIL.assertRegionOnServer(hri,serverName,200);
+    TEST_UTIL.assertRegionOnlyOnServer(hri,serverName,200);
+    assertFalse("Region should assigned on a new region server",oldServerName.equals(serverName));
   }
   finally {
-    MockRegionObserver.preCloseEnabled.set(false);
+    MockRegionObserver.postOpenEnabled.set(false);
     TEST_UTIL.deleteTable(Bytes.toBytes(table));
   }
 }
