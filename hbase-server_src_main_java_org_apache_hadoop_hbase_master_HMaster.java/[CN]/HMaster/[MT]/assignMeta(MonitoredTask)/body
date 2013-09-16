@@ -1,35 +1,34 @@
 {
   int assigned=0;
   long timeout=this.conf.getLong("hbase.catalog.verification.timeout",1000);
-  boolean beingExpired=false;
   status.setStatus("Assigning hbase:meta region");
+  ServerName logReplayFailedMetaServer=null;
   assignmentManager.getRegionStates().createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
   boolean rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
   boolean metaRegionLocation=this.catalogTracker.verifyMetaRegionLocation(timeout);
-  if (!rit && !metaRegionLocation) {
-    ServerName currentMetaServer=this.catalogTracker.getMetaLocation();
-    if (currentMetaServer != null) {
-      beingExpired=expireIfOnline(currentMetaServer);
-    }
-    if (beingExpired) {
-      splitMetaLogBeforeAssignment(currentMetaServer);
-    }
-    assignmentManager.assignMeta();
-    enableSSHandWaitForMeta();
+  if (!metaRegionLocation) {
     assigned++;
-    if (beingExpired && this.distributedLogReplay) {
-      this.fileSystemManager.splitMetaLog(currentMetaServer);
+    if (!rit) {
+      ServerName currentMetaServer=this.catalogTracker.getMetaLocation();
+      if (currentMetaServer != null) {
+        if (expireIfOnline(currentMetaServer)) {
+          splitMetaLogBeforeAssignment(currentMetaServer);
+          if (this.distributedLogReplay) {
+            logReplayFailedMetaServer=currentMetaServer;
+          }
+        }
+      }
+      assignmentManager.assignMeta();
     }
-  }
- else   if (rit && !metaRegionLocation) {
-    enableSSHandWaitForMeta();
-    assigned++;
   }
  else {
     this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,this.catalogTracker.getMetaLocation());
-    enableSSHandWaitForMeta();
   }
   enableMeta(TableName.META_TABLE_NAME);
+  enableServerShutdownHandler(assigned != 0);
+  if (logReplayFailedMetaServer != null) {
+    this.fileSystemManager.splitMetaLog(logReplayFailedMetaServer);
+  }
   LOG.info("hbase:meta assigned=" + assigned + ", rit="+ rit+ ", location="+ catalogTracker.getMetaLocation());
   status.setStatus("META assigned.");
 }

@@ -8,16 +8,21 @@
   boolean failover=(!serverManager.getDeadServers().isEmpty() || !serverManager.getRequeuedDeadServers().isEmpty());
   if (!failover) {
     Map<HRegionInfo,ServerName> regions=regionStates.getRegionAssignments();
-    for (    Map.Entry<HRegionInfo,ServerName> e : regions.entrySet()) {
-      if (!e.getKey().getTable().isSystemTable() && e.getValue() != null) {
-        LOG.debug("Found " + e + " out on cluster");
+    for (    HRegionInfo hri : regions.keySet()) {
+      if (!hri.isMetaTable()) {
+        LOG.debug("Found " + hri + " out on cluster");
         failover=true;
         break;
       }
-      if (nodes.contains(e.getKey().getEncodedName())) {
-        LOG.debug("Found " + e.getKey().getRegionNameAsString() + " in RITs");
-        failover=true;
-        break;
+    }
+    if (!failover) {
+      for (      String encodedName : nodes) {
+        RegionState state=regionStates.getRegionState(encodedName);
+        if (state != null && !state.getRegion().isMetaRegion()) {
+          LOG.debug("Found " + state.getRegion().getRegionNameAsString() + " in RITs");
+          failover=true;
+          break;
+        }
       }
     }
   }
