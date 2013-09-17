@@ -2,13 +2,18 @@
   TEST_UTIL.startMiniCluster();
   REST_TEST_UTIL.startServletContainer(TEST_UTIL.getConfiguration());
   HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
-  if (!admin.tableExists(TABLE)) {
-    HTableDescriptor htd=new HTableDescriptor(TableName.valueOf(TABLE));
-    htd.addFamily(new HColumnDescriptor(COLUMN_1).setMaxVersions(3));
-    htd.addFamily(new HColumnDescriptor(COLUMN_2).setMaxVersions(3));
-    htd.addFamily(new HColumnDescriptor(COLUMN_3).setMaxVersions(3));
-    admin.createTable(htd);
-    HTable table=new HTable(TEST_UTIL.getConfiguration(),TABLE);
+  if (admin.tableExists(TABLE)) {
+    if (admin.isTableEnabled(TABLE))     admin.disableTable(TABLE);
+    admin.deleteTable(TABLE);
+  }
+  HTableDescriptor htd=new HTableDescriptor(TableName.valueOf(TABLE));
+  htd.addFamily(new HColumnDescriptor(COLUMN_1).setMaxVersions(3));
+  htd.addFamily(new HColumnDescriptor(COLUMN_2).setMaxVersions(3));
+  htd.addFamily(new HColumnDescriptor(COLUMN_3).setMaxVersions(3));
+  admin.createTable(htd);
+  HTable table=null;
+  try {
+    table=new HTable(TEST_UTIL.getConfiguration(),TABLE);
     Put put=new Put(ROW_1);
     put.add(COLUMN_1,QUALIFIER_1,TS_2,VALUE_1);
     table.put(put);
@@ -18,6 +23,9 @@
     put.add(COLUMN_2,QUALIFIER_2,TS_2,VALUE_2);
     table.put(put);
     table.flushCommits();
+  }
+  finally {
+    if (null != table)     table.close();
   }
   remoteTable=new RemoteHTable(new Client(new Cluster().add("localhost",REST_TEST_UTIL.getServletPort())),TEST_UTIL.getConfiguration(),TABLE);
 }
