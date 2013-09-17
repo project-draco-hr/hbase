@@ -1,0 +1,49 @@
+{
+  if (server != null && server.getZooKeeper() != null) {
+    try {
+      createNodeSplitting(server.getZooKeeper(),this.parent.getRegionInfo(),server.getServerName());
+    }
+ catch (    KeeperException e) {
+      throw new IOException("Failed creating SPLITTING znode on " + this.parent.getRegionNameAsString(),e);
+    }
+  }
+  this.journal.add(JournalEntry.SET_SPLITTING_IN_ZK);
+  if (server != null && server.getZooKeeper() != null) {
+    try {
+      this.znodeVersion=transitionNodeSplitting(server.getZooKeeper(),this.parent.getRegionInfo(),server.getServerName(),-1);
+    }
+ catch (    KeeperException e) {
+      throw new IOException("Failed setting SPLITTING znode on " + this.parent.getRegionNameAsString(),e);
+    }
+  }
+  this.parent.getRegionFileSystem().createSplitsDir();
+  this.journal.add(JournalEntry.CREATE_SPLIT_DIR);
+  Map<byte[],List<StoreFile>> hstoreFilesToSplit=null;
+  Exception exceptionToThrow=null;
+  try {
+    hstoreFilesToSplit=this.parent.close(false);
+  }
+ catch (  Exception e) {
+    exceptionToThrow=e;
+  }
+  if (exceptionToThrow == null && hstoreFilesToSplit == null) {
+    exceptionToThrow=closedByOtherException;
+  }
+  if (exceptionToThrow != closedByOtherException) {
+    this.journal.add(JournalEntry.CLOSED_PARENT_REGION);
+  }
+  if (exceptionToThrow != null) {
+    if (exceptionToThrow instanceof IOException)     throw (IOException)exceptionToThrow;
+    throw new IOException(exceptionToThrow);
+  }
+  if (!testing) {
+    services.removeFromOnlineRegions(this.parent,null);
+  }
+  this.journal.add(JournalEntry.OFFLINED_PARENT);
+  splitStoreFiles(hstoreFilesToSplit);
+  this.journal.add(JournalEntry.STARTED_REGION_A_CREATION);
+  HRegion a=this.parent.createDaughterRegionFromSplits(this.hri_a);
+  this.journal.add(JournalEntry.STARTED_REGION_B_CREATION);
+  HRegion b=this.parent.createDaughterRegionFromSplits(this.hri_b);
+  return new PairOfSameType<HRegion>(a,b);
+}

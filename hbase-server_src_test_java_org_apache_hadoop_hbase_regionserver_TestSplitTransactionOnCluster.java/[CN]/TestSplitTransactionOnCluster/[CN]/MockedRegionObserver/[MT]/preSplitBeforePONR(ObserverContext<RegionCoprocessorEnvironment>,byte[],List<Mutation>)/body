@@ -1,0 +1,32 @@
+{
+  RegionCoprocessorEnvironment environment=ctx.getEnvironment();
+  HRegionServer rs=(HRegionServer)environment.getRegionServerServices();
+  List<HRegion> onlineRegions=rs.getOnlineRegions(TableName.valueOf("testSplitHooksBeforeAndAfterPONR_2"));
+  HRegion region=onlineRegions.get(0);
+  for (  HRegion r : onlineRegions) {
+    if (r.getRegionInfo().containsRow(splitKey)) {
+      region=r;
+      break;
+    }
+  }
+  st=new SplitTransaction(region,splitKey);
+  if (!st.prepare()) {
+    LOG.error("Prepare for the table " + region.getTableDesc().getNameAsString() + " failed. So returning null. ");
+    ctx.bypass();
+    return;
+  }
+  region.forceSplit(splitKey);
+  daughterRegions=st.stepsBeforePONR(rs,rs,false);
+  HRegionInfo copyOfParent=new HRegionInfo(region.getRegionInfo());
+  copyOfParent.setOffline(true);
+  copyOfParent.setSplit(true);
+  Put putParent=MetaEditor.makePutFromRegionInfo(copyOfParent);
+  MetaEditor.addDaughtersToPut(putParent,daughterRegions.getFirst().getRegionInfo(),daughterRegions.getSecond().getRegionInfo());
+  metaEntries.add(putParent);
+  Put putA=MetaEditor.makePutFromRegionInfo(daughterRegions.getFirst().getRegionInfo());
+  Put putB=MetaEditor.makePutFromRegionInfo(daughterRegions.getSecond().getRegionInfo());
+  st.addLocation(putA,rs.getServerName(),1);
+  st.addLocation(putB,rs.getServerName(),1);
+  metaEntries.add(putA);
+  metaEntries.add(putB);
+}
