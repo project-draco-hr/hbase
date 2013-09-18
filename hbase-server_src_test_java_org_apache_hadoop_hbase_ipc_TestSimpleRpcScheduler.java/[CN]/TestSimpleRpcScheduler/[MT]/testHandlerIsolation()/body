@@ -6,9 +6,13 @@
   Map<CallRunner,Integer> qos=ImmutableMap.of(generalTask,0,priorityTask,HConstants.HIGH_QOS + 1,replicationTask,HConstants.REPLICATION_QOS);
   PriorityFunction qosFunction=mock(PriorityFunction.class);
   final Map<CallRunner,Thread> handlerThreads=Maps.newHashMap();
+  final CountDownLatch countDownLatch=new CountDownLatch(tasks.size());
   Answer<Void> answerToRun=new Answer<Void>(){
     @Override public Void answer(    InvocationOnMock invocationOnMock) throws Throwable {
-      handlerThreads.put((CallRunner)invocationOnMock.getMock(),Thread.currentThread());
+synchronized (handlerThreads) {
+        handlerThreads.put((CallRunner)invocationOnMock.getMock(),Thread.currentThread());
+      }
+      countDownLatch.countDown();
       return null;
     }
   }
@@ -27,5 +31,6 @@
     verify(task,timeout(1000)).run();
   }
   scheduler.stop();
+  countDownLatch.await();
   assertEquals(3,ImmutableSet.copyOf(handlerThreads.values()).size());
 }
