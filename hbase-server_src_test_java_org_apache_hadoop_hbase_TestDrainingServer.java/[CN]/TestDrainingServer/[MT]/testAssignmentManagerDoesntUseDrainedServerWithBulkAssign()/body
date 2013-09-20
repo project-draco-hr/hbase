@@ -1,0 +1,76 @@
+{
+  Configuration conf=TEST_UTIL.getConfiguration();
+  LoadBalancer balancer=LoadBalancerFactory.getLoadBalancer(conf);
+  CatalogTracker catalogTracker=Mockito.mock(CatalogTracker.class);
+  AssignmentManager am;
+  final HMaster master=Mockito.mock(HMaster.class);
+  final Server server=Mockito.mock(Server.class);
+  final ServerManager serverManager=Mockito.mock(ServerManager.class);
+  final ServerName SERVERNAME_A=new ServerName("mockserverbulk_a.org",1000,8000);
+  final ServerName SERVERNAME_B=new ServerName("mockserverbulk_b.org",1001,8000);
+  final ServerName SERVERNAME_C=new ServerName("mockserverbulk_c.org",1002,8000);
+  final ServerName SERVERNAME_D=new ServerName("mockserverbulk_d.org",1003,8000);
+  final ServerName SERVERNAME_E=new ServerName("mockserverbulk_e.org",1004,8000);
+  final Map<HRegionInfo,ServerName> bulk=new HashMap<HRegionInfo,ServerName>();
+  Set<ServerName> bunchServersAssigned=new HashSet<ServerName>();
+  HRegionInfo REGIONINFO_A=new HRegionInfo(TableName.valueOf("table_A"),HConstants.EMPTY_START_ROW,HConstants.EMPTY_START_ROW);
+  HRegionInfo REGIONINFO_B=new HRegionInfo(TableName.valueOf("table_B"),HConstants.EMPTY_START_ROW,HConstants.EMPTY_START_ROW);
+  HRegionInfo REGIONINFO_C=new HRegionInfo(TableName.valueOf("table_C"),HConstants.EMPTY_START_ROW,HConstants.EMPTY_START_ROW);
+  HRegionInfo REGIONINFO_D=new HRegionInfo(TableName.valueOf("table_D"),HConstants.EMPTY_START_ROW,HConstants.EMPTY_START_ROW);
+  HRegionInfo REGIONINFO_E=new HRegionInfo(TableName.valueOf("table_E"),HConstants.EMPTY_START_ROW,HConstants.EMPTY_START_ROW);
+  Map<ServerName,ServerLoad> onlineServers=new HashMap<ServerName,ServerLoad>();
+  List<ServerName> drainedServers=new ArrayList<ServerName>();
+  onlineServers.put(SERVERNAME_A,ServerLoad.EMPTY_SERVERLOAD);
+  onlineServers.put(SERVERNAME_B,ServerLoad.EMPTY_SERVERLOAD);
+  onlineServers.put(SERVERNAME_C,ServerLoad.EMPTY_SERVERLOAD);
+  onlineServers.put(SERVERNAME_D,ServerLoad.EMPTY_SERVERLOAD);
+  onlineServers.put(SERVERNAME_E,ServerLoad.EMPTY_SERVERLOAD);
+  bulk.put(REGIONINFO_A,SERVERNAME_A);
+  bulk.put(REGIONINFO_B,SERVERNAME_B);
+  bulk.put(REGIONINFO_C,SERVERNAME_C);
+  bulk.put(REGIONINFO_D,SERVERNAME_D);
+  bulk.put(REGIONINFO_E,SERVERNAME_E);
+  ZooKeeperWatcher zkWatcher=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"zkWatcher-BulkAssignTest",abortable,true);
+  Mockito.when(server.getConfiguration()).thenReturn(conf);
+  Mockito.when(server.getServerName()).thenReturn(new ServerName("masterMock,1,1"));
+  Mockito.when(server.getZooKeeper()).thenReturn(zkWatcher);
+  Mockito.when(serverManager.getOnlineServers()).thenReturn(onlineServers);
+  Mockito.when(serverManager.getOnlineServersList()).thenReturn(new ArrayList<ServerName>(onlineServers.keySet()));
+  Mockito.when(serverManager.createDestinationServersList()).thenReturn(new ArrayList<ServerName>(onlineServers.keySet()));
+  Mockito.when(serverManager.createDestinationServersList(null)).thenReturn(new ArrayList<ServerName>(onlineServers.keySet()));
+  for (  Entry<HRegionInfo,ServerName> entry : bulk.entrySet()) {
+    Mockito.when(serverManager.isServerOnline(entry.getValue())).thenReturn(true);
+    Mockito.when(serverManager.sendRegionClose(entry.getValue(),entry.getKey(),-1)).thenReturn(true);
+    Mockito.when(serverManager.sendRegionOpen(entry.getValue(),entry.getKey(),-1,null)).thenReturn(RegionOpeningState.OPENED);
+    Mockito.when(serverManager.addServerToDrainList(entry.getValue())).thenReturn(true);
+  }
+  Mockito.when(master.getServerManager()).thenReturn(serverManager);
+  drainedServers.add(SERVERNAME_A);
+  drainedServers.add(SERVERNAME_B);
+  drainedServers.add(SERVERNAME_C);
+  drainedServers.add(SERVERNAME_D);
+  am=new AssignmentManager(server,serverManager,catalogTracker,balancer,startupMasterExecutor("mockExecutorServiceBulk"),null,null);
+  Mockito.when(master.getAssignmentManager()).thenReturn(am);
+  zkWatcher.registerListener(am);
+  for (  ServerName drained : drainedServers) {
+    addServerToDrainedList(drained,onlineServers,serverManager);
+  }
+  am.assign(bulk);
+  Map<String,RegionState> regionsInTransition=am.getRegionStates().getRegionsInTransition();
+  for (  Entry<String,RegionState> entry : regionsInTransition.entrySet()) {
+    setRegionOpenedOnZK(zkWatcher,entry.getValue().getServerName(),entry.getValue().getRegion());
+  }
+  am.waitForAssignment(REGIONINFO_A);
+  am.waitForAssignment(REGIONINFO_B);
+  am.waitForAssignment(REGIONINFO_C);
+  am.waitForAssignment(REGIONINFO_D);
+  am.waitForAssignment(REGIONINFO_E);
+  Map<HRegionInfo,ServerName> regionAssignments=am.getRegionStates().getRegionAssignments();
+  for (  Entry<HRegionInfo,ServerName> entry : regionAssignments.entrySet()) {
+    LOG.info("Region Assignment: " + entry.getKey().getRegionNameAsString() + " Server: "+ entry.getValue());
+    bunchServersAssigned.add(entry.getValue());
+  }
+  for (  ServerName sn : drainedServers) {
+    assertFalse(bunchServersAssigned.contains(sn));
+  }
+}
