@@ -1,10 +1,13 @@
 {
+  if (includesTag) {
+    TEST_UTIL.getConfiguration().setInt("hfile.format.version",3);
+  }
   for (  Compression.Algorithm algo : COMPRESSION_ALGORITHMS) {
     for (    boolean pread : new boolean[]{false,true}) {
       LOG.info("testReaderV2: Compression algorithm: " + algo + ", pread="+ pread);
       Path path=new Path(TEST_UTIL.getDataTestDir(),"blocks_v2_" + algo);
       FSDataOutputStream os=fs.create(path);
-      Writer hbw=new Writer(algo,null,includesMemstoreTS);
+      Writer hbw=new Writer(algo,null,includesMemstoreTS,includesTag);
       long totalSize=0;
       for (int blockId=0; blockId < 2; ++blockId) {
         DataOutputStream dos=hbw.startWriting(BlockType.DATA);
@@ -14,7 +17,12 @@
       }
       os.close();
       FSDataInputStream is=fs.open(path);
-      HFileBlock.FSReader hbr=new HFileBlock.FSReaderV2(new FSDataInputStreamWrapper(is),algo,totalSize,MINOR_VERSION,fs,path);
+      HFileContext meta=new HFileContext();
+      meta.setUsesHBaseChecksum(false);
+      meta.setIncludesMvcc(includesMemstoreTS);
+      meta.setIncludesTags(includesTag);
+      meta.setCompressAlgo(algo);
+      HFileBlock.FSReader hbr=new HFileBlock.FSReaderV2(new FSDataInputStreamWrapper(is),totalSize,fs,path,meta);
       HFileBlock b=hbr.readBlockData(0,-1,-1,pread);
       is.close();
       b.sanityCheck();
@@ -23,7 +31,7 @@
       String blockStr=b.toString();
       if (algo == GZ) {
         is=fs.open(path);
-        hbr=new HFileBlock.FSReaderV2(new FSDataInputStreamWrapper(is),algo,totalSize,MINOR_VERSION,fs,path);
+        hbr=new HFileBlock.FSReaderV2(new FSDataInputStreamWrapper(is),totalSize,fs,path,meta);
         b=hbr.readBlockData(0,2173 + HConstants.HFILEBLOCK_HEADER_SIZE_NO_CHECKSUM + b.totalChecksumBytes(),-1,pread);
         assertEquals(blockStr,b.toString());
         int wrongCompressedSize=2172;

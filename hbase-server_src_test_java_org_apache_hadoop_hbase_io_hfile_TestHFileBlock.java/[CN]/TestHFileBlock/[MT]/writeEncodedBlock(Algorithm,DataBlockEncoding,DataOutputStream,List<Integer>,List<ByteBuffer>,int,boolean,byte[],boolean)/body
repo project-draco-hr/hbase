@@ -1,0 +1,35 @@
+{
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  DoubleOutputStream doubleOutputStream=new DoubleOutputStream(dos,baos);
+  writeTestKeyValues(doubleOutputStream,blockId,includesMemstoreTS,useTag);
+  ByteBuffer rawBuf=ByteBuffer.wrap(baos.toByteArray());
+  rawBuf.rewind();
+  DataBlockEncoder encoder=encoding.getEncoder();
+  int headerLen=dummyHeader.length;
+  byte[] encodedResultWithHeader=null;
+  HFileContext meta=new HFileContext();
+  meta.setCompressAlgo(algo);
+  meta.setIncludesMvcc(includesMemstoreTS);
+  meta.setIncludesTags(useTag);
+  if (encoder != null) {
+    HFileBlockEncodingContext encodingCtx=encoder.newDataBlockEncodingContext(encoding,dummyHeader,meta);
+    encoder.encodeKeyValues(rawBuf,encodingCtx);
+    encodedResultWithHeader=encodingCtx.getUncompressedBytesWithHeader();
+  }
+ else {
+    HFileBlockDefaultEncodingContext defaultEncodingCtx=new HFileBlockDefaultEncodingContext(encoding,dummyHeader,meta);
+    byte[] rawBufWithHeader=new byte[rawBuf.array().length + headerLen];
+    System.arraycopy(rawBuf.array(),0,rawBufWithHeader,headerLen,rawBuf.array().length);
+    defaultEncodingCtx.compressAfterEncodingWithBlockType(rawBufWithHeader,BlockType.DATA);
+    encodedResultWithHeader=defaultEncodingCtx.getUncompressedBytesWithHeader();
+  }
+  final int encodedSize=encodedResultWithHeader.length - headerLen;
+  if (encoder != null) {
+    headerLen+=DataBlockEncoding.ID_SIZE;
+  }
+  byte[] encodedDataSection=new byte[encodedResultWithHeader.length - headerLen];
+  System.arraycopy(encodedResultWithHeader,headerLen,encodedDataSection,0,encodedDataSection.length);
+  final ByteBuffer encodedBuf=ByteBuffer.wrap(encodedDataSection);
+  encodedSizes.add(encodedSize);
+  encodedBlocks.add(encodedBuf);
+}

@@ -1,0 +1,71 @@
+{
+  for (  Compression.Algorithm algo : COMPRESSION_ALGORITHMS) {
+    for (    boolean pread : BOOLEAN_VALUES) {
+      for (      boolean cacheOnWrite : BOOLEAN_VALUES) {
+        Random rand=defaultRandom();
+        LOG.info("testPreviousOffset:Compression algorithm: " + algo + ", pread="+ pread+ ", cacheOnWrite="+ cacheOnWrite);
+        Path path=new Path(TEST_UTIL.getDataTestDir(),"prev_offset");
+        List<Long> expectedOffsets=new ArrayList<Long>();
+        List<Long> expectedPrevOffsets=new ArrayList<Long>();
+        List<BlockType> expectedTypes=new ArrayList<BlockType>();
+        List<ByteBuffer> expectedContents=cacheOnWrite ? new ArrayList<ByteBuffer>() : null;
+        long totalSize=writeBlocks(rand,algo,path,expectedOffsets,expectedPrevOffsets,expectedTypes,expectedContents);
+        FSDataInputStream is=fs.open(path);
+        HFileContext meta=new HFileContext();
+        meta.setUsesHBaseChecksum(true);
+        meta.setIncludesMvcc(includesMemstoreTS);
+        meta.setIncludesTags(includesTag);
+        meta.setCompressAlgo(algo);
+        HFileBlock.FSReader hbr=new HFileBlock.FSReaderV2(is,totalSize,meta);
+        long curOffset=0;
+        for (int i=0; i < NUM_TEST_BLOCKS; ++i) {
+          if (!pread) {
+            assertEquals(is.getPos(),curOffset + (i == 0 ? 0 : HConstants.HFILEBLOCK_HEADER_SIZE));
+          }
+          assertEquals(expectedOffsets.get(i).longValue(),curOffset);
+          if (detailedLogging) {
+            LOG.info("Reading block #" + i + " at offset "+ curOffset);
+          }
+          HFileBlock b=hbr.readBlockData(curOffset,-1,-1,pread);
+          if (detailedLogging) {
+            LOG.info("Block #" + i + ": "+ b);
+          }
+          assertEquals("Invalid block #" + i + "'s type:",expectedTypes.get(i),b.getBlockType());
+          assertEquals("Invalid previous block offset for block " + i + " of "+ "type "+ b.getBlockType()+ ":",(long)expectedPrevOffsets.get(i),b.getPrevBlockOffset());
+          b.sanityCheck();
+          assertEquals(curOffset,b.getOffset());
+          HFileBlock b2=hbr.readBlockData(curOffset,b.getOnDiskSizeWithHeader(),-1,pread);
+          b2.sanityCheck();
+          assertEquals(b.getBlockType(),b2.getBlockType());
+          assertEquals(b.getOnDiskSizeWithoutHeader(),b2.getOnDiskSizeWithoutHeader());
+          assertEquals(b.getOnDiskSizeWithHeader(),b2.getOnDiskSizeWithHeader());
+          assertEquals(b.getUncompressedSizeWithoutHeader(),b2.getUncompressedSizeWithoutHeader());
+          assertEquals(b.getPrevBlockOffset(),b2.getPrevBlockOffset());
+          assertEquals(curOffset,b2.getOffset());
+          assertEquals(b.getBytesPerChecksum(),b2.getBytesPerChecksum());
+          assertEquals(b.getOnDiskDataSizeWithHeader(),b2.getOnDiskDataSizeWithHeader());
+          assertEquals(0,HFile.getChecksumFailuresCount());
+          curOffset+=b.getOnDiskSizeWithHeader();
+          if (cacheOnWrite) {
+            ByteBuffer bufRead=b.getBufferWithHeader();
+            ByteBuffer bufExpected=expectedContents.get(i);
+            boolean bytesAreCorrect=Bytes.compareTo(bufRead.array(),bufRead.arrayOffset(),bufRead.limit() - b.totalChecksumBytes(),bufExpected.array(),bufExpected.arrayOffset(),bufExpected.limit()) == 0;
+            String wrongBytesMsg="";
+            if (!bytesAreCorrect) {
+              wrongBytesMsg="Expected bytes in block #" + i + " (algo="+ algo+ ", pread="+ pread+ ", cacheOnWrite="+ cacheOnWrite+ "):\n";
+              wrongBytesMsg+=Bytes.toStringBinary(bufExpected.array(),bufExpected.arrayOffset(),Math.min(32,bufExpected.limit())) + ", actual:\n" + Bytes.toStringBinary(bufRead.array(),bufRead.arrayOffset(),Math.min(32,bufRead.limit()));
+              if (detailedLogging) {
+                LOG.warn("expected header" + HFileBlock.toStringHeader(bufExpected) + "\nfound    header"+ HFileBlock.toStringHeader(bufRead));
+                LOG.warn("bufread offset " + bufRead.arrayOffset() + " limit "+ bufRead.limit()+ " expected offset "+ bufExpected.arrayOffset()+ " limit "+ bufExpected.limit());
+                LOG.warn(wrongBytesMsg);
+              }
+            }
+            assertTrue(wrongBytesMsg,bytesAreCorrect);
+          }
+        }
+        assertEquals(curOffset,fs.getFileStatus(path).getLen());
+        is.close();
+      }
+    }
+  }
+}

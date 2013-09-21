@@ -1,33 +1,4 @@
 {
-  Compression.Algorithm algo=NONE;
-  for (  boolean pread : new boolean[]{false,true}) {
-    for (    int bytesPerChecksum : BYTES_PER_CHECKSUM) {
-      Path path=new Path(TEST_UTIL.getDataTestDir(),"checksumChunk_" + algo + bytesPerChecksum);
-      FSDataOutputStream os=fs.create(path);
-      HFileBlock.Writer hbw=new HFileBlock.Writer(algo,null,true,HFile.DEFAULT_CHECKSUM_TYPE,bytesPerChecksum);
-      long dataSize=0;
-      DataOutputStream dos=hbw.startWriting(BlockType.DATA);
-      for (; dataSize < 6 * bytesPerChecksum; ) {
-        for (int i=0; i < 1234; ++i) {
-          dos.writeInt(i);
-          dataSize+=4;
-        }
-      }
-      hbw.writeHeaderAndData(os);
-      long totalSize=hbw.getOnDiskSizeWithHeader();
-      os.close();
-      long expectedChunks=ChecksumUtil.numChunks(dataSize + HConstants.HFILEBLOCK_HEADER_SIZE,bytesPerChecksum);
-      LOG.info("testChecksumChunks: pread=" + pread + ", bytesPerChecksum="+ bytesPerChecksum+ ", fileSize="+ totalSize+ ", dataSize="+ dataSize+ ", expectedChunks="+ expectedChunks);
-      assertEquals(true,hfs.useHBaseChecksum());
-      FSDataInputStream is=fs.open(path);
-      FSDataInputStream nochecksum=hfs.getNoChecksumFs().open(path);
-      HFileBlock.FSReader hbr=new HFileBlock.FSReaderV2(new FSDataInputStreamWrapper(is,nochecksum),algo,totalSize,HFile.MAX_FORMAT_VERSION,hfs,path);
-      HFileBlock b=hbr.readBlockData(0,-1,-1,pread);
-      is.close();
-      b.sanityCheck();
-      assertEquals(dataSize,b.getUncompressedSizeWithoutHeader());
-      assertEquals(totalSize,HConstants.HFILEBLOCK_HEADER_SIZE + dataSize + expectedChunks * HFileBlock.CHECKSUM_SIZE);
-      assertEquals(0,HFile.getChecksumFailuresCount());
-    }
-  }
+  testChecksumInternals(false);
+  testChecksumInternals(true);
 }

@@ -1,35 +1,4 @@
 {
-  final String table="CompactionCacheOnWrite";
-  final String cf="myCF";
-  final byte[] cfBytes=Bytes.toBytes(cf);
-  final int maxVersions=3;
-  HRegion region=TEST_UTIL.createTestRegion(table,new HColumnDescriptor(cf).setCompressionType(compress).setBloomFilterType(BLOOM_TYPE).setMaxVersions(maxVersions).setDataBlockEncoding(encoder.getEncodingInCache()).setEncodeOnDisk(encoder.getEncodingOnDisk() != DataBlockEncoding.NONE));
-  int rowIdx=0;
-  long ts=EnvironmentEdgeManager.currentTimeMillis();
-  for (int iFile=0; iFile < 5; ++iFile) {
-    for (int iRow=0; iRow < 500; ++iRow) {
-      String rowStr="" + (rowIdx * rowIdx * rowIdx) + "row"+ iFile+ "_"+ iRow;
-      Put p=new Put(Bytes.toBytes(rowStr));
-      ++rowIdx;
-      for (int iCol=0; iCol < 10; ++iCol) {
-        String qualStr="col" + iCol;
-        String valueStr="value_" + rowStr + "_"+ qualStr;
-        for (int iTS=0; iTS < 5; ++iTS) {
-          p.add(cfBytes,Bytes.toBytes(qualStr),ts++,Bytes.toBytes(valueStr));
-        }
-      }
-      region.put(p);
-    }
-    region.flushcache();
-  }
-  LruBlockCache blockCache=(LruBlockCache)new CacheConfig(conf).getBlockCache();
-  blockCache.clearCache();
-  assertEquals(0,blockCache.getBlockTypeCountsForTest().size());
-  region.compactStores();
-  LOG.debug("compactStores() returned");
-  Map<BlockType,Integer> blockTypesInCache=blockCache.getBlockTypeCountsForTest();
-  LOG.debug("Block types in cache: " + blockTypesInCache);
-  assertNull(blockTypesInCache.get(BlockType.DATA));
-  region.close();
-  blockCache.shutdown();
+  testNotCachingDataBlocksDuringCompactionInternals(false);
+  testNotCachingDataBlocksDuringCompactionInternals(true);
 }

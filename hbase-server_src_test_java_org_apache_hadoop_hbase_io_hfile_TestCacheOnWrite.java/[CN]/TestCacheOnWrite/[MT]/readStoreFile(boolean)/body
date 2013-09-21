@@ -1,0 +1,46 @@
+{
+  AbstractHFileReader reader;
+  if (useTags) {
+    reader=(HFileReaderV3)HFile.createReaderWithEncoding(fs,storeFilePath,cacheConf,encoder.getEncodingInCache());
+  }
+ else {
+    reader=(HFileReaderV2)HFile.createReaderWithEncoding(fs,storeFilePath,cacheConf,encoder.getEncodingInCache());
+  }
+  LOG.info("HFile information: " + reader);
+  final boolean cacheBlocks=false;
+  final boolean pread=false;
+  HFileScanner scanner=reader.getScanner(cacheBlocks,pread);
+  assertTrue(testDescription,scanner.seekTo());
+  long offset=0;
+  HFileBlock prevBlock=null;
+  EnumMap<BlockType,Integer> blockCountByType=new EnumMap<BlockType,Integer>(BlockType.class);
+  DataBlockEncoding encodingInCache=encoderType.getEncoder().getEncodingInCache();
+  while (offset < reader.getTrailer().getLoadOnOpenDataOffset()) {
+    long onDiskSize=-1;
+    if (prevBlock != null) {
+      onDiskSize=prevBlock.getNextBlockOnDiskSizeWithHeader();
+    }
+    HFileBlock block=reader.readBlock(offset,onDiskSize,false,true,false,null);
+    BlockCacheKey blockCacheKey=new BlockCacheKey(reader.getName(),offset,encodingInCache,block.getBlockType());
+    boolean isCached=blockCache.getBlock(blockCacheKey,true,false) != null;
+    boolean shouldBeCached=cowType.shouldBeCached(block.getBlockType());
+    if (shouldBeCached != isCached) {
+      throw new AssertionError("shouldBeCached: " + shouldBeCached + "\n"+ "isCached: "+ isCached+ "\n"+ "Test description: "+ testDescription+ "\n"+ "block: "+ block+ "\n"+ "encodingInCache: "+ encodingInCache+ "\n"+ "blockCacheKey: "+ blockCacheKey);
+    }
+    prevBlock=block;
+    offset+=block.getOnDiskSizeWithHeader();
+    BlockType bt=block.getBlockType();
+    Integer count=blockCountByType.get(bt);
+    blockCountByType.put(bt,(count == null ? 0 : count) + 1);
+  }
+  LOG.info("Block count by type: " + blockCountByType);
+  String countByType=blockCountByType.toString();
+  BlockType cachedDataBlockType=encoderType.encodeInCache ? BlockType.ENCODED_DATA : BlockType.DATA;
+  if (useTags) {
+    assertEquals("{" + cachedDataBlockType + "=1550, LEAF_INDEX=173, BLOOM_CHUNK=9, INTERMEDIATE_INDEX=20}",countByType);
+  }
+ else {
+    assertEquals("{" + cachedDataBlockType + "=1379, LEAF_INDEX=154, BLOOM_CHUNK=9, INTERMEDIATE_INDEX=18}",countByType);
+  }
+  reader.close();
+}

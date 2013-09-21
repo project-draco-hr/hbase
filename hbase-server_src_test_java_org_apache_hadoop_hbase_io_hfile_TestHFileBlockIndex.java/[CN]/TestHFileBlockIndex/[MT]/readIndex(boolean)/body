@@ -1,0 +1,42 @@
+{
+  long fileSize=fs.getFileStatus(path).getLen();
+  LOG.info("Size of " + path + ": "+ fileSize);
+  FSDataInputStream istream=fs.open(path);
+  HFileContext meta=new HFileContext();
+  meta.setUsesHBaseChecksum(true);
+  meta.setIncludesMvcc(includesMemstoreTS);
+  meta.setIncludesTags(useTags);
+  meta.setCompressAlgo(compr);
+  HFileBlock.FSReader blockReader=new HFileBlock.FSReaderV2(istream,fs.getFileStatus(path).getLen(),meta);
+  BlockReaderWrapper brw=new BlockReaderWrapper(blockReader);
+  HFileBlockIndex.BlockIndexReader indexReader=new HFileBlockIndex.BlockIndexReader(KeyValue.RAW_COMPARATOR,numLevels,brw);
+  indexReader.readRootIndex(blockReader.blockRange(rootIndexOffset,fileSize).nextBlockWithBlockType(BlockType.ROOT_INDEX),numRootEntries);
+  long prevOffset=-1;
+  int i=0;
+  int expectedHitCount=0;
+  int expectedMissCount=0;
+  LOG.info("Total number of keys: " + keys.size());
+  for (  byte[] key : keys) {
+    assertTrue(key != null);
+    assertTrue(indexReader != null);
+    HFileBlock b=indexReader.seekToDataBlock(key,0,key.length,null,true,true,false);
+    if (Bytes.BYTES_RAWCOMPARATOR.compare(key,firstKeyInFile) < 0) {
+      assertTrue(b == null);
+      ++i;
+      continue;
+    }
+    String keyStr="key #" + i + ", "+ Bytes.toStringBinary(key);
+    assertTrue("seekToDataBlock failed for " + keyStr,b != null);
+    if (prevOffset == b.getOffset()) {
+      assertEquals(++expectedHitCount,brw.hitCount);
+    }
+ else {
+      LOG.info("First key in a new block: " + keyStr + ", block offset: "+ b.getOffset()+ ")");
+      assertTrue(b.getOffset() > prevOffset);
+      assertEquals(++expectedMissCount,brw.missCount);
+      prevOffset=b.getOffset();
+    }
+    ++i;
+  }
+  istream.close();
+}

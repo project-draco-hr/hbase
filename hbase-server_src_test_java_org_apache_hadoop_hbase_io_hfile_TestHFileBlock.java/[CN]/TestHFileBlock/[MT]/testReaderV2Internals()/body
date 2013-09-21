@@ -1,0 +1,57 @@
+{
+  if (includesTag) {
+    TEST_UTIL.getConfiguration().setInt("hfile.format.version",3);
+  }
+  for (  Compression.Algorithm algo : COMPRESSION_ALGORITHMS) {
+    for (    boolean pread : new boolean[]{false,true}) {
+      LOG.info("testReaderV2: Compression algorithm: " + algo + ", pread="+ pread);
+      Path path=new Path(TEST_UTIL.getDataTestDir(),"blocks_v2_" + algo);
+      FSDataOutputStream os=fs.create(path);
+      HFileContext meta=new HFileContext();
+      meta.setCompressAlgo(algo);
+      meta.setIncludesMvcc(includesMemstoreTS);
+      meta.setIncludesTags(includesTag);
+      meta.setBytesPerChecksum(HFile.DEFAULT_BYTES_PER_CHECKSUM);
+      meta.setChecksumType(HFile.DEFAULT_CHECKSUM_TYPE);
+      HFileBlock.Writer hbw=new HFileBlock.Writer(null,meta);
+      long totalSize=0;
+      for (int blockId=0; blockId < 2; ++blockId) {
+        DataOutputStream dos=hbw.startWriting(BlockType.DATA);
+        for (int i=0; i < 1234; ++i)         dos.writeInt(i);
+        hbw.writeHeaderAndData(os);
+        totalSize+=hbw.getOnDiskSizeWithHeader();
+      }
+      os.close();
+      FSDataInputStream is=fs.open(path);
+      meta=new HFileContext();
+      meta.setUsesHBaseChecksum(true);
+      meta.setIncludesMvcc(includesMemstoreTS);
+      meta.setIncludesTags(includesTag);
+      meta.setCompressAlgo(algo);
+      HFileBlock.FSReader hbr=new HFileBlock.FSReaderV2(is,totalSize,meta);
+      HFileBlock b=hbr.readBlockData(0,-1,-1,pread);
+      is.close();
+      assertEquals(0,HFile.getChecksumFailuresCount());
+      b.sanityCheck();
+      assertEquals(4936,b.getUncompressedSizeWithoutHeader());
+      assertEquals(algo == GZ ? 2173 : 4936,b.getOnDiskSizeWithoutHeader() - b.totalChecksumBytes());
+      String blockStr=b.toString();
+      if (algo == GZ) {
+        is=fs.open(path);
+        hbr=new HFileBlock.FSReaderV2(is,totalSize,meta);
+        b=hbr.readBlockData(0,2173 + HConstants.HFILEBLOCK_HEADER_SIZE + b.totalChecksumBytes(),-1,pread);
+        assertEquals(blockStr,b.toString());
+        int wrongCompressedSize=2172;
+        try {
+          b=hbr.readBlockData(0,wrongCompressedSize + HConstants.HFILEBLOCK_HEADER_SIZE,-1,pread);
+          fail("Exception expected");
+        }
+ catch (        IOException ex) {
+          String expectedPrefix="On-disk size without header provided is " + wrongCompressedSize + ", but block header contains "+ b.getOnDiskSizeWithoutHeader()+ ".";
+          assertTrue("Invalid exception message: '" + ex.getMessage() + "'.\nMessage is expected to start with: '"+ expectedPrefix+ "'",ex.getMessage().startsWith(expectedPrefix));
+        }
+        is.close();
+      }
+    }
+  }
+}

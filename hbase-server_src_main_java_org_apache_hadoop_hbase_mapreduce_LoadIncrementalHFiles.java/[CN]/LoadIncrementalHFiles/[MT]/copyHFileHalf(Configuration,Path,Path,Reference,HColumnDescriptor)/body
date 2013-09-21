@@ -3,14 +3,20 @@
   CacheConfig cacheConf=new CacheConfig(conf);
   HalfStoreFileReader halfReader=null;
   StoreFile.Writer halfWriter=null;
-  HFileDataBlockEncoder dataBlockEncoder=new HFileDataBlockEncoderImpl(familyDescriptor.getDataBlockEncodingOnDisk(),familyDescriptor.getDataBlockEncoding());
   try {
     halfReader=new HalfStoreFileReader(fs,inFile,cacheConf,reference,DataBlockEncoding.NONE);
     Map<byte[],byte[]> fileInfo=halfReader.loadFileInfo();
     int blocksize=familyDescriptor.getBlocksize();
     Algorithm compression=familyDescriptor.getCompression();
     BloomType bloomFilterType=familyDescriptor.getBloomFilterType();
-    halfWriter=new StoreFile.WriterBuilder(conf,cacheConf,fs,blocksize).withFilePath(outFile).withCompression(compression).withDataBlockEncoder(dataBlockEncoder).withBloomType(bloomFilterType).withChecksumType(HStore.getChecksumType(conf)).withBytesPerChecksum(HStore.getBytesPerChecksum(conf)).build();
+    HFileContext meta=new HFileContext();
+    meta.setCompressAlgo(compression);
+    meta.setChecksumType(HStore.getChecksumType(conf));
+    meta.setBytesPerChecksum(HStore.getBytesPerChecksum(conf));
+    meta.setBlocksize(blocksize);
+    meta.setEncodingInCache(familyDescriptor.getDataBlockEncoding());
+    meta.setEncodingOnDisk(familyDescriptor.getDataBlockEncodingOnDisk());
+    halfWriter=new StoreFile.WriterBuilder(conf,cacheConf,fs).withFilePath(outFile).withBloomType(bloomFilterType).withFileContext(meta).build();
     HFileScanner scanner=halfReader.getScanner(false,false,false);
     scanner.seekTo();
     do {

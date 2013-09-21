@@ -15,7 +15,7 @@
     @Override public Cell next(){
       if (decompressedData == null) {
         try {
-          decompressedData=dataBlockEncoder.decodeKeyValues(dis,includesMemstoreTS);
+          decompressedData=dataBlockEncoder.decodeKeyValues(dis,dataBlockEncoder.newDataBlockDecodingContext(meta));
         }
  catch (        IOException e) {
           throw new RuntimeException("Problem with data block encoder, " + "most likely it requested more bytes than are available.",e);
@@ -23,8 +23,19 @@
         decompressedData.rewind();
       }
       int offset=decompressedData.position();
-      KeyValue kv=new KeyValue(decompressedData.array(),offset);
-      decompressedData.position(offset + kv.getLength());
+      int klen=decompressedData.getInt();
+      int vlen=decompressedData.getInt();
+      short tagsLen=0;
+      ByteBufferUtils.skip(decompressedData,klen + vlen);
+      if (meta.shouldIncludeTags()) {
+        tagsLen=decompressedData.getShort();
+        ByteBufferUtils.skip(decompressedData,tagsLen);
+      }
+      KeyValue kv=new KeyValue(decompressedData.array(),offset,(int)KeyValue.getKeyValueDataStructureSize(klen,vlen,tagsLen));
+      if (meta.shouldIncludeMvcc()) {
+        long mvccVersion=ByteBufferUtils.readVLong(decompressedData);
+        kv.setMvccVersion(mvccVersion);
+      }
       return kv;
     }
     @Override public void remove(){

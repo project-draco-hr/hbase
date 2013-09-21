@@ -1,5 +1,8 @@
 {
-  HFileWriterV2 writer=(HFileWriterV2)new HFileWriterV2.WriterFactoryV2(conf,new CacheConfig(conf)).withPath(fs,hfilePath).withBlockSize(4096).withCompression(compressAlgo).create();
+  HFileContext context=new HFileContext();
+  context.setBlocksize(4096);
+  context.setCompressAlgo(compressAlgo);
+  HFileWriterV2 writer=(HFileWriterV2)new HFileWriterV2.WriterFactoryV2(conf,new CacheConfig(conf)).withPath(fs,hfilePath).withFileContext(context).create();
   Random rand=new Random(9713312);
   List<KeyValue> keyValues=new ArrayList<KeyValue>(entryCount);
   for (int i=0; i < entryCount; ++i) {
@@ -18,7 +21,12 @@
   FixedFileTrailer trailer=FixedFileTrailer.readFromStream(fsdis,fileSize);
   assertEquals(2,trailer.getMajorVersion());
   assertEquals(entryCount,trailer.getEntryCount());
-  HFileBlock.FSReader blockReader=new HFileBlock.FSReaderV2(fsdis,compressAlgo,fileSize);
+  HFileContext meta=new HFileContext();
+  meta.setUsesHBaseChecksum(true);
+  meta.setIncludesMvcc(false);
+  meta.setIncludesTags(false);
+  meta.setCompressAlgo(compressAlgo);
+  HFileBlock.FSReader blockReader=new HFileBlock.FSReaderV2(fsdis,fileSize,meta);
   KVComparator comparator=trailer.createComparator();
   HFileBlockIndex.BlockIndexReader dataBlockIndexReader=new HFileBlockIndex.BlockIndexReader(comparator,trailer.getNumDataIndexLevels());
   HFileBlockIndex.BlockIndexReader metaBlockIndexReader=new HFileBlockIndex.BlockIndexReader(KeyValue.RAW_COMPARATOR,1);

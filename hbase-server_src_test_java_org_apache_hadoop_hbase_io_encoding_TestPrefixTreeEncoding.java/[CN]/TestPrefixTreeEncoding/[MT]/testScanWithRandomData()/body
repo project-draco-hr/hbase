@@ -1,18 +1,30 @@
 {
   PrefixTreeCodec encoder=new PrefixTreeCodec();
-  ByteBuffer dataBuffer=generateRandomTestData(kvset,numBatchesWritten++);
-  HFileBlockEncodingContext blkEncodingCtx=new HFileBlockDefaultEncodingContext(Algorithm.NONE,DataBlockEncoding.PREFIX_TREE,new byte[0]);
-  encoder.encodeKeyValues(dataBuffer,false,blkEncodingCtx);
-  EncodedSeeker seeker=encoder.createSeeker(KeyValue.COMPARATOR,false);
+  ByteBuffer dataBuffer=generateRandomTestData(kvset,numBatchesWritten++,includesTag);
+  HFileContext meta=new HFileContext();
+  meta.setUsesHBaseChecksum(false);
+  meta.setIncludesMvcc(false);
+  meta.setIncludesTags(includesTag);
+  meta.setCompressAlgo(Algorithm.NONE);
+  HFileBlockEncodingContext blkEncodingCtx=new HFileBlockDefaultEncodingContext(DataBlockEncoding.PREFIX_TREE,new byte[0],meta);
+  encoder.encodeKeyValues(dataBuffer,blkEncodingCtx);
+  EncodedSeeker seeker=encoder.createSeeker(KeyValue.COMPARATOR,encoder.newDataBlockDecodingContext(meta));
   byte[] onDiskBytes=blkEncodingCtx.getOnDiskBytesWithHeader();
   ByteBuffer readBuffer=ByteBuffer.wrap(onDiskBytes,DataBlockEncoding.ID_SIZE,onDiskBytes.length - DataBlockEncoding.ID_SIZE);
   seeker.setCurrentBuffer(readBuffer);
   KeyValue previousKV=null;
   do {
     KeyValue currentKV=seeker.getKeyValue();
+    System.out.println(currentKV);
     if (previousKV != null && KeyValue.COMPARATOR.compare(currentKV,previousKV) < 0) {
       dumpInputKVSet();
       fail("Current kv " + currentKV + " is smaller than previous keyvalue "+ previousKV);
+    }
+    if (!includesTag) {
+      assertFalse(currentKV.getTagsLength() > 0);
+    }
+ else {
+      Assert.assertTrue(currentKV.getTagsLength() > 0);
     }
     previousKV=currentKV;
   }

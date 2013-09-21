@@ -1,0 +1,46 @@
+{
+  Compression.Algorithm algo=NONE;
+  for (  boolean pread : new boolean[]{false,true}) {
+    for (    int bytesPerChecksum : BYTES_PER_CHECKSUM) {
+      Path path=new Path(TEST_UTIL.getDataTestDir(),"checksumChunk_" + algo + bytesPerChecksum);
+      FSDataOutputStream os=fs.create(path);
+      HFileContext meta=new HFileContext();
+      meta.setCompressAlgo(algo);
+      meta.setIncludesMvcc(true);
+      meta.setIncludesTags(useTags);
+      meta.setUsesHBaseChecksum(true);
+      meta.setBytesPerChecksum(bytesPerChecksum);
+      meta.setChecksumType(HFile.DEFAULT_CHECKSUM_TYPE);
+      HFileBlock.Writer hbw=new HFileBlock.Writer(null,meta);
+      long dataSize=0;
+      DataOutputStream dos=hbw.startWriting(BlockType.DATA);
+      for (; dataSize < 6 * bytesPerChecksum; ) {
+        for (int i=0; i < 1234; ++i) {
+          dos.writeInt(i);
+          dataSize+=4;
+        }
+      }
+      hbw.writeHeaderAndData(os);
+      long totalSize=hbw.getOnDiskSizeWithHeader();
+      os.close();
+      long expectedChunks=ChecksumUtil.numChunks(dataSize + HConstants.HFILEBLOCK_HEADER_SIZE,bytesPerChecksum);
+      LOG.info("testChecksumChunks: pread=" + pread + ", bytesPerChecksum="+ bytesPerChecksum+ ", fileSize="+ totalSize+ ", dataSize="+ dataSize+ ", expectedChunks="+ expectedChunks);
+      assertEquals(true,hfs.useHBaseChecksum());
+      FSDataInputStream is=fs.open(path);
+      FSDataInputStream nochecksum=hfs.getNoChecksumFs().open(path);
+      meta=new HFileContext();
+      meta.setCompressAlgo(algo);
+      meta.setIncludesMvcc(true);
+      meta.setIncludesTags(useTags);
+      meta.setUsesHBaseChecksum(true);
+      meta.setBytesPerChecksum(bytesPerChecksum);
+      HFileBlock.FSReader hbr=new HFileBlock.FSReaderV2(new FSDataInputStreamWrapper(is,nochecksum),totalSize,hfs,path,meta);
+      HFileBlock b=hbr.readBlockData(0,-1,-1,pread);
+      is.close();
+      b.sanityCheck();
+      assertEquals(dataSize,b.getUncompressedSizeWithoutHeader());
+      assertEquals(totalSize,HConstants.HFILEBLOCK_HEADER_SIZE + dataSize + expectedChunks * HFileBlock.CHECKSUM_SIZE);
+      assertEquals(0,HFile.getChecksumFailuresCount());
+    }
+  }
+}

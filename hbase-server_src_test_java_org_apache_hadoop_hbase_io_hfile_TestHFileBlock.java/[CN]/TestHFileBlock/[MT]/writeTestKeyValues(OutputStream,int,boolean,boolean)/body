@@ -1,0 +1,71 @@
+{
+  List<KeyValue> keyValues=new ArrayList<KeyValue>();
+  Random randomizer=new Random(42l + seed);
+  for (int i=0; i < NUM_KEYVALUES; ++i) {
+    byte[] row;
+    long timestamp;
+    byte[] family;
+    byte[] qualifier;
+    byte[] value;
+    if (0 < i && randomizer.nextFloat() < CHANCE_TO_REPEAT) {
+      row=keyValues.get(randomizer.nextInt(keyValues.size())).getRow();
+    }
+ else {
+      row=new byte[FIELD_LENGTH];
+      randomizer.nextBytes(row);
+    }
+    if (0 == i) {
+      family=new byte[FIELD_LENGTH];
+      randomizer.nextBytes(family);
+    }
+ else {
+      family=keyValues.get(0).getFamily();
+    }
+    if (0 < i && randomizer.nextFloat() < CHANCE_TO_REPEAT) {
+      qualifier=keyValues.get(randomizer.nextInt(keyValues.size())).getQualifier();
+    }
+ else {
+      qualifier=new byte[FIELD_LENGTH];
+      randomizer.nextBytes(qualifier);
+    }
+    if (0 < i && randomizer.nextFloat() < CHANCE_TO_REPEAT) {
+      value=keyValues.get(randomizer.nextInt(keyValues.size())).getValue();
+    }
+ else {
+      value=new byte[FIELD_LENGTH];
+      randomizer.nextBytes(value);
+    }
+    if (0 < i && randomizer.nextFloat() < CHANCE_TO_REPEAT) {
+      timestamp=keyValues.get(randomizer.nextInt(keyValues.size())).getTimestamp();
+    }
+ else {
+      timestamp=randomizer.nextLong();
+    }
+    if (!useTag) {
+      keyValues.add(new KeyValue(row,family,qualifier,timestamp,value));
+    }
+ else {
+      keyValues.add(new KeyValue(row,family,qualifier,timestamp,value,new Tag[]{new Tag((byte)1,Bytes.toBytes("myTagVal"))}));
+    }
+  }
+  int totalSize=0;
+  Collections.sort(keyValues,KeyValue.COMPARATOR);
+  DataOutputStream dataOutputStream=new DataOutputStream(dos);
+  for (  KeyValue kv : keyValues) {
+    dataOutputStream.writeInt(kv.getKeyLength());
+    dataOutputStream.writeInt(kv.getValueLength());
+    dataOutputStream.write(kv.getBuffer(),kv.getKeyOffset(),kv.getKeyLength());
+    dataOutputStream.write(kv.getBuffer(),kv.getValueOffset(),kv.getValueLength());
+    totalSize+=kv.getLength();
+    if (useTag) {
+      dataOutputStream.writeShort(kv.getTagsLength());
+      dataOutputStream.write(kv.getBuffer(),kv.getTagsOffset(),kv.getTagsLength());
+    }
+    if (includesMemstoreTS) {
+      long memstoreTS=randomizer.nextLong();
+      WritableUtils.writeVLong(dataOutputStream,memstoreTS);
+      totalSize+=WritableUtils.getVIntSize(memstoreTS);
+    }
+  }
+  return totalSize;
+}
