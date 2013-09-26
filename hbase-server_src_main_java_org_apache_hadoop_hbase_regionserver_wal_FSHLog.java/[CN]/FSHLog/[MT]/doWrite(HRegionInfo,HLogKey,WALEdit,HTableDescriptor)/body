@@ -1,0 +1,31 @@
+{
+  if (!this.enabled) {
+    return;
+  }
+  if (!this.listeners.isEmpty()) {
+    for (    WALActionsListener i : this.listeners) {
+      i.visitLogEntryBeforeWrite(htd,logKey,logEdit);
+    }
+  }
+  try {
+    long now=EnvironmentEdgeManager.currentTimeMillis();
+    if (!coprocessorHost.preWALWrite(info,logKey,logEdit)) {
+      if (logEdit.isReplay()) {
+        logKey.setScopes(null);
+      }
+      logSyncer.append(new FSHLog.Entry(logKey,logEdit));
+    }
+    long took=EnvironmentEdgeManager.currentTimeMillis() - now;
+    coprocessorHost.postWALWrite(info,logKey,logEdit);
+    long len=0;
+    for (    KeyValue kv : logEdit.getKeyValues()) {
+      len+=kv.getLength();
+    }
+    this.metrics.finishAppend(took,len);
+  }
+ catch (  IOException e) {
+    LOG.fatal("Could not append. Requesting close of hlog",e);
+    requestLogRoll();
+    throw e;
+  }
+}

@@ -4,6 +4,7 @@
   for (  HLog.Entry entry : entries) {
     WALEdit edit=entry.getEdit();
     TableName table=entry.getKey().getTablename();
+    entry.getKey().setScopes(null);
     String encodeRegionNameStr=Bytes.toString(entry.getKey().getEncodedRegionName());
     if (nonExistentTables != null && nonExistentTables.contains(table)) {
       this.skippedEdits.incrementAndGet();
@@ -11,94 +12,62 @@
     }
     Map<byte[],Long> maxStoreSequenceIds=null;
     boolean needSkip=false;
-    Put put=null;
-    Delete del=null;
-    KeyValue lastKV=null;
     HRegionLocation loc=null;
-    Row preRow=null;
-    HRegionLocation preLoc=null;
-    Row lastAddedRow=null;
-    String preKey=null;
+    String locKey=null;
     List<KeyValue> kvs=edit.getKeyValues();
+    List<KeyValue> skippedKVs=new ArrayList<KeyValue>();
     HConnection hconn=this.getConnectionByTableName(table);
     for (    KeyValue kv : kvs) {
-      if (kv.matchingFamily(WALEdit.METAFAMILY))       continue;
-      if (lastKV == null || lastKV.getType() != kv.getType() || !lastKV.matchingRow(kv)) {
-        if (preRow != null) {
-synchronized (serverToBufferQueueMap) {
-            List<Pair<HRegionLocation,Row>> queue=serverToBufferQueueMap.get(preKey);
-            if (queue == null) {
-              queue=Collections.synchronizedList(new ArrayList<Pair<HRegionLocation,Row>>());
-              serverToBufferQueueMap.put(preKey,queue);
-            }
-            queue.add(new Pair<HRegionLocation,Row>(preLoc,preRow));
-            lastAddedRow=preRow;
-          }
-          addToRecoveredRegions(preLoc.getRegionInfo().getEncodedName());
-        }
-        try {
-          loc=locateRegionAndRefreshLastFlushedSequenceId(hconn,table,kv.getRow(),encodeRegionNameStr);
-        }
- catch (        TableNotFoundException ex) {
-          LOG.info("Table " + table + " doesn't exist. Skip log replay for region "+ encodeRegionNameStr);
-          lastFlushedSequenceIds.put(encodeRegionNameStr,Long.MAX_VALUE);
-          if (nonExistentTables == null) {
-            nonExistentTables=new TreeSet<TableName>();
-          }
-          nonExistentTables.add(table);
-          this.skippedEdits.incrementAndGet();
-          needSkip=true;
-          break;
-        }
-        cachedLastFlushedSequenceId=lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
-        if (cachedLastFlushedSequenceId != null && cachedLastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
-          this.skippedEdits.incrementAndGet();
-          needSkip=true;
-          break;
-        }
- else {
-          if (maxStoreSequenceIds == null) {
-            maxStoreSequenceIds=regionMaxSeqIdInStores.get(loc.getRegionInfo().getEncodedName());
-          }
-          if (maxStoreSequenceIds != null) {
-            Long maxStoreSeqId=maxStoreSequenceIds.get(kv.getFamily());
-            if (maxStoreSeqId == null || maxStoreSeqId >= entry.getKey().getLogSeqNum()) {
-              continue;
-            }
-          }
-        }
-        if (kv.isDelete()) {
-          del=new Delete(kv.getRow());
-          del.setClusterIds(entry.getKey().getClusterIds());
-          preRow=del;
-        }
- else {
-          put=new Put(kv.getRow());
-          put.setClusterIds(entry.getKey().getClusterIds());
-          preRow=put;
-        }
-        preKey=loc.getHostnamePort() + KEY_DELIMITER + table;
-        preLoc=loc;
+      if (kv.matchingFamily(WALEdit.METAFAMILY)) {
+        skippedKVs.add(kv);
+        continue;
       }
-      if (kv.isDelete()) {
-        del.addDeleteMarker(kv);
+      try {
+        loc=locateRegionAndRefreshLastFlushedSequenceId(hconn,table,kv.getRow(),encodeRegionNameStr);
+      }
+ catch (      TableNotFoundException ex) {
+        LOG.info("Table " + table + " doesn't exist. Skip log replay for region "+ encodeRegionNameStr);
+        lastFlushedSequenceIds.put(encodeRegionNameStr,Long.MAX_VALUE);
+        if (nonExistentTables == null) {
+          nonExistentTables=new TreeSet<TableName>();
+        }
+        nonExistentTables.add(table);
+        this.skippedEdits.incrementAndGet();
+        needSkip=true;
+        break;
+      }
+      cachedLastFlushedSequenceId=lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
+      if (cachedLastFlushedSequenceId != null && cachedLastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
+        this.skippedEdits.incrementAndGet();
+        needSkip=true;
+        break;
       }
  else {
-        put.add(kv);
+        if (maxStoreSequenceIds == null) {
+          maxStoreSequenceIds=regionMaxSeqIdInStores.get(loc.getRegionInfo().getEncodedName());
+        }
+        if (maxStoreSequenceIds != null) {
+          Long maxStoreSeqId=maxStoreSequenceIds.get(kv.getFamily());
+          if (maxStoreSeqId == null || maxStoreSeqId >= entry.getKey().getLogSeqNum()) {
+            skippedKVs.add(kv);
+            continue;
+          }
+        }
       }
-      lastKV=kv;
     }
     if (needSkip)     continue;
-    if (preRow != null && lastAddedRow != preRow) {
-synchronized (serverToBufferQueueMap) {
-        List<Pair<HRegionLocation,Row>> queue=serverToBufferQueueMap.get(preKey);
-        if (queue == null) {
-          queue=Collections.synchronizedList(new ArrayList<Pair<HRegionLocation,Row>>());
-          serverToBufferQueueMap.put(preKey,queue);
-        }
-        queue.add(new Pair<HRegionLocation,Row>(preLoc,preRow));
-      }
-      addToRecoveredRegions(preLoc.getRegionInfo().getEncodedName());
+    if (!skippedKVs.isEmpty()) {
+      kvs.removeAll(skippedKVs);
     }
+synchronized (serverToBufferQueueMap) {
+      locKey=loc.getHostnamePort() + KEY_DELIMITER + table;
+      List<Pair<HRegionLocation,HLog.Entry>> queue=serverToBufferQueueMap.get(locKey);
+      if (queue == null) {
+        queue=Collections.synchronizedList(new ArrayList<Pair<HRegionLocation,HLog.Entry>>());
+        serverToBufferQueueMap.put(locKey,queue);
+      }
+      queue.add(new Pair<HRegionLocation,HLog.Entry>(loc,entry));
+    }
+    addToRecoveredRegions(loc.getRegionInfo().getEncodedName());
   }
 }
