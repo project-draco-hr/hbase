@@ -8,8 +8,20 @@
       return ReplicateWALEntryResponse.newBuilder().build();
     }
     HRegion region=this.getRegionByEncodedName(entries.get(0).getKey().getEncodedRegionName().toStringUtf8());
+    RegionCoprocessorHost coprocessorHost=region.getCoprocessorHost();
     List<Pair<HLogKey,WALEdit>> walEntries=new ArrayList<Pair<HLogKey,WALEdit>>();
-    List<Pair<MutationType,Mutation>> mutations=region.getReplayMutations(request.getEntryList(),cells,UUID.fromString(this.clusterId),walEntries);
+    List<Pair<MutationType,Mutation>> mutations=new ArrayList<Pair<MutationType,Mutation>>();
+    for (    WALEntry entry : entries) {
+      Pair<HLogKey,WALEdit> walEntry=(coprocessorHost == null) ? null : new Pair<HLogKey,WALEdit>();
+      List<Pair<MutationType,Mutation>> edits=HLogSplitter.getMutationsFromWALEntry(entry,cells,walEntry);
+      if (coprocessorHost != null) {
+        if (coprocessorHost.preWALRestore(region.getRegionInfo(),walEntry.getFirst(),walEntry.getSecond())) {
+          continue;
+        }
+        walEntries.add(walEntry);
+      }
+      mutations.addAll(edits);
+    }
     if (!mutations.isEmpty()) {
       OperationStatus[] result=doBatchOp(region,mutations,true);
       for (int i=0; result != null && i < result.length; i++) {
@@ -18,9 +30,9 @@
         }
       }
     }
-    if (region.getCoprocessorHost() != null) {
+    if (coprocessorHost != null) {
       for (      Pair<HLogKey,WALEdit> wal : walEntries) {
-        region.getCoprocessorHost().postWALRestore(region.getRegionInfo(),wal.getFirst(),wal.getSecond());
+        coprocessorHost.postWALRestore(region.getRegionInfo(),wal.getFirst(),wal.getSecond());
       }
     }
     return ReplicateWALEntryResponse.newBuilder().build();
