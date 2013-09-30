@@ -3,97 +3,27 @@
   CellScanner cellScanner=controller != null ? controller.cellScanner() : null;
   if (controller != null)   controller.setCellScanner(null);
   List<CellScannable> cellsToReturn=null;
+  MultiResponse.Builder responseBuilder=MultiResponse.newBuilder();
   try {
-    HRegion region=getRegion(request.getRegion());
-    MultiResponse.Builder builder=MultiResponse.newBuilder();
-    List<MutationProto> mutations=new ArrayList<MutationProto>(request.getActionCount());
-    if (request.hasAtomic() && request.getAtomic()) {
-      for (      ClientProtos.MultiAction actionUnion : request.getActionList()) {
-        if (actionUnion.hasMutation()) {
-          mutations.add(actionUnion.getMutation());
-        }
- else {
-          throw new DoNotRetryIOException("Unsupported atomic action type: " + actionUnion);
-        }
-      }
-      if (!mutations.isEmpty())       mutateRows(region,mutations,cellScanner);
-    }
- else {
-      ActionResult.Builder resultBuilder=null;
-      cellsToReturn=new ArrayList<CellScannable>(request.getActionCount());
-      for (      ClientProtos.MultiAction actionUnion : request.getActionList()) {
+    for (    RegionMutation regionMutation : request.getRegionMutationList()) {
+      RegionMutationResult.Builder regionMutationResultBuilder=null;
+      HRegion region=getRegion(regionMutation.getRegion());
+      if (regionMutation.hasAtomic() && regionMutation.getAtomic()) {
         this.requestCount.increment();
-        ClientProtos.Result result=null;
-        try {
-          if (actionUnion.hasGet()) {
-            Get get=ProtobufUtil.toGet(actionUnion.getGet());
-            Result r=region.get(get);
-            if (r != null) {
-              result=ProtobufUtil.toResultNoData(r);
-              cellsToReturn.add(r);
-            }
-          }
- else           if (actionUnion.hasMutation()) {
-            MutationProto mutation=actionUnion.getMutation();
-            MutationType type=mutation.getMutateType();
-            if (type != MutationType.PUT && type != MutationType.DELETE) {
-              if (!mutations.isEmpty()) {
-                doBatchOp(builder,region,mutations,cellScanner);
-                mutations.clear();
-              }
- else               if (!region.getRegionInfo().isMetaTable()) {
-                cacheFlusher.reclaimMemStoreMemory();
-              }
-            }
-            Result r=null;
-switch (type) {
-case APPEND:
-              r=append(region,mutation,cellScanner);
-            break;
-case INCREMENT:
-          r=increment(region,mutation,cellScanner);
-        break;
-case PUT:
-case DELETE:
-      mutations.add(mutation);
-    break;
-default :
-  throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
-}
-if (r != null) {
-result=ProtobufUtil.toResultNoData(r);
-cellsToReturn.add(r);
-}
-}
+        mutateRows(region,regionMutation.getMutationList(),cellScanner);
+      }
  else {
-LOG.warn("Error: invalid action: " + actionUnion + ". "+ "it must be a Get, Mutate, or Exec.");
-throw new DoNotRetryIOException("Invalid action, " + "it must be a Get, Mutate, or Exec.");
-}
-if (result != null) {
-if (resultBuilder == null) {
-resultBuilder=ActionResult.newBuilder();
-}
- else {
-resultBuilder.clear();
-}
-resultBuilder.setValue(result);
-builder.addResult(resultBuilder.build());
-}
-}
- catch (IOException ie) {
-builder.addResult(ResponseConverter.buildActionResult(ie));
-}
-}
-if (!mutations.isEmpty()) {
-doBatchOp(builder,region,mutations,cellScanner);
-}
-}
-if (cellsToReturn != null && !cellsToReturn.isEmpty() && controller != null) {
-controller.setCellScanner(CellUtil.createCellScanner(cellsToReturn));
-}
-return builder.build();
-}
- catch (IOException ie) {
-throw new ServiceException(ie);
-}
+        regionMutationResultBuilder=RegionMutationResult.newBuilder();
+        cellsToReturn=doNonAtomicRegionMutation(region,regionMutation,cellScanner,regionMutationResultBuilder,cellsToReturn);
+      }
+      responseBuilder.addRegionMutationResult(regionMutationResultBuilder == null ? RegionMutationResult.getDefaultInstance() : regionMutationResultBuilder.build());
+    }
+    if (cellsToReturn != null && !cellsToReturn.isEmpty() && controller != null) {
+      controller.setCellScanner(CellUtil.createCellScanner(cellsToReturn));
+    }
+    return responseBuilder.build();
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
 }
