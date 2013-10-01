@@ -4,28 +4,37 @@
     LOG.warn("Assigning a region not in region states: " + region);
     state=regionStates.createRegionState(region);
   }
+  if (forceNewPlan && LOG.isDebugEnabled()) {
+    LOG.debug("Force region state offline " + state);
+  }
 switch (state.getState()) {
 case OPEN:
 case OPENING:
 case PENDING_OPEN:
-    if (!forceNewPlan) {
-      LOG.debug("Attempting to assign region " + region + " but it is already in transition: "+ state);
-      return null;
-    }
 case CLOSING:
 case PENDING_CLOSE:
+    if (!forceNewPlan) {
+      LOG.debug("Skip assigning " + region + ", it is already "+ state);
+      return null;
+    }
 case FAILED_CLOSE:
 case FAILED_OPEN:
   unassign(region,state,-1,null,false,null);
+RegionState oldState=state;
 state=regionStates.getRegionState(region);
-if (state.isOffline()) break;
+if (state.isFailedClose()) {
+LOG.info("Skip assigning " + region + ", we couldn't close it: "+ state);
+return null;
+}
+if ((oldState.isOpened() || oldState.isPendingOpenOrOpening()) && wasRegionOnDeadServerByMeta(region,oldState.getServerName())) {
+LOG.info("Skip assigning " + region.getRegionNameAsString() + ", it is on a dead but not processed yet server");
+return null;
+}
 case CLOSED:
-LOG.debug("Forcing OFFLINE; was=" + state);
-state=regionStates.updateRegionState(region,RegionState.State.OFFLINE);
 case OFFLINE:
 break;
 default :
-LOG.error("Trying to assign region " + region + ", which is in state "+ state);
+LOG.error("Trying to assign region " + region + ", which is "+ state);
 return null;
 }
 return state;

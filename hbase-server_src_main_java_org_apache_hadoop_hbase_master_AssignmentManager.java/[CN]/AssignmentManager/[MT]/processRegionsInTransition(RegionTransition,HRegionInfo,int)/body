@@ -13,16 +13,14 @@ case M_ZK_REGION_CLOSING:
       forceOffline(regionInfo,rt);
     }
  else {
-      regionStates.updateRegionState(rt,RegionState.State.CLOSING);
-      final RegionState rs=regionStates.getRegionState(regionInfo);
-      final ClosedRegionHandler closedRegionHandler=new ClosedRegionHandler(server,this,regionInfo);
+      final RegionState rs=regionStates.updateRegionState(rt,State.CLOSING);
       this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY){
         @Override public void process() throws IOException {
           ReentrantLock lock=locker.acquireLock(regionInfo.getEncodedName());
           try {
             unassign(regionInfo,rs,expectedVersion,null,true,null);
             if (regionStates.isRegionOffline(regionInfo)) {
-              closedRegionHandler.process();
+              assign(regionInfo,true);
             }
           }
   finally {
@@ -35,14 +33,14 @@ case M_ZK_REGION_CLOSING:
   break;
 case RS_ZK_REGION_CLOSED:
 case RS_ZK_REGION_FAILED_OPEN:
-addToRITandCallClose(regionInfo,RegionState.State.CLOSED,rt);
+addToRITandInvokeAssign(regionInfo,State.CLOSED,rt);
 break;
 case M_ZK_REGION_OFFLINE:
 if (!serverManager.isServerOnline(sn)) {
-addToRITandCallClose(regionInfo,RegionState.State.OFFLINE,rt);
+addToRITandInvokeAssign(regionInfo,State.OFFLINE,rt);
 }
  else {
-regionStates.updateRegionState(rt,RegionState.State.PENDING_OPEN);
+regionStates.updateRegionState(rt,State.PENDING_OPEN);
 final RegionState rs=regionStates.getRegionState(regionInfo);
 this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY){
 @Override public void process() throws IOException {
@@ -65,7 +63,7 @@ if (!serverManager.isServerOnline(sn)) {
 forceOffline(regionInfo,rt);
 }
  else {
-regionStates.updateRegionState(rt,RegionState.State.OPENING);
+regionStates.updateRegionState(rt,State.OPENING);
 }
 break;
 case RS_ZK_REGION_OPENED:
@@ -73,7 +71,7 @@ if (!serverManager.isServerOnline(sn)) {
 forceOffline(regionInfo,rt);
 }
  else {
-regionStates.updateRegionState(rt,RegionState.State.OPEN);
+regionStates.updateRegionState(rt,State.OPEN);
 new OpenedRegionHandler(server,this,regionInfo,sn,expectedVersion).process();
 }
 break;
@@ -83,7 +81,7 @@ LOG.warn("Processed region " + prettyPrintedRegionName + " in state : "+ et+ " o
 }
  else {
 regionStates.regionOnline(regionInfo,sn);
-regionStates.updateRegionState(rt,RegionState.State.SPLITTING);
+regionStates.updateRegionState(rt,State.SPLITTING);
 LOG.info("Processed " + prettyPrintedRegionName + " in state : "+ et);
 }
 break;
@@ -93,7 +91,7 @@ LOG.warn("Processed " + prettyPrintedRegionName + " in state : "+ et+ " on a dea
 }
  else {
 regionStates.regionOnline(regionInfo,sn);
-regionStates.updateRegionState(rt,RegionState.State.SPLITTING);
+regionStates.updateRegionState(rt,State.SPLITTING);
 LOG.info("Processed " + prettyPrintedRegionName + " in state : "+ et);
 }
 break;

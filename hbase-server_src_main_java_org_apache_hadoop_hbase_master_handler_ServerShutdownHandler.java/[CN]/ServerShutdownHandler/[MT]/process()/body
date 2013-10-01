@@ -2,7 +2,8 @@
   boolean hasLogReplayWork=false;
   final ServerName serverName=this.serverName;
   try {
-    if (isCarryingMeta() || !services.getAssignmentManager().isFailoverCleanupDone()) {
+    AssignmentManager am=services.getAssignmentManager();
+    if (isCarryingMeta() || !am.isFailoverCleanupDone()) {
       this.services.getServerManager().processDeadServer(serverName,this.shouldSplitHlog);
       return;
     }
@@ -36,6 +37,7 @@ catch (      IOException ioe) {
  else {
           this.services.getMasterFileSystem().splitLog(serverName);
         }
+        am.getRegionStates().logSplit(serverName);
       }
  else {
         LOG.info("Skipping log splitting for " + serverName);
@@ -44,7 +46,6 @@ catch (      IOException ioe) {
  catch (    IOException ioe) {
       resubmit(serverName,ioe);
     }
-    AssignmentManager am=services.getAssignmentManager();
     List<HRegionInfo> regionsInTransition=am.processServerShutdown(serverName);
     LOG.info("Reassigning " + ((hris == null) ? 0 : hris.size()) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (and "+ regionsInTransition.size()+ " regions(s) that were opening on this server)");
     List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
@@ -56,37 +57,44 @@ catch (      IOException ioe) {
         if (regionsInTransition.contains(hri)) {
           continue;
         }
-        RegionState rit=regionStates.getRegionTransitionState(hri);
-        if (processDeadRegion(hri,e.getValue(),am,server.getCatalogTracker())) {
-          ServerName addressFromAM=regionStates.getRegionServerOfRegion(hri);
-          if (addressFromAM != null && !addressFromAM.equals(this.serverName)) {
-            LOG.info("Skip assigning region " + hri.getRegionNameAsString() + " because it has been opened in "+ addressFromAM.getServerName());
-            continue;
-          }
-          if (rit != null) {
-            if (!rit.isOnServer(serverName) || rit.isClosed() || rit.isOpened()) {
-              LOG.info("Skip assigning region " + rit);
+        String encodedName=hri.getEncodedName();
+        Lock lock=am.acquireRegionLock(encodedName);
+        try {
+          RegionState rit=regionStates.getRegionTransitionState(hri);
+          if (processDeadRegion(hri,e.getValue(),am,server.getCatalogTracker())) {
+            ServerName addressFromAM=regionStates.getRegionServerOfRegion(hri);
+            if (addressFromAM != null && !addressFromAM.equals(this.serverName)) {
+              LOG.info("Skip assigning region " + hri.getRegionNameAsString() + " because it has been opened in "+ addressFromAM.getServerName());
               continue;
             }
-            try {
-              LOG.info("Reassigning region with rs = " + rit + " and deleting zk node if exists");
-              ZKAssign.deleteNodeFailSilent(services.getZooKeeper(),hri);
+            if (rit != null) {
+              if (rit.getServerName() != null && !rit.isOnServer(serverName)) {
+                LOG.info("Skip assigning region in transition on other server" + rit);
+                continue;
+              }
+              try {
+                LOG.info("Reassigning region with rs = " + rit + " and deleting zk node if exists");
+                ZKAssign.deleteNodeFailSilent(services.getZooKeeper(),hri);
+              }
+ catch (              KeeperException ke) {
+                this.server.abort("Unexpected ZK exception deleting unassigned node " + hri,ke);
+                return;
+              }
             }
- catch (            KeeperException ke) {
-              this.server.abort("Unexpected ZK exception deleting unassigned node " + hri,ke);
-              return;
+            toAssignRegions.add(hri);
+          }
+ else           if (rit != null) {
+            if (rit.isPendingCloseOrClosing() && am.getZKTable().isDisablingOrDisabledTable(hri.getTable())) {
+              am.deleteClosingOrClosedNode(hri);
+              am.regionOffline(hri);
             }
-          }
-          toAssignRegions.add(hri);
-        }
- else         if (rit != null) {
-          if ((rit.isClosing() || rit.isPendingClose()) && am.getZKTable().isDisablingOrDisabledTable(hri.getTable())) {
-            am.deleteClosingOrClosedNode(hri);
-            am.regionOffline(hri);
-          }
  else {
-            LOG.warn("THIS SHOULD NOT HAPPEN: unexpected region in transition " + rit + " not to be assigned by SSH of server "+ serverName);
+              LOG.warn("THIS SHOULD NOT HAPPEN: unexpected region in transition " + rit + " not to be assigned by SSH of server "+ serverName);
+            }
           }
+        }
+  finally {
+          lock.unlock();
         }
       }
     }

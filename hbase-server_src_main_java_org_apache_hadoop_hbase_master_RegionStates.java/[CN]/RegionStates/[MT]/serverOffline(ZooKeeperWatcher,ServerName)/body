@@ -1,42 +1,46 @@
 {
   List<HRegionInfo> rits=new ArrayList<HRegionInfo>();
-  Set<HRegionInfo> assignedRegions=serverHoldings.remove(sn);
+  Set<HRegionInfo> assignedRegions=serverHoldings.get(sn);
   if (assignedRegions == null) {
     assignedRegions=new HashSet<HRegionInfo>();
   }
-  for (  HRegionInfo region : assignedRegions) {
-    regionAssignments.remove(region);
-  }
   Set<HRegionInfo> regionsToOffline=new HashSet<HRegionInfo>();
-  for (  RegionState state : regionsInTransition.values()) {
-    HRegionInfo hri=state.getRegion();
-    if (assignedRegions.contains(hri)) {
-      LOG.info("Transitioning " + state + " will be handled by SSH for "+ sn);
+  for (  HRegionInfo region : assignedRegions) {
+    if (isRegionOnline(region)) {
+      regionsToOffline.add(region);
+    }
+ else {
+      RegionState state=getRegionState(region);
       if (state.isSplitting() || state.isMerging()) {
-        LOG.info("Offline splitting/merging region " + state);
+        LOG.debug("Offline splitting/merging region " + state);
         try {
-          ZKAssign.deleteNodeFailSilent(watcher,hri);
-          regionsToOffline.add(hri);
+          ZKAssign.deleteNodeFailSilent(watcher,region);
+          regionsToOffline.add(region);
         }
  catch (        KeeperException ke) {
-          server.abort("Unexpected ZK exception deleting node " + hri,ke);
+          server.abort("Unexpected ZK exception deleting node " + region,ke);
         }
-      }
-    }
- else     if (sn.equals(state.getServerName())) {
-      if (state.isPendingOpen() || state.isOpening()) {
-        LOG.info("Found opening region " + state + " to be reassigned by SSH for "+ sn);
-        rits.add(hri);
-      }
- else {
-        LOG.warn("THIS SHOULD NOT HAPPEN: unexpected state " + state + " of region in transition on server "+ sn);
       }
     }
   }
   for (  HRegionInfo hri : regionsToOffline) {
     regionOffline(hri);
   }
-  assignedRegions.clear();
+  for (  RegionState state : regionsInTransition.values()) {
+    HRegionInfo hri=state.getRegion();
+    if (assignedRegions.contains(hri)) {
+      LOG.info("Transitioning " + state + " will be handled by SSH for "+ sn);
+    }
+ else     if (sn.equals(state.getServerName())) {
+      if (state.isPendingOpenOrOpening() || state.isFailedClose()) {
+        LOG.info("Found opening region " + state + " to be reassigned by SSH for "+ sn);
+        rits.add(hri);
+      }
+ else {
+        LOG.warn("THIS SHOULD NOT HAPPEN: unexpected " + state);
+      }
+    }
+  }
   this.notifyAll();
   return rits;
 }

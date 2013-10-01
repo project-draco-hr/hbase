@@ -19,19 +19,29 @@
       Map<String,RegionPlan> plans=new HashMap<String,RegionPlan>(regions.size());
       List<RegionState> states=new ArrayList<RegionState>(regions.size());
       for (      HRegionInfo region : regions) {
-        String encodedRegionName=region.getEncodedName();
-        RegionState state=forceRegionStateToOffline(region,true);
-        if (state != null && asyncSetOfflineInZooKeeper(state,cb,destination)) {
-          RegionPlan plan=new RegionPlan(region,state.getServerName(),destination);
-          plans.put(encodedRegionName,plan);
-          states.add(state);
+        String encodedName=region.getEncodedName();
+        if (!isDisabledorDisablingRegionInRIT(region)) {
+          RegionState state=forceRegionStateToOffline(region,false);
+          boolean onDeadServer=false;
+          if (state != null) {
+            if (regionStates.wasRegionOnDeadServer(encodedName)) {
+              LOG.info("Skip assigning " + region.getRegionNameAsString() + ", it's host "+ regionStates.getLastRegionServerOfRegion(encodedName)+ " is dead but not processed yet");
+              onDeadServer=true;
+            }
+ else             if (asyncSetOfflineInZooKeeper(state,cb,destination)) {
+              RegionPlan plan=new RegionPlan(region,state.getServerName(),destination);
+              plans.put(encodedName,plan);
+              states.add(state);
+              continue;
+            }
+          }
+          if (!onDeadServer) {
+            LOG.info("failed to force region state to offline or " + "failed to set it offline in ZK, will reassign later: " + region);
+            failedToOpenRegions.add(region);
+          }
         }
- else {
-          LOG.warn("failed to force region state to offline or " + "failed to set it offline in ZK, will reassign later: " + region);
-          failedToOpenRegions.add(region);
-          Lock lock=locks.remove(encodedRegionName);
-          lock.unlock();
-        }
+        Lock lock=locks.remove(encodedName);
+        lock.unlock();
       }
       int total=states.size();
       for (int oldCounter=0; !server.isStopped(); ) {
@@ -59,7 +69,7 @@
           lock.unlock();
         }
  else {
-          regionStates.updateRegionState(region,RegionState.State.PENDING_OPEN,destination);
+          regionStates.updateRegionState(region,State.PENDING_OPEN,destination);
           List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
           if (this.shouldAssignRegionsWithFavoredNodes) {
             favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
@@ -120,7 +130,7 @@
         }
       }
  catch (      IOException e) {
-        LOG.info("Unable to communicate with the region server in order" + " to assign regions",e);
+        LOG.info("Unable to communicate with " + destination + " in order to assign regions, ",e);
         return false;
       }
 catch (      InterruptedException e) {
@@ -134,10 +144,12 @@ catch (      InterruptedException e) {
     }
     if (!failedToOpenRegions.isEmpty()) {
       for (      HRegionInfo region : failedToOpenRegions) {
-        invokeAssign(region);
+        if (!regionStates.isRegionOnline(region)) {
+          invokeAssign(region);
+        }
       }
     }
-    LOG.debug("Bulk assigning done for " + destination.toString());
+    LOG.debug("Bulk assigning done for " + destination);
     return true;
   }
   finally {

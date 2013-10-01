@@ -4,22 +4,24 @@
   int versionOfClosingNode=-1;
   ReentrantLock lock=locker.acquireLock(encodedName);
   RegionState state=regionStates.getRegionTransitionState(encodedName);
+  boolean reassign=true;
   try {
     if (state == null) {
       state=regionStates.getRegionState(encodedName);
-      if (state != null && (state.isMerged() || state.isSplit())) {
+      if (state != null && (state.isMerged() || state.isSplit() || state.isOffline())) {
         LOG.info("Attempting to unassign " + state + ", ignored");
         return;
       }
       try {
-        state=regionStates.getRegionState(region);
         if (state == null || state.getServerName() == null) {
+          LOG.warn("Attempting to unassign a region not in RegionStates" + region.getRegionNameAsString() + ", offlined");
           regionOffline(region);
           return;
         }
         versionOfClosingNode=ZKAssign.createNodeClosing(watcher,region,state.getServerName());
         if (versionOfClosingNode == -1) {
           LOG.info("Attempting to unassign " + region.getRegionNameAsString() + " but ZK closing node "+ "can't be created.");
+          reassign=false;
           return;
         }
       }
@@ -30,6 +32,7 @@
           try {
             if (isSplitOrSplittingOrMergedOrMerging(path)) {
               LOG.debug(path + " is SPLIT or SPLITTING or MERGED or MERGING; " + "skipping unassign because region no longer exists -- its split or merge");
+              reassign=false;
               return;
             }
           }
@@ -45,9 +48,10 @@ catch (          DeserializationException de) {
           }
         }
         server.abort("Unexpected ZK exception creating node CLOSING",e);
+        reassign=false;
         return;
       }
-      state=regionStates.updateRegionState(region,RegionState.State.PENDING_CLOSE);
+      state=regionStates.updateRegionState(region,State.PENDING_CLOSE);
     }
  else     if (state.isFailedOpen()) {
       regionOffline(region);
@@ -56,7 +60,7 @@ catch (          DeserializationException de) {
  else     if (force && state.isPendingCloseOrClosing()) {
       LOG.debug("Attempting to unassign " + region.getRegionNameAsString() + " which is already "+ state.getState()+ " but forcing to send a CLOSE RPC again ");
       if (state.isFailedClose()) {
-        state=regionStates.updateRegionState(region,RegionState.State.PENDING_CLOSE);
+        state=regionStates.updateRegionState(region,State.PENDING_CLOSE);
       }
       state.updateTimestampToNow();
     }
@@ -65,11 +69,11 @@ catch (          DeserializationException de) {
       return;
     }
     unassign(region,state,versionOfClosingNode,dest,true,null);
-    if (regionStates.isRegionOffline(region)) {
-      new ClosedRegionHandler(server,this,region).process();
-    }
   }
   finally {
     lock.unlock();
+    if (reassign && regionStates.isRegionOffline(region)) {
+      assign(region,true);
+    }
   }
 }

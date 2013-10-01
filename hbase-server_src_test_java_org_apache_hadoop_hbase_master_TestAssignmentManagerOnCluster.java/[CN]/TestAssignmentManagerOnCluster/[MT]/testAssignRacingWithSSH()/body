@@ -1,0 +1,45 @@
+{
+  String table="testAssignRacingWithSSH";
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  MyMaster master=null;
+  try {
+    HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(table));
+    desc.addFamily(new HColumnDescriptor(FAMILY));
+    admin.createTable(desc);
+    HTable meta=new HTable(conf,TableName.META_TABLE_NAME);
+    HRegionInfo hri=new HRegionInfo(desc.getTableName(),Bytes.toBytes("A"),Bytes.toBytes("Z"));
+    MetaEditor.addRegionToMeta(meta,hri);
+    master=(MyMaster)cluster.getMaster();
+    master.assignRegion(hri);
+    master.enableSSH(false);
+    AssignmentManager am=master.getAssignmentManager();
+    RegionStates regionStates=am.getRegionStates();
+    assertTrue(am.waitForAssignment(hri));
+    RegionState state=regionStates.getRegionState(hri);
+    ServerName oldServerName=state.getServerName();
+    cluster.killRegionServer(oldServerName);
+    cluster.waitForRegionServerToStop(oldServerName,-1);
+    am.assign(hri,true,true);
+    state=regionStates.getRegionState(hri);
+    assertTrue(state.isFailedClose());
+    am.unassign(hri,true);
+    state=regionStates.getRegionState(hri);
+    assertTrue(state.isFailedClose());
+synchronized (regionStates) {
+      master.enableSSH(true);
+      am.unassign(hri,true);
+      state=regionStates.getRegionState(hri);
+      assertTrue(state.isOffline());
+    }
+    am.waitOnRegionToClearRegionsInTransition(hri);
+    assertTrue(am.waitForAssignment(hri));
+    ServerName serverName=master.getAssignmentManager().getRegionStates().getRegionServerOfRegion(hri);
+    TEST_UTIL.assertRegionOnlyOnServer(hri,serverName,200);
+  }
+  finally {
+    if (master != null) {
+      master.enableSSH(true);
+    }
+    TEST_UTIL.deleteTable(Bytes.toBytes(table));
+  }
+}
