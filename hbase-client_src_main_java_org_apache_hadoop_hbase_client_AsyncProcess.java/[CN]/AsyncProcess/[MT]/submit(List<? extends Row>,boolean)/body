@@ -5,22 +5,20 @@
   Map<HRegionLocation,MultiAction<Row>> actionsByServer=new HashMap<HRegionLocation,MultiAction<Row>>();
   List<Action<Row>> retainedActions=new ArrayList<Action<Row>>(rows.size());
   do {
+    waitForMaximumCurrentTasks(maxTotalConcurrentTasks - 1);
     Map<String,Boolean> regionIncluded=new HashMap<String,Boolean>();
-    long currentTaskNumber=waitForMaximumCurrentTasks(maxTotalConcurrentTasks);
+    Map<ServerName,Boolean> serverIncluded=new HashMap<ServerName,Boolean>();
     int posInList=-1;
     Iterator<? extends Row> it=rows.iterator();
     while (it.hasNext()) {
       Row r=it.next();
-      HRegionLocation loc=findDestLocation(r,1,posInList,false,regionIncluded);
-      if (loc != null) {
+      HRegionLocation loc=findDestLocation(r,1,posInList);
+      if (loc != null && canTakeOperation(loc,regionIncluded,serverIncluded)) {
         Action<Row> action=new Action<Row>(r,++posInList);
         retainedActions.add(action);
         addAction(loc,action,actionsByServer);
         it.remove();
       }
-    }
-    if (retainedActions.isEmpty() && atLeastOne && !hasError()) {
-      waitForNextTaskDone(currentTaskNumber);
     }
   }
  while (retainedActions.isEmpty() && atLeastOne && !hasError());
