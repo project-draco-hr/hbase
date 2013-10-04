@@ -1,0 +1,74 @@
+{
+  List<IOException> deferred=new ArrayList<IOException>();
+  if (!ServerName.isSameHostnameAndPort(initial.getMaster(),current.getMaster())) {
+    LOG.info("Restoring cluster - Initial active master : " + initial.getMaster().getHostname() + " has changed to : "+ current.getMaster().getHostname());
+    try {
+      if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,initial.getMaster().getHostname())) {
+        LOG.info("Restoring cluster - starting initial active master at:" + initial.getMaster().getHostname());
+        startMaster(initial.getMaster().getHostname());
+      }
+      for (      ServerName currentBackup : current.getBackupMasters()) {
+        if (!ServerName.isSameHostnameAndPort(currentBackup,initial.getMaster())) {
+          LOG.info("Restoring cluster - stopping backup master: " + currentBackup);
+          stopMaster(currentBackup);
+        }
+      }
+      LOG.info("Restoring cluster - stopping active master: " + current.getMaster());
+      stopMaster(current.getMaster());
+      waitForActiveAndReadyMaster();
+    }
+ catch (    IOException ex) {
+      deferred.add(ex);
+    }
+    for (    ServerName backup : initial.getBackupMasters()) {
+      try {
+        if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,backup.getHostname())) {
+          LOG.info("Restoring cluster - starting initial backup master: " + backup.getHostname());
+          startMaster(backup.getHostname());
+        }
+      }
+ catch (      IOException ex) {
+        deferred.add(ex);
+      }
+    }
+  }
+ else {
+    HashMap<String,ServerName> initialBackups=new HashMap<String,ServerName>();
+    HashMap<String,ServerName> currentBackups=new HashMap<String,ServerName>();
+    for (    ServerName server : initial.getBackupMasters()) {
+      initialBackups.put(server.getHostname(),server);
+    }
+    for (    ServerName server : current.getBackupMasters()) {
+      currentBackups.put(server.getHostname(),server);
+    }
+    for (    String hostname : Sets.difference(initialBackups.keySet(),currentBackups.keySet())) {
+      try {
+        if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,hostname)) {
+          LOG.info("Restoring cluster - starting initial backup master: " + hostname);
+          startMaster(hostname);
+        }
+      }
+ catch (      IOException ex) {
+        deferred.add(ex);
+      }
+    }
+    for (    String hostname : Sets.difference(currentBackups.keySet(),initialBackups.keySet())) {
+      try {
+        if (clusterManager.isRunning(ServiceType.HBASE_MASTER,hostname)) {
+          LOG.info("Restoring cluster - stopping backup master: " + hostname);
+          stopMaster(currentBackups.get(hostname));
+        }
+      }
+ catch (      IOException ex) {
+        deferred.add(ex);
+      }
+    }
+  }
+  if (!deferred.isEmpty()) {
+    LOG.warn("Restoring cluster - restoring region servers reported " + deferred.size() + " errors:");
+    for (int i=0; i < deferred.size() && i < 3; i++) {
+      LOG.warn(deferred.get(i));
+    }
+  }
+  return deferred.isEmpty();
+}

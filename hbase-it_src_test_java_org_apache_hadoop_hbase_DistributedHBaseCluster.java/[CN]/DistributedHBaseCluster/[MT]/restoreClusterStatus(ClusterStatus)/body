@@ -1,67 +1,10 @@
 {
   ClusterStatus current=getClusterStatus();
-  if (!ServerName.isSameHostnameAndPort(initial.getMaster(),current.getMaster())) {
-    LOG.info("Initial active master : " + initial.getMaster().getHostname() + " has changed to : "+ current.getMaster().getHostname());
-    if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,initial.getMaster().getHostname())) {
-      startMaster(initial.getMaster().getHostname());
-    }
-    for (    ServerName currentBackup : current.getBackupMasters()) {
-      if (!ServerName.isSameHostnameAndPort(currentBackup,initial.getMaster())) {
-        stopMaster(currentBackup);
-      }
-    }
-    stopMaster(current.getMaster());
-    waitForActiveAndReadyMaster();
-    for (    ServerName backup : initial.getBackupMasters()) {
-      if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,backup.getHostname())) {
-        startMaster(backup.getHostname());
-      }
-    }
-  }
- else {
-    HashMap<String,ServerName> initialBackups=new HashMap<String,ServerName>();
-    HashMap<String,ServerName> currentBackups=new HashMap<String,ServerName>();
-    for (    ServerName server : initial.getBackupMasters()) {
-      initialBackups.put(server.getHostname(),server);
-    }
-    for (    ServerName server : current.getBackupMasters()) {
-      currentBackups.put(server.getHostname(),server);
-    }
-    for (    String hostname : Sets.difference(initialBackups.keySet(),currentBackups.keySet())) {
-      if (!clusterManager.isRunning(ServiceType.HBASE_MASTER,hostname)) {
-        startMaster(hostname);
-      }
-    }
-    for (    String hostname : Sets.difference(currentBackups.keySet(),initialBackups.keySet())) {
-      if (clusterManager.isRunning(ServiceType.HBASE_MASTER,hostname)) {
-        stopMaster(currentBackups.get(hostname));
-      }
-    }
-  }
-  HashMap<String,ServerName> initialServers=new HashMap<String,ServerName>();
-  HashMap<String,ServerName> currentServers=new HashMap<String,ServerName>();
-  for (  ServerName server : initial.getServers()) {
-    initialServers.put(server.getHostname(),server);
-  }
-  for (  ServerName server : current.getServers()) {
-    currentServers.put(server.getHostname(),server);
-  }
-  for (  String hostname : Sets.difference(initialServers.keySet(),currentServers.keySet())) {
-    if (!clusterManager.isRunning(ServiceType.HBASE_REGIONSERVER,hostname)) {
-      startRegionServer(hostname);
-    }
-  }
-  for (  String hostname : Sets.difference(currentServers.keySet(),initialServers.keySet())) {
-    if (clusterManager.isRunning(ServiceType.HBASE_REGIONSERVER,hostname)) {
-      stopRegionServer(currentServers.get(hostname));
-    }
-  }
-  try {
-    admin.close();
-  }
- catch (  IOException ioe) {
-    LOG.info("While closing the old connection",ioe);
-  }
-  this.admin=new HBaseAdmin(conf);
-  LOG.info("Added new HBaseAdmin");
+  LOG.info("Restoring cluster - started");
+  boolean success=true;
+  success=restoreMasters(initial,current) & success;
+  success=restoreRegionServers(initial,current) & success;
+  success=restoreAdmin() & success;
+  LOG.info("Restoring cluster - done");
+  return success;
 }
