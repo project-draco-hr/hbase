@@ -3,97 +3,34 @@
   CellScanner cellScanner=controller != null ? controller.cellScanner() : null;
   if (controller != null)   controller.setCellScanner(null);
   List<CellScannable> cellsToReturn=null;
-  try {
-    HRegion region=getRegion(request.getRegion());
-    MultiResponse.Builder builder=MultiResponse.newBuilder();
-    List<MutationProto> mutations=new ArrayList<MutationProto>(request.getActionCount());
-    if (request.hasAtomic() && request.getAtomic()) {
-      for (      ClientProtos.MultiAction actionUnion : request.getActionList()) {
-        if (actionUnion.hasMutation()) {
-          mutations.add(actionUnion.getMutation());
-        }
- else {
-          throw new DoNotRetryIOException("Unsupported atomic action type: " + actionUnion);
-        }
+  MultiResponse.Builder responseBuilder=MultiResponse.newBuilder();
+  for (  RegionAction regionAction : request.getRegionActionList()) {
+    this.requestCount.add(regionAction.getActionCount());
+    RegionActionResult.Builder regionActionResultBuilder=RegionActionResult.newBuilder();
+    HRegion region;
+    try {
+      region=getRegion(regionAction.getRegion());
+    }
+ catch (    IOException e) {
+      regionActionResultBuilder.setException(ResponseConverter.buildException(e));
+      responseBuilder.addRegionActionResult(regionActionResultBuilder.build());
+      continue;
+    }
+    if (regionAction.hasAtomic() && regionAction.getAtomic()) {
+      try {
+        mutateRows(region,regionAction.getActionList(),cellScanner);
       }
-      if (!mutations.isEmpty())       mutateRows(region,mutations,cellScanner);
+ catch (      IOException e) {
+        regionActionResultBuilder.setException(ResponseConverter.buildException(e));
+      }
     }
  else {
-      ActionResult.Builder resultBuilder=null;
-      cellsToReturn=new ArrayList<CellScannable>(request.getActionCount());
-      for (      ClientProtos.MultiAction actionUnion : request.getActionList()) {
-        this.requestCount.increment();
-        ClientProtos.Result result=null;
-        try {
-          if (actionUnion.hasGet()) {
-            Get get=ProtobufUtil.toGet(actionUnion.getGet());
-            Result r=region.get(get);
-            if (r != null) {
-              result=ProtobufUtil.toResultNoData(r);
-              cellsToReturn.add(r);
-            }
-          }
- else           if (actionUnion.hasMutation()) {
-            MutationProto mutation=actionUnion.getMutation();
-            MutationType type=mutation.getMutateType();
-            if (type != MutationType.PUT && type != MutationType.DELETE) {
-              if (!mutations.isEmpty()) {
-                doBatchOp(builder,region,mutations,cellScanner);
-                mutations.clear();
-              }
- else               if (!region.getRegionInfo().isMetaTable()) {
-                cacheFlusher.reclaimMemStoreMemory();
-              }
-            }
-            Result r=null;
-switch (type) {
-case APPEND:
-              r=append(region,mutation,cellScanner);
-            break;
-case INCREMENT:
-          r=increment(region,mutation,cellScanner);
-        break;
-case PUT:
-case DELETE:
-      mutations.add(mutation);
-    break;
-default :
-  throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
-}
-if (r != null) {
-result=ProtobufUtil.toResultNoData(r);
-cellsToReturn.add(r);
-}
-}
- else {
-LOG.warn("Error: invalid action: " + actionUnion + ". "+ "it must be a Get, Mutate, or Exec.");
-throw new DoNotRetryIOException("Invalid action, " + "it must be a Get, Mutate, or Exec.");
-}
-if (result != null) {
-if (resultBuilder == null) {
-resultBuilder=ActionResult.newBuilder();
-}
- else {
-resultBuilder.clear();
-}
-resultBuilder.setValue(result);
-builder.addResult(resultBuilder.build());
-}
-}
- catch (IOException ie) {
-builder.addResult(ResponseConverter.buildActionResult(ie));
-}
-}
-if (!mutations.isEmpty()) {
-doBatchOp(builder,region,mutations,cellScanner);
-}
-}
-if (cellsToReturn != null && !cellsToReturn.isEmpty() && controller != null) {
-controller.setCellScanner(CellUtil.createCellScanner(cellsToReturn));
-}
-return builder.build();
-}
- catch (IOException ie) {
-throw new ServiceException(ie);
-}
+      cellsToReturn=doNonAtomicRegionMutation(region,regionAction,cellScanner,regionActionResultBuilder,cellsToReturn);
+    }
+    responseBuilder.addRegionActionResult(regionActionResultBuilder.build());
+  }
+  if (cellsToReturn != null && !cellsToReturn.isEmpty() && controller != null) {
+    controller.setCellScanner(CellUtil.createCellScanner(cellsToReturn));
+  }
+  return responseBuilder.build();
 }

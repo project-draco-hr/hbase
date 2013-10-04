@@ -1,76 +1,20 @@
 {
-  ArrayList<SortedGet> sortedGetsList=new ArrayList<HTable.SortedGet>();
-  for (int indexGet=0; indexGet < gets.size(); indexGet++) {
-    sortedGetsList.add(new SortedGet(gets.get(indexGet),indexGet));
+  if (gets.isEmpty())   return new Boolean[]{};
+  if (gets.size() == 1)   return new Boolean[]{exists(gets.get(0))};
+  for (  Get g : gets) {
+    g.setCheckExistenceOnly(true);
   }
-  Collections.sort(sortedGetsList);
-  Map<Integer,List<Get>> getsByRegion=new HashMap<Integer,List<Get>>();
-  Map<Get,Integer> getToRegionIndexMap=new HashMap<Get,Integer>();
-  Pair<byte[][],byte[][]> startEndKeys=getStartEndKeys();
-  int regionIndex=0;
-  for (  final SortedGet get : sortedGetsList) {
-    while ((regionIndex < startEndKeys.getSecond().length) && ((Bytes.compareTo(startEndKeys.getSecond()[regionIndex],get.getGet().getRow()) <= 0))) {
-      regionIndex++;
-    }
-    List<Get> regionGets=getsByRegion.get(regionIndex);
-    if (regionGets == null) {
-      regionGets=new ArrayList<Get>();
-      getsByRegion.put(regionIndex,regionGets);
-    }
-    regionGets.add(get.getGet());
-    getToRegionIndexMap.put(get.getGet(),regionIndex);
+  Object[] r1;
+  try {
+    r1=batch(gets);
   }
-  Map<Integer,Future<List<Boolean>>> futures=new HashMap<Integer,Future<List<Boolean>>>(sortedGetsList.size());
-  for (  final Map.Entry<Integer,List<Get>> getsByRegionEntry : getsByRegion.entrySet()) {
-    Callable<List<Boolean>> callable=new Callable<List<Boolean>>(){
-      public List<Boolean> call() throws Exception {
-        RegionServerCallable<List<Boolean>> callable=new RegionServerCallable<List<Boolean>>(connection,getName(),getsByRegionEntry.getValue().get(0).getRow()){
-          public List<Boolean> call() throws IOException {
-            try {
-              MultiGetRequest requests=RequestConverter.buildMultiGetRequest(getLocation().getRegionInfo().getRegionName(),getsByRegionEntry.getValue(),true,false);
-              MultiGetResponse responses=getStub().multiGet(null,requests);
-              return responses.getExistsList();
-            }
- catch (            ServiceException se) {
-              throw ProtobufUtil.getRemoteException(se);
-            }
-          }
-        }
-;
-        return rpcCallerFactory.<List<Boolean>>newCaller().callWithRetries(callable,operationTimeout);
-      }
-    }
-;
-    futures.put(getsByRegionEntry.getKey(),pool.submit(callable));
+ catch (  InterruptedException e) {
+    throw new IOException(e);
   }
-  Map<Integer,List<Boolean>> responses=new HashMap<Integer,List<Boolean>>();
-  for (  final Map.Entry<Integer,List<Get>> sortedGetEntry : getsByRegion.entrySet()) {
-    try {
-      Future<List<Boolean>> future=futures.get(sortedGetEntry.getKey());
-      List<Boolean> resp=future.get();
-      if (resp == null) {
-        LOG.warn("Failed for gets on region: " + sortedGetEntry.getKey());
-      }
-      responses.put(sortedGetEntry.getKey(),resp);
-    }
- catch (    ExecutionException e) {
-      LOG.warn("Failed for gets on region: " + sortedGetEntry.getKey());
-    }
-catch (    InterruptedException e) {
-      LOG.warn("Failed for gets on region: " + sortedGetEntry.getKey());
-      Thread.currentThread().interrupt();
-    }
-  }
-  Boolean[] results=new Boolean[sortedGetsList.size()];
-  Map<Integer,Integer> indexes=new HashMap<Integer,Integer>();
-  for (int i=0; i < sortedGetsList.size(); i++) {
-    Integer regionInfoIndex=getToRegionIndexMap.get(sortedGetsList.get(i).getGet());
-    Integer index=indexes.get(regionInfoIndex);
-    if (index == null) {
-      index=0;
-    }
-    results[sortedGetsList.get(i).getInitialIndex()]=responses.get(regionInfoIndex).get(index);
-    indexes.put(regionInfoIndex,index + 1);
+  Boolean[] results=new Boolean[r1.length];
+  int i=0;
+  for (  Object o : r1) {
+    results[i++]=((Result)o).getExists();
   }
   return results;
 }

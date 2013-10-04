@@ -1,57 +1,30 @@
 {
-  MultiResponse response=new MultiResponse();
-  for (  Map.Entry<byte[],List<Action<R>>> e : this.multi.actions.entrySet()) {
-    byte[] regionName=e.getKey();
-    int rowMutations=0;
-    List<Action<R>> actions=e.getValue();
-    for (    Action<R> action : actions) {
-      Row row=action.getAction();
-      if (row instanceof RowMutations) {
-        RowMutations rms=(RowMutations)row;
-        List<CellScannable> cells=null;
-        MultiRequest multiRequest;
-        try {
-          if (this.cellBlock) {
-            cells=new ArrayList<CellScannable>(rms.getMutations().size());
-            multiRequest=RequestConverter.buildNoDataMultiRequest(regionName,rms,cells);
-          }
- else {
-            multiRequest=RequestConverter.buildMultiRequest(regionName,rms);
-          }
-          getStub().multi(new PayloadCarryingRpcController(cells),multiRequest);
-          response.add(regionName,action.getOriginalIndex(),Result.EMPTY_RESULT);
-        }
- catch (        ServiceException se) {
-          response.add(regionName,action.getOriginalIndex(),ProtobufUtil.getRemoteException(se));
-        }
-        rowMutations++;
-      }
+  int countOfActions=this.multiAction.size();
+  if (countOfActions <= 0)   throw new DoNotRetryIOException("No Actions");
+  MultiRequest.Builder multiRequestBuilder=MultiRequest.newBuilder();
+  List<CellScannable> cells=null;
+  for (  Map.Entry<byte[],List<Action<R>>> e : this.multiAction.actions.entrySet()) {
+    final byte[] regionName=e.getKey();
+    final List<Action<R>> actions=e.getValue();
+    RegionAction.Builder regionActionBuilder;
+    if (this.cellBlock) {
+      if (cells == null)       cells=new ArrayList<CellScannable>(countOfActions);
+      regionActionBuilder=RequestConverter.buildNoDataRegionAction(regionName,actions,cells);
     }
-    if (actions.size() > rowMutations) {
-      Exception ex=null;
-      List<Object> results=null;
-      List<CellScannable> cells=null;
-      MultiRequest multiRequest;
-      try {
-        if (isCellBlock()) {
-          cells=new ArrayList<CellScannable>(actions.size() - rowMutations);
-          multiRequest=RequestConverter.buildNoDataMultiRequest(regionName,actions,cells);
-        }
  else {
-          multiRequest=RequestConverter.buildMultiRequest(regionName,actions);
-        }
-        PayloadCarryingRpcController controller=new PayloadCarryingRpcController(cells);
-        ClientProtos.MultiResponse responseProto=getStub().multi(controller,multiRequest);
-        results=ResponseConverter.getResults(responseProto,controller.cellScanner());
-      }
- catch (      ServiceException se) {
-        ex=ProtobufUtil.getRemoteException(se);
-      }
-      for (int i=0, n=actions.size(); i < n; i++) {
-        int originalIndex=actions.get(i).getOriginalIndex();
-        response.add(regionName,originalIndex,results == null ? ex : results.get(i));
-      }
+      regionActionBuilder=RequestConverter.buildRegionAction(regionName,actions);
     }
+    multiRequestBuilder.addRegionAction(regionActionBuilder.build());
   }
-  return response;
+  PayloadCarryingRpcController controller=new PayloadCarryingRpcController(cells);
+  controller.setPriority(getTableName());
+  ClientProtos.MultiResponse responseProto;
+  ClientProtos.MultiRequest requestProto=multiRequestBuilder.build();
+  try {
+    responseProto=getStub().multi(controller,requestProto);
+  }
+ catch (  ServiceException e) {
+    return createAllFailedResponse(requestProto,ProtobufUtil.getRemoteException(e));
+  }
+  return ResponseConverter.getResults(requestProto,responseProto,controller.cellScanner());
 }
