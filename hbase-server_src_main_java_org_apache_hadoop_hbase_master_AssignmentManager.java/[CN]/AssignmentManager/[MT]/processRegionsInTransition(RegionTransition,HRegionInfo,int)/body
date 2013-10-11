@@ -1,10 +1,11 @@
 {
   EventType et=rt.getEventType();
   final ServerName sn=rt.getServerName();
-  final String encodedRegionName=regionInfo.getEncodedName();
-  final String prettyPrintedRegionName=HRegionInfo.prettyPrint(encodedRegionName);
-  LOG.info("Processing " + regionInfo.getRegionNameAsString() + " in state "+ et);
-  if (regionStates.isRegionInTransition(encodedRegionName)) {
+  final byte[] regionName=rt.getRegionName();
+  final String encodedName=HRegionInfo.encodeRegionName(regionName);
+  final String prettyPrintedRegionName=HRegionInfo.prettyPrint(encodedName);
+  LOG.info("Processing " + prettyPrintedRegionName + " in state "+ et);
+  if (regionStates.isRegionInTransition(encodedName)) {
     return;
   }
 switch (et) {
@@ -47,7 +48,7 @@ this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY)
   ReentrantLock lock=locker.acquireLock(regionInfo.getEncodedName());
   try {
     RegionPlan plan=new RegionPlan(regionInfo,null,sn);
-    addPlan(encodedRegionName,plan);
+    addPlan(encodedName,plan);
     assign(rs,false,false);
   }
   finally {
@@ -75,42 +76,25 @@ regionStates.updateRegionState(rt,State.OPEN);
 new OpenedRegionHandler(server,this,regionInfo,sn,expectedVersion).process();
 }
 break;
+case RS_ZK_REQUEST_REGION_SPLIT:
 case RS_ZK_REGION_SPLITTING:
-if (!serverManager.isServerOnline(sn)) {
-LOG.warn("Processed region " + prettyPrintedRegionName + " in state : "+ et+ " on a dead regionserver: "+ sn+ " doing nothing");
-}
- else {
-regionStates.regionOnline(regionInfo,sn);
-regionStates.updateRegionState(rt,State.SPLITTING);
-LOG.info("Processed " + prettyPrintedRegionName + " in state : "+ et);
-}
-break;
 case RS_ZK_REGION_SPLIT:
-if (!serverManager.isServerOnline(sn)) {
-LOG.warn("Processed " + prettyPrintedRegionName + " in state : "+ et+ " on a dead regionserver: "+ sn+ " doing nothing");
-}
- else {
+if (serverManager.isServerOnline(sn)) {
 regionStates.regionOnline(regionInfo,sn);
 regionStates.updateRegionState(rt,State.SPLITTING);
-LOG.info("Processed " + prettyPrintedRegionName + " in state : "+ et);
 }
-break;
-case RS_ZK_REGION_MERGING:
-if (!serverManager.isServerOnline(sn)) {
-LOG.warn("Processed " + prettyPrintedRegionName + " in state : "+ et+ " on a dead regionserver: "+ sn+ " doing nothing");
+if (!handleRegionSplitting(rt,encodedName,prettyPrintedRegionName,sn)) {
+deleteSplittingNode(encodedName);
 }
- else {
-handleRegionMerging(rt,prettyPrintedRegionName,sn);
 LOG.info("Processed region " + prettyPrintedRegionName + " in state : "+ et);
-}
 break;
+case RS_ZK_REQUEST_REGION_MERGE:
+case RS_ZK_REGION_MERGING:
 case RS_ZK_REGION_MERGED:
-if (!serverManager.isServerOnline(sn)) {
-LOG.warn("Processed " + prettyPrintedRegionName + " in state : "+ et+ " on a dead regionserver: "+ sn+ " doing nothing");
+if (!handleRegionMerging(rt,encodedName,prettyPrintedRegionName,sn)) {
+deleteMergingNode(encodedName);
 }
- else {
-LOG.info("Processed " + prettyPrintedRegionName + " in state : "+ et+ " nothing to do.");
-}
+LOG.info("Processed region " + prettyPrintedRegionName + " in state : "+ et);
 break;
 default :
 throw new IllegalStateException("Received region in state :" + et + " is not valid.");

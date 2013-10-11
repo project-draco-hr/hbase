@@ -33,8 +33,24 @@
   HRegionInfo hriDisabled=new HRegionInfo(htdDisabled.getTableName(),null,null);
   createRegion(hriDisabled,rootdir,conf,htdDisabled);
   List<HRegionInfo> disabledRegions=TEST_UTIL.createMultiRegionsInMeta(TEST_UTIL.getConfiguration(),htdDisabled,SPLIT_KEYS);
+  TableName tableWithMergingRegions=TableName.valueOf("tableWithMergingRegions");
+  TEST_UTIL.createTable(tableWithMergingRegions,FAMILY,new byte[][]{Bytes.toBytes("m")});
   log("Regions in hbase:meta and namespace have been created");
-  assertEquals(2,cluster.countServedRegions());
+  assertEquals(4,cluster.countServedRegions());
+  AssignmentManager am=master.getAssignmentManager();
+  RegionStates regionStates=am.getRegionStates();
+  List<HRegionInfo> mergingRegions=regionStates.getRegionsOfTable(tableWithMergingRegions);
+  assertEquals(2,mergingRegions.size());
+  HRegionInfo a=mergingRegions.get(0);
+  HRegionInfo b=mergingRegions.get(1);
+  HRegionInfo newRegion=RegionMergeTransaction.getMergedRegionInfo(a,b);
+  ServerName mergingServer=regionStates.getRegionServerOfRegion(a);
+  ServerName serverB=regionStates.getRegionServerOfRegion(b);
+  if (!serverB.equals(mergingServer)) {
+    RegionPlan plan=new RegionPlan(b,serverB,mergingServer);
+    am.balance(plan);
+    assertTrue(am.waitForAssignment(b));
+  }
   HRegionServer hrs=cluster.getRegionServer(0);
   ServerName serverName=hrs.getServerName();
   HRegionInfo closingRegion=enabledRegions.remove(0);
@@ -102,12 +118,18 @@
     }
     Thread.sleep(100);
   }
+  RegionMergeTransaction.createNodeMerging(zkw,newRegion,mergingServer,a,b);
   log("Done mocking data up in ZK");
   log("Starting up a new master");
   master=cluster.startMaster().getMaster();
   log("Waiting for master to be ready");
   cluster.waitForActiveAndReadyMaster();
   log("Master is ready");
+  regionStates=master.getAssignmentManager().getRegionStates();
+  assertTrue(regionStates.isRegionInState(a,State.MERGING));
+  assertTrue(regionStates.isRegionInState(b,State.MERGING));
+  assertTrue(regionStates.isRegionInState(newRegion,State.MERGING_NEW));
+  ZKAssign.deleteNodeFailSilent(zkw,newRegion);
   log("Waiting for no more RIT");
   ZKAssign.blockUntilNoRIT(zkw);
   log("No more RIT in ZK, now doing final test verification");
@@ -119,6 +141,9 @@
     assertTrue(onlineRegions.contains(hri));
   }
   for (  HRegionInfo hri : regionsThatShouldBeOffline) {
+    if (onlineRegions.contains(hri)) {
+      LOG.debug(hri);
+    }
     assertFalse(onlineRegions.contains(hri));
   }
   log("Done with verification, all passed, shutting down cluster");

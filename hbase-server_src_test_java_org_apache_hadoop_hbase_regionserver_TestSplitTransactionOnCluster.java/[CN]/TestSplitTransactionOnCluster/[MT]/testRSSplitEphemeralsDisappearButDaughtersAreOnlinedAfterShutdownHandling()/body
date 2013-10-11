@@ -11,14 +11,20 @@
     HRegionServer server=cluster.getRegionServer(tableRegionIndex);
     printOutRegions(server,"Initial regions: ");
     int regionCount=ProtobufUtil.getOnlineRegions(server).size();
-    SplitRegionHandler.TEST_SKIP=true;
+    AssignmentManager.TEST_SKIP_SPLIT_HANDLING=true;
     split(hri,server,regionCount);
     List<HRegion> daughters=checkAndGetDaughters(tableName);
     String path=ZKAssign.getNodeName(TESTING_UTIL.getZooKeeperWatcher(),hri.getEncodedName());
-    Stat stats=TESTING_UTIL.getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
+    RegionTransition rt=null;
+    Stat stats=null;
+    for (int i=0; i < 100; i++) {
+      stats=TESTING_UTIL.getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
+      rt=RegionTransition.parseFrom(ZKAssign.getData(TESTING_UTIL.getZooKeeperWatcher(),hri.getEncodedName()));
+      if (rt.getEventType().equals(EventType.RS_ZK_REGION_SPLIT))       break;
+      Thread.sleep(100);
+    }
     LOG.info("EPHEMERAL NODE BEFORE SERVER ABORT, path=" + path + ", stats="+ stats);
-    RegionTransition rt=RegionTransition.parseFrom(ZKAssign.getData(TESTING_UTIL.getZooKeeperWatcher(),hri.getEncodedName()));
-    assertTrue(rt.getEventType().equals(EventType.RS_ZK_REGION_SPLIT) || rt.getEventType().equals(EventType.RS_ZK_REGION_SPLITTING));
+    assertTrue(rt != null && rt.getEventType().equals(EventType.RS_ZK_REGION_SPLIT));
     cluster.abortRegionServer(tableRegionIndex);
     waitUntilRegionServerDead();
     awaitDaughters(tableName,daughters.size());
@@ -35,7 +41,7 @@
     assertTrue(stats == null);
   }
   finally {
-    SplitRegionHandler.TEST_SKIP=false;
+    AssignmentManager.TEST_SKIP_SPLIT_HANDLING=false;
     admin.setBalancerRunning(true,false);
     cluster.getMaster().setCatalogJanitorEnabled(true);
     t.close();
