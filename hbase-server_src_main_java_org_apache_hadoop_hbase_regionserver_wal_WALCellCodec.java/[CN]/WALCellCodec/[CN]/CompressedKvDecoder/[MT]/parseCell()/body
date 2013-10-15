@@ -1,7 +1,7 @@
 {
   int keylength=StreamUtils.readRawVarint32(in);
   int vlength=StreamUtils.readRawVarint32(in);
-  int tagsLength=StreamUtils.readRawVarint32(in);
+  short tagsLength=(short)StreamUtils.readRawVarint32(in);
   int length=0;
   if (tagsLength == 0) {
     length=KeyValue.KEYVALUE_INFRASTRUCTURE_SIZE + keylength + vlength;
@@ -23,6 +23,20 @@
   pos+=elemLen;
   elemLen=readIntoArray(backingArray,pos,compression.qualifierDict);
   pos+=elemLen;
-  IOUtils.readFully(in,backingArray,pos,length - pos);
+  int tsTypeValLen=length - pos;
+  if (tagsLength > 0) {
+    tsTypeValLen=tsTypeValLen - tagsLength - KeyValue.TAGS_LENGTH_SIZE;
+  }
+  IOUtils.readFully(in,backingArray,pos,tsTypeValLen);
+  pos+=tsTypeValLen;
+  if (tagsLength > 0) {
+    pos=Bytes.putShort(backingArray,pos,tagsLength);
+    if (compression.tagCompressionContext != null) {
+      compression.tagCompressionContext.uncompressTags(in,backingArray,pos,tagsLength);
+    }
+ else {
+      IOUtils.readFully(in,backingArray,pos,tagsLength);
+    }
+  }
   return new KeyValue(backingArray,0,length);
 }
