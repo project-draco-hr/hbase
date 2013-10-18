@@ -4,7 +4,16 @@
   }
   Map<HRegionLocation,MultiAction<Row>> actionsByServer=new HashMap<HRegionLocation,MultiAction<Row>>();
   List<Action<Row>> retainedActions=new ArrayList<Action<Row>>(rows.size());
+  long currentTaskCnt=tasksDone.get();
+  boolean alreadyLooped=false;
   do {
+    if (alreadyLooped) {
+      waitForNextTaskDone(currentTaskCnt);
+      currentTaskCnt=tasksDone.get();
+    }
+ else {
+      alreadyLooped=true;
+    }
     waitForMaximumCurrentTasks(maxTotalConcurrentTasks - 1);
     Map<String,Boolean> regionIncluded=new HashMap<String,Boolean>();
     Map<ServerName,Boolean> serverIncluded=new HashMap<ServerName,Boolean>();
@@ -13,7 +22,10 @@
     while (it.hasNext()) {
       Row r=it.next();
       HRegionLocation loc=findDestLocation(r,1,posInList);
-      if (loc != null && canTakeOperation(loc,regionIncluded,serverIncluded)) {
+      if (loc == null) {
+        it.remove();
+      }
+ else       if (canTakeOperation(loc,regionIncluded,serverIncluded)) {
         Action<Row> action=new Action<Row>(r,++posInList);
         retainedActions.add(action);
         addAction(loc,action,actionsByServer);
