@@ -17,13 +17,7 @@
   this.isScan=scan.isGetScan() ? -1 : 0;
   IsolationLevel isolationLevel=scan.getIsolationLevel();
 synchronized (scannerReadPoints) {
-    if (isolationLevel == IsolationLevel.READ_UNCOMMITTED) {
-      this.readPt=Long.MAX_VALUE;
-      MultiVersionConsistencyControl.setThreadReadPoint(this.readPt);
-    }
- else {
-      this.readPt=MultiVersionConsistencyControl.resetThreadReadPoint(mvcc);
-    }
+    this.readPt=getReadpoint(isolationLevel);
     scannerReadPoints.put(this,this.readPt);
   }
   List<KeyValueScanner> scanners=new ArrayList<KeyValueScanner>();
@@ -33,7 +27,7 @@ synchronized (scannerReadPoints) {
   }
   for (  Map.Entry<byte[],NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
     Store store=stores.get(entry.getKey());
-    KeyValueScanner scanner=store.getScanner(scan,entry.getValue());
+    KeyValueScanner scanner=store.getScanner(scan,entry.getValue(),this.readPt);
     if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand() || this.filter.isFamilyEssential(entry.getKey())) {
       scanners.add(scanner);
     }
