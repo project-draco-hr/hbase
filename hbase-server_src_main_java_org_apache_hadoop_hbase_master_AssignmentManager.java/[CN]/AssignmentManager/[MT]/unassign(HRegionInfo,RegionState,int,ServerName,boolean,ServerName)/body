@@ -3,7 +3,12 @@
   if (state != null) {
     server=state.getServerName();
   }
+  long maxWaitTime=-1;
   for (int i=1; i <= this.maximumAttempts; i++) {
+    if (this.server.isStopped() || this.server.isAborted()) {
+      LOG.debug("Server stopped/aborted; skipping unassign of " + region);
+      return;
+    }
     if (!serverManager.isServerOnline(server)) {
       if (transitionInZK) {
         deleteClosingOrClosedNode(region);
@@ -17,7 +22,7 @@
       if (serverManager.sendRegionClose(server,region,versionOfClosingNode,dest,transitionInZK)) {
         LOG.debug("Sent CLOSE to " + server + " for region "+ region.getRegionNameAsString());
         if (!transitionInZK && state != null) {
-          regionOffline(region);
+          unassign(region,state,versionOfClosingNode,dest,transitionInZK,src);
         }
         return;
       }
@@ -39,8 +44,29 @@
  else       if (state != null && t instanceof RegionAlreadyInTransitionException) {
         LOG.debug("update " + state + " the timestamp.");
         state.updateTimestampToNow();
+        if (maxWaitTime < 0) {
+          maxWaitTime=EnvironmentEdgeManager.currentTimeMillis() + this.server.getConfiguration().getLong(ALREADY_IN_TRANSITION_WAITTIME,DEFAULT_ALREADY_IN_TRANSITION_WAITTIME);
+        }
+        try {
+          long now=EnvironmentEdgeManager.currentTimeMillis();
+          if (now < maxWaitTime) {
+            LOG.debug("Region is already in transition; " + "waiting up to " + (maxWaitTime - now) + "ms",t);
+            Thread.sleep(100);
+            i--;
+          }
+        }
+ catch (        InterruptedException ie) {
+          LOG.warn("Failed to unassign " + region.getRegionNameAsString() + " since interrupted",ie);
+          Thread.currentThread().interrupt();
+          if (!tomActivated) {
+            regionStates.updateRegionState(region,State.FAILED_CLOSE);
+          }
+          return;
+        }
       }
-      LOG.info("Server " + server + " returned "+ t+ " for "+ region.getRegionNameAsString()+ ", try="+ i+ " of "+ this.maximumAttempts,t);
+ else {
+        LOG.info("Server " + server + " returned "+ t+ " for "+ region.getRegionNameAsString()+ ", try="+ i+ " of "+ this.maximumAttempts,t);
+      }
     }
   }
   if (!tomActivated && state != null) {

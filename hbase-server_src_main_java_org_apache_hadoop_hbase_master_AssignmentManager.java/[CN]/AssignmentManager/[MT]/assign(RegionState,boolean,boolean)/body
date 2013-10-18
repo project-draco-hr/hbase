@@ -4,10 +4,14 @@
     RegionState currentState=state;
     int versionOfOfflineNode=-1;
     RegionPlan plan=null;
-    long maxRegionServerStartupWaitTime=-1;
+    long maxWaitTime=-1;
     HRegionInfo region=state.getRegion();
     RegionOpeningState regionOpenState;
-    for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
+    for (int i=1; i <= maximumAttempts; i++) {
+      if (server.isStopped() || server.isAborted()) {
+        LOG.info("Skip assigning " + region.getRegionNameAsString() + ", the server is stopped/aborted");
+        return;
+      }
       if (plan == null) {
         try {
           plan=getRegionPlan(region,forceNewPlan);
@@ -58,10 +62,6 @@
           continue;
         }
       }
-      if (this.server.isStopped() || this.server.isAborted()) {
-        LOG.debug("Server stopped/aborted; skipping assign of " + region);
-        return;
-      }
       LOG.info("Assigning " + region.getRegionNameAsString() + " to "+ plan.getDestination().toString());
       currentState=regionStates.updateRegionState(region,State.PENDING_OPEN,plan.getDestination());
       boolean needNewPlan;
@@ -91,18 +91,23 @@
         boolean retry=!hold && (t instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(plan.getDestination()));
         if (hold) {
           LOG.warn(assignMsg + ", waiting a little before trying on the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
-          if (maxRegionServerStartupWaitTime < 0) {
-            maxRegionServerStartupWaitTime=EnvironmentEdgeManager.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
-          }
-          try {
-            long now=EnvironmentEdgeManager.currentTimeMillis();
-            if (now < maxRegionServerStartupWaitTime) {
-              LOG.debug("Server is not yet up; waiting up to " + (maxRegionServerStartupWaitTime - now) + "ms",t);
-              Thread.sleep(100);
-              i--;
-              needNewPlan=false;
+          if (maxWaitTime < 0) {
+            if (t instanceof RegionAlreadyInTransitionException) {
+              maxWaitTime=EnvironmentEdgeManager.currentTimeMillis() + this.server.getConfiguration().getLong(ALREADY_IN_TRANSITION_WAITTIME,DEFAULT_ALREADY_IN_TRANSITION_WAITTIME);
             }
  else {
+              maxWaitTime=this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
+            }
+          }
+          try {
+            needNewPlan=false;
+            long now=EnvironmentEdgeManager.currentTimeMillis();
+            if (now < maxWaitTime) {
+              LOG.debug("Server is not yet up or region is already in transition; " + "waiting up to " + (maxWaitTime - now) + "ms",t);
+              Thread.sleep(100);
+              i--;
+            }
+ else             if (!(t instanceof RegionAlreadyInTransitionException)) {
               LOG.debug("Server is not up for a while; try a new one",t);
               needNewPlan=true;
             }
