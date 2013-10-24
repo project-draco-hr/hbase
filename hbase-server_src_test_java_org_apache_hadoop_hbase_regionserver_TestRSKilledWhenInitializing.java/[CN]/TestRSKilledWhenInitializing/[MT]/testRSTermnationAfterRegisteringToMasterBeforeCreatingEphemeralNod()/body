@@ -1,0 +1,42 @@
+{
+  final int NUM_MASTERS=1;
+  final int NUM_RS=1;
+  Configuration conf=HBaseConfiguration.create();
+  final HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility(conf);
+  TEST_UTIL.startMiniDFSCluster(3);
+  TEST_UTIL.startMiniZKCluster();
+  TEST_UTIL.createRootDir();
+  final LocalHBaseCluster cluster=new LocalHBaseCluster(conf,NUM_MASTERS,NUM_RS,HMaster.class,MockedRegionServer.class);
+  final MasterThread master=cluster.getMasters().get(0);
+  master.start();
+  try {
+    long startTime=System.currentTimeMillis();
+    while (!master.getMaster().isActiveMaster()) {
+      try {
+        Thread.sleep(100);
+      }
+ catch (      InterruptedException ignored) {
+      }
+      if (System.currentTimeMillis() > startTime + 30000) {
+        throw new RuntimeException("Master not active after 30 seconds");
+      }
+    }
+    masterActive=true;
+    cluster.getRegionServers().get(0).start();
+    Thread.sleep(10000);
+    List<ServerName> onlineServersList=master.getMaster().getServerManager().getOnlineServersList();
+    while (!onlineServersList.isEmpty()) {
+      Thread.sleep(100);
+      onlineServersList=master.getMaster().getServerManager().getOnlineServersList();
+    }
+    assertTrue(onlineServersList.isEmpty());
+    master.getMaster().stop("stopping master");
+    master.join();
+  }
+  finally {
+    masterActive=false;
+    TEST_UTIL.shutdownMiniZKCluster();
+    TEST_UTIL.shutdownMiniDFSCluster();
+    TEST_UTIL.cleanupTestDir();
+  }
+}
