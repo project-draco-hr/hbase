@@ -1,0 +1,25 @@
+{
+  String table=args[args.length - 1];
+  Configuration conf=new Configuration(util.getConfiguration());
+  FileSystem fs=FileSystem.get(conf);
+  Path inputPath=fs.makeQualified(new Path(util.getDataTestDirOnTestFS(table),"input.dat"));
+  FSDataOutputStream op=fs.create(inputPath,true);
+  op.write(Bytes.toBytes(data));
+  op.close();
+  LOG.debug(String.format("Wrote test data to file: %s",inputPath));
+  if (conf.getBoolean(FORCE_COMBINER_CONF,true)) {
+    LOG.debug("Forcing combiner.");
+    conf.setInt("min.num.spills.for.combine",1);
+  }
+  List<String> argv=new ArrayList<String>(Arrays.asList(args));
+  argv.add(inputPath.toString());
+  Tool tool=new ImportTsv();
+  LOG.debug("Running ImportTsv with arguments: " + argv);
+  assertEquals(0,ToolRunner.run(conf,tool,argv.toArray(args)));
+  validateTable(conf,table,family,valueMultiplier,dataAvailable);
+  if (conf.getBoolean(DELETE_AFTER_LOAD_CONF,true)) {
+    LOG.debug("Deleting test subdirectory");
+    util.cleanupDataTestDirOnTestFS(table);
+  }
+  return tool;
+}
