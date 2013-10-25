@@ -3,13 +3,14 @@
   long timeout=this.conf.getLong("hbase.catalog.verification.timeout",1000);
   status.setStatus("Assigning hbase:meta region");
   ServerName logReplayFailedMetaServer=null;
-  assignmentManager.getRegionStates().createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
+  RegionStates regionStates=assignmentManager.getRegionStates();
+  regionStates.createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
   boolean rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
   boolean metaRegionLocation=this.catalogTracker.verifyMetaRegionLocation(timeout);
+  ServerName currentMetaServer=this.catalogTracker.getMetaLocation();
   if (!metaRegionLocation) {
     assigned++;
     if (!rit) {
-      ServerName currentMetaServer=this.catalogTracker.getMetaLocation();
       if (currentMetaServer != null) {
         if (expireIfOnline(currentMetaServer)) {
           splitMetaLogBeforeAssignment(currentMetaServer);
@@ -22,7 +23,8 @@
     }
   }
  else {
-    this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,this.catalogTracker.getMetaLocation());
+    regionStates.updateRegionState(HRegionInfo.FIRST_META_REGIONINFO,State.OPEN,currentMetaServer);
+    this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,currentMetaServer);
   }
   enableMeta(TableName.META_TABLE_NAME);
   enableServerShutdownHandler(assigned != 0);

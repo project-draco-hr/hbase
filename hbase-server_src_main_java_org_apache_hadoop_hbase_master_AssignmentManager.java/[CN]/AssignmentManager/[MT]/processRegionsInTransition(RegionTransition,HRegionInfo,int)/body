@@ -4,8 +4,9 @@
   final byte[] regionName=rt.getRegionName();
   final String encodedName=HRegionInfo.encodeRegionName(regionName);
   final String prettyPrintedRegionName=HRegionInfo.prettyPrint(encodedName);
-  LOG.info("Processing " + prettyPrintedRegionName + " in state "+ et);
+  LOG.info("Processing " + prettyPrintedRegionName + " in state: "+ et);
   if (regionStates.isRegionInTransition(encodedName)) {
+    LOG.info("Processed region " + prettyPrintedRegionName + " in state: "+ et+ ", does nothing since the region is already in transition "+ regionStates.getRegionTransitionState(encodedName));
     return;
   }
 switch (et) {
@@ -80,23 +81,23 @@ case RS_ZK_REQUEST_REGION_SPLIT:
 case RS_ZK_REGION_SPLITTING:
 case RS_ZK_REGION_SPLIT:
 if (serverManager.isServerOnline(sn)) {
+regionStates.updateRegionState(regionInfo,State.OPEN,sn);
 regionStates.regionOnline(regionInfo,sn);
 regionStates.updateRegionState(rt,State.SPLITTING);
 }
 if (!handleRegionSplitting(rt,encodedName,prettyPrintedRegionName,sn)) {
-deleteSplittingNode(encodedName);
+deleteSplittingNode(encodedName,sn);
 }
-LOG.info("Processed region " + prettyPrintedRegionName + " in state : "+ et);
 break;
 case RS_ZK_REQUEST_REGION_MERGE:
 case RS_ZK_REGION_MERGING:
 case RS_ZK_REGION_MERGED:
 if (!handleRegionMerging(rt,encodedName,prettyPrintedRegionName,sn)) {
-deleteMergingNode(encodedName);
+deleteMergingNode(encodedName,sn);
 }
-LOG.info("Processed region " + prettyPrintedRegionName + " in state : "+ et);
 break;
 default :
-throw new IllegalStateException("Received region in state :" + et + " is not valid.");
+throw new IllegalStateException("Received region in state:" + et + " is not valid.");
 }
+LOG.info("Processed region " + prettyPrintedRegionName + " in state "+ et+ ", on "+ (serverManager.isServerOnline(sn) ? "" : "dead ")+ "server: "+ sn);
 }
