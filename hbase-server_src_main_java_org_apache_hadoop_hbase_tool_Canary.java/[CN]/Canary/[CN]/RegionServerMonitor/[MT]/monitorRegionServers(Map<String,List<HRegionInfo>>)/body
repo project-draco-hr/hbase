@@ -1,0 +1,52 @@
+{
+  String serverName=null;
+  String tableName=null;
+  HRegionInfo region=null;
+  HTable table=null;
+  Get get=null;
+  byte[] startKey=null;
+  Scan scan=null;
+  StopWatch stopWatch=new StopWatch();
+  for (  Map.Entry<String,List<HRegionInfo>> entry : rsAndRMap.entrySet()) {
+    stopWatch.reset();
+    serverName=entry.getKey();
+    region=entry.getValue().get(0);
+    try {
+      tableName=region.getTable().getNameAsString();
+      table=new HTable(this.admin.getConfiguration(),tableName);
+      startKey=region.getStartKey();
+      if (startKey.length > 0) {
+        get=new Get(startKey);
+        stopWatch.start();
+        table.get(get);
+        stopWatch.stop();
+      }
+ else {
+        scan=new Scan();
+        scan.setCaching(1);
+        scan.setMaxResultSize(1L);
+        stopWatch.start();
+        table.getScanner(scan);
+        stopWatch.stop();
+      }
+      this.getSink().publishReadTiming(tableName,serverName,stopWatch.getTime());
+    }
+ catch (    IOException e) {
+      this.getSink().publishReadFailure(tableName,serverName);
+      LOG.error(e);
+      this.error=true;
+    }
+ finally {
+      if (table != null) {
+        try {
+          table.close();
+        }
+ catch (        IOException e) {
+        }
+      }
+      scan=null;
+      get=null;
+      startKey=null;
+    }
+  }
+}

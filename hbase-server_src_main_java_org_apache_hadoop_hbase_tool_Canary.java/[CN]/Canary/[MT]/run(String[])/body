@@ -1,9 +1,9 @@
 {
-  int tables_index=-1;
+  int index=-1;
   for (int i=0; i < args.length; i++) {
     String cmd=args[i];
     if (cmd.startsWith("-")) {
-      if (tables_index >= 0) {
+      if (index >= 0) {
         System.err.println("Invalid command line options");
         printUsageAndExit();
       }
@@ -27,37 +27,72 @@
           printUsageAndExit();
         }
       }
+ else       if (cmd.equals("-regionserver")) {
+        this.regionServerMode=true;
+      }
+ else       if (cmd.equals("-e")) {
+        this.useRegExp=true;
+      }
+ else       if (cmd.equals("-t")) {
+        i++;
+        if (i == args.length) {
+          System.err.println("-t needs a numeric value argument.");
+          printUsageAndExit();
+        }
+        try {
+          this.timeout=Long.parseLong(args[i]);
+        }
+ catch (        NumberFormatException e) {
+          System.err.println("-t needs a numeric value argument.");
+          printUsageAndExit();
+        }
+      }
+ else       if (cmd.equals("-f")) {
+        i++;
+        if (i == args.length) {
+          System.err.println("-f needs a boolean value argument (true|false).");
+          printUsageAndExit();
+        }
+        this.failOnError=Boolean.parseBoolean(args[i]);
+      }
  else {
         System.err.println(cmd + " options is invalid.");
         printUsageAndExit();
       }
     }
- else     if (tables_index < 0) {
-      tables_index=i;
+ else     if (index < 0) {
+      index=i;
     }
   }
-  if (conf == null)   conf=HBaseConfiguration.create();
-  admin=new HBaseAdmin(conf);
-  try {
-    do {
-      if (admin.isAborted()) {
-        LOG.error("HBaseAdmin aborted");
-        return (1);
+  Monitor monitor=null;
+  Thread monitorThread=null;
+  long startTime=0;
+  long currentTimeLength=0;
+  do {
+    monitor=this.newMonitor(index,args);
+    monitorThread=new Thread(monitor);
+    startTime=System.currentTimeMillis();
+    monitorThread.start();
+    while (!monitor.isDone()) {
+      Thread.sleep(1000);
+      if (this.failOnError && monitor.hasError()) {
+        monitorThread.interrupt();
+        System.exit(1);
       }
-      if (tables_index >= 0) {
-        for (int i=tables_index; i < args.length; i++) {
-          sniff(admin,sink,TableName.valueOf(args[i]));
-        }
+      currentTimeLength=System.currentTimeMillis() - startTime;
+      if (currentTimeLength > this.timeout) {
+        LOG.error("The monitor is running too long (" + currentTimeLength + ") after timeout limit:"+ this.timeout+ " will be killed itself !!");
+        monitorThread.interrupt();
+        monitor.setError(true);
+        break;
       }
- else {
-        sniff();
-      }
-      Thread.sleep(interval);
     }
+    if (this.failOnError && monitor.hasError()) {
+      monitorThread.interrupt();
+      System.exit(1);
+    }
+    Thread.sleep(interval);
+  }
  while (interval > 0);
-  }
-  finally {
-    this.admin.close();
-  }
-  return (0);
+  return (monitor.hasError() ? 1 : 0);
 }

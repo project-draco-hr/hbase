@@ -1,40 +1,47 @@
 {
   HTableDescriptor tableDesc=table.getTableDescriptor();
+  byte[] startKey=null;
+  Get get=null;
+  Scan scan=null;
+  ResultScanner rs=null;
   StopWatch stopWatch=new StopWatch();
   for (  HColumnDescriptor column : tableDesc.getColumnFamilies()) {
     stopWatch.reset();
-    byte[] startKey=region.getStartKey();
-    if (startKey == null || startKey.length <= 0) {
-      Scan scan=new Scan();
-      scan.addFamily(column.getName());
-      scan.setBatch(1);
-      ResultScanner scanner=null;
-      try {
-        stopWatch.start();
-        scanner=table.getScanner(scan);
-        scanner.next();
-        stopWatch.stop();
-        sink.publishReadTiming(region,column,stopWatch.getTime());
-      }
- catch (      Exception e) {
-        sink.publishReadFailure(region,column,e);
-      }
- finally {
-        if (scanner != null)         scanner.close();
-      }
+    startKey=region.getStartKey();
+    if (startKey.length > 0) {
+      get=new Get(startKey);
+      get.addFamily(column.getName());
     }
  else {
-      Get get=new Get(region.getStartKey());
-      get.addFamily(column.getName());
-      try {
+      scan=new Scan();
+      scan.setCaching(1);
+      scan.addFamily(column.getName());
+      scan.setMaxResultSize(1L);
+    }
+    try {
+      if (startKey.length > 0) {
         stopWatch.start();
         table.get(get);
         stopWatch.stop();
         sink.publishReadTiming(region,column,stopWatch.getTime());
       }
- catch (      Exception e) {
-        sink.publishReadFailure(region,column,e);
+ else {
+        stopWatch.start();
+        rs=table.getScanner(scan);
+        stopWatch.stop();
+        sink.publishReadTiming(region,column,stopWatch.getTime());
       }
+    }
+ catch (    Exception e) {
+      sink.publishReadFailure(region,column,e);
+    }
+ finally {
+      if (rs != null) {
+        rs.close();
+      }
+      scan=null;
+      get=null;
+      startKey=null;
     }
   }
 }
