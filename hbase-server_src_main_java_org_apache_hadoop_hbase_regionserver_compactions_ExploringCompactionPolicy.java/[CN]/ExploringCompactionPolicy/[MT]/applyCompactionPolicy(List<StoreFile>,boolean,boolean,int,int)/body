@@ -1,0 +1,43 @@
+{
+  final double currentRatio=mayUseOffPeak ? comConf.getCompactionRatioOffPeak() : comConf.getCompactionRatio();
+  List<StoreFile> bestSelection=new ArrayList<StoreFile>(0);
+  List<StoreFile> smallest=mightBeStuck ? new ArrayList<StoreFile>(0) : null;
+  long bestSize=0;
+  long smallestSize=Long.MAX_VALUE;
+  int opts=0, optsInRatio=0, bestStart=-1;
+  for (int start=0; start < candidates.size(); start++) {
+    for (int currentEnd=start + minFiles - 1; currentEnd < candidates.size(); currentEnd++) {
+      List<StoreFile> potentialMatchFiles=candidates.subList(start,currentEnd + 1);
+      if (potentialMatchFiles.size() < minFiles) {
+        continue;
+      }
+      if (potentialMatchFiles.size() > maxFiles) {
+        continue;
+      }
+      long size=getTotalStoreSize(potentialMatchFiles);
+      if (mightBeStuck && size < smallestSize) {
+        smallest=potentialMatchFiles;
+        smallestSize=size;
+      }
+      if (size > comConf.getMaxCompactSize()) {
+        continue;
+      }
+      ++opts;
+      if (size >= comConf.getMinCompactSize() && !filesInRatio(potentialMatchFiles,currentRatio)) {
+        continue;
+      }
+      ++optsInRatio;
+      if (isBetterSelection(bestSelection,bestSize,potentialMatchFiles,size,mightBeStuck)) {
+        bestSelection=potentialMatchFiles;
+        bestSize=size;
+        bestStart=start;
+      }
+    }
+  }
+  if (bestSelection.size() == 0 && mightBeStuck) {
+    LOG.debug("Exploring compaction algorithm has selected " + smallest.size() + " files of size "+ smallestSize+ " because the store might be stuck");
+    return new ArrayList<StoreFile>(smallest);
+  }
+  LOG.debug("Exploring compaction algorithm has selected " + bestSelection.size() + " files of size "+ bestSize+ " starting at candidate #"+ bestStart+ " after considering "+ opts+ " permutations with "+ optsInRatio+ " in ratio");
+  return new ArrayList<StoreFile>(bestSelection);
+}

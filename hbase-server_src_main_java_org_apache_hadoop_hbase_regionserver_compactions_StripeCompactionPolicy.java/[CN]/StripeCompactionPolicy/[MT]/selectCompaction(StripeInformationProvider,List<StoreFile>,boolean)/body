@@ -1,0 +1,33 @@
+{
+  if (!filesCompacting.isEmpty()) {
+    LOG.debug("Not selecting compaction: " + filesCompacting.size() + " files compacting");
+    return null;
+  }
+  Collection<StoreFile> allFiles=si.getStorefiles();
+  if (StoreUtils.hasReferences(allFiles)) {
+    LOG.debug("There are references in the store; compacting all files");
+    long targetKvs=estimateTargetKvs(allFiles,config.getSplitCount()).getFirst();
+    SplitStripeCompactionRequest request=new SplitStripeCompactionRequest(allFiles,OPEN_KEY,OPEN_KEY,targetKvs);
+    request.setMajorRangeFull();
+    return request;
+  }
+  int stripeCount=si.getStripeCount();
+  List<StoreFile> l0Files=si.getLevel0Files();
+  boolean shouldCompactL0=(this.config.getLevel0MinFiles() <= l0Files.size());
+  if (stripeCount == 0) {
+    if (!shouldCompactL0)     return null;
+    return selectNewStripesCompaction(si);
+  }
+  boolean canDropDeletesNoL0=l0Files.size() == 0;
+  if (shouldCompactL0) {
+    if (!canDropDeletesNoL0) {
+      StripeCompactionRequest result=selectSingleStripeCompaction(si,true,canDropDeletesNoL0,isOffpeak);
+      if (result != null)       return result;
+    }
+    LOG.debug("Selecting L0 compaction with " + l0Files.size() + " files");
+    return new BoundaryStripeCompactionRequest(l0Files,si.getStripeBoundaries());
+  }
+  StripeCompactionRequest result=selectExpiredMergeCompaction(si,canDropDeletesNoL0);
+  if (result != null)   return result;
+  return selectSingleStripeCompaction(si,false,canDropDeletesNoL0,isOffpeak);
+}
