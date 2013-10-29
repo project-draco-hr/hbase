@@ -1,0 +1,40 @@
+{
+  if (this.getStorefileCount() == 0)   return null;
+  if (state.stripeFiles.size() <= 1) {
+    return getSplitPointFromAllFiles();
+  }
+  int leftIndex=-1, rightIndex=state.stripeFiles.size();
+  long leftSize=0, rightSize=0;
+  long lastLeftSize=0, lastRightSize=0;
+  while (rightIndex - 1 != leftIndex) {
+    if (leftSize >= rightSize) {
+      --rightIndex;
+      lastRightSize=getStripeFilesSize(rightIndex);
+      rightSize+=lastRightSize;
+    }
+ else {
+      ++leftIndex;
+      lastLeftSize=getStripeFilesSize(leftIndex);
+      leftSize+=lastLeftSize;
+    }
+  }
+  if (leftSize == 0 || rightSize == 0) {
+    String errMsg=String.format("Cannot split on a boundary - left index %d size %d, " + "right index %d size %d",leftIndex,leftSize,rightIndex,rightSize);
+    debugDumpState(errMsg);
+    LOG.warn(errMsg);
+    return getSplitPointFromAllFiles();
+  }
+  double ratio=(double)rightSize / leftSize;
+  if (ratio < 1) {
+    ratio=1 / ratio;
+  }
+  if (config.getMaxSplitImbalance() > ratio)   return state.stripeEndRows[leftIndex];
+  boolean isRightLarger=rightSize >= leftSize;
+  double newRatio=isRightLarger ? getMidStripeSplitRatio(leftSize,rightSize,lastRightSize) : getMidStripeSplitRatio(rightSize,leftSize,lastLeftSize);
+  if (newRatio < 1) {
+    newRatio=1 / newRatio;
+  }
+  if (newRatio >= ratio)   return state.stripeEndRows[leftIndex];
+  LOG.debug("Splitting the stripe - ratio w/o split " + ratio + ", ratio with split "+ newRatio+ " configured ratio "+ config.getMaxSplitImbalance());
+  return StoreUtils.getLargestFile(state.stripeFiles.get(isRightLarger ? rightIndex : leftIndex)).getFileSplitPoint(this.kvComparator);
+}

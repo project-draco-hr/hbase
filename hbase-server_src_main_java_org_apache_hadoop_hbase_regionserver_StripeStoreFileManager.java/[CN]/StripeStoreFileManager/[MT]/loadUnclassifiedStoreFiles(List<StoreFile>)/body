@@ -1,0 +1,92 @@
+{
+  LOG.debug("Attempting to load " + storeFiles.size() + " store files.");
+  TreeMap<byte[],ArrayList<StoreFile>> candidateStripes=new TreeMap<byte[],ArrayList<StoreFile>>(MAP_COMPARATOR);
+  ArrayList<StoreFile> level0Files=new ArrayList<StoreFile>();
+  for (  StoreFile sf : storeFiles) {
+    byte[] startRow=startOf(sf), endRow=endOf(sf);
+    if (isInvalid(startRow) || isInvalid(endRow)) {
+      insertFileIntoStripe(level0Files,sf);
+      ensureLevel0Metadata(sf);
+    }
+ else     if (!isOpen(startRow) && !isOpen(endRow) && nonOpenRowCompare(startRow,endRow) >= 0) {
+      LOG.error("Unexpected metadata - start row [" + Bytes.toString(startRow) + "], end row ["+ Bytes.toString(endRow)+ "] in file ["+ sf.getPath()+ "], pushing to L0");
+      insertFileIntoStripe(level0Files,sf);
+      ensureLevel0Metadata(sf);
+    }
+ else {
+      ArrayList<StoreFile> stripe=candidateStripes.get(endRow);
+      if (stripe == null) {
+        stripe=new ArrayList<StoreFile>();
+        candidateStripes.put(endRow,stripe);
+      }
+      insertFileIntoStripe(stripe,sf);
+    }
+  }
+  boolean hasOverlaps=false;
+  byte[] expectedStartRow=null;
+  Iterator<Map.Entry<byte[],ArrayList<StoreFile>>> entryIter=candidateStripes.entrySet().iterator();
+  while (entryIter.hasNext()) {
+    Map.Entry<byte[],ArrayList<StoreFile>> entry=entryIter.next();
+    ArrayList<StoreFile> files=entry.getValue();
+    for (int i=0; i < files.size(); ++i) {
+      StoreFile sf=files.get(i);
+      byte[] startRow=startOf(sf);
+      if (expectedStartRow == null) {
+        expectedStartRow=startRow;
+      }
+ else       if (!rowEquals(expectedStartRow,startRow)) {
+        hasOverlaps=true;
+        LOG.warn("Store file doesn't fit into the tentative stripes - expected to start at [" + Bytes.toString(expectedStartRow) + "], but starts at ["+ Bytes.toString(startRow)+ "], to L0 it goes");
+        StoreFile badSf=files.remove(i);
+        insertFileIntoStripe(level0Files,badSf);
+        ensureLevel0Metadata(badSf);
+        --i;
+      }
+    }
+    byte[] endRow=entry.getKey();
+    if (!files.isEmpty()) {
+      expectedStartRow=endRow;
+    }
+ else {
+      entryIter.remove();
+    }
+  }
+  if (!candidateStripes.isEmpty()) {
+    StoreFile firstFile=candidateStripes.firstEntry().getValue().get(0);
+    boolean isOpen=isOpen(startOf(firstFile)) && isOpen(candidateStripes.lastKey());
+    if (!isOpen) {
+      LOG.warn("The range of the loaded files does not cover full key space: from [" + Bytes.toString(startOf(firstFile)) + "], to ["+ Bytes.toString(candidateStripes.lastKey())+ "]");
+      if (!hasOverlaps) {
+        ensureEdgeStripeMetadata(candidateStripes.firstEntry().getValue(),true);
+        ensureEdgeStripeMetadata(candidateStripes.lastEntry().getValue(),false);
+      }
+ else {
+        LOG.warn("Inconsistent files, everything goes to L0.");
+        for (        ArrayList<StoreFile> files : candidateStripes.values()) {
+          for (          StoreFile sf : files) {
+            insertFileIntoStripe(level0Files,sf);
+            ensureLevel0Metadata(sf);
+          }
+        }
+        candidateStripes.clear();
+      }
+    }
+  }
+  State state=new State();
+  state.level0Files=ImmutableList.copyOf(level0Files);
+  state.stripeFiles=new ArrayList<ImmutableList<StoreFile>>(candidateStripes.size());
+  state.stripeEndRows=new byte[Math.max(0,candidateStripes.size() - 1)][];
+  ArrayList<StoreFile> newAllFiles=new ArrayList<StoreFile>(level0Files);
+  int i=candidateStripes.size() - 1;
+  for (  Map.Entry<byte[],ArrayList<StoreFile>> entry : candidateStripes.entrySet()) {
+    state.stripeFiles.add(ImmutableList.copyOf(entry.getValue()));
+    newAllFiles.addAll(entry.getValue());
+    if (i > 0) {
+      state.stripeEndRows[state.stripeFiles.size() - 1]=entry.getKey();
+    }
+    --i;
+  }
+  state.allFilesCached=ImmutableList.copyOf(newAllFiles);
+  this.state=state;
+  debugDumpState("Files loaded");
+}

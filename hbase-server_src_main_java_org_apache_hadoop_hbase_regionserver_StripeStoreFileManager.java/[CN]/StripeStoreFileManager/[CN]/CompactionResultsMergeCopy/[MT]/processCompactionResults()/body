@@ -1,0 +1,27 @@
+{
+  TreeMap<byte[],StoreFile> newStripes=null;
+  for (  StoreFile sf : this.results) {
+    byte[] startRow=startOf(sf), endRow=endOf(sf);
+    if (isInvalid(endRow) || isInvalid(startRow)) {
+      LOG.warn("The newly compacted files doesn't have stripe rows set: " + sf.getPath());
+      insertFileIntoStripe(getLevel0Copy(),sf);
+      this.l0Results.add(sf);
+      continue;
+    }
+    if (!this.stripeFiles.isEmpty()) {
+      int stripeIndex=findStripeIndexByEndRow(endRow);
+      if ((stripeIndex >= 0) && rowEquals(getStartRow(stripeIndex),startRow)) {
+        insertFileIntoStripe(getStripeCopy(stripeIndex),sf);
+        continue;
+      }
+    }
+    if (newStripes == null) {
+      newStripes=new TreeMap<byte[],StoreFile>(MAP_COMPARATOR);
+    }
+    StoreFile oldSf=newStripes.put(endRow,sf);
+    if (oldSf != null) {
+      throw new IOException("Compactor has produced multiple files for the stripe ending in [" + Bytes.toString(endRow) + "], found "+ sf.getPath()+ " and "+ oldSf.getPath());
+    }
+  }
+  return newStripes;
+}
