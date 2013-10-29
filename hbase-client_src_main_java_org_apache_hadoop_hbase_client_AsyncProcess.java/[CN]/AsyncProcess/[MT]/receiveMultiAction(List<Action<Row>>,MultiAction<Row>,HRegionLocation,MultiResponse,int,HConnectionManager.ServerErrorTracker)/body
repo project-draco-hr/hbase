@@ -1,6 +1,6 @@
 {
   if (responses == null) {
-    LOG.info("Attempt #" + numAttempt + "/"+ numTries+ " failed all ops, trying resubmit,"+ location);
+    LOG.info("#" + id + ", attempt #"+ numAttempt+ "/"+ numTries+ " failed all ops, trying resubmit,"+ location);
     resubmitAll(initialActions,rsActions,location,numAttempt + 1,null,errorsByServer);
     return;
   }
@@ -20,12 +20,12 @@
         if (!regionFailureRegistered) {
           regionFailureRegistered=true;
           hConnection.updateCachedLocations(this.tableName,row.getRow(),result,location);
-          if (errorsByServer != null) {
+          if (failureCount == 1) {
             errorsByServer.reportServerError(location);
-            canRetry=errorsByServer.canRetryMore();
+            canRetry=errorsByServer.canRetryMore(numAttempt);
           }
         }
-        if (manageError(numAttempt,correspondingAction.getOriginalIndex(),row,canRetry,throwable,location)) {
+        if (manageError(correspondingAction.getOriginalIndex(),row,canRetry,throwable,location)) {
           toReplay.add(correspondingAction);
         }
       }
@@ -40,15 +40,15 @@
     }
   }
   if (!toReplay.isEmpty()) {
-    long backOffTime=(errorsByServer != null ? errorsByServer.calculateBackoffTime(location,pause) : ConnectionUtils.getPauseTime(pause,numAttempt));
-    if (numAttempt > START_LOG_ERRORS_CNT && LOG.isDebugEnabled()) {
-      LOG.debug("Attempt #" + numAttempt + "/"+ numTries+ " failed "+ failureCount+ " ops , resubmitting "+ toReplay.size()+ ", "+ location+ ", last exception was: "+ (throwable == null ? "null" : throwable.getMessage())+ ", sleeping "+ backOffTime+ "ms");
+    long backOffTime=errorsByServer.calculateBackoffTime(location,pause);
+    if (numAttempt > startLogErrorsCnt) {
+      LOG.info(createLog(numAttempt,failureCount,toReplay.size(),location.getServerName(),throwable,backOffTime,true,errorsByServer.getStartTrackingTime()));
     }
     try {
       Thread.sleep(backOffTime);
     }
  catch (    InterruptedException e) {
-      LOG.warn("Not sent: " + toReplay.size() + " operations, "+ location,e);
+      LOG.warn("#" + id + ", not sent: "+ toReplay.size()+ " operations, "+ location,e);
       Thread.interrupted();
       return;
     }
@@ -56,10 +56,10 @@
   }
  else {
     if (failureCount != 0) {
-      LOG.warn("Attempt #" + numAttempt + "/"+ numTries+ " failed for "+ failureCount+ " ops on "+ location.getServerName()+ " NOT resubmitting. "+ location);
+      LOG.warn(createLog(numAttempt,failureCount,toReplay.size(),location.getServerName(),throwable,-1,false,errorsByServer.getStartTrackingTime()));
     }
- else     if (numAttempt > START_LOG_ERRORS_CNT + 1 && LOG.isDebugEnabled()) {
-      LOG.debug("Attempt #" + numAttempt + "/"+ numTries+ " finally suceeded, size="+ toReplay.size());
+ else     if (numAttempt > startLogErrorsCnt + 1) {
+      LOG.info(createLog(numAttempt,failureCount,toReplay.size(),location.getServerName(),throwable,-1,false,errorsByServer.getStartTrackingTime()));
     }
   }
 }
