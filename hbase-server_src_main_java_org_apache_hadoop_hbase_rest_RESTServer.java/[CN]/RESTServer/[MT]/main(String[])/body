@@ -4,13 +4,14 @@
   FilterHolder authFilter=null;
   Configuration conf=HBaseConfiguration.create();
   Class<? extends ServletContainer> containerClass=ServletContainer.class;
-  if (User.isSecurityEnabled() && User.isHBaseSecurityEnabled(conf)) {
+  UserProvider userProvider=UserProvider.instantiate(conf);
+  if (userProvider.isHadoopSecurityEnabled() && userProvider.isHBaseSecurityEnabled()) {
     String machineName=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get(REST_DNS_INTERFACE,"default"),conf.get(REST_DNS_NAMESERVER,"default")));
     String keytabFilename=conf.get(REST_KEYTAB_FILE);
     Preconditions.checkArgument(keytabFilename != null && !keytabFilename.isEmpty(),REST_KEYTAB_FILE + " should be set if security is enabled");
     String principalConfig=conf.get(REST_KERBEROS_PRINCIPAL);
     Preconditions.checkArgument(principalConfig != null && !principalConfig.isEmpty(),REST_KERBEROS_PRINCIPAL + " should be set if security is enabled");
-    User.login(conf,REST_KEYTAB_FILE,REST_KERBEROS_PRINCIPAL,machineName);
+    userProvider.login(REST_KEYTAB_FILE,REST_KERBEROS_PRINCIPAL,machineName);
     if (conf.get(REST_AUTHENTICATION_TYPE) != null) {
       containerClass=RESTServletContainer.class;
       authFilter=new FilterHolder();
@@ -18,7 +19,7 @@
       authFilter.setName("AuthenticationFilter");
     }
   }
-  UserGroupInformation realUser=User.getCurrent().getUGI();
+  UserGroupInformation realUser=userProvider.getCurrent().getUGI();
   RESTServlet servlet=RESTServlet.getInstance(conf,realUser);
   Options options=new Options();
   options.addOption("p","port",true,"Port to bind to [default: 8080]");
