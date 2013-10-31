@@ -3,24 +3,27 @@
     LOG.warn("Coding error, see method javadoc. row=" + (rowkey == null ? "null" : rowkey) + ", tableName="+ (tableName == null ? "null" : tableName));
     return;
   }
+  if (source == null || source.getServerName() == null) {
+    return;
+  }
   final HRegionLocation oldLocation=getCachedLocation(tableName,rowkey);
-  if (oldLocation == null) {
+  if (oldLocation == null || !source.getServerName().equals(oldLocation.getServerName())) {
     return;
   }
   HRegionInfo regionInfo=oldLocation.getRegionInfo();
-  final RegionMovedException rme=RegionMovedException.find(exception);
-  if (rme != null) {
-    if (LOG.isTraceEnabled()) {
-      LOG.trace("Region " + regionInfo.getRegionNameAsString() + " moved to "+ rme.getHostname()+ ":"+ rme.getPort()+ " according to "+ source.getHostnamePort());
+  Throwable cause=findException(exception);
+  if (cause != null) {
+    if (cause instanceof RegionTooBusyException || cause instanceof RegionOpeningException) {
+      return;
     }
-    updateCachedLocation(regionInfo,source,rme.getServerName(),rme.getLocationSeqNum());
-  }
- else   if (RegionOpeningException.find(exception) != null) {
-    if (LOG.isTraceEnabled()) {
-      LOG.trace("Region " + regionInfo.getRegionNameAsString() + " is being opened on "+ source.getHostnamePort()+ "; not deleting the cache entry");
+    if (cause instanceof RegionMovedException) {
+      RegionMovedException rme=(RegionMovedException)cause;
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Region " + regionInfo.getRegionNameAsString() + " moved to "+ rme.getHostname()+ ":"+ rme.getPort()+ " according to "+ source.getHostnamePort());
+      }
+      updateCachedLocation(regionInfo,source,rme.getServerName(),rme.getLocationSeqNum());
+      return;
     }
   }
- else {
-    deleteCachedLocation(regionInfo,source);
-  }
+  deleteCachedLocation(regionInfo,source);
 }
