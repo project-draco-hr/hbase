@@ -1,0 +1,38 @@
+{
+  assumeTrue(isKerberosPropertySetted());
+  String krbKeytab=getKeytabFileForTesting();
+  String krbPrincipal=getPrincipalForTesting();
+  Configuration cnf=new Configuration();
+  cnf.set(CommonConfigurationKeys.HADOOP_SECURITY_AUTHENTICATION,"kerberos");
+  UserGroupInformation.setConfiguration(cnf);
+  UserGroupInformation.loginUserFromKeytab(krbPrincipal,krbKeytab);
+  UserGroupInformation ugi=UserGroupInformation.getLoginUser();
+  UserGroupInformation ugi2=UserGroupInformation.getCurrentUser();
+  assertSame(ugi,ugi2);
+  assertEquals(AuthenticationMethod.KERBEROS,ugi.getAuthenticationMethod());
+  assertEquals(krbPrincipal,ugi.getUserName());
+  Configuration conf=getSecuredConfiguration();
+  SecurityInfo securityInfoMock=Mockito.mock(SecurityInfo.class);
+  Mockito.when(securityInfoMock.getServerPrincipal()).thenReturn(HBaseKerberosUtils.KRB_PRINCIPAL);
+  SecurityInfo.addInfo("TestDelayedService",securityInfoMock);
+  boolean delayReturnValue=false;
+  InetSocketAddress isa=new InetSocketAddress("localhost",0);
+  TestDelayedImplementation instance=new TestDelayedImplementation(delayReturnValue);
+  BlockingService service=TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
+  rpcServer=new RpcServer(null,"testSecuredDelayedRpc",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service,null)),isa,conf,new FifoRpcScheduler(conf,1));
+  rpcServer.start();
+  RpcClient rpcClient=new RpcClient(conf,HConstants.DEFAULT_CLUSTER_ID.toString());
+  try {
+    BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(new ServerName(rpcServer.getListenerAddress().getHostName(),rpcServer.getListenerAddress().getPort(),System.currentTimeMillis()),User.getCurrent(),1000);
+    TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub=TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
+    List<Integer> results=new ArrayList<Integer>();
+    TestThread th1=new TestThread(stub,true,results);
+    th1.start();
+    Thread.sleep(100);
+    th1.join();
+    assertEquals(0xDEADBEEF,results.get(0).intValue());
+  }
+  finally {
+    rpcClient.stop();
+  }
+}
