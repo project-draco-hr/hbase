@@ -36,8 +36,9 @@
           int idx=0;
           for (          Cell kv : family.getValue()) {
             long amount=Bytes.toLong(CellUtil.cloneValue(kv));
+            Cell c=null;
             if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),kv)) {
-              Cell c=results.get(idx);
+              c=results.get(idx);
               if (c.getValueLength() == Bytes.SIZEOF_LONG) {
                 amount+=Bytes.toLong(c.getValueArray(),c.getValueOffset(),Bytes.SIZEOF_LONG);
               }
@@ -46,8 +47,25 @@
               }
               idx++;
             }
-            KeyValue newKV=new KeyValue(row,family.getKey(),CellUtil.cloneQualifier(kv),now,Bytes.toBytes(amount));
+            byte[] q=CellUtil.cloneQualifier(kv);
+            byte[] val=Bytes.toBytes(amount);
+            int oldCellTagsLen=(c == null) ? 0 : c.getTagsLength();
+            int incCellTagsLen=kv.getTagsLength();
+            KeyValue newKV=new KeyValue(row.length,family.getKey().length,q.length,now,KeyValue.Type.Put,val.length,oldCellTagsLen + incCellTagsLen);
+            System.arraycopy(row,0,newKV.getBuffer(),newKV.getRowOffset(),row.length);
+            System.arraycopy(family.getKey(),0,newKV.getBuffer(),newKV.getFamilyOffset(),family.getKey().length);
+            System.arraycopy(q,0,newKV.getBuffer(),newKV.getQualifierOffset(),q.length);
+            System.arraycopy(val,0,newKV.getBuffer(),newKV.getValueOffset(),val.length);
+            if (oldCellTagsLen > 0) {
+              System.arraycopy(c.getTagsArray(),c.getTagsOffset(),newKV.getBuffer(),newKV.getTagsOffset(),oldCellTagsLen);
+            }
+            if (incCellTagsLen > 0) {
+              System.arraycopy(kv.getTagsArray(),kv.getTagsOffset(),newKV.getBuffer(),newKV.getTagsOffset() + oldCellTagsLen,incCellTagsLen);
+            }
             newKV.setMvccVersion(w.getWriteNumber());
+            if (coprocessorHost != null) {
+              newKV=KeyValueUtil.ensureKeyValue(coprocessorHost.postMutationBeforeWAL(RegionObserver.MutationType.INCREMENT,increment,c,(Cell)newKV));
+            }
             kvs.add(newKV);
             if (writeToWAL) {
               if (walEdits == null) {
