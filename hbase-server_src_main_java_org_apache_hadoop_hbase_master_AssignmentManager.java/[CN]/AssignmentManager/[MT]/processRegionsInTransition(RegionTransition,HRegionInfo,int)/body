@@ -7,84 +7,69 @@
   LOG.info("Processing " + prettyPrintedRegionName + " in state: "+ et);
   if (regionStates.isRegionInTransition(encodedName)) {
     LOG.info("Processed region " + prettyPrintedRegionName + " in state: "+ et+ ", does nothing since the region is already in transition "+ regionStates.getRegionTransitionState(encodedName));
-    return;
+    return true;
+  }
+  if (!serverManager.isServerOnline(sn)) {
+    LOG.debug("RIT " + encodedName + " in state="+ rt.getEventType()+ " was on deadserver; forcing offline");
+    ZKAssign.createOrForceNodeOffline(this.watcher,regionInfo,sn);
+    regionStates.updateRegionState(regionInfo,State.OFFLINE,sn);
+    invokeAssign(regionInfo);
+    return false;
   }
 switch (et) {
 case M_ZK_REGION_CLOSING:
-    if (!serverManager.isServerOnline(sn)) {
-      forceOffline(regionInfo,rt);
-    }
- else {
-      final RegionState rs=regionStates.updateRegionState(rt,State.CLOSING);
-      this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY){
-        @Override public void process() throws IOException {
-          ReentrantLock lock=locker.acquireLock(regionInfo.getEncodedName());
-          try {
-            unassign(regionInfo,rs,expectedVersion,null,true,null);
-            if (regionStates.isRegionOffline(regionInfo)) {
-              assign(regionInfo,true);
-            }
-          }
-  finally {
-            lock.unlock();
-          }
+    final RegionState rsClosing=regionStates.updateRegionState(rt,State.CLOSING);
+  this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY){
+    @Override public void process() throws IOException {
+      ReentrantLock lock=locker.acquireLock(regionInfo.getEncodedName());
+      try {
+        unassign(regionInfo,rsClosing,expectedVersion,null,true,null);
+        if (regionStates.isRegionOffline(regionInfo)) {
+          assign(regionInfo,true);
         }
       }
-);
+  finally {
+        lock.unlock();
+      }
     }
-  break;
+  }
+);
+break;
 case RS_ZK_REGION_CLOSED:
 case RS_ZK_REGION_FAILED_OPEN:
-addToRITandInvokeAssign(regionInfo,State.CLOSED,rt);
+regionStates.updateRegionState(regionInfo,State.CLOSED,sn);
+invokeAssign(regionInfo);
 break;
 case M_ZK_REGION_OFFLINE:
-if (!serverManager.isServerOnline(sn)) {
-addToRITandInvokeAssign(regionInfo,State.OFFLINE,rt);
-}
- else {
 regionStates.updateRegionState(rt,State.PENDING_OPEN);
-final RegionState rs=regionStates.getRegionState(regionInfo);
+final RegionState rsOffline=regionStates.getRegionState(regionInfo);
 this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY){
 @Override public void process() throws IOException {
-  ReentrantLock lock=locker.acquireLock(regionInfo.getEncodedName());
-  try {
-    RegionPlan plan=new RegionPlan(regionInfo,null,sn);
-    addPlan(encodedName,plan);
-    assign(rs,false,false);
-  }
+ReentrantLock lock=locker.acquireLock(regionInfo.getEncodedName());
+try {
+RegionPlan plan=new RegionPlan(regionInfo,null,sn);
+addPlan(encodedName,plan);
+assign(rsOffline,false,false);
+}
   finally {
-    lock.unlock();
-  }
+lock.unlock();
+}
 }
 }
 );
-}
 break;
 case RS_ZK_REGION_OPENING:
-if (!serverManager.isServerOnline(sn)) {
-forceOffline(regionInfo,rt);
-}
- else {
 regionStates.updateRegionState(rt,State.OPENING);
-}
 break;
 case RS_ZK_REGION_OPENED:
-if (!serverManager.isServerOnline(sn)) {
-forceOffline(regionInfo,rt);
-}
- else {
 regionStates.updateRegionState(rt,State.OPEN);
 new OpenedRegionHandler(server,this,regionInfo,sn,expectedVersion).process();
-}
 break;
 case RS_ZK_REQUEST_REGION_SPLIT:
 case RS_ZK_REGION_SPLITTING:
 case RS_ZK_REGION_SPLIT:
-if (serverManager.isServerOnline(sn)) {
-regionStates.updateRegionState(regionInfo,State.OPEN,sn);
 regionStates.regionOnline(regionInfo,sn);
 regionStates.updateRegionState(rt,State.SPLITTING);
-}
 if (!handleRegionSplitting(rt,encodedName,prettyPrintedRegionName,sn)) {
 deleteSplittingNode(encodedName,sn);
 }
@@ -100,4 +85,5 @@ default :
 throw new IllegalStateException("Received region in state:" + et + " is not valid.");
 }
 LOG.info("Processed region " + prettyPrintedRegionName + " in state "+ et+ ", on "+ (serverManager.isServerOnline(sn) ? "" : "dead ")+ "server: "+ sn);
+return true;
 }
