@@ -1,17 +1,21 @@
 {
-  long oldestOutstandingSeqNum=Long.MAX_VALUE;
+  Map<byte[],Long> oldestFlushingSeqNumsLocal=null;
+  Map<byte[],Long> oldestUnflushedSeqNumsLocal=null;
+  List<Path> logsToArchive=new ArrayList<Path>();
 synchronized (oldestSeqNumsLock) {
-    Long oldestFlushing=(oldestFlushingSeqNums.size() > 0) ? Collections.min(oldestFlushingSeqNums.values()) : Long.MAX_VALUE;
-    Long oldestUnflushed=(oldestUnflushedSeqNums.size() > 0) ? Collections.min(oldestUnflushedSeqNums.values()) : Long.MAX_VALUE;
-    oldestOutstandingSeqNum=Math.min(oldestFlushing,oldestUnflushed);
+    oldestFlushingSeqNumsLocal=new HashMap<byte[],Long>(this.oldestFlushingSeqNums);
+    oldestUnflushedSeqNumsLocal=new HashMap<byte[],Long>(this.oldestUnflushedSeqNums);
   }
-  TreeSet<Long> sequenceNumbers=new TreeSet<Long>(this.outputfiles.headMap(oldestOutstandingSeqNum).keySet());
-  if (LOG.isDebugEnabled()) {
-    if (sequenceNumbers.size() > 0) {
-      LOG.debug("Found " + sequenceNumbers.size() + " hlogs to remove"+ " out of total "+ this.outputfiles.size()+ ";"+ " oldest outstanding sequenceid is "+ oldestOutstandingSeqNum);
+  for (  Map.Entry<Path,Map<byte[],Long>> e : hlogSequenceNums.entrySet()) {
+    Path log=e.getKey();
+    Map<byte[],Long> sequenceNums=e.getValue();
+    if (areAllRegionsFlushed(sequenceNums,oldestFlushingSeqNumsLocal,oldestUnflushedSeqNumsLocal)) {
+      logsToArchive.add(log);
+      LOG.debug("log file is ready for archiving " + log);
     }
   }
-  for (  Long seq : sequenceNumbers) {
-    archiveLogFile(this.outputfiles.remove(seq),seq);
+  for (  Path p : logsToArchive) {
+    archiveLogFile(p);
+    this.hlogSequenceNums.remove(p);
   }
 }

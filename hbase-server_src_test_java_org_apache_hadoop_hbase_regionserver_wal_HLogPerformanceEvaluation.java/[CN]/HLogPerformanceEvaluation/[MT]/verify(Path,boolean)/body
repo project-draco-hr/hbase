@@ -1,7 +1,7 @@
 {
   HLog.Reader reader=HLogFactory.createReader(wal.getFileSystem(getConf()),wal,getConf());
-  long previousSeqid=-1;
   long count=0;
+  Map<String,Long> sequenceIds=new HashMap<String,Long>();
   try {
     while (true) {
       Entry e=reader.next();
@@ -11,11 +11,15 @@
       }
       count++;
       long seqid=e.getKey().getLogSeqNum();
-      if (verbose)       LOG.info("seqid=" + seqid);
-      if (previousSeqid >= seqid) {
-        throw new IllegalStateException("wal=" + wal.getName() + ", previousSeqid="+ previousSeqid+ ", seqid="+ seqid);
+      if (sequenceIds.containsKey(Bytes.toString(e.getKey().getEncodedRegionName()))) {
+        if (sequenceIds.get(Bytes.toString(e.getKey().getEncodedRegionName())) >= seqid) {
+          throw new IllegalStateException("wal = " + wal.getName() + ", "+ "previous seqid = "+ sequenceIds.get(Bytes.toString(e.getKey().getEncodedRegionName()))+ ", current seqid = "+ seqid);
+        }
       }
-      previousSeqid=seqid;
+ else {
+        sequenceIds.put(Bytes.toString(e.getKey().getEncodedRegionName()),seqid);
+      }
+      if (verbose)       LOG.info("seqid=" + seqid);
     }
   }
   finally {

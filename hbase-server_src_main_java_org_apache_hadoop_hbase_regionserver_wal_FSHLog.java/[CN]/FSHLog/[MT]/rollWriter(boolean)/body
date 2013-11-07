@@ -43,9 +43,15 @@ synchronized (updateLock) {
         this.writer=nextWriter;
         this.hdfs_out=nextHdfsOut;
         this.numEntries.set(0);
+        if (oldFile != null) {
+          this.hlogSequenceNums.put(oldFile,this.latestSequenceNums);
+          this.latestSequenceNums=new HashMap<byte[],Long>();
+        }
       }
       if (oldFile == null)       LOG.info("New WAL " + FSUtils.getPath(newPath));
- else       LOG.info("Rolled WAL " + FSUtils.getPath(oldFile) + " with entries="+ oldNumEntries+ ", filesize="+ StringUtils.humanReadableInt(this.fs.getFileStatus(oldFile).getLen())+ "; new WAL "+ FSUtils.getPath(newPath));
+ else {
+        LOG.info("Rolled WAL " + FSUtils.getPath(oldFile) + " with entries="+ oldNumEntries+ ", filesize="+ StringUtils.humanReadableInt(this.fs.getFileStatus(oldFile).getLen())+ "; new WAL "+ FSUtils.getPath(newPath));
+      }
       if (!this.listeners.isEmpty()) {
         for (        WALActionsListener i : this.listeners) {
           i.postLogRoll(oldPath,newPath);
@@ -53,7 +59,7 @@ synchronized (updateLock) {
       }
       if (getNumLogFiles() > 0) {
         cleanOldLogs();
-        regionsToFlush=getRegionsToForceFlush();
+        regionsToFlush=findRegionsToForceFlush();
       }
     }
   finally {

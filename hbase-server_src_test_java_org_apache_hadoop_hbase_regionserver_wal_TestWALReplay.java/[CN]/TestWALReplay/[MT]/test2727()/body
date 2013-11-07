@@ -9,25 +9,25 @@
   final byte[] rowName=tableName.getName();
   HLog wal1=createWAL(this.conf);
   final int countPerFamily=1000;
+  final AtomicLong sequenceId=new AtomicLong(1);
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
-    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal1,htd);
+    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal1,htd,sequenceId);
   }
   wal1.close();
   runWALSplit(this.conf);
   HLog wal2=createWAL(this.conf);
-  wal2.setSequenceNumber(wal1.getSequenceNumber());
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
-    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal2,htd);
+    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal2,htd,sequenceId);
   }
   wal2.close();
   runWALSplit(this.conf);
   HLog wal3=createWAL(this.conf);
-  wal3.setSequenceNumber(wal2.getSequenceNumber());
   try {
-    long wal3SeqId=wal3.getSequenceNumber();
     HRegion region=HRegion.openHRegion(this.conf,this.fs,hbaseRootDir,hri,htd,wal3);
     long seqid=region.getOpenSeqNum();
-    assertTrue(seqid > wal3SeqId);
+    assertTrue(seqid > sequenceId.get());
+    assertEquals(seqid - 1,sequenceId.get());
+    LOG.debug("region.getOpenSeqNum(): " + region.getOpenSeqNum() + ", wal3.id: "+ sequenceId.get());
     region.close();
   }
   finally {

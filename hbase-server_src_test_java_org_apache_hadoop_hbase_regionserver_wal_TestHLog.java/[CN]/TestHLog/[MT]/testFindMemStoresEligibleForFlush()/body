@@ -1,0 +1,52 @@
+{
+  LOG.debug("testFindMemStoresEligibleForFlush");
+  Configuration conf1=HBaseConfiguration.create(conf);
+  conf1.setInt("hbase.regionserver.maxlogs",1);
+  HLog hlog=HLogFactory.createHLog(fs,FSUtils.getRootDir(conf1),dir.toString(),conf1);
+  TableName t1=TableName.valueOf("t1");
+  TableName t2=TableName.valueOf("t2");
+  HRegionInfo hri1=new HRegionInfo(t1,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+  HRegionInfo hri2=new HRegionInfo(t2,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+  final AtomicLong sequenceId1=new AtomicLong(1);
+  final AtomicLong sequenceId2=new AtomicLong(1);
+  try {
+    addEdits(hlog,hri1,t1,2,sequenceId1);
+    hlog.rollWriter();
+    addEdits(hlog,hri1,t1,2,sequenceId1);
+    hlog.rollWriter();
+    assertTrue(((FSHLog)hlog).getNumLogFiles() == 2);
+    byte[][] regionsToFlush=((FSHLog)hlog).findRegionsToForceFlush();
+    assertEquals(regionsToFlush.length,1);
+    assertEquals(regionsToFlush[0],hri1.getEncodedNameAsBytes());
+    addEdits(hlog,hri2,t2,2,sequenceId2);
+    regionsToFlush=((FSHLog)hlog).findRegionsToForceFlush();
+    assertEquals(regionsToFlush.length,1);
+    assertEquals(regionsToFlush[0],hri1.getEncodedNameAsBytes());
+    flushRegion(hlog,hri1.getEncodedNameAsBytes());
+    hlog.rollWriter();
+    assertEquals(1,((FSHLog)hlog).getNumLogFiles());
+    flushRegion(hlog,hri2.getEncodedNameAsBytes());
+    hlog.rollWriter(true);
+    assertEquals(0,((FSHLog)hlog).getNumLogFiles());
+    addEdits(hlog,hri1,t1,2,sequenceId1);
+    addEdits(hlog,hri2,t2,2,sequenceId2);
+    hlog.rollWriter();
+    assertEquals(1,((FSHLog)hlog).getNumLogFiles());
+    addEdits(hlog,hri1,t1,2,sequenceId1);
+    hlog.rollWriter();
+    regionsToFlush=((FSHLog)hlog).findRegionsToForceFlush();
+    assertEquals(regionsToFlush.length,2);
+    flushRegion(hlog,hri1.getEncodedNameAsBytes());
+    flushRegion(hlog,hri2.getEncodedNameAsBytes());
+    hlog.rollWriter(true);
+    assertEquals(0,((FSHLog)hlog).getNumLogFiles());
+    addEdits(hlog,hri1,t1,2,sequenceId1);
+    hlog.startCacheFlush(hri1.getEncodedNameAsBytes());
+    hlog.rollWriter();
+    hlog.completeCacheFlush(hri1.getEncodedNameAsBytes());
+    assertEquals(1,((FSHLog)hlog).getNumLogFiles());
+  }
+  finally {
+    if (hlog != null)     hlog.close();
+  }
+}
