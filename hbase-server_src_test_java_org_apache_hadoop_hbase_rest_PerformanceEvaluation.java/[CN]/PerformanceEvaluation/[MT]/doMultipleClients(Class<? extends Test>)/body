@@ -1,19 +1,40 @@
 {
-  final List<Thread> threads=new ArrayList<Thread>(N);
+  final List<Thread> threads=new ArrayList<Thread>(this.N);
+  final long[] timings=new long[this.N];
   final int perClientRows=R / N;
-  for (int i=0; i < N; i++) {
-    Thread t=new Thread(Integer.toString(i)){
+  final TableName tableName=this.tableName;
+  final DataBlockEncoding encoding=this.blockEncoding;
+  final boolean flushCommits=this.flushCommits;
+  final Compression.Algorithm compression=this.compression;
+  final boolean writeToWal=this.writeToWAL;
+  final int preSplitRegions=this.presplitRegions;
+  final boolean useTags=this.useTags;
+  final int numTags=this.noOfTags;
+  final HConnection connection=HConnectionManager.createConnection(getConf());
+  for (int i=0; i < this.N; i++) {
+    final int index=i;
+    Thread t=new Thread("TestClient-" + i){
       @Override public void run(){
         super.run();
-        PerformanceEvaluation pe=new PerformanceEvaluation(conf);
-        int index=Integer.parseInt(getName());
+        PerformanceEvaluation pe=new PerformanceEvaluation(getConf());
+        pe.tableName=tableName;
+        pe.blockEncoding=encoding;
+        pe.flushCommits=flushCommits;
+        pe.compression=compression;
+        pe.writeToWAL=writeToWal;
+        pe.presplitRegions=preSplitRegions;
+        pe.N=N;
+        pe.connection=connection;
+        pe.useTags=useTags;
+        pe.noOfTags=numTags;
         try {
-          long elapsedTime=pe.runOneClient(cmd,index * perClientRows,perClientRows,R,B,new Status(){
+          long elapsedTime=pe.runOneClient(cmd,index * perClientRows,perClientRows,R,flushCommits,writeToWAL,useTags,noOfTags,connection,new Status(){
             public void setStatus(            final String msg) throws IOException {
               LOG.info("client-" + getName() + " "+ msg);
             }
           }
 );
+          timings[index]=elapsedTime;
           LOG.info("Finished " + getName() + " in "+ elapsedTime+ "ms writing "+ perClientRows+ " rows");
         }
  catch (        IOException e) {
@@ -37,4 +58,12 @@
       }
     }
   }
+  final String test=cmd.getSimpleName();
+  LOG.info("[" + test + "] Summary of timings (ms): "+ Arrays.toString(timings));
+  Arrays.sort(timings);
+  long total=0;
+  for (int i=0; i < this.N; i++) {
+    total+=timings[i];
+  }
+  LOG.info("[" + test + "]"+ "\tMin: "+ timings[0]+ "ms"+ "\tMax: "+ timings[this.N - 1]+ "ms"+ "\tAvg: "+ (total / this.N)+ "ms");
 }
