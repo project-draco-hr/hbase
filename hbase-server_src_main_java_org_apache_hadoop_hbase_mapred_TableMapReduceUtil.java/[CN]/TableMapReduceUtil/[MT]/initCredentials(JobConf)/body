@@ -1,8 +1,20 @@
 {
   UserProvider userProvider=UserProvider.instantiate(job);
+  if (userProvider.isHadoopSecurityEnabled()) {
+    if (System.getenv("HADOOP_TOKEN_FILE_LOCATION") != null) {
+      job.set("mapreduce.job.credentials.binary",System.getenv("HADOOP_TOKEN_FILE_LOCATION"));
+    }
+  }
   if (userProvider.isHBaseSecurityEnabled()) {
     try {
-      userProvider.getCurrent().obtainAuthTokenForJob(job);
+      User user=userProvider.getCurrent();
+      Token<AuthenticationTokenIdentifier> authToken=getAuthToken(job,user);
+      if (authToken == null) {
+        user.obtainAuthTokenForJob(job);
+      }
+ else {
+        job.getCredentials().addToken(authToken.getService(),authToken);
+      }
     }
  catch (    InterruptedException ie) {
       ie.printStackTrace();

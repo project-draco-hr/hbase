@@ -36,7 +36,15 @@
     if (userProvider.isHBaseSecurityEnabled()) {
       FileSystem fs=FileSystem.get(cfg);
       if (userProvider.isHadoopSecurityEnabled()) {
-        userToken=fs.getDelegationToken("renewer");
+        userToken=userProvider.getCurrent().getToken("HDFS_DELEGATION_TOKEN",fs.getCanonicalServiceName());
+        if (userToken == null) {
+          hasForwardedToken=false;
+          userToken=fs.getDelegationToken("renewer");
+        }
+ else {
+          hasForwardedToken=true;
+          LOG.info("Use the existing token: " + userToken);
+        }
       }
       bulkToken=new SecureBulkLoadClient(table).prepareBulkLoad(table.getName());
     }
@@ -57,7 +65,7 @@
   }
   finally {
     if (userProvider.isHBaseSecurityEnabled()) {
-      if (userToken != null) {
+      if (userToken != null && !hasForwardedToken) {
         try {
           userToken.cancel(cfg);
         }

@@ -1,14 +1,20 @@
 {
   UserProvider userProvider=UserProvider.instantiate(job.getConfiguration());
+  if (userProvider.isHadoopSecurityEnabled()) {
+    if (System.getenv("HADOOP_TOKEN_FILE_LOCATION") != null) {
+      job.getConfiguration().set("mapreduce.job.credentials.binary",System.getenv("HADOOP_TOKEN_FILE_LOCATION"));
+    }
+  }
   if (userProvider.isHBaseSecurityEnabled()) {
     try {
       String quorumAddress=job.getConfiguration().get(TableOutputFormat.QUORUM_ADDRESS);
+      User user=userProvider.getCurrent();
       if (quorumAddress != null) {
         Configuration peerConf=HBaseConfiguration.create(job.getConfiguration());
         ZKUtil.applyClusterKeyToConf(peerConf,quorumAddress);
-        userProvider.getCurrent().obtainAuthTokenForJob(peerConf,job);
+        obtainAuthTokenForJob(job,peerConf,user);
       }
-      userProvider.getCurrent().obtainAuthTokenForJob(job.getConfiguration(),job);
+      obtainAuthTokenForJob(job,job.getConfiguration(),user);
     }
  catch (    InterruptedException ie) {
       LOG.info("Interrupted obtaining user authentication token");
