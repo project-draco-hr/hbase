@@ -1,0 +1,60 @@
+{
+  byte[] TABLE=Bytes.toBytes("testScanOnReopenedRegion");
+  byte[][] QUALIFIERS=HTestConst.makeNAscii(QUALIFIER,2);
+  HTable ht=TEST_UTIL.createTable(TABLE,FAMILY);
+  Put put;
+  Scan scan;
+  Result result;
+  ResultScanner scanner;
+  boolean toLog=false;
+  List<Cell> kvListExp;
+  put=new Put(ROW);
+  for (int i=0; i < QUALIFIERS.length; i++) {
+    KeyValue kv=new KeyValue(ROW,FAMILY,QUALIFIERS[i],i,VALUE);
+    put.add(kv);
+  }
+  ht.put(put);
+  scan=new Scan(ROW);
+  scanner=ht.getScanner(scan);
+  HRegionLocation loc=ht.getRegionLocation(ROW);
+  HRegionInfo hri=loc.getRegionInfo();
+  MiniHBaseCluster cluster=TEST_UTIL.getMiniHBaseCluster();
+  byte[] regionName=hri.getRegionName();
+  int i=cluster.getServerWith(regionName);
+  HRegionServer rs=cluster.getRegionServer(i);
+  ProtobufUtil.closeRegion(rs,regionName,false);
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
+  long timeOut=300000;
+  while (true) {
+    if (rs.getOnlineRegion(regionName) == null) {
+      break;
+    }
+    assertTrue("Timed out in closing the testing region",EnvironmentEdgeManager.currentTimeMillis() < startTime + timeOut);
+    Thread.sleep(500);
+  }
+  ZooKeeperWatcher zkw=TEST_UTIL.getZooKeeperWatcher();
+  try {
+    HMaster master=cluster.getMaster();
+    RegionStates states=master.getAssignmentManager().getRegionStates();
+    states.regionOffline(hri);
+    states.updateRegionState(hri,State.OPENING);
+    ZKAssign.createNodeOffline(zkw,hri,loc.getServerName());
+    ProtobufUtil.openRegion(rs,hri);
+    startTime=EnvironmentEdgeManager.currentTimeMillis();
+    while (true) {
+      if (rs.getOnlineRegion(regionName) != null) {
+        break;
+      }
+      assertTrue("Timed out in open the testing region",EnvironmentEdgeManager.currentTimeMillis() < startTime + timeOut);
+      Thread.sleep(500);
+    }
+  }
+  finally {
+    ZKAssign.deleteNodeFailSilent(zkw,hri);
+  }
+  kvListExp=new ArrayList<Cell>();
+  kvListExp.add(new KeyValue(ROW,FAMILY,QUALIFIERS[0],0,VALUE));
+  kvListExp.add(new KeyValue(ROW,FAMILY,QUALIFIERS[1],1,VALUE));
+  result=scanner.next();
+  verifyResult(result,kvListExp,toLog,"Testing scan on re-opened region");
+}
