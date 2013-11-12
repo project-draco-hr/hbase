@@ -60,10 +60,10 @@
     }
     boolean gotIOE=false;
     currentNbOperations=0;
-    currentNbEntries=0;
+    List<HLog.Entry> entries=new ArrayList<HLog.Entry>(1);
     currentSize=0;
     try {
-      if (readAllEntriesToReplicateOrNextFile(currentWALisBeingWrittenTo)) {
+      if (readAllEntriesToReplicateOrNextFile(currentWALisBeingWrittenTo,entries)) {
         continue;
       }
     }
@@ -84,11 +84,6 @@
             LOG.warn(this.peerClusterZnode + " Got while getting file size: ",e);
           }
         }
- else         if (currentNbEntries != 0) {
-          LOG.warn(this.peerClusterZnode + " Got EOF while reading, " + "looks like this file is broken? "+ currentPath);
-          considerDumping=true;
-          currentNbEntries=0;
-        }
         if (considerDumping && sleepMultiplier == this.maxRetriesMultiplier && processEndOfFile()) {
           continue;
         }
@@ -104,7 +99,7 @@
         LOG.warn("Unable to finalize the tailing of a file",e);
       }
     }
-    if (this.isActive() && (gotIOE || currentNbEntries == 0)) {
+    if (this.isActive() && (gotIOE || entries.isEmpty())) {
       if (this.lastLoggedPosition != this.repLogReader.getPosition()) {
         this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.repLogReader.getPosition(),this.replicationQueueInfo.isQueueRecovered(),currentWALisBeingWrittenTo);
         this.lastLoggedPosition=this.repLogReader.getPosition();
@@ -118,7 +113,7 @@
       continue;
     }
     sleepMultiplier=1;
-    shipEdits(currentWALisBeingWrittenTo);
+    shipEdits(currentWALisBeingWrittenTo,entries);
   }
   if (this.conn != null) {
     try {
