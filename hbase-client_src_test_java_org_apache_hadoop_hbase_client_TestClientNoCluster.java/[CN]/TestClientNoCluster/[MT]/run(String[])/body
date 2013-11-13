@@ -1,0 +1,47 @@
+{
+  int errCode=0;
+  final int servers=1;
+  final int regions=100000;
+  final long namespaceSpan=1000000;
+  final long multiPause=0;
+  if ((namespaceSpan < regions) || (regions < servers)) {
+    throw new IllegalArgumentException("namespaceSpan=" + namespaceSpan + " must be > regions="+ regions+ " which must be > servers="+ servers);
+  }
+  getConf().set("hbase.client.connection.impl",ManyServersManyRegionsConnection.class.getName());
+  getConf().set("hbase.client.registry.impl",SimpleRegistry.class.getName());
+  getConf().setInt("hbase.client.start.log.errors.counter",0);
+  getConf().setInt("hbase.test.regions",regions);
+  getConf().setLong("hbase.test.namespace.span",namespaceSpan);
+  getConf().setLong("hbase.test.servers",servers);
+  getConf().set("hbase.test.tablename",Bytes.toString(BIG_USER_TABLE));
+  getConf().setLong("hbase.test.multi.pause.when.done",multiPause);
+  getConf().setInt("hbase.test.multi.too.many",10);
+  final int clients=20;
+  final ExecutorService pool=Executors.newCachedThreadPool(Threads.getNamedThreadFactory("p"));
+  final HConnection sharedConnection=HConnectionManager.createConnection(getConf());
+  try {
+    Thread[] ts=new Thread[clients];
+    for (int j=0; j < ts.length; j++) {
+      ts[j]=new Thread("" + j){
+        final Configuration c=getConf();
+        @Override public void run(){
+          try {
+            cycle(c,sharedConnection);
+          }
+ catch (          IOException e) {
+            e.printStackTrace();
+          }
+        }
+      }
+;
+      ts[j].start();
+    }
+    for (int j=0; j < ts.length; j++) {
+      ts[j].join();
+    }
+  }
+  finally {
+    sharedConnection.close();
+  }
+  return errCode;
+}

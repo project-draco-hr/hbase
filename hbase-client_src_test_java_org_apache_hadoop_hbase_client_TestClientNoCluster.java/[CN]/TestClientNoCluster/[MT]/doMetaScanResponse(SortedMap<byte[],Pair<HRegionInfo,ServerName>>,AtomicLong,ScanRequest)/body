@@ -1,0 +1,22 @@
+{
+  ScanResponse.Builder builder=ScanResponse.newBuilder();
+  int max=request.getNumberOfRows();
+  int count=0;
+  Map<byte[],Pair<HRegionInfo,ServerName>> tail=request.hasScan() ? meta.tailMap(request.getScan().getStartRow().toByteArray()) : meta;
+  ClientProtos.Result.Builder resultBuilder=ClientProtos.Result.newBuilder();
+  for (  Map.Entry<byte[],Pair<HRegionInfo,ServerName>> e : tail.entrySet()) {
+    if (max <= 0)     break;
+    if (++count > max)     break;
+    HRegionInfo hri=e.getValue().getFirst();
+    ByteString row=ZeroCopyLiteralByteString.wrap(hri.getRegionName());
+    resultBuilder.clear();
+    resultBuilder.addCell(getRegionInfo(row,hri));
+    resultBuilder.addCell(getServer(row,e.getValue().getSecond()));
+    resultBuilder.addCell(getStartCode(row));
+    builder.addResults(resultBuilder.build());
+    if (hri.getEndKey().length <= 0)     builder.setMoreResults(false);
+ else     builder.setMoreResults(true);
+  }
+  builder.setScannerId(request.hasScannerId() ? request.getScannerId() : sequenceids.incrementAndGet());
+  return builder.build();
+}
