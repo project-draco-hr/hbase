@@ -1,32 +1,24 @@
 {
-  this.lock.readLock().lock();
-  try {
-    KeyValue firstKv=KeyValue.createFirstOnRow(row,family,qualifier);
-    SortedSet<KeyValue> snSs=snapshot.tailSet(firstKv);
-    if (!snSs.isEmpty()) {
-      KeyValue snKv=snSs.first();
-      if (snKv.matchingRow(firstKv) && snKv.matchingQualifier(firstKv)) {
-        if (snKv.getTimestamp() == now) {
-          now+=1;
-        }
+  KeyValue firstKv=KeyValue.createFirstOnRow(row,family,qualifier);
+  SortedSet<KeyValue> snSs=snapshot.tailSet(firstKv);
+  if (!snSs.isEmpty()) {
+    KeyValue snKv=snSs.first();
+    if (snKv.matchingRow(firstKv) && snKv.matchingQualifier(firstKv)) {
+      if (snKv.getTimestamp() == now) {
+        now+=1;
       }
     }
-    SortedSet<KeyValue> ss=kvset.tailSet(firstKv);
-    Iterator<KeyValue> it=ss.iterator();
-    while (it.hasNext()) {
-      KeyValue kv=it.next();
-      if (!kv.matchingColumn(family,qualifier) || !kv.matchingRow(firstKv)) {
-        break;
-      }
-      if (kv.getType() == KeyValue.Type.Put.getCode() && kv.getTimestamp() > now && firstKv.matchingQualifier(kv)) {
-        now=kv.getTimestamp();
-      }
+  }
+  SortedSet<KeyValue> ss=kvset.tailSet(firstKv);
+  for (  KeyValue kv : ss) {
+    if (!kv.matchingColumn(family,qualifier) || !kv.matchingRow(firstKv)) {
+      break;
     }
-    List<Cell> cells=new ArrayList<Cell>(1);
-    cells.add(new KeyValue(row,family,qualifier,now,Bytes.toBytes(newValue)));
-    return upsert(cells,1L);
+    if (kv.getTypeByte() == KeyValue.Type.Put.getCode() && kv.getTimestamp() > now && firstKv.matchingQualifier(kv)) {
+      now=kv.getTimestamp();
+    }
   }
-  finally {
-    this.lock.readLock().unlock();
-  }
+  List<Cell> cells=new ArrayList<Cell>(1);
+  cells.add(new KeyValue(row,family,qualifier,now,Bytes.toBytes(newValue)));
+  return upsert(cells,1L);
 }
