@@ -1,9 +1,9 @@
 {
   if (entry == null) {
-    return new ArrayList<Pair<MutationType,Mutation>>();
+    return new ArrayList<MutationReplay>();
   }
   int count=entry.getAssociatedCellCount();
-  List<Pair<MutationType,Mutation>> mutations=new ArrayList<Pair<MutationType,Mutation>>();
+  List<MutationReplay> mutations=new ArrayList<MutationReplay>();
   Cell previousCell=null;
   Mutation m=null;
   HLogKey key=null;
@@ -19,11 +19,13 @@
     if (isNewRowOrType) {
       if (CellUtil.isDelete(cell)) {
         m=new Delete(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
-        mutations.add(new Pair<MutationType,Mutation>(MutationType.DELETE,m));
+        mutations.add(new MutationReplay(MutationType.DELETE,m,HConstants.NO_NONCE,HConstants.NO_NONCE));
       }
  else {
         m=new Put(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
-        mutations.add(new Pair<MutationType,Mutation>(MutationType.PUT,m));
+        long nonceGroup=entry.getKey().hasNonceGroup() ? entry.getKey().getNonceGroup() : HConstants.NO_NONCE;
+        long nonce=entry.getKey().hasNonce() ? entry.getKey().getNonce() : HConstants.NO_NONCE;
+        mutations.add(new MutationReplay(MutationType.PUT,m,nonceGroup,nonce));
       }
     }
     if (CellUtil.isDelete(cell)) {
@@ -40,7 +42,7 @@
     for (    HBaseProtos.UUID uuid : entry.getKey().getClusterIdsList()) {
       clusterIds.add(new UUID(uuid.getMostSigBits(),uuid.getLeastSigBits()));
     }
-    key=new HLogKey(walKey.getEncodedRegionName().toByteArray(),TableName.valueOf(walKey.getTableName().toByteArray()),walKey.getLogSequenceNumber(),walKey.getWriteTime(),clusterIds);
+    key=new HLogKey(walKey.getEncodedRegionName().toByteArray(),TableName.valueOf(walKey.getTableName().toByteArray()),walKey.getLogSequenceNumber(),walKey.getWriteTime(),clusterIds,walKey.getNonceGroup(),walKey.getNonce());
     logEntry.setFirst(key);
     logEntry.setSecond(val);
   }

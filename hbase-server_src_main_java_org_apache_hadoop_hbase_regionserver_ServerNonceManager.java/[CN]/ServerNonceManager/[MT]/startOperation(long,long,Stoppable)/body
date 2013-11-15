@@ -1,0 +1,21 @@
+{
+  if (nonce == HConstants.NO_NONCE)   return true;
+  NonceKey nk=new NonceKey(group,nonce);
+  OperationContext ctx=new OperationContext();
+  while (true) {
+    OperationContext oldResult=nonces.putIfAbsent(nk,ctx);
+    if (oldResult == null)     return true;
+synchronized (oldResult) {
+      int oldState=oldResult.getState();
+      LOG.debug("Conflict detected by nonce: " + nk + ", "+ oldResult);
+      if (oldState != OperationContext.WAIT) {
+        return oldState == OperationContext.PROCEED;
+      }
+      oldResult.setHasWait();
+      oldResult.wait(this.conflictWaitIterationMs);
+      if (stoppable.isStopped()) {
+        throw new InterruptedException("Server stopped");
+      }
+    }
+  }
+}

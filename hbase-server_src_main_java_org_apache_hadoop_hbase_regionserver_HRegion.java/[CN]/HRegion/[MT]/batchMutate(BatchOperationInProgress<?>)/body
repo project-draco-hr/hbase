@@ -1,0 +1,34 @@
+{
+  boolean initialized=false;
+  while (!batchOp.isDone()) {
+    if (!batchOp.isInReplay()) {
+      checkReadOnly();
+    }
+    checkResources();
+    long newSize;
+    if (batchOp.isInReplay()) {
+      startRegionOperation(Operation.REPLAY_BATCH_MUTATE);
+    }
+ else {
+      startRegionOperation(Operation.BATCH_MUTATE);
+    }
+    try {
+      if (!initialized) {
+        if (!batchOp.isInReplay()) {
+          this.writeRequestsCount.increment();
+          doPreMutationHook(batchOp);
+        }
+        initialized=true;
+      }
+      long addedSize=doMiniBatchMutation(batchOp);
+      newSize=this.addAndGetGlobalMemstoreSize(addedSize);
+    }
+  finally {
+      closeRegionOperation();
+    }
+    if (isFlushSize(newSize)) {
+      requestFlush();
+    }
+  }
+  return batchOp.retCodeDetails;
+}

@@ -1,0 +1,87 @@
+{
+  LOG.info("test=testNonceCollision");
+  HTable table=new HTable(UTIL.getConfiguration(),TEST_TABLE);
+  Put put=new Put(ONE_ROW);
+  put.add(BYTES_FAMILY,QUALIFIER,Bytes.toBytes(0L));
+  NonceGenerator cnm=new PerClientRandomNonceGenerator(){
+    long lastNonce=-1;
+    @Override public synchronized long newNonce(){
+      long nonce=0;
+      if (lastNonce == -1) {
+        lastNonce=nonce=super.newNonce();
+      }
+ else {
+        nonce=lastNonce;
+        lastNonce=-1L;
+      }
+      return nonce;
+    }
+  }
+;
+  NonceGenerator oldCnm=HConnectionManager.injectNonceGeneratorForTesting(table.getConnection(),cnm);
+  try {
+    Increment inc=new Increment(ONE_ROW);
+    inc.addColumn(BYTES_FAMILY,QUALIFIER,1L);
+    table.increment(inc);
+    inc=new Increment(ONE_ROW);
+    inc.addColumn(BYTES_FAMILY,QUALIFIER,1L);
+    try {
+      table.increment(inc);
+      fail("Should have thrown an exception");
+    }
+ catch (    OperationConflictException ex) {
+    }
+    Get get=new Get(ONE_ROW);
+    get.addColumn(BYTES_FAMILY,QUALIFIER);
+    Result result=table.get(get);
+    validateResult(result,QUALIFIER,Bytes.toBytes(1L));
+    int numRequests=40;
+    final CountDownLatch startedLatch=new CountDownLatch(numRequests);
+    final CountDownLatch startLatch=new CountDownLatch(1);
+    final CountDownLatch doneLatch=new CountDownLatch(numRequests);
+    for (int i=0; i < numRequests; ++i) {
+      Runnable r=new Runnable(){
+        @Override public void run(){
+          HTable table=null;
+          try {
+            table=new HTable(UTIL.getConfiguration(),TEST_TABLE);
+          }
+ catch (          IOException e) {
+            fail("Not expected");
+          }
+          Increment inc=new Increment(ONE_ROW);
+          inc.addColumn(BYTES_FAMILY,QUALIFIER,1L);
+          startedLatch.countDown();
+          try {
+            startLatch.await();
+          }
+ catch (          InterruptedException e) {
+            fail("Not expected");
+          }
+          try {
+            table.increment(inc);
+          }
+ catch (          OperationConflictException ex) {
+          }
+catch (          IOException ioEx) {
+            fail("Not expected");
+          }
+          doneLatch.countDown();
+        }
+      }
+;
+      Threads.setDaemonThreadRunning(new Thread(r));
+    }
+    startedLatch.await();
+    startLatch.countDown();
+    doneLatch.await();
+    get=new Get(ONE_ROW);
+    get.addColumn(BYTES_FAMILY,QUALIFIER);
+    result=table.get(get);
+    validateResult(result,QUALIFIER,Bytes.toBytes((numRequests / 2) + 1L));
+    table.close();
+  }
+  finally {
+    HConnectionManager.injectNonceGeneratorForTesting(table.getConnection(),oldCnm);
+  }
+}
