@@ -1,0 +1,53 @@
+{
+  Scan scan=new Scan();
+  TableInputFormat.addColumns(scan,columns);
+  ResultScanner scanner=table.getScanner(scan);
+  try {
+    Iterator<Result> itr=scanner.iterator();
+    assertTrue(itr.hasNext());
+    while (itr.hasNext()) {
+      Result r=itr.next();
+      if (getLog().isDebugEnabled()) {
+        if (r.size() > 2) {
+          throw new IOException("Too many results, expected 2 got " + r.size());
+        }
+      }
+      byte[] firstValue=null;
+      byte[] secondValue=null;
+      int count=0;
+      for (      Cell kv : r.listCells()) {
+        if (count == 0) {
+          firstValue=CellUtil.cloneValue(kv);
+        }
+        if (count == 1) {
+          secondValue=CellUtil.cloneValue(kv);
+        }
+        count++;
+        if (count == 2) {
+          break;
+        }
+      }
+      if (firstValue == null) {
+        throw new NullPointerException(Bytes.toString(r.getRow()) + ": first value is null");
+      }
+      String first=Bytes.toString(firstValue);
+      if (secondValue == null) {
+        throw new NullPointerException(Bytes.toString(r.getRow()) + ": second value is null");
+      }
+      byte[] secondReversed=new byte[secondValue.length];
+      for (int i=0, j=secondValue.length - 1; j >= 0; j--, i++) {
+        secondReversed[i]=secondValue[j];
+      }
+      String second=Bytes.toString(secondReversed);
+      if (first.compareTo(second) != 0) {
+        if (getLog().isDebugEnabled()) {
+          getLog().debug("second key is not the reverse of first. row=" + Bytes.toStringBinary(r.getRow()) + ", first value="+ first+ ", second value="+ second);
+        }
+        fail();
+      }
+    }
+  }
+  finally {
+    scanner.close();
+  }
+}
