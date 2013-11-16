@@ -1,0 +1,26 @@
+{
+  HBaseTestingUtility util=new HBaseTestingUtility();
+  util.startMiniCluster(1);
+  byte[] t=Bytes.toBytes("tbl"), cf=Bytes.toBytes("cf");
+  HTable table=util.createTable(t,cf);
+  util.loadTable(table,cf);
+  util.flush();
+  util.loadTable(table,cf);
+  util.flush();
+  List<HRegion> regions=util.getHBaseCluster().getRegions(t);
+  assertTrue(regions.size() == 1);
+  HRegion r=regions.get(0);
+  Store s=r.getStore(cf);
+  StoreScannerCompactionRaceCondition ih=new StoreScannerCompactionRaceCondition(s,5);
+  InjectionHandler.set(ih);
+  TreeSet<byte[]> set=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+  set.add(cf);
+  Scan scanSpec=new Scan();
+  scanSpec.setStartRow(Bytes.toBytes("hjfsd"));
+  scanSpec.setStartRow(Bytes.toBytes("zjfsd"));
+  KeyValueScanner scanner=s.getScanner(scanSpec,set,s.getSmallestReadPoint());
+  ih.f.get();
+  InjectionHandler.clear();
+  scanner.close();
+  util.shutdownMiniCluster();
+}
