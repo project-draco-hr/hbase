@@ -2,30 +2,25 @@
   boolean isFromMeta=(source == null);
   byte[] startKey=location.getRegionInfo().getStartKey();
   ConcurrentMap<byte[],HRegionLocation> tableLocations=getTableLocations(tableName);
-  boolean isNewCacheEntry=false;
-  boolean isStaleUpdate=false;
-  HRegionLocation oldLocation=null;
-synchronized (this.cachedRegionLocations) {
-    oldLocation=tableLocations.putIfAbsent(startKey,location);
-    isNewCacheEntry=(oldLocation == null);
-    if (isNewCacheEntry) {
-      cachedServers.add(location.getServerName());
-      return;
-    }
-    boolean updateCache;
-    if (oldLocation.equals(source)) {
-      updateCache=true;
-    }
+  HRegionLocation oldLocation=tableLocations.putIfAbsent(startKey,location);
+  boolean isNewCacheEntry=(oldLocation == null);
+  if (isNewCacheEntry) {
+    cachedServers.add(location.getServerName());
+    return;
+  }
+  boolean updateCache;
+  if (oldLocation.equals(source)) {
+    updateCache=true;
+  }
  else {
-      long newLocationSeqNum=location.getSeqNum();
-      boolean isStaleMetaRecord=isFromMeta && (oldLocation.getSeqNum() > newLocationSeqNum);
-      boolean isStaleRedirect=!isFromMeta && (oldLocation.getSeqNum() >= newLocationSeqNum);
-      isStaleUpdate=(isStaleMetaRecord || isStaleRedirect);
-      updateCache=(!isStaleUpdate);
-    }
-    if (updateCache) {
-      tableLocations.put(startKey,location);
-      cachedServers.add(location.getServerName());
-    }
+    long newLocationSeqNum=location.getSeqNum();
+    boolean isStaleMetaRecord=isFromMeta && (oldLocation.getSeqNum() > newLocationSeqNum);
+    boolean isStaleRedirect=!isFromMeta && (oldLocation.getSeqNum() >= newLocationSeqNum);
+    boolean isStaleUpdate=(isStaleMetaRecord || isStaleRedirect);
+    updateCache=(!isStaleUpdate);
+  }
+  if (updateCache) {
+    tableLocations.replace(startKey,oldLocation,location);
+    cachedServers.add(location.getServerName());
   }
 }
