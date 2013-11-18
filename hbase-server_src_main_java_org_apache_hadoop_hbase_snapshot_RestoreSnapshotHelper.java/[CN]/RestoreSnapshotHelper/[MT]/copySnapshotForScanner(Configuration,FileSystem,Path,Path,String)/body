@@ -1,0 +1,19 @@
+{
+  if (!restoreDir.getFileSystem(conf).getUri().equals(rootDir.getFileSystem(conf).getUri())) {
+    throw new IllegalArgumentException("Filesystems for restore directory and HBase root directory " + "should be the same");
+  }
+  if (restoreDir.toUri().getPath().startsWith(rootDir.toUri().getPath())) {
+    throw new IllegalArgumentException("Restore directory cannot be a sub directory of HBase " + "root directory. RootDir: " + rootDir + ", restoreDir: "+ restoreDir);
+  }
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,rootDir);
+  SnapshotDescription snapshotDesc=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+  HTableDescriptor htd=FSTableDescriptors.getTableDescriptorFromFs(fs,snapshotDir);
+  MonitoredTask status=TaskMonitor.get().createStatus("Restoring  snapshot '" + snapshotName + "' to directory "+ restoreDir);
+  ForeignExceptionDispatcher monitor=new ForeignExceptionDispatcher();
+  RestoreSnapshotHelper helper=new RestoreSnapshotHelper(conf,fs,snapshotDesc,snapshotDir,htd,restoreDir,monitor,status);
+  helper.restoreHdfsRegions();
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Restored table dir:" + restoreDir);
+    FSUtils.logFileSystemState(fs,restoreDir,LOG);
+  }
+}

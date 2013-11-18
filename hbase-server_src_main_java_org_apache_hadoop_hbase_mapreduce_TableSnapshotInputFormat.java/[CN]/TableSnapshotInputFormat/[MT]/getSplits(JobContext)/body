@@ -1,0 +1,27 @@
+{
+  Configuration conf=job.getConfiguration();
+  String snapshotName=getSnapshotName(conf);
+  Path rootDir=new Path(conf.get(HConstants.HBASE_DIR));
+  FileSystem fs=rootDir.getFileSystem(conf);
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,rootDir);
+  SnapshotDescription snapshotDesc=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+  Set<String> snapshotRegionNames=SnapshotReferenceUtil.getSnapshotRegionNames(fs,snapshotDir);
+  if (snapshotRegionNames == null) {
+    throw new IllegalArgumentException("Snapshot seems empty");
+  }
+  HTableDescriptor htd=FSTableDescriptors.getTableDescriptorFromFs(fs,snapshotDir);
+  Scan scan=TableMapReduceUtil.convertStringToScan(conf.get(TableInputFormat.SCAN));
+  Path tableDir=new Path(conf.get(TABLE_DIR_KEY));
+  List<InputSplit> splits=new ArrayList<InputSplit>();
+  for (  String regionName : snapshotRegionNames) {
+    Path regionDir=new Path(snapshotDir,regionName);
+    HRegionInfo hri=HRegionFileSystem.loadRegionInfoFileContent(fs,regionDir);
+    if (CellUtil.overlappingKeys(scan.getStartRow(),scan.getStopRow(),hri.getStartKey(),hri.getEndKey())) {
+      List<String> hosts=getBestLocations(conf,HRegion.computeHDFSBlocksDistribution(conf,htd,hri,tableDir));
+      int len=Math.min(3,hosts.size());
+      hosts=hosts.subList(0,len);
+      splits.add(new TableSnapshotRegionSplit(regionName,hosts));
+    }
+  }
+  return splits;
+}

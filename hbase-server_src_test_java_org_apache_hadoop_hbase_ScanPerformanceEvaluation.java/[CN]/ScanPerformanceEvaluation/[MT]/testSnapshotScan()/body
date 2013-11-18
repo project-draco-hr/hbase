@@ -1,0 +1,42 @@
+{
+  Stopwatch snapshotRestoreTimer=new Stopwatch();
+  Stopwatch scanOpenTimer=new Stopwatch();
+  Stopwatch scanTimer=new Stopwatch();
+  Path restoreDir=new Path(this.restoreDir);
+  snapshotRestoreTimer.start();
+  restoreDir.getFileSystem(conf).delete(restoreDir,true);
+  snapshotRestoreTimer.stop();
+  Scan scan=getScan();
+  scanOpenTimer.start();
+  TableSnapshotScanner scanner=new TableSnapshotScanner(conf,restoreDir,snapshotName,scan);
+  scanOpenTimer.stop();
+  long numRows=0;
+  long numCells=0;
+  scanTimer.start();
+  while (true) {
+    Result result=scanner.next();
+    if (result == null) {
+      break;
+    }
+    numRows++;
+    numCells+=result.rawCells().length;
+  }
+  scanTimer.stop();
+  scanner.close();
+  ScanMetrics metrics=scanner.getScanMetrics();
+  long totalBytes=metrics.countOfBytesInResults.get();
+  double throughput=(double)totalBytes / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  double throughputRows=(double)numRows / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  double throughputCells=(double)numCells / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  System.out.println("HBase scan snapshot: ");
+  System.out.println("total time to restore snapshot: " + snapshotRestoreTimer.elapsedMillis() + " ms");
+  System.out.println("total time to open scanner: " + scanOpenTimer.elapsedMillis() + " ms");
+  System.out.println("total time to scan: " + scanTimer.elapsedMillis() + " ms");
+  System.out.println("Scan metrics:\n" + metrics.getMetricsMap());
+  System.out.println("total bytes: " + totalBytes + " bytes ("+ StringUtils.humanReadableInt(totalBytes)+ ")");
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughput) + "B/s");
+  System.out.println("total rows  : " + numRows);
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughputRows) + " rows/s");
+  System.out.println("total cells : " + numCells);
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughputCells) + " cells/s");
+}

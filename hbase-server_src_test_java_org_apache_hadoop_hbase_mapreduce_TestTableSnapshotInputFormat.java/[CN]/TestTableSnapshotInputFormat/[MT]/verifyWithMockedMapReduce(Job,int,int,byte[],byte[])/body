@@ -1,0 +1,21 @@
+{
+  TableSnapshotInputFormat tsif=new TableSnapshotInputFormat();
+  List<InputSplit> splits=tsif.getSplits(job);
+  Assert.assertEquals(expectedNumSplits,splits.size());
+  HBaseTestingUtility.SeenRowTracker rowTracker=new HBaseTestingUtility.SeenRowTracker(startRow,stopRow);
+  for (int i=0; i < splits.size(); i++) {
+    InputSplit split=splits.get(i);
+    Assert.assertTrue(split instanceof TableSnapshotRegionSplit);
+    TaskAttemptContext taskAttemptContext=mock(TaskAttemptContext.class);
+    when(taskAttemptContext.getConfiguration()).thenReturn(job.getConfiguration());
+    RecordReader<ImmutableBytesWritable,Result> rr=tsif.createRecordReader(split,taskAttemptContext);
+    rr.initialize(split,taskAttemptContext);
+    while (rr.nextKeyValue()) {
+      byte[] row=rr.getCurrentKey().get();
+      verifyRowFromMap(rr.getCurrentKey(),rr.getCurrentValue());
+      rowTracker.addRow(row);
+    }
+    rr.close();
+  }
+  rowTracker.validate();
+}

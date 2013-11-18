@@ -1,0 +1,33 @@
+{
+  Stopwatch scanOpenTimer=new Stopwatch();
+  Stopwatch scanTimer=new Stopwatch();
+  Scan scan=getScan();
+  String jobName="testSnapshotScanMapReduce";
+  Job job=new Job(conf);
+  job.setJobName(jobName);
+  job.setJarByClass(getClass());
+  TableMapReduceUtil.initTableSnapshotMapperJob(this.snapshotName,scan,MyMapper.class,NullWritable.class,NullWritable.class,job,true,new Path(restoreDir));
+  job.setNumReduceTasks(0);
+  job.setOutputKeyClass(NullWritable.class);
+  job.setOutputValueClass(NullWritable.class);
+  job.setOutputFormatClass(NullOutputFormat.class);
+  scanTimer.start();
+  job.waitForCompletion(true);
+  scanTimer.stop();
+  Counters counters=job.getCounters();
+  long numRows=counters.findCounter(ScanCounter.NUM_ROWS).getValue();
+  long numCells=counters.findCounter(ScanCounter.NUM_CELLS).getValue();
+  long totalBytes=counters.findCounter(HBASE_COUNTER_GROUP_NAME,"BYTES_IN_RESULTS").getValue();
+  double throughput=(double)totalBytes / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  double throughputRows=(double)numRows / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  double throughputCells=(double)numCells / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  System.out.println("HBase scan mapreduce: ");
+  System.out.println("total time to open scanner: " + scanOpenTimer.elapsedMillis() + " ms");
+  System.out.println("total time to scan: " + scanTimer.elapsedMillis() + " ms");
+  System.out.println("total bytes: " + totalBytes + " bytes ("+ StringUtils.humanReadableInt(totalBytes)+ ")");
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughput) + "B/s");
+  System.out.println("total rows  : " + numRows);
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughputRows) + " rows/s");
+  System.out.println("total cells : " + numCells);
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughputCells) + " cells/s");
+}

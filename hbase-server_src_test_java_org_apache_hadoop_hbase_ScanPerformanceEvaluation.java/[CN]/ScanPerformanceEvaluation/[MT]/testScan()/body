@@ -1,0 +1,42 @@
+{
+  Stopwatch tableOpenTimer=new Stopwatch();
+  Stopwatch scanOpenTimer=new Stopwatch();
+  Stopwatch scanTimer=new Stopwatch();
+  tableOpenTimer.start();
+  HTable table=new HTable(getConf(),TableName.valueOf(tablename));
+  tableOpenTimer.stop();
+  Scan scan=getScan();
+  scanOpenTimer.start();
+  ResultScanner scanner=table.getScanner(scan);
+  scanOpenTimer.stop();
+  long numRows=0;
+  long numCells=0;
+  scanTimer.start();
+  while (true) {
+    Result result=scanner.next();
+    if (result == null) {
+      break;
+    }
+    numRows++;
+    numCells+=result.rawCells().length;
+  }
+  scanTimer.stop();
+  scanner.close();
+  table.close();
+  ScanMetrics metrics=ProtobufUtil.toScanMetrics(scan.getAttribute(Scan.SCAN_ATTRIBUTES_METRICS_DATA));
+  long totalBytes=metrics.countOfBytesInResults.get();
+  double throughput=(double)totalBytes / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  double throughputRows=(double)numRows / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  double throughputCells=(double)numCells / scanTimer.elapsedTime(TimeUnit.SECONDS);
+  System.out.println("HBase scan: ");
+  System.out.println("total time to open table: " + tableOpenTimer.elapsedMillis() + " ms");
+  System.out.println("total time to open scanner: " + scanOpenTimer.elapsedMillis() + " ms");
+  System.out.println("total time to scan: " + scanTimer.elapsedMillis() + " ms");
+  System.out.println("Scan metrics:\n" + metrics.getMetricsMap());
+  System.out.println("total bytes: " + totalBytes + " bytes ("+ StringUtils.humanReadableInt(totalBytes)+ ")");
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughput) + "B/s");
+  System.out.println("total rows  : " + numRows);
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughputRows) + " rows/s");
+  System.out.println("total cells : " + numCells);
+  System.out.println("throughput  : " + StringUtils.humanReadableInt((long)throughputCells) + " cells/s");
+}
