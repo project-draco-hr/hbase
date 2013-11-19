@@ -1,7 +1,7 @@
 {
   if (this.isError)   return;
   if (t != null)   this.isError=true;
-  ByteBufferOutputStream bbos=null;
+  BufferChain bc=null;
   try {
     ResponseHeader.Builder headerBuilder=ResponseHeader.newBuilder();
     Message result=(Message)m;
@@ -25,18 +25,17 @@
       headerBuilder.setCellBlockMeta(cellBlockBuilder.build());
     }
     Message header=headerBuilder.build();
-    bbos=IPCUtil.write(header,result,cellBlock);
+    ByteBuffer bbHeader=IPCUtil.getDelimitedMessageAsByteBuffer(header);
+    ByteBuffer bbResult=IPCUtil.getDelimitedMessageAsByteBuffer(result);
+    int totalSize=bbHeader.capacity() + (bbResult == null ? 0 : bbResult.limit()) + (cellBlock == null ? 0 : cellBlock.limit());
+    ByteBuffer bbTotalSize=ByteBuffer.wrap(Bytes.toBytes(totalSize));
+    bc=new BufferChain(bbTotalSize,bbHeader,bbResult,cellBlock);
     if (connection.useWrap) {
-      wrapWithSasl(bbos);
+      bc=wrapWithSasl(bc);
     }
   }
  catch (  IOException e) {
     LOG.warn("Exception while creating response " + e);
   }
-  ByteBuffer bb=null;
-  if (bbos != null) {
-    bb=bbos.getByteBuffer();
-    bb.position(0);
-  }
-  this.response=bb;
+  this.response=bc;
 }

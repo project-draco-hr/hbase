@@ -7,8 +7,10 @@
   int cellcount=Integer.parseInt(args[1]);
   Configuration conf=HBaseConfiguration.create();
   TestRpcServer rpcServer=new TestRpcServer();
+  MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
+  EchoRequestProto param=EchoRequestProto.newBuilder().setMessage("hello").build();
   RpcClient client=new RpcClient(conf,HConstants.CLUSTER_ID_DEFAULT);
-  KeyValue kv=KeyValueUtil.ensureKeyValue(CELL);
+  KeyValue kv=KeyValueUtil.ensureKeyValue(BIG_CELL);
   Put p=new Put(kv.getRow());
   for (int i=0; i < cellcount; i++) {
     p.add(kv);
@@ -23,11 +25,12 @@
     for (int i=0; i < cycles; i++) {
       List<CellScannable> cells=new ArrayList<CellScannable>();
       ClientProtos.RegionAction.Builder builder=RequestConverter.buildNoDataRegionAction(HConstants.EMPTY_BYTE_ARRAY,rm,cells,RegionAction.newBuilder(),ClientProtos.Action.newBuilder(),MutationProto.newBuilder());
-      CellScanner cellScanner=CellUtil.createCellScanner(cells);
-      if (i % 1000 == 0) {
+      builder.setRegion(RegionSpecifier.newBuilder().setType(RegionSpecifierType.REGION_NAME).setValue(ByteString.copyFrom(HRegionInfo.FIRST_META_REGIONINFO.getEncodedNameAsBytes())));
+      if (i % 100000 == 0) {
         LOG.info("" + i);
       }
-      Pair<Message,CellScanner> response=client.call(null,builder.build(),cellScanner,null,user,address,0);
+      CellScanner cellScanner=CellUtil.createCellScanner(cells);
+      Pair<Message,CellScanner> response=client.call(md,builder.build(),cellScanner,param,user,address,0);
     }
     LOG.info("Cycled " + cycles + " time(s) with "+ cellcount+ " cell(s) in "+ (System.currentTimeMillis() - startTime)+ "ms");
   }
