@@ -1,0 +1,64 @@
+{
+  expS=expS.trim();
+  Stack<ExpressionNode> expStack=new Stack<ExpressionNode>();
+  int index=0;
+  int endPos=expS.length();
+  byte[] exp=Bytes.toBytes(expS);
+  while (index < endPos) {
+    byte b=exp[index];
+switch (b) {
+case OPEN_PARAN:
+      processOpenParan(expStack,expS,index);
+    index=skipSpaces(exp,index);
+  break;
+case CLOSE_PARAN:
+processCloseParan(expStack,expS,index);
+index=skipSpaces(exp,index);
+break;
+case AND:
+case OR:
+processANDorOROp(getOperator(b),expStack,expS,index);
+index=skipSpaces(exp,index);
+break;
+case NOT:
+processNOTOp(expStack,expS,index);
+break;
+default :
+int labelOffset=index;
+do {
+if (!VisibilityLabelsValidator.isValidAuthChar(exp[index])) {
+throw new ParseException("Error parsing expression " + expS + " at column : "+ index);
+}
+index++;
+}
+ while (index < endPos && !isEndOfLabel(exp[index]));
+String leafExp=new String(exp,labelOffset,index - labelOffset).trim();
+if (leafExp.isEmpty()) {
+throw new ParseException("Error parsing expression " + expS + " at column : "+ index);
+}
+processLabelExpNode(new LeafExpressionNode(leafExp),expStack,expS,index);
+index--;
+index=skipSpaces(exp,index);
+}
+index++;
+}
+if (expStack.size() != 1) {
+throw new ParseException("Error parsing expression " + expS);
+}
+ExpressionNode top=expStack.pop();
+if (top == LeafExpressionNode.OPEN_PARAN_NODE) {
+throw new ParseException("Error parsing expression " + expS);
+}
+if (top instanceof NonLeafExpressionNode) {
+NonLeafExpressionNode nlTop=(NonLeafExpressionNode)top;
+if (nlTop.getOperator() == Operator.NOT) {
+if (nlTop.getChildExps().size() != 1) {
+throw new ParseException("Error parsing expression " + expS);
+}
+}
+ else if (nlTop.getChildExps().size() != 2) {
+throw new ParseException("Error parsing expression " + expS);
+}
+}
+return top;
+}

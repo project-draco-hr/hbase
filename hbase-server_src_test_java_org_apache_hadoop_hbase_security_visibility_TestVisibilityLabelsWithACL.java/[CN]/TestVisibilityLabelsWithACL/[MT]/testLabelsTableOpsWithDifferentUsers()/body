@@ -1,0 +1,83 @@
+{
+  PrivilegedExceptionAction<VisibilityLabelsResponse> action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
+    public VisibilityLabelsResponse run() throws Exception {
+      try {
+        return VisibilityClient.addLabels(conf,new String[]{"l1","l2"});
+      }
+ catch (      Throwable e) {
+      }
+      return null;
+    }
+  }
+;
+  VisibilityLabelsResponse response=NORMAL_USER.runAs(action);
+  assertEquals("org.apache.hadoop.hbase.security.AccessDeniedException",response.getResult(0).getException().getName());
+  assertEquals("org.apache.hadoop.hbase.security.AccessDeniedException",response.getResult(1).getException().getName());
+  action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
+    public VisibilityLabelsResponse run() throws Exception {
+      try {
+        return VisibilityClient.setAuths(conf,new String[]{CONFIDENTIAL,PRIVATE},"user1");
+      }
+ catch (      Throwable e) {
+      }
+      return null;
+    }
+  }
+;
+  response=NORMAL_USER.runAs(action);
+  assertEquals("org.apache.hadoop.hbase.security.AccessDeniedException",response.getResult(0).getException().getName());
+  assertEquals("org.apache.hadoop.hbase.security.AccessDeniedException",response.getResult(1).getException().getName());
+  action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
+    public VisibilityLabelsResponse run() throws Exception {
+      try {
+        return VisibilityClient.setAuths(conf,new String[]{CONFIDENTIAL,PRIVATE},"user1");
+      }
+ catch (      Throwable e) {
+      }
+      return null;
+    }
+  }
+;
+  response=SUPERUSER.runAs(action);
+  assertTrue(response.getResult(0).getException().getValue().isEmpty());
+  assertTrue(response.getResult(1).getException().getValue().isEmpty());
+  action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
+    public VisibilityLabelsResponse run() throws Exception {
+      try {
+        return VisibilityClient.clearAuths(conf,new String[]{CONFIDENTIAL,PRIVATE},"user1");
+      }
+ catch (      Throwable e) {
+      }
+      return null;
+    }
+  }
+;
+  response=NORMAL_USER.runAs(action);
+  assertEquals("org.apache.hadoop.hbase.security.AccessDeniedException",response.getResult(0).getException().getName());
+  assertEquals("org.apache.hadoop.hbase.security.AccessDeniedException",response.getResult(1).getException().getName());
+  response=VisibilityClient.clearAuths(conf,new String[]{CONFIDENTIAL,PRIVATE},"user1");
+  assertTrue(response.getResult(0).getException().getValue().isEmpty());
+  assertTrue(response.getResult(1).getException().getValue().isEmpty());
+  VisibilityClient.setAuths(conf,new String[]{CONFIDENTIAL,PRIVATE},"user2");
+  PrivilegedExceptionAction<GetAuthsResponse> action1=new PrivilegedExceptionAction<GetAuthsResponse>(){
+    public GetAuthsResponse run() throws Exception {
+      try {
+        return VisibilityClient.getAuths(conf,"user2");
+      }
+ catch (      Throwable e) {
+      }
+      return null;
+    }
+  }
+;
+  GetAuthsResponse authsResponse=NORMAL_USER.runAs(action1);
+  assertNull(authsResponse);
+  authsResponse=SUPERUSER.runAs(action1);
+  List<String> authsList=new ArrayList<String>();
+  for (  ByteString authBS : authsResponse.getAuthList()) {
+    authsList.add(Bytes.toString(authBS.toByteArray()));
+  }
+  assertEquals(2,authsList.size());
+  assertTrue(authsList.contains(CONFIDENTIAL));
+  assertTrue(authsList.contains(PRIVATE));
+}

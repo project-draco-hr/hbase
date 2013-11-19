@@ -1,0 +1,45 @@
+{
+  String[] auths={SECRET,CONFIDENTIAL};
+  String user="user1";
+  VisibilityClient.setAuths(conf,auths,user);
+  HTable ht=null;
+  try {
+    ht=new HTable(conf,LABELS_TABLE_NAME);
+    ResultScanner scanner=ht.getScanner(new Scan());
+    Result result=null;
+    while ((result=scanner.next()) != null) {
+      Cell label=result.getColumnLatestCell(LABELS_TABLE_FAMILY,LABEL_QUALIFIER);
+      Cell userAuth=result.getColumnLatestCell(LABELS_TABLE_FAMILY,user.getBytes());
+      if (Bytes.equals(SECRET.getBytes(),0,SECRET.getBytes().length,label.getValueArray(),label.getValueOffset(),label.getValueLength()) || Bytes.equals(CONFIDENTIAL.getBytes(),0,CONFIDENTIAL.getBytes().length,label.getValueArray(),label.getValueOffset(),label.getValueLength())) {
+        assertNotNull(userAuth);
+      }
+ else {
+        assertNull(userAuth);
+      }
+    }
+  }
+  finally {
+    if (ht != null) {
+      ht.close();
+    }
+  }
+  GetAuthsResponse authsResponse=VisibilityClient.getAuths(conf,user);
+  List<String> authsList=new ArrayList<String>();
+  for (  ByteString authBS : authsResponse.getAuthList()) {
+    authsList.add(Bytes.toString(authBS.toByteArray()));
+  }
+  assertEquals(2,authsList.size());
+  assertTrue(authsList.contains(SECRET));
+  assertTrue(authsList.contains(CONFIDENTIAL));
+  String[] auths1={SECRET,CONFIDENTIAL};
+  user="user1";
+  VisibilityClient.setAuths(conf,auths1,user);
+  authsResponse=VisibilityClient.getAuths(conf,user);
+  authsList=new ArrayList<String>();
+  for (  ByteString authBS : authsResponse.getAuthList()) {
+    authsList.add(Bytes.toString(authBS.toByteArray()));
+  }
+  assertEquals(2,authsList.size());
+  assertTrue(authsList.contains(SECRET));
+  assertTrue(authsList.contains(CONFIDENTIAL));
+}

@@ -1,0 +1,53 @@
+{
+  VisibilityLabelsResponse.Builder response=VisibilityLabelsResponse.newBuilder();
+  List<VisibilityLabel> labels=request.getVisLabelList();
+  try {
+    checkCallingUserAuth();
+    List<Mutation> puts=new ArrayList<Mutation>(labels.size());
+    RegionActionResult successResult=RegionActionResult.newBuilder().build();
+    for (    VisibilityLabel visLabel : labels) {
+      byte[] label=visLabel.getLabel().toByteArray();
+      String labelStr=Bytes.toString(label);
+      if (VisibilityLabelsValidator.isValidLabel(label)) {
+        if (this.visibilityManager.getLabelOrdinal(labelStr) > 0) {
+          RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+          failureResultBuilder.setException(ResponseConverter.buildException(new LabelAlreadyExistsException("Label '" + labelStr + "' already exists")));
+          response.addResult(failureResultBuilder.build());
+        }
+ else {
+          Put p=new Put(Bytes.toBytes(ordinalCounter));
+          p.add(LABELS_TABLE_FAMILY,LABEL_QUALIFIER,label,LABELS_TABLE_TAGS);
+          puts.add(p);
+          ordinalCounter++;
+          response.addResult(successResult);
+        }
+      }
+ else {
+        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+        failureResultBuilder.setException(ResponseConverter.buildException(new InvalidLabelException("Invalid visibility label '" + labelStr + "'")));
+        response.addResult(failureResultBuilder.build());
+      }
+    }
+    OperationStatus[] opStatus=this.regionEnv.getRegion().batchMutate(puts.toArray(new Mutation[puts.size()]));
+    int i=0;
+    for (    OperationStatus status : opStatus) {
+      if (status.getOperationStatusCode() != SUCCESS) {
+        while (response.getResult(i) != successResult)         i++;
+        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+        failureResultBuilder.setException(ResponseConverter.buildException(new DoNotRetryIOException(status.getExceptionMsg())));
+        response.setResult(i,failureResultBuilder.build());
+      }
+      i++;
+    }
+  }
+ catch (  IOException e) {
+    LOG.error(e);
+    RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+    failureResultBuilder.setException(ResponseConverter.buildException(e));
+    RegionActionResult failureResult=failureResultBuilder.build();
+    for (int i=0; i < labels.size(); i++) {
+      response.addResult(i,failureResult);
+    }
+  }
+  done.run(response.build());
+}

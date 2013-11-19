@@ -1,0 +1,30 @@
+{
+  if (e.getEnvironment().getRegion().getRegionInfo().getTable().equals(LABELS_TABLE_NAME)) {
+    this.labelsRegion=true;
+    this.acOn=CoprocessorHost.getLoadedCoprocessors().contains(AccessController.class.getName());
+    try {
+      Pair<Map<String,Integer>,Map<String,List<Integer>>> labelsAndUserAuths=extractLabelsAndAuths(getExistingLabelsWithAuths());
+      Map<String,Integer> labels=labelsAndUserAuths.getFirst();
+      Map<String,List<Integer>> userAuths=labelsAndUserAuths.getSecond();
+      addSystemLabel(e.getEnvironment().getRegion(),labels,userAuths);
+      int ordinal=1;
+      for (      Integer i : labels.values()) {
+        if (i > ordinal) {
+          ordinal=i;
+        }
+      }
+      this.ordinalCounter=ordinal + 1;
+      if (labels.size() > 0) {
+        byte[] serialized=VisibilityUtils.getDataToWriteToZooKeeper(labels);
+        this.visibilityManager.writeToZookeeper(serialized,true);
+      }
+      if (userAuths.size() > 0) {
+        byte[] serialized=VisibilityUtils.getUserAuthsDataToWriteToZooKeeper(userAuths);
+        this.visibilityManager.writeToZookeeper(serialized,false);
+      }
+    }
+ catch (    IOException ioe) {
+      LOG.error("Error while updating the zk with the exisiting labels data",ioe);
+    }
+  }
+}

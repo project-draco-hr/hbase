@@ -1,0 +1,47 @@
+{
+  VisibilityLabelsResponse.Builder response=VisibilityLabelsResponse.newBuilder();
+  List<ByteString> auths=request.getAuthList();
+  byte[] user=request.getUser().toByteArray();
+  try {
+    checkCallingUserAuth();
+    List<Mutation> puts=new ArrayList<Mutation>(auths.size());
+    RegionActionResult successResult=RegionActionResult.newBuilder().build();
+    for (    ByteString authBS : auths) {
+      byte[] auth=authBS.toByteArray();
+      String authStr=Bytes.toString(auth);
+      int labelOrdinal=this.visibilityManager.getLabelOrdinal(authStr);
+      if (labelOrdinal == 0) {
+        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+        failureResultBuilder.setException(ResponseConverter.buildException(new InvalidLabelException("Label '" + authStr + "' doesn't exist")));
+        response.addResult(failureResultBuilder.build());
+      }
+ else {
+        Put p=new Put(Bytes.toBytes(labelOrdinal));
+        p.add(LABELS_TABLE_FAMILY,user,DUMMY_VALUE,LABELS_TABLE_TAGS);
+        puts.add(p);
+        response.addResult(successResult);
+      }
+    }
+    OperationStatus[] opStatus=this.regionEnv.getRegion().batchMutate(puts.toArray(new Mutation[puts.size()]));
+    int i=0;
+    for (    OperationStatus status : opStatus) {
+      if (status.getOperationStatusCode() != SUCCESS) {
+        while (response.getResult(i) != successResult)         i++;
+        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+        failureResultBuilder.setException(ResponseConverter.buildException(new DoNotRetryIOException(status.getExceptionMsg())));
+        response.setResult(i,failureResultBuilder.build());
+      }
+      i++;
+    }
+  }
+ catch (  IOException e) {
+    LOG.error(e);
+    RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+    failureResultBuilder.setException(ResponseConverter.buildException(e));
+    RegionActionResult failureResult=failureResultBuilder.build();
+    for (int i=0; i < auths.size(); i++) {
+      response.addResult(i,failureResult);
+    }
+  }
+  done.run(response.build());
+}
