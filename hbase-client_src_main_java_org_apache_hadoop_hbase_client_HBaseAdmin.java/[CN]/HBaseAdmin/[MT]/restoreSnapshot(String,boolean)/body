@@ -1,0 +1,61 @@
+{
+  TableName tableName=null;
+  for (  SnapshotDescription snapshotInfo : listSnapshots()) {
+    if (snapshotInfo.getName().equals(snapshotName)) {
+      tableName=TableName.valueOf(snapshotInfo.getTable());
+      break;
+    }
+  }
+  if (tableName == null) {
+    throw new RestoreSnapshotException("Unable to find the table name for snapshot=" + snapshotName);
+  }
+  if (!tableExists(tableName)) {
+    try {
+      cloneSnapshot(snapshotName,tableName);
+    }
+ catch (    InterruptedException e) {
+      throw new InterruptedIOException("Interrupted when restoring a nonexistent table: " + e.getMessage());
+    }
+    return;
+  }
+  if (!isTableDisabled(tableName)) {
+    throw new TableNotDisabledException(tableName);
+  }
+  String failSafeSnapshotSnapshotName=null;
+  if (takeFailSafeSnapshot) {
+    failSafeSnapshotSnapshotName=conf.get("hbase.snapshot.restore.failsafe.name","hbase-failsafe-{snapshot.name}-{restore.timestamp}");
+    failSafeSnapshotSnapshotName=failSafeSnapshotSnapshotName.replace("{snapshot.name}",snapshotName).replace("{table.name}",tableName.toString().replace(TableName.NAMESPACE_DELIM,'.')).replace("{restore.timestamp}",String.valueOf(EnvironmentEdgeManager.currentTimeMillis()));
+    LOG.info("Taking restore-failsafe snapshot: " + failSafeSnapshotSnapshotName);
+    snapshot(failSafeSnapshotSnapshotName,tableName);
+  }
+  try {
+    internalRestoreSnapshot(snapshotName,tableName);
+  }
+ catch (  IOException e) {
+    if (takeFailSafeSnapshot) {
+      try {
+        internalRestoreSnapshot(failSafeSnapshotSnapshotName,tableName);
+        String msg="Restore snapshot=" + snapshotName + " failed. Rollback to snapshot="+ failSafeSnapshotSnapshotName+ " succeeded.";
+        LOG.error(msg,e);
+        throw new RestoreSnapshotException(msg,e);
+      }
+ catch (      IOException ex) {
+        String msg="Failed to restore and rollback to snapshot=" + failSafeSnapshotSnapshotName;
+        LOG.error(msg,ex);
+        throw new RestoreSnapshotException(msg,e);
+      }
+    }
+ else {
+      throw new RestoreSnapshotException("Failed to restore snapshot=" + snapshotName,e);
+    }
+  }
+  if (takeFailSafeSnapshot) {
+    try {
+      LOG.info("Deleting restore-failsafe snapshot: " + failSafeSnapshotSnapshotName);
+      deleteSnapshot(failSafeSnapshotSnapshotName);
+    }
+ catch (    IOException e) {
+      LOG.error("Unable to remove the failsafe snapshot: " + failSafeSnapshotSnapshotName,e);
+    }
+  }
+}
