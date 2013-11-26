@@ -9,6 +9,8 @@
   boolean cleanup=true;
   boolean noclosefs=false;
   long roll=Long.MAX_VALUE;
+  boolean compress=false;
+  String cipher=null;
   for (int i=0; i < args.length; i++) {
     String cmd=args[i];
     try {
@@ -51,6 +53,12 @@
  else       if (cmd.equals("-roll")) {
         roll=Long.parseLong(args[++i]);
       }
+ else       if (cmd.equals("-compress")) {
+        compress=true;
+      }
+ else       if (cmd.equals("-encryption")) {
+        cipher=args[++i];
+      }
  else       if (cmd.equals("-h")) {
         printUsageAndExit();
       }
@@ -65,6 +73,19 @@
  catch (    Exception e) {
       printUsageAndExit();
     }
+  }
+  if (compress) {
+    Configuration conf=getConf();
+    conf.setBoolean(HConstants.ENABLE_WAL_COMPRESSION,true);
+  }
+  if (cipher != null) {
+    Configuration conf=getConf();
+    conf.set(HConstants.CRYPTO_KEYPROVIDER_CONF_KEY,KeyProviderForTesting.class.getName());
+    conf.set(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,"hbase");
+    conf.setClass("hbase.regionserver.hlog.reader.impl",SecureProtobufLogReader.class,HLog.Reader.class);
+    conf.setClass("hbase.regionserver.hlog.writer.impl",SecureProtobufLogWriter.class,HLog.Writer.class);
+    conf.setBoolean(HConstants.ENABLE_WAL_ENCRYPTION,true);
+    conf.set(HConstants.CRYPTO_WAL_ALGORITHM_CONF_KEY,cipher);
   }
   FSUtils.setFsDefault(getConf(),FSUtils.getRootDir(getConf()));
   FileSystem fs=FileSystem.get(getConf());

@@ -1,0 +1,42 @@
+{
+  trailer.expectMajorVersion(3);
+  HFileContextBuilder builder=new HFileContextBuilder().withIncludesMvcc(this.includesMemstoreTS).withHBaseCheckSum(true).withCompression(this.compressAlgo);
+  byte[] keyBytes=trailer.getEncryptionKey();
+  if (keyBytes != null) {
+    Encryption.Context cryptoContext=Encryption.newContext(conf);
+    Key key;
+    String masterKeyName=conf.get(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,User.getCurrent().getShortName());
+    try {
+      key=EncryptionUtil.unwrapKey(conf,masterKeyName,keyBytes);
+    }
+ catch (    KeyException e) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Unable to unwrap key with current master key '" + masterKeyName + "'");
+      }
+      String alternateKeyName=conf.get(HConstants.CRYPTO_MASTERKEY_ALTERNATE_NAME_CONF_KEY);
+      if (alternateKeyName != null) {
+        try {
+          key=EncryptionUtil.unwrapKey(conf,alternateKeyName,keyBytes);
+        }
+ catch (        KeyException ex) {
+          throw new IOException(ex);
+        }
+      }
+ else {
+        throw new IOException(e);
+      }
+    }
+    Cipher cipher=Encryption.getCipher(conf,key.getAlgorithm());
+    if (cipher == null) {
+      throw new IOException("Cipher '" + key.getAlgorithm() + "' is not available");
+    }
+    cryptoContext.setCipher(cipher);
+    cryptoContext.setKey(key);
+    builder.withEncryptionContext(cryptoContext);
+  }
+  HFileContext context=builder.build();
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("Reader" + (path != null ? " for " + path : "") + " initialized with cacheConf: "+ cacheConf+ " comparator: "+ comparator.getClass().getSimpleName()+ " fileContext: "+ context);
+  }
+  return context;
+}

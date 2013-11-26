@@ -1,0 +1,46 @@
+{
+  int ivLength=0;
+  try {
+    ivLength=StreamUtils.readRawVarint32(in);
+  }
+ catch (  EOFException e) {
+    return null;
+  }
+  if (ivLength != this.iv.length) {
+    throw new IOException("Incorrect IV length: expected=" + iv.length + " have="+ ivLength);
+  }
+  IOUtils.readFully(in,this.iv);
+  int codedLength=StreamUtils.readRawVarint32(in);
+  byte[] codedBytes=new byte[codedLength];
+  IOUtils.readFully(in,codedBytes);
+  decryptor.setIv(iv);
+  decryptor.reset();
+  InputStream cin=decryptor.createDecryptionStream(new ByteArrayInputStream(codedBytes));
+  int keylength=StreamUtils.readRawVarint32(cin);
+  int vlength=StreamUtils.readRawVarint32(cin);
+  int tagsLength=StreamUtils.readRawVarint32(cin);
+  int length=0;
+  if (tagsLength == 0) {
+    length=KeyValue.KEYVALUE_INFRASTRUCTURE_SIZE + keylength + vlength;
+  }
+ else {
+    length=KeyValue.KEYVALUE_WITH_TAGS_INFRASTRUCTURE_SIZE + keylength + vlength+ tagsLength;
+  }
+  byte[] backingArray=new byte[length];
+  int pos=0;
+  pos=Bytes.putInt(backingArray,pos,keylength);
+  pos=Bytes.putInt(backingArray,pos,vlength);
+  int elemLen=StreamUtils.readRawVarint32(cin);
+  pos=Bytes.putShort(backingArray,pos,(short)elemLen);
+  IOUtils.readFully(cin,backingArray,pos,elemLen);
+  pos+=elemLen;
+  elemLen=StreamUtils.readRawVarint32(cin);
+  pos=Bytes.putByte(backingArray,pos,(byte)elemLen);
+  IOUtils.readFully(cin,backingArray,pos,elemLen);
+  pos+=elemLen;
+  elemLen=StreamUtils.readRawVarint32(cin);
+  IOUtils.readFully(cin,backingArray,pos,elemLen);
+  pos+=elemLen;
+  IOUtils.readFully(cin,backingArray,pos,length - pos);
+  return new KeyValue(backingArray,0,length);
+}

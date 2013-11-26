@@ -1,0 +1,29 @@
+{
+  if (!(cell instanceof KeyValue))   throw new IOException("Cannot write non-KV cells to WAL");
+  KeyValue kv=(KeyValue)cell;
+  byte[] kvBuffer=kv.getBuffer();
+  int offset=kv.getOffset();
+  RNG.nextBytes(iv);
+  encryptor.setIv(iv);
+  encryptor.reset();
+  StreamUtils.writeRawVInt32(out,iv.length);
+  out.write(iv);
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  OutputStream cout=encryptor.createEncryptionStream(baos);
+  StreamUtils.writeRawVInt32(cout,kv.getKeyLength());
+  StreamUtils.writeRawVInt32(cout,kv.getValueLength());
+  StreamUtils.writeRawVInt32(cout,kv.getTagsLength());
+  StreamUtils.writeRawVInt32(cout,kv.getRowLength());
+  cout.write(kvBuffer,kv.getRowOffset(),kv.getRowLength());
+  StreamUtils.writeRawVInt32(cout,kv.getFamilyLength());
+  cout.write(kvBuffer,kv.getFamilyOffset(),kv.getFamilyLength());
+  StreamUtils.writeRawVInt32(cout,kv.getQualifierLength());
+  cout.write(kvBuffer,kv.getQualifierOffset(),kv.getQualifierLength());
+  int pos=kv.getTimestampOffset();
+  int remainingLength=kv.getLength() + offset - pos;
+  cout.write(kvBuffer,pos,remainingLength);
+  cout.close();
+  byte[] codedBytes=baos.toByteArray();
+  StreamUtils.writeRawVInt32(out,codedBytes.length);
+  out.write(codedBytes);
+}

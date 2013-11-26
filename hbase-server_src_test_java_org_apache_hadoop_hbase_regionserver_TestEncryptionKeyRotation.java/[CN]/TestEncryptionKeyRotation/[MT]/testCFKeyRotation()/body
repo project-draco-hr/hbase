@@ -1,0 +1,38 @@
+{
+  HTableDescriptor htd=new HTableDescriptor(TableName.valueOf("default","testCFKeyRotation"));
+  HColumnDescriptor hcd=new HColumnDescriptor("cf");
+  hcd.setEncryptionType("AES");
+  hcd.setEncryptionKey(EncryptionUtil.wrapKey(conf,"hbase",initialCFKey));
+  htd.addFamily(hcd);
+  createTableAndFlush(htd);
+  final List<Path> initialPaths=findStorefilePaths(htd.getTableName());
+  assertTrue(initialPaths.size() > 0);
+  for (  Path path : initialPaths) {
+    assertTrue("Store file " + path + " has incorrect key",Bytes.equals(initialCFKey.getEncoded(),extractHFileKey(path)));
+  }
+  hcd=htd.getFamily(Bytes.toBytes("cf"));
+  hcd.setEncryptionKey(EncryptionUtil.wrapKey(conf,conf.get(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,User.getCurrent().getShortName()),secondCFKey));
+  TEST_UTIL.getHBaseAdmin().modifyColumn(htd.getName(),hcd);
+  Thread.sleep(5000);
+  TEST_UTIL.getHBaseAdmin().majorCompact(htd.getName());
+  TEST_UTIL.waitFor(30000,1000,true,new Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      boolean found=false;
+      for (      Path path : initialPaths) {
+        found=TEST_UTIL.getTestFileSystem().exists(path);
+        if (found) {
+          LOG.info("Found " + path);
+          break;
+        }
+      }
+      return !found;
+    }
+  }
+);
+  List<Path> pathsAfterCompaction=findStorefilePaths(htd.getTableName());
+  assertTrue(pathsAfterCompaction.size() > 0);
+  for (  Path path : pathsAfterCompaction) {
+    assertFalse("Store file " + path + " retains initial key",Bytes.equals(initialCFKey.getEncoded(),extractHFileKey(path)));
+    assertTrue("Store file " + path + " has incorrect key",Bytes.equals(secondCFKey.getEncoded(),extractHFileKey(path)));
+  }
+}

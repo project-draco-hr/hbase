@@ -1,0 +1,25 @@
+{
+  Cipher cipher=Encryption.getCipher(conf,"AES");
+  if (cipher == null) {
+    throw new RuntimeException("Cipher 'AES' not available");
+  }
+  EncryptionProtos.WrappedKey.Builder builder=EncryptionProtos.WrappedKey.newBuilder();
+  builder.setAlgorithm(key.getAlgorithm());
+  byte[] iv=null;
+  if (cipher.getIvLength() > 0) {
+    iv=new byte[cipher.getIvLength()];
+    RNG.nextBytes(iv);
+    builder.setIv(ZeroCopyLiteralByteString.wrap(iv));
+  }
+  byte[] keyBytes=key.getEncoded();
+  CRC32 crc=new CRC32();
+  crc.update(keyBytes);
+  builder.setLength(keyBytes.length);
+  ByteArrayOutputStream out=new ByteArrayOutputStream();
+  Encryption.encryptWithSubjectKey(out,new ByteArrayInputStream(keyBytes),subject,conf,cipher,iv);
+  builder.setData(ZeroCopyLiteralByteString.wrap(out.toByteArray()));
+  builder.setCrc((int)crc.getValue());
+  ByteArrayOutputStream os=new ByteArrayOutputStream();
+  builder.build().writeDelimitedTo(os);
+  return os.toByteArray();
+}

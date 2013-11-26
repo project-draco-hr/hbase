@@ -1,0 +1,23 @@
+{
+  HTableDescriptor htd=new HTableDescriptor(TableName.valueOf("default","testMasterKeyRotation"));
+  HColumnDescriptor hcd=new HColumnDescriptor("cf");
+  hcd.setEncryptionType("AES");
+  hcd.setEncryptionKey(EncryptionUtil.wrapKey(conf,"hbase",initialCFKey));
+  htd.addFamily(hcd);
+  createTableAndFlush(htd);
+  List<Path> storeFilePaths=findStorefilePaths(htd.getTableName());
+  assertTrue(storeFilePaths.size() > 0);
+  for (  Path path : storeFilePaths) {
+    assertTrue("Store file " + path + " has incorrect key",Bytes.equals(initialCFKey.getEncoded(),extractHFileKey(path)));
+  }
+  TEST_UTIL.shutdownMiniHBaseCluster();
+  conf.set(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,"other");
+  conf.set(HConstants.CRYPTO_MASTERKEY_ALTERNATE_NAME_CONF_KEY,"hbase");
+  TEST_UTIL.startMiniHBaseCluster(1,1);
+  TEST_UTIL.waitTableAvailable(htd.getName(),5000);
+  storeFilePaths=findStorefilePaths(htd.getTableName());
+  assertTrue(storeFilePaths.size() > 0);
+  for (  Path path : storeFilePaths) {
+    assertTrue("Store file " + path + " has incorrect key",Bytes.equals(initialCFKey.getEncoded(),extractHFileKey(path)));
+  }
+}

@@ -1,0 +1,52 @@
+{
+  boolean result=super.readHeader(builder,stream);
+  if (result && builder.hasEncryptionKey()) {
+    byte[] keyBytes=builder.getEncryptionKey().toByteArray();
+    Key key=null;
+    String walKeyName=conf.get(HConstants.CRYPTO_WAL_KEY_NAME_CONF_KEY);
+    if (walKeyName != null) {
+      try {
+        key=EncryptionUtil.unwrapKey(conf,walKeyName,keyBytes);
+      }
+ catch (      KeyException e) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Unable to unwrap key with WAL key '" + walKeyName + "'");
+        }
+        key=null;
+      }
+    }
+    if (key == null) {
+      String masterKeyName=conf.get(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,User.getCurrent().getShortName());
+      try {
+        key=EncryptionUtil.unwrapKey(conf,masterKeyName,keyBytes);
+      }
+ catch (      KeyException e) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Unable to unwrap key with current master key '" + masterKeyName + "'");
+        }
+        String alternateKeyName=conf.get(HConstants.CRYPTO_MASTERKEY_ALTERNATE_NAME_CONF_KEY);
+        if (alternateKeyName != null) {
+          try {
+            key=EncryptionUtil.unwrapKey(conf,alternateKeyName,keyBytes);
+          }
+ catch (          KeyException ex) {
+            throw new IOException(ex);
+          }
+        }
+ else {
+          throw new IOException(e);
+        }
+      }
+    }
+    Cipher cipher=Encryption.getCipher(conf,key.getAlgorithm());
+    if (cipher == null) {
+      throw new IOException("Cipher '" + key.getAlgorithm() + "' is not available");
+    }
+    decryptor=cipher.getDecryptor();
+    decryptor.setKey(key);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Initialized secure protobuf WAL: cipher=" + cipher.getName());
+    }
+  }
+  return result;
+}

@@ -1,4 +1,29 @@
 {
-  DataInputStream dis=new DataInputStream(new ByteArrayInputStream(onDiskBlock,offset,onDiskSizeWithoutHeader));
-  Compression.decompress(blockBufferWithoutHeader.array(),blockBufferWithoutHeader.arrayOffset(),(InputStream)dis,onDiskSizeWithoutHeader,uncompressedSizeWithoutHeader,this.fileContext.getCompression());
+  InputStream in=new DataInputStream(new ByteArrayInputStream(onDiskBlock,offset,onDiskSizeWithoutHeader));
+  Encryption.Context cryptoContext=fileContext.getEncryptionContext();
+  if (cryptoContext != Encryption.Context.NONE) {
+    Cipher cipher=cryptoContext.getCipher();
+    Decryptor decryptor=cipher.getDecryptor();
+    decryptor.setKey(cryptoContext.getKey());
+    int plaintextLength=StreamUtils.readRawVarint32(in);
+    int ivLength=StreamUtils.readRawVarint32(in);
+    if (ivLength > 0) {
+      byte[] iv=new byte[ivLength];
+      IOUtils.readFully(in,iv);
+      decryptor.setIv(iv);
+    }
+    if (plaintextLength == 0) {
+      return;
+    }
+    decryptor.reset();
+    in=decryptor.createDecryptionStream(in);
+    onDiskSizeWithoutHeader=plaintextLength;
+  }
+  Compression.Algorithm compression=fileContext.getCompression();
+  if (compression != Compression.Algorithm.NONE) {
+    Compression.decompress(blockBufferWithoutHeader.array(),blockBufferWithoutHeader.arrayOffset(),in,onDiskSizeWithoutHeader,uncompressedSizeWithoutHeader,compression);
+  }
+ else {
+    IOUtils.readFully(in,blockBufferWithoutHeader.array(),blockBufferWithoutHeader.arrayOffset(),onDiskSizeWithoutHeader);
+  }
 }

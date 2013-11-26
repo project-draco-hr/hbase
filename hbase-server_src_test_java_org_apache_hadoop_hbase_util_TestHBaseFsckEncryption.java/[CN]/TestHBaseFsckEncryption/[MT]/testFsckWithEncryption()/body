@@ -1,0 +1,29 @@
+{
+  HTable table=new HTable(conf,htd.getName());
+  try {
+    byte[] values={'A','B','C','D'};
+    for (int i=0; i < values.length; i++) {
+      for (int j=0; j < values.length; j++) {
+        Put put=new Put(new byte[]{values[i],values[j]});
+        put.add(Bytes.toBytes("cf"),new byte[]{},new byte[]{values[i],values[j]});
+        table.put(put);
+      }
+    }
+  }
+  finally {
+    table.close();
+  }
+  TEST_UTIL.getHBaseAdmin().flush(htd.getName());
+  final List<Path> paths=findStorefilePaths(htd.getName());
+  assertTrue(paths.size() > 0);
+  for (  Path path : paths) {
+    assertTrue("Store file " + path + " has incorrect key",Bytes.equals(cfKey.getEncoded(),extractHFileKey(path)));
+  }
+  HBaseFsck res=HbckTestingUtil.doHFileQuarantine(conf,htd.getTableName());
+  assertEquals(res.getRetCode(),0);
+  HFileCorruptionChecker hfcc=res.getHFilecorruptionChecker();
+  assertEquals(hfcc.getCorrupted().size(),0);
+  assertEquals(hfcc.getFailures().size(),0);
+  assertEquals(hfcc.getQuarantined().size(),0);
+  assertEquals(hfcc.getMissing().size(),0);
+}

@@ -1,0 +1,45 @@
+{
+  RedundantKVGenerator generator=new RedundantKVGenerator();
+  List<KeyValue> testKvs=generator.generateTestKeyValues(1000);
+  Configuration conf=TEST_UTIL.getConfiguration();
+  CacheConfig cacheConf=new CacheConfig(conf);
+  for (  DataBlockEncoding encoding : DataBlockEncoding.values()) {
+    for (    Compression.Algorithm compression : TestHFileBlock.COMPRESSION_ALGORITHMS) {
+      HFileContext fileContext=new HFileContextBuilder().withBlockSize(4096).withEncryptionContext(cryptoContext).withCompression(compression).withDataBlockEncoding(encoding).build();
+      LOG.info("Writing with " + fileContext);
+      Path path=new Path(TEST_UTIL.getDataTestDir(),UUID.randomUUID().toString() + ".hfile");
+      FSDataOutputStream out=fs.create(path);
+      HFile.Writer writer=HFile.getWriterFactory(conf,cacheConf).withOutputStream(out).withFileContext(fileContext).create();
+      for (      KeyValue kv : testKvs) {
+        writer.append(kv);
+      }
+      writer.close();
+      out.close();
+      LOG.info("Reading with " + fileContext);
+      HFile.Reader reader=HFile.createReader(fs,path,cacheConf,conf);
+      reader.loadFileInfo();
+      FixedFileTrailer trailer=reader.getTrailer();
+      assertNotNull(trailer.getEncryptionKey());
+      HFileScanner scanner=reader.getScanner(false,false);
+      assertTrue("Initial seekTo failed",scanner.seekTo());
+      int i=0;
+      do {
+        KeyValue kv=scanner.getKeyValue();
+        assertTrue("Read back an unexpected or invalid KV",testKvs.contains(kv));
+        i++;
+      }
+ while (scanner.next());
+      reader.close();
+      assertEquals("Did not read back as many KVs as written",i,testKvs.size());
+      LOG.info("Random seeking with " + fileContext);
+      reader=HFile.createReader(fs,path,cacheConf,conf);
+      scanner=reader.getScanner(false,true);
+      assertTrue("Initial seekTo failed",scanner.seekTo());
+      for (i=0; i < 100; i++) {
+        KeyValue kv=testKvs.get(RNG.nextInt(testKvs.size()));
+        assertEquals("Unable to find KV as expected: " + kv,scanner.seekTo(kv.getKey()),0);
+      }
+      reader.close();
+    }
+  }
+}

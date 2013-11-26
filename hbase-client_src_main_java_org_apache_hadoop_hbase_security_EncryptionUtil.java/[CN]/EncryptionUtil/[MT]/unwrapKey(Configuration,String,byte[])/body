@@ -1,0 +1,19 @@
+{
+  EncryptionProtos.WrappedKey wrappedKey=EncryptionProtos.WrappedKey.PARSER.parseDelimitedFrom(new ByteArrayInputStream(value));
+  Cipher cipher=Encryption.getCipher(conf,"AES");
+  if (cipher == null) {
+    throw new RuntimeException("Algorithm 'AES' not available");
+  }
+  ByteArrayOutputStream out=new ByteArrayOutputStream();
+  byte[] iv=wrappedKey.hasIv() ? wrappedKey.getIv().toByteArray() : null;
+  Encryption.decryptWithSubjectKey(out,wrappedKey.getData().newInput(),wrappedKey.getLength(),subject,conf,cipher,iv);
+  byte[] keyBytes=out.toByteArray();
+  if (wrappedKey.hasCrc()) {
+    CRC32 crc=new CRC32();
+    crc.update(keyBytes);
+    if ((int)(crc.getValue() & 0xffffffff) != wrappedKey.getCrc()) {
+      throw new KeyException("Key was not successfully unwrapped: CRC check failed");
+    }
+  }
+  return new SecretKeySpec(keyBytes,wrappedKey.getAlgorithm());
+}
