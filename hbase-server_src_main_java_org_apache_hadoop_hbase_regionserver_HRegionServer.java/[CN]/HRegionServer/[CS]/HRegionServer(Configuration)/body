@@ -1,2 +1,57 @@
 {
+  this.fsOk=true;
+  this.conf=conf;
+  this.isOnline=false;
+  checkCodecs(this.conf);
+  this.userProvider=UserProvider.instantiate(conf);
+  FSUtils.setupShortCircuitRead(this.conf);
+  this.numRetries=this.conf.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
+  this.threadWakeFrequency=conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000);
+  this.msgInterval=conf.getInt("hbase.regionserver.msginterval",3 * 1000);
+  this.sleeper=new Sleeper(this.msgInterval,this);
+  boolean isNoncesEnabled=conf.getBoolean(HConstants.HBASE_RS_NONCES_ENABLED,true);
+  this.nonceManager=isNoncesEnabled ? new ServerNonceManager(this.conf) : null;
+  this.maxScannerResultSize=conf.getLong(HConstants.HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE_KEY,HConstants.DEFAULT_HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE);
+  this.numRegionsToReport=conf.getInt("hbase.regionserver.numregionstoreport",10);
+  this.rpcTimeout=conf.getInt(HConstants.HBASE_RPC_SHORTOPERATION_TIMEOUT_KEY,HConstants.DEFAULT_HBASE_RPC_SHORTOPERATION_TIMEOUT);
+  this.abortRequested=false;
+  this.stopped=false;
+  this.scannerLeaseTimeoutPeriod=HBaseConfiguration.getInt(conf,HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,HConstants.HBASE_REGIONSERVER_LEASE_PERIOD_KEY,HConstants.DEFAULT_HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD);
+  String hostname=conf.get("hbase.regionserver.ipc.address",Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.regionserver.dns.interface","default"),conf.get("hbase.regionserver.dns.nameserver","default"))));
+  int port=conf.getInt(HConstants.REGIONSERVER_PORT,HConstants.DEFAULT_REGIONSERVER_PORT);
+  InetSocketAddress initialIsa=new InetSocketAddress(hostname,port);
+  if (initialIsa.getAddress() == null) {
+    throw new IllegalArgumentException("Failed resolve of " + initialIsa);
+  }
+  this.rand=new Random(initialIsa.hashCode());
+  String name="regionserver/" + initialIsa.toString();
+  HConnectionManager.setServerSideHConnectionRetries(this.conf,name,LOG);
+  this.priority=new AnnotationReadingPriorityFunction(this);
+  RpcSchedulerFactory rpcSchedulerFactory;
+  try {
+    Class<?> rpcSchedulerFactoryClass=conf.getClass(REGION_SERVER_RPC_SCHEDULER_FACTORY_CLASS,SimpleRpcSchedulerFactory.class);
+    rpcSchedulerFactory=((RpcSchedulerFactory)rpcSchedulerFactoryClass.newInstance());
+  }
+ catch (  InstantiationException e) {
+    throw new IllegalArgumentException(e);
+  }
+catch (  IllegalAccessException e) {
+    throw new IllegalArgumentException(e);
+  }
+  this.rpcServer=new RpcServer(this,name,getServices(),initialIsa,conf,rpcSchedulerFactory.create(conf,this));
+  this.isa=this.rpcServer.getListenerAddress();
+  this.rpcServer.setErrorHandler(this);
+  this.startcode=System.currentTimeMillis();
+  ZKUtil.loginClient(this.conf,"hbase.zookeeper.client.keytab.file","hbase.zookeeper.client.kerberos.principal",this.isa.getHostName());
+  userProvider.login("hbase.regionserver.keytab.file","hbase.regionserver.kerberos.principal",this.isa.getHostName());
+  regionServerAccounting=new RegionServerAccounting();
+  cacheConfig=new CacheConfig(conf);
+  uncaughtExceptionHandler=new UncaughtExceptionHandler(){
+    @Override public void uncaughtException(    Thread t,    Throwable e){
+      abort("Uncaught exception in service thread " + t.getName(),e);
+    }
+  }
+;
+  this.rsHost=new RegionServerCoprocessorHost(this,this.conf);
+  this.distributedLogReplay=this.conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,HConstants.DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG);
 }
