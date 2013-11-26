@@ -1,0 +1,109 @@
+{
+  User user=getActiveUser();
+  List<Action> cellCheckActions=Lists.newArrayList();
+  AuthResult results[]=new AuthResult[actions.length];
+  for (int i=0; i < actions.length; i++) {
+    results[i]=permissionGranted(request,user,actions[i],e,familyMap);
+    if (!results[i].isAllowed()) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Got " + results[i] + ", added to cellCheckActions");
+      }
+      cellCheckActions.add(actions[i]);
+    }
+  }
+  if (cellCheckActions.isEmpty()) {
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("All permissions checks passed, we can early out");
+    }
+    for (int i=0; i < results.length; i++) {
+      logResult(results[i]);
+    }
+    return;
+  }
+  Get get=new Get(row);
+  if (timestamp != HConstants.LATEST_TIMESTAMP)   get.setTimeStamp(timestamp);
+  get.setMaxResultsPerColumnFamily(1);
+  if (allVersions) {
+    get.setMaxVersions();
+  }
+ else {
+    get.setMaxVersions(1);
+  }
+  for (  Map.Entry<byte[],? extends Collection<?>> entry : familyMap.entrySet()) {
+    byte[] col=entry.getKey();
+    if (entry.getValue() instanceof Set) {
+      Set<byte[]> set=(Set<byte[]>)entry.getValue();
+      if (set == null || set.isEmpty()) {
+        get.addFamily(col);
+      }
+ else {
+        for (        byte[] qual : set) {
+          get.addColumn(col,qual);
+        }
+      }
+    }
+ else     if (entry.getValue() instanceof List) {
+      List<Cell> list=(List<Cell>)entry.getValue();
+      if (list == null || list.isEmpty()) {
+        get.addFamily(col);
+      }
+ else {
+        for (        Cell cell : list) {
+          get.addColumn(col,CellUtil.cloneQualifier(cell));
+        }
+      }
+    }
+ else {
+      throw new RuntimeException("Unhandled collection type " + entry.getValue().getClass().getName());
+    }
+  }
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("Scanning for cells with " + get);
+  }
+  RegionScanner scanner=getRegion(e).getScanner(new Scan(get));
+  List<Cell> cells=Lists.newArrayList();
+  int numCells=0;
+  try {
+    boolean more=false;
+    do {
+      cells.clear();
+      more=scanner.next(cells);
+      for (      Cell cell : cells) {
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Found cell " + cell);
+        }
+        for (        Action action : cellCheckActions) {
+          if (!authManager.authorize(user,getTableName(e),cell,false,action)) {
+            AuthResult authResult=AuthResult.deny(request,"Insufficient permissions",user,action,getTableName(e),CellUtil.cloneFamily(cell),CellUtil.cloneQualifier(cell));
+            logResult(authResult);
+            throw new AccessDeniedException("Insufficient permissions " + authResult.toContextString());
+          }
+        }
+        numCells++;
+      }
+    }
+ while (more);
+  }
+ catch (  AccessDeniedException ex) {
+    throw ex;
+  }
+catch (  IOException ex) {
+    LOG.error("Exception while getting cells to calculate covering permission",ex);
+  }
+ finally {
+    scanner.close();
+  }
+  if (numCells < 1) {
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("No cells found with scan");
+    }
+    AuthResult authResult=AuthResult.deny(request,"Insufficient permissions",user,cellCheckActions.get(0),getTableName(e),familyMap);
+    logResult(authResult);
+    throw new AccessDeniedException("Insufficient permissions " + authResult.toContextString());
+  }
+  for (  byte[] family : get.getFamilyMap().keySet()) {
+    for (    Action action : actions) {
+      logResult(AuthResult.allow(request,"Permission granted",user,action,getTableName(e),family,null));
+    }
+  }
+}

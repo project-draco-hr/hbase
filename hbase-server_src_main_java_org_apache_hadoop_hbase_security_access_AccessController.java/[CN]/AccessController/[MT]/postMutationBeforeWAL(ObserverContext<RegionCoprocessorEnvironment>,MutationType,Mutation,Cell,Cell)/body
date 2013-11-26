@@ -1,0 +1,41 @@
+{
+  List<Tag> tags=Lists.newArrayList();
+  ListMultimap<String,Permission> perms=ArrayListMultimap.create();
+  if (oldCell != null) {
+    byte[] tagBytes=CellUtil.getTagArray(oldCell);
+    Iterator<Tag> tagIterator=CellUtil.tagsIterator(tagBytes,0,tagBytes.length);
+    while (tagIterator.hasNext()) {
+      Tag tag=tagIterator.next();
+      if (tag.getType() != AccessControlLists.ACL_TAG_TYPE) {
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Carrying forward tag from " + oldCell + ": type "+ tag.getType()+ " length "+ tag.getValue().length);
+        }
+        tags.add(tag);
+      }
+ else {
+        ListMultimap<String,Permission> kvPerms=ProtobufUtil.toUsersAndPermissions(AccessControlProtos.UsersAndPermissions.newBuilder().mergeFrom(tag.getBuffer(),tag.getTagOffset(),tag.getTagLength()).build());
+        perms.putAll(kvPerms);
+      }
+    }
+  }
+  byte[] aclBytes=mutation.getACL();
+  if (aclBytes != null) {
+    tags.add(new Tag(AccessControlLists.ACL_TAG_TYPE,aclBytes));
+  }
+ else {
+    if (perms != null) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Carrying forward ACLs from " + oldCell + ": "+ perms);
+      }
+      tags.add(new Tag(AccessControlLists.ACL_TAG_TYPE,ProtobufUtil.toUsersAndPermissions(perms).toByteArray()));
+    }
+  }
+  if (tags.isEmpty()) {
+    return newCell;
+  }
+  KeyValue newKv=KeyValueUtil.ensureKeyValue(newCell);
+  byte[] bytes=newKv.getBuffer();
+  KeyValue rewriteKv=new KeyValue(bytes,newKv.getRowOffset(),newKv.getRowLength(),bytes,newKv.getFamilyOffset(),newKv.getFamilyLength(),bytes,newKv.getQualifierOffset(),newKv.getQualifierLength(),newKv.getTimestamp(),KeyValue.Type.codeToType(newKv.getTypeByte()),bytes,newKv.getValueOffset(),newKv.getValueLength(),tags);
+  rewriteKv.setMvccVersion(newKv.getMvccVersion());
+  return rewriteKv;
+}
