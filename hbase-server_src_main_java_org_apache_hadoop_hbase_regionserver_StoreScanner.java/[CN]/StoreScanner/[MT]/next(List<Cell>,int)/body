@@ -1,2 +1,106 @@
 {
+  lock.lock();
+  try {
+    if (checkReseek()) {
+      return true;
+    }
+    if (this.heap == null) {
+      close();
+      return false;
+    }
+    KeyValue peeked=this.heap.peek();
+    if (peeked == null) {
+      close();
+      return false;
+    }
+    byte[] row=peeked.getBuffer();
+    int offset=peeked.getRowOffset();
+    short length=peeked.getRowLength();
+    if (limit < 0 || matcher.row == null || !Bytes.equals(row,offset,length,matcher.row,matcher.rowOffset,matcher.rowLength)) {
+      this.countPerRow=0;
+      matcher.setRow(row,offset,length);
+    }
+    KeyValue kv;
+    KeyValue.KVComparator comparator=store != null ? store.getComparator() : null;
+    int count=0;
+    LOOP:     while ((kv=this.heap.peek()) != null) {
+      if (prevKV != kv)       ++kvsScanned;
+      checkScanOrder(prevKV,kv,comparator);
+      prevKV=kv;
+      ScanQueryMatcher.MatchCode qcode=matcher.match(kv);
+switch (qcode) {
+case INCLUDE:
+case INCLUDE_AND_SEEK_NEXT_ROW:
+case INCLUDE_AND_SEEK_NEXT_COL:
+        Filter f=matcher.getFilter();
+      if (f != null) {
+        kv=KeyValueUtil.ensureKeyValue(f.transformCell(kv));
+      }
+    this.countPerRow++;
+  if (storeLimit > -1 && this.countPerRow > (storeLimit + storeOffset)) {
+    if (!matcher.moreRowsMayExistAfter(kv)) {
+      return false;
+    }
+    seekToNextRow(kv);
+    break LOOP;
+  }
+if (this.countPerRow > storeOffset) {
+  outResult.add(kv);
+  count++;
+}
+if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_ROW) {
+if (!matcher.moreRowsMayExistAfter(kv)) {
+  return false;
+}
+seekToNextRow(kv);
+}
+ else if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_COL) {
+seekAsDirection(matcher.getKeyForNextColumn(kv));
+}
+ else {
+this.heap.next();
+}
+if (limit > 0 && (count == limit)) {
+break LOOP;
+}
+continue;
+case DONE:
+return true;
+case DONE_SCAN:
+close();
+return false;
+case SEEK_NEXT_ROW:
+if (!matcher.moreRowsMayExistAfter(kv)) {
+return false;
+}
+seekToNextRow(kv);
+break;
+case SEEK_NEXT_COL:
+seekAsDirection(matcher.getKeyForNextColumn(kv));
+break;
+case SKIP:
+this.heap.next();
+break;
+case SEEK_NEXT_USING_HINT:
+KeyValue nextKV=KeyValueUtil.ensureKeyValue(matcher.getNextKeyHint(kv));
+if (nextKV != null) {
+seekAsDirection(nextKV);
+}
+ else {
+heap.next();
+}
+break;
+default :
+throw new RuntimeException("UNEXPECTED");
+}
+}
+if (count > 0) {
+return true;
+}
+close();
+return false;
+}
+  finally {
+lock.unlock();
+}
 }

@@ -1,0 +1,46 @@
+{
+  if (this.callable != null) {
+    this.callable.setClose();
+    this.caller.callWithRetries(callable);
+    this.callable=null;
+  }
+  byte[] localStartKey;
+  boolean locateTheClosestFrontRow=true;
+  if (this.currentRegion != null) {
+    byte[] startKey=this.currentRegion.getStartKey();
+    if (startKey == null || Bytes.equals(startKey,HConstants.EMPTY_BYTE_ARRAY) || checkScanStopRow(startKey) || done) {
+      close();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Finished " + this.currentRegion);
+      }
+      return false;
+    }
+    localStartKey=startKey;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Finished " + this.currentRegion);
+    }
+  }
+ else {
+    localStartKey=this.scan.getStartRow();
+    if (!Bytes.equals(localStartKey,HConstants.EMPTY_BYTE_ARRAY)) {
+      locateTheClosestFrontRow=false;
+    }
+  }
+  if (LOG.isDebugEnabled() && this.currentRegion != null) {
+    LOG.debug("Advancing internal scanner to startKey at '" + Bytes.toStringBinary(localStartKey) + "'");
+  }
+  try {
+    byte[] locateStartRow=locateTheClosestFrontRow ? createClosestRowBefore(localStartKey) : null;
+    callable=getScannerCallable(localStartKey,nbRows,locateStartRow);
+    this.caller.callWithRetries(callable);
+    this.currentRegion=callable.getHRegionInfo();
+    if (this.scanMetrics != null) {
+      this.scanMetrics.countOfRegions.incrementAndGet();
+    }
+  }
+ catch (  IOException e) {
+    close();
+    throw e;
+  }
+  return true;
+}

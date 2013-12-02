@@ -1,0 +1,26 @@
+{
+  if (!instantiated || reload) {
+    if (locateStartRow == null) {
+      this.location=connection.getRegionLocation(tableName,row,reload);
+      if (this.location == null) {
+        throw new IOException("Failed to find location, tableName=" + tableName + ", row="+ Bytes.toString(row)+ ", reload="+ reload);
+      }
+    }
+ else {
+      List<HRegionLocation> locatedRegions=locateRegionsInRange(locateStartRow,row,reload);
+      if (locatedRegions.isEmpty()) {
+        throw new DoNotRetryIOException("Does hbase:meta exist hole? Couldn't get regions for the range from " + Bytes.toStringBinary(locateStartRow) + " to "+ Bytes.toStringBinary(row));
+      }
+      this.location=locatedRegions.get(locatedRegions.size() - 1);
+    }
+    setStub(getConnection().getClient(getLocation().getServerName()));
+    checkIfRegionServerIsRemote();
+    instantiated=true;
+  }
+  if (reload && this.scanMetrics != null) {
+    this.scanMetrics.countOfRPCRetries.incrementAndGet();
+    if (isRegionServerRemote) {
+      this.scanMetrics.countOfRemoteRPCRetries.incrementAndGet();
+    }
+  }
+}
