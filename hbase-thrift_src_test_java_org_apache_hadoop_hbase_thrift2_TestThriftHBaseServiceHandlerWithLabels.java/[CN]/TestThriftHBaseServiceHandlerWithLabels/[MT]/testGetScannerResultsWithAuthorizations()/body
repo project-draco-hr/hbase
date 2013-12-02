@@ -1,0 +1,45 @@
+{
+  ThriftHBaseServiceHandler handler=createHandler();
+  ByteBuffer table=wrap(tableAname);
+  TColumnValue columnValue=new TColumnValue(wrap(familyAname),wrap(qualifierAname),wrap(valueAname));
+  List<TColumnValue> columnValues=new ArrayList<TColumnValue>();
+  columnValues.add(columnValue);
+  for (int i=0; i < 20; i++) {
+    TPut put=new TPut(wrap(("testGetScannerResults" + pad(i,(byte)2)).getBytes()),columnValues);
+    if (i == 3) {
+      put.setCellVisibility(new TCellVisibility().setExpression(PUBLIC));
+    }
+ else {
+      put.setCellVisibility(new TCellVisibility().setExpression("(" + SECRET + "|"+ CONFIDENTIAL+ ")"+ "&"+ "!"+ TOPSECRET));
+    }
+    handler.put(table,put);
+  }
+  TScan scan=new TScan();
+  List<TColumn> columns=new ArrayList<TColumn>();
+  TColumn column=new TColumn();
+  column.setFamily(familyAname);
+  column.setQualifier(qualifierAname);
+  columns.add(column);
+  scan.setColumns(columns);
+  scan.setStartRow("testGetScannerResults".getBytes());
+  scan.setStopRow("testGetScannerResults05".getBytes());
+  TAuthorization tauth=new TAuthorization();
+  List<String> labels=new ArrayList<String>();
+  labels.add(SECRET);
+  labels.add(PRIVATE);
+  tauth.setLabels(labels);
+  scan.setAuthorizations(tauth);
+  List<TResult> results=handler.getScannerResults(table,scan,5);
+  assertEquals(4,results.size());
+  for (int i=0; i < 4; i++) {
+    if (i < 3) {
+      assertArrayEquals(("testGetScannerResults" + pad(i,(byte)2)).getBytes(),results.get(i).getRow());
+    }
+ else     if (i == 3) {
+      continue;
+    }
+ else {
+      assertArrayEquals(("testGetScannerResults" + pad(i + 1,(byte)2)).getBytes(),results.get(i).getRow());
+    }
+  }
+}

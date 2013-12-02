@@ -1,0 +1,27 @@
+{
+  SUPERUSER=User.createUserForTesting(conf,"admin",new String[]{"supergroup"});
+  conf=TEST_UTIL.getConfiguration();
+  conf.setClass(VisibilityUtils.VISIBILITY_LABEL_GENERATOR_CLASS,SimpleScanLabelGenerator.class,ScanLabelGenerator.class);
+  conf.set("hbase.superuser",SUPERUSER.getShortName());
+  conf.set("hbase.coprocessor.master.classes",VisibilityController.class.getName());
+  conf.set("hbase.coprocessor.region.classes",VisibilityController.class.getName());
+  TEST_UTIL.startMiniCluster(1);
+  TEST_UTIL.waitTableEnabled(VisibilityConstants.LABELS_TABLE_NAME.getName(),50000);
+  createLabels();
+  setAuths();
+  REST_TEST_UTIL.startServletContainer(conf);
+  client=new Client(new Cluster().add("localhost",REST_TEST_UTIL.getServletPort()));
+  context=JAXBContext.newInstance(CellModel.class,CellSetModel.class,RowModel.class,ScannerModel.class);
+  marshaller=context.createMarshaller();
+  unmarshaller=context.createUnmarshaller();
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  if (admin.tableExists(TABLE)) {
+    return;
+  }
+  HTableDescriptor htd=new HTableDescriptor(TableName.valueOf(TABLE));
+  htd.addFamily(new HColumnDescriptor(CFA));
+  htd.addFamily(new HColumnDescriptor(CFB));
+  admin.createTable(htd);
+  insertData(TABLE,COLUMN_1,1.0);
+  insertData(TABLE,COLUMN_2,0.5);
+}
