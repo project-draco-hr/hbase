@@ -1,0 +1,39 @@
+{
+  String table=args[args.length - 1];
+  Configuration conf=new Configuration(util.getConfiguration());
+  FileSystem fs=FileSystem.get(conf);
+  Path inputPath=fs.makeQualified(new Path(util.getDataTestDirOnTestFS(table),"input.dat"));
+  FSDataOutputStream op=fs.create(inputPath,true);
+  if (data == null) {
+    data="KEY\u001bVALUE1\u001bVALUE2\n";
+  }
+  op.write(Bytes.toBytes(data));
+  op.close();
+  LOG.debug(String.format("Wrote test data to file: %s",inputPath));
+  if (conf.getBoolean(FORCE_COMBINER_CONF,true)) {
+    LOG.debug("Forcing combiner.");
+    conf.setInt("min.num.spills.for.combine",1);
+  }
+  List<String> argv=new ArrayList<String>(Arrays.asList(args));
+  argv.add(inputPath.toString());
+  Tool tool=new ImportTsv();
+  LOG.debug("Running ImportTsv with arguments: " + argv);
+  assertEquals(0,ToolRunner.run(conf,tool,argv.toArray(args)));
+  boolean createdHFiles=false;
+  String outputPath=null;
+  for (  String arg : argv) {
+    if (arg.contains(ImportTsv.BULK_OUTPUT_CONF_KEY)) {
+      createdHFiles=true;
+      outputPath=arg.split("=")[1];
+      break;
+    }
+  }
+  LOG.debug("validating the table " + createdHFiles);
+  if (createdHFiles)   validateHFiles(fs,outputPath,family);
+ else   validateTable(conf,table,family,valueMultiplier);
+  if (conf.getBoolean(DELETE_AFTER_LOAD_CONF,true)) {
+    LOG.debug("Deleting test subdirectory");
+    util.cleanupDataTestDirOnTestFS(table);
+  }
+  return tool;
+}
