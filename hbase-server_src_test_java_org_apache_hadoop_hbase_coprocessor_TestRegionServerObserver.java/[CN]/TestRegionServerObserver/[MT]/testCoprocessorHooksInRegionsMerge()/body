@@ -1,0 +1,42 @@
+{
+  final int NUM_MASTERS=1;
+  final int NUM_RS=1;
+  final String TABLENAME="testRegionServerObserver";
+  final String TABLENAME2="testRegionServerObserver_2";
+  final byte[] FAM=Bytes.toBytes("fam");
+  Configuration conf=HBaseConfiguration.create();
+  conf.setClass("hbase.coprocessor.regionserver.classes",CPRegionServerObserver.class,RegionServerObserver.class);
+  HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility(conf);
+  TEST_UTIL.startMiniCluster(NUM_MASTERS,NUM_RS);
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  try {
+    MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+    HRegionServer regionServer=cluster.getRegionServer(0);
+    RegionServerCoprocessorHost cpHost=regionServer.getCoprocessorHost();
+    Coprocessor coprocessor=cpHost.findCoprocessor(CPRegionServerObserver.class.getName());
+    CPRegionServerObserver regionServerObserver=(CPRegionServerObserver)coprocessor;
+    HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(TABLENAME));
+    desc.addFamily(new HColumnDescriptor(FAM));
+    admin.createTable(desc,new byte[][]{Bytes.toBytes("row")});
+    desc=new HTableDescriptor(TableName.valueOf(TABLENAME2));
+    desc.addFamily(new HColumnDescriptor(FAM));
+    admin.createTable(desc,new byte[][]{Bytes.toBytes("row")});
+    assertFalse(regionServerObserver.wasRegionMergeCalled());
+    List<HRegion> regions=regionServer.getOnlineRegions(TableName.valueOf(TABLENAME));
+    admin.mergeRegions(regions.get(0).getRegionInfo().getEncodedNameAsBytes(),regions.get(1).getRegionInfo().getEncodedNameAsBytes(),true);
+    int regionsCount=regionServer.getOnlineRegions(TableName.valueOf(TABLENAME)).size();
+    while (regionsCount != 1) {
+      regionsCount=regionServer.getOnlineRegions(TableName.valueOf(TABLENAME)).size();
+      Thread.sleep(1000);
+    }
+    assertTrue(regionServerObserver.wasRegionMergeCalled());
+    assertTrue(regionServerObserver.wasPreMergeCommit());
+    assertTrue(regionServerObserver.wasPostMergeCommit());
+    assertEquals(regionsCount,1);
+    assertEquals(regionServer.getOnlineRegions(TableName.valueOf(TABLENAME2)).size(),1);
+  }
+  finally {
+    if (admin != null)     admin.close();
+    TEST_UTIL.shutdownMiniCluster();
+  }
+}

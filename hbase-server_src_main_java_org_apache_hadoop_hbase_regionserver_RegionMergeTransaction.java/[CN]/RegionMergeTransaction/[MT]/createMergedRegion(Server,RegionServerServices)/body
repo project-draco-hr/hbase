@@ -1,2 +1,38 @@
 {
+  LOG.info("Starting merge of " + region_a + " and "+ region_b.getRegionNameAsString()+ ", forcible="+ forcible);
+  if ((server != null && server.isStopped()) || (services != null && services.isStopping())) {
+    throw new IOException("Server is stopped or stopping");
+  }
+  if (rsCoprocessorHost != null) {
+    if (rsCoprocessorHost.preMerge(this.region_a,this.region_b)) {
+      throw new IOException("Coprocessor bypassing regions " + this.region_a + " "+ this.region_b+ " merge.");
+    }
+  }
+  boolean testing=server == null ? true : server.getConfiguration().getBoolean("hbase.testing.nocluster",false);
+  HRegion mergedRegion=stepsBeforePONR(server,services,testing);
+  @MetaMutationAnnotation List<Mutation> metaEntries=new ArrayList<Mutation>();
+  if (rsCoprocessorHost != null) {
+    if (rsCoprocessorHost.preMergeCommit(this.region_a,this.region_b,metaEntries)) {
+      throw new IOException("Coprocessor bypassing regions " + this.region_a + " "+ this.region_b+ " merge.");
+    }
+    try {
+      for (      Mutation p : metaEntries) {
+        HRegionInfo.parseRegionName(p.getRow());
+      }
+    }
+ catch (    IOException e) {
+      LOG.error("Row key of mutation from coprocessor is not parsable as region name." + "Mutations from coprocessor should only be for hbase:meta table.",e);
+      throw e;
+    }
+  }
+  this.journal.add(JournalEntry.PONR);
+  if (!testing) {
+    if (metaEntries.isEmpty()) {
+      MetaEditor.mergeRegions(server.getCatalogTracker(),mergedRegion.getRegionInfo(),region_a.getRegionInfo(),region_b.getRegionInfo(),server.getServerName());
+    }
+ else {
+      mergeRegionsAndPutMetaEntries(server.getCatalogTracker(),mergedRegion.getRegionInfo(),region_a.getRegionInfo(),region_b.getRegionInfo(),server.getServerName(),metaEntries);
+    }
+  }
+  return mergedRegion;
 }
