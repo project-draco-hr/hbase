@@ -1,0 +1,42 @@
+{
+  final TableName table=TableName.valueOf("testOfflineRegionReAssginedAfterMasterRestart");
+  final HRegionInfo hri=createTableAndGetOneRegion(table);
+  HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
+  RegionStates regionStates=master.getAssignmentManager().getRegionStates();
+  ServerName serverName=regionStates.getRegionServerOfRegion(hri);
+  TEST_UTIL.assertRegionOnServer(hri,serverName,200);
+  ServerName dstName=null;
+  for (  ServerName tmpServer : master.serverManager.getOnlineServers().keySet()) {
+    if (!tmpServer.equals(serverName)) {
+      dstName=tmpServer;
+      break;
+    }
+  }
+  assertTrue(dstName != null);
+  TEST_UTIL.shutdownMiniHBaseCluster();
+  ZooKeeperWatcher zkw=TEST_UTIL.getZooKeeperWatcher();
+  ZKAssign.createNodeOffline(zkw,hri,dstName);
+  Stat stat=new Stat();
+  byte[] data=ZKAssign.getDataNoWatch(TEST_UTIL.getZooKeeperWatcher(),hri.getEncodedName(),stat);
+  assertTrue(data != null);
+  RegionTransition rt=RegionTransition.parseFrom(data);
+  assertTrue(rt.getEventType() == EventType.M_ZK_REGION_OFFLINE);
+  LOG.info(hri.getEncodedName() + " region is in offline state with source server=" + serverName+ " and dst server="+ dstName);
+  TEST_UTIL.startMiniHBaseCluster(1,4,MyMaster.class,null);
+  TEST_UTIL.waitFor(30000,200,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
+      if (master != null && master.isInitialized()) {
+        ServerManager serverManager=master.getServerManager();
+        return !serverManager.areDeadServersInProgress();
+      }
+      return false;
+    }
+  }
+);
+  master=TEST_UTIL.getHBaseCluster().getMaster();
+  master.getAssignmentManager().waitForAssignment(hri);
+  regionStates=master.getAssignmentManager().getRegionStates();
+  RegionState newState=regionStates.getRegionState(hri);
+  assertTrue(newState.isOpened());
+}
