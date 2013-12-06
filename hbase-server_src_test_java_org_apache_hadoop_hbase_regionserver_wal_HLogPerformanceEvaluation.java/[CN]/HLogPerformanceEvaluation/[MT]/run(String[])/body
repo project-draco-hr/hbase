@@ -1,8 +1,9 @@
 {
   Path rootRegionDir=null;
   int numThreads=1;
-  long numIterations=10000;
+  long numIterations=1000000;
   int numFamilies=1;
+  int syncInterval=0;
   boolean noSync=false;
   boolean verify=false;
   boolean verbose=false;
@@ -34,6 +35,9 @@
       }
  else       if (cmd.equals("-valueSize")) {
         valueSize=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-syncInterval")) {
+        syncInterval=Integer.parseInt(args[++i]);
       }
  else       if (cmd.equals("-nosync")) {
         noSync=true;
@@ -108,14 +112,25 @@
         }
         super.doWrite(info,logKey,logEdit,htd);
       }
+      @Override public void postSync(){
+        super.postSync();
+        syncMeter.mark();
+      }
+      @Override public void postAppend(      List<Entry> entries){
+        super.postAppend(entries);
+        int size=0;
+        for (        Entry e : entries)         size+=e.getEdit().heapSize();
+        appendMeter.mark(size);
+      }
     }
 ;
     hlog.rollWriter();
     HRegion region=null;
     try {
       region=openRegion(fs,rootRegionDir,htd,hlog);
-      long putTime=runBenchmark(new HLogPutBenchmark(region,htd,numIterations,noSync),numThreads);
-      logBenchmarkResult("Summary: threads=" + numThreads + ", iterations="+ numIterations,numIterations * numThreads,putTime);
+      ConsoleReporter.enable(this.metrics,1,TimeUnit.SECONDS);
+      long putTime=runBenchmark(new HLogPutBenchmark(region,htd,numIterations,noSync,syncInterval),numThreads);
+      logBenchmarkResult("Summary: threads=" + numThreads + ", iterations="+ numIterations+ ", syncInterval="+ syncInterval,numIterations * numThreads,putTime);
       if (region != null) {
         closeRegion(region);
         region=null;

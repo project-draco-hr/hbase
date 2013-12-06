@@ -7,17 +7,19 @@
   long nonce=HConstants.NO_NONCE;
   try {
     long startTime=System.currentTimeMillis();
+    int lastSync=0;
     for (int i=0; i < numIterations; ++i) {
       Put put=setupPut(rand,key,value,numFamilies);
       long now=System.currentTimeMillis();
       WALEdit walEdit=new WALEdit();
       addFamilyMapToWALEdit(put.getFamilyCellMap(),walEdit);
       HRegionInfo hri=region.getRegionInfo();
-      if (this.noSync) {
-        hlog.appendNoSync(hri,hri.getTable(),walEdit,clusters,now,htd,region.getSequenceId(),true,nonce,nonce);
-      }
- else {
-        hlog.append(hri,hri.getTable(),walEdit,now,htd,region.getSequenceId());
+      hlog.appendNoSync(hri,hri.getTable(),walEdit,clusters,now,htd,region.getSequenceId(),true,nonce,nonce);
+      if (!this.noSync) {
+        if (++lastSync >= this.syncInterval) {
+          hlog.sync();
+          lastSync=0;
+        }
       }
     }
     long totalTime=(System.currentTimeMillis() - startTime);
