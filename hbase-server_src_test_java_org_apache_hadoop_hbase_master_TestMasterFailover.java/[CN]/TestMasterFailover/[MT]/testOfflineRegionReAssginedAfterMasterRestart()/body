@@ -1,8 +1,15 @@
 {
   final TableName table=TableName.valueOf("testOfflineRegionReAssginedAfterMasterRestart");
-  final HRegionInfo hri=createTableAndGetOneRegion(table);
+  final int NUM_MASTERS=1;
+  final int NUM_RS=2;
+  Configuration conf=HBaseConfiguration.create();
+  final HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility(conf);
+  TEST_UTIL.startMiniCluster(NUM_MASTERS,NUM_RS);
+  log("Cluster started");
+  TEST_UTIL.createTable(table,Bytes.toBytes("family"));
   HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
   RegionStates regionStates=master.getAssignmentManager().getRegionStates();
+  HRegionInfo hri=regionStates.getRegionsOfTable(table).get(0);
   ServerName serverName=regionStates.getRegionServerOfRegion(hri);
   TEST_UTIL.assertRegionOnServer(hri,serverName,200);
   ServerName dstName=null;
@@ -17,23 +24,22 @@
   ZooKeeperWatcher zkw=TEST_UTIL.getZooKeeperWatcher();
   ZKAssign.createNodeOffline(zkw,hri,dstName);
   Stat stat=new Stat();
-  byte[] data=ZKAssign.getDataNoWatch(TEST_UTIL.getZooKeeperWatcher(),hri.getEncodedName(),stat);
+  byte[] data=ZKAssign.getDataNoWatch(zkw,hri.getEncodedName(),stat);
   assertTrue(data != null);
   RegionTransition rt=RegionTransition.parseFrom(data);
   assertTrue(rt.getEventType() == EventType.M_ZK_REGION_OFFLINE);
   LOG.info(hri.getEncodedName() + " region is in offline state with source server=" + serverName+ " and dst server="+ dstName);
-  TEST_UTIL.startMiniHBaseCluster(1,4,MyMaster.class,null);
-  TEST_UTIL.waitFor(30000,200,new Waiter.Predicate<Exception>(){
-    @Override public boolean evaluate() throws Exception {
-      HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
-      if (master != null && master.isInitialized()) {
-        ServerManager serverManager=master.getServerManager();
-        return !serverManager.areDeadServersInProgress();
+  TEST_UTIL.startMiniHBaseCluster(NUM_MASTERS,NUM_RS);
+  while (true) {
+    master=TEST_UTIL.getHBaseCluster().getMaster();
+    if (master != null && master.isInitialized()) {
+      ServerManager serverManager=master.getServerManager();
+      if (!serverManager.areDeadServersInProgress()) {
+        break;
       }
-      return false;
     }
+    Thread.sleep(200);
   }
-);
   master=TEST_UTIL.getHBaseCluster().getMaster();
   master.getAssignmentManager().waitForAssignment(hri);
   regionStates=master.getAssignmentManager().getRegionStates();
