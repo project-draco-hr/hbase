@@ -1,0 +1,20 @@
+{
+  final MasterFileSystem mfs=util.getHBaseCluster().getMaster().getMasterFileSystem();
+  final FileSystem fs=mfs.getFileSystem();
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,mfs.getRootDir());
+  SnapshotDescription snapshotDesc=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+  final TableName table=TableName.valueOf(snapshotDesc.getTable());
+  final ArrayList corruptedFiles=new ArrayList();
+  SnapshotReferenceUtil.visitTableStoreFiles(fs,snapshotDir,new FSVisitor.StoreFileVisitor(){
+    public void storeFile(    final String region,    final String family,    final String hfile) throws IOException {
+      HFileLink link=HFileLink.create(util.getConfiguration(),table,region,family,hfile);
+      if (corruptedFiles.size() % 2 == 0) {
+        fs.delete(link.getAvailablePath(fs));
+        corruptedFiles.add(hfile);
+      }
+    }
+  }
+);
+  assertTrue(corruptedFiles.size() > 0);
+  return corruptedFiles;
+}
