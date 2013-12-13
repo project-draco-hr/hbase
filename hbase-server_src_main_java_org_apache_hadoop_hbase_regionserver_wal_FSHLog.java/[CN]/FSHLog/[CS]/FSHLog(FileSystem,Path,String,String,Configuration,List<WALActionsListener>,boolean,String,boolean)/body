@@ -14,14 +14,12 @@
   this.blocksize=this.conf.getLong("hbase.regionserver.hlog.blocksize",FSUtils.getDefaultBlockSize(this.fs,this.dir));
   float multi=conf.getFloat("hbase.regionserver.logroll.multiplier",0.95f);
   this.logrollsize=(long)(this.blocksize * multi);
-  this.optionalFlushInterval=conf.getLong("hbase.regionserver.optionallogflushinterval",1 * 1000);
   this.maxLogs=conf.getInt("hbase.regionserver.maxlogs",32);
   this.minTolerableReplication=conf.getInt("hbase.regionserver.hlog.tolerable.lowreplication",FSUtils.getDefaultReplication(fs,this.dir));
   this.lowReplicationRollLimit=conf.getInt("hbase.regionserver.hlog.lowreplication.rolllimit",5);
   this.enabled=conf.getBoolean("hbase.regionserver.hlog.enabled",true);
   this.closeErrorsTolerated=conf.getInt("hbase.regionserver.logroll.errors.tolerated",0);
-  this.logSyncer=new LogSyncer(this.optionalFlushInterval);
-  LOG.info("WAL/HLog configuration: blocksize=" + StringUtils.byteDesc(this.blocksize) + ", rollsize="+ StringUtils.byteDesc(this.logrollsize)+ ", enabled="+ this.enabled+ ", optionallogflushinternal="+ this.optionalFlushInterval+ "ms");
+  LOG.info("WAL/HLog configuration: blocksize=" + StringUtils.byteDesc(this.blocksize) + ", rollsize="+ StringUtils.byteDesc(this.logrollsize)+ ", enabled="+ this.enabled);
   this.prefix=prefix == null || prefix.isEmpty() ? "hlog" : URLEncoder.encode(prefix,"UTF8");
   boolean dirExists=false;
   if (failIfLogDirExists && (dirExists=this.fs.exists(dir))) {
@@ -37,12 +35,17 @@
   }
   rollWriter();
   this.getNumCurrentReplicas=getGetNumCurrentReplicas(this.hdfs_out);
-  if (this.optionalFlushInterval > 0) {
-    Threads.setDaemonThreadRunning(logSyncer.getThread(),Thread.currentThread().getName() + ".logSyncer");
+  final String n=Thread.currentThread().getName();
+  asyncWriter=new AsyncWriter(n + "-WAL.AsyncWriter");
+  asyncWriter.start();
+  int syncerNums=conf.getInt("hbase.hlog.asyncer.number",5);
+  asyncSyncers=new AsyncSyncer[syncerNums];
+  for (int i=0; i < asyncSyncers.length; ++i) {
+    asyncSyncers[i]=new AsyncSyncer(n + "-WAL.AsyncSyncer" + i);
+    asyncSyncers[i].start();
   }
- else {
-    LOG.info("hbase.regionserver.optionallogflushinterval is set as " + this.optionalFlushInterval + ". Deferred log syncing won't work. "+ "Any Mutation, marked to be deferred synced, will be flushed immediately.");
-  }
+  asyncNotifier=new AsyncNotifier(n + "-WAL.AsyncNotifier");
+  asyncNotifier.start();
   coprocessorHost=new WALCoprocessorHost(this,conf);
   this.metrics=new MetricsWAL();
 }

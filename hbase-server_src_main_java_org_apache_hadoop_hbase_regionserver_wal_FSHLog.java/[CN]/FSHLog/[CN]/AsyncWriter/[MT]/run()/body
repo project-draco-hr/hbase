@@ -1,0 +1,50 @@
+{
+  try {
+    while (!this.isInterrupted()) {
+synchronized (this.writeLock) {
+        while (this.pendingTxid <= this.lastWrittenTxid) {
+          this.writeLock.wait();
+        }
+      }
+      List<Entry> pendWrites=null;
+synchronized (pendingWritesLock) {
+        this.txidToWrite=unflushedEntries.get();
+        pendWrites=pendingWrites;
+        pendingWrites=new LinkedList<Entry>();
+      }
+      try {
+        for (        Entry e : pendWrites) {
+          writer.append(e);
+        }
+      }
+ catch (      IOException e) {
+        LOG.error("Error while AsyncWriter write, request close of hlog ",e);
+        requestLogRoll();
+        asyncIOE=e;
+        failedTxid.set(this.txidToWrite);
+      }
+      this.lastWrittenTxid=this.txidToWrite;
+      boolean hasIdleSyncer=false;
+      for (int i=0; i < asyncSyncers.length; ++i) {
+        if (!asyncSyncers[i].isSyncing()) {
+          hasIdleSyncer=true;
+          asyncSyncers[i].setWrittenTxid(this.lastWrittenTxid);
+          break;
+        }
+      }
+      if (!hasIdleSyncer) {
+        int idx=(int)this.lastWrittenTxid % asyncSyncers.length;
+        asyncSyncers[idx].setWrittenTxid(this.lastWrittenTxid);
+      }
+    }
+  }
+ catch (  InterruptedException e) {
+    LOG.debug(getName() + " interrupted while waiting for " + "newer writes added to local buffer");
+  }
+catch (  Exception e) {
+    LOG.error("UNEXPECTED",e);
+  }
+ finally {
+    LOG.info(getName() + " exiting");
+  }
+}

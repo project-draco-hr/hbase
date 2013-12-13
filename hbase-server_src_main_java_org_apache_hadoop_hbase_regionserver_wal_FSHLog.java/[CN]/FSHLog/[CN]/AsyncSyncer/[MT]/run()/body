@@ -1,0 +1,47 @@
+{
+  try {
+    while (!this.isInterrupted()) {
+synchronized (this.syncLock) {
+        while (this.writtenTxid <= this.lastSyncedTxid) {
+          this.syncLock.wait();
+        }
+        this.txidToSync=this.writtenTxid;
+      }
+      long now=EnvironmentEdgeManager.currentTimeMillis();
+      try {
+        this.isSyncing=true;
+        if (writer != null)         writer.sync();
+        this.isSyncing=false;
+      }
+ catch (      IOException e) {
+        LOG.fatal("Error while AsyncSyncer sync, request close of hlog ",e);
+        requestLogRoll();
+        asyncIOE=e;
+        failedTxid.set(this.txidToSync);
+      }
+      metrics.finishSync(EnvironmentEdgeManager.currentTimeMillis() - now);
+      this.lastSyncedTxid=this.txidToSync;
+      asyncNotifier.setFlushedTxid(this.lastSyncedTxid);
+      if (!logRollRunning) {
+        checkLowReplication();
+        try {
+          if (writer != null && writer.getLength() > logrollsize) {
+            requestLogRoll();
+          }
+        }
+ catch (        IOException e) {
+          LOG.warn("writer.getLength() failed,this failure won't block here");
+        }
+      }
+    }
+  }
+ catch (  InterruptedException e) {
+    LOG.debug(getName() + " interrupted while waiting for " + "notification from AsyncWriter thread");
+  }
+catch (  Exception e) {
+    LOG.error("UNEXPECTED",e);
+  }
+ finally {
+    LOG.info(getName() + " exiting");
+  }
+}

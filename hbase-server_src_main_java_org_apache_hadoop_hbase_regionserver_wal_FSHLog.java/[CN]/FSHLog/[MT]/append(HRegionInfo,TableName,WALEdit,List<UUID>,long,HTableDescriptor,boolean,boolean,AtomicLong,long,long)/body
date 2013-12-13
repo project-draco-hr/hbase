@@ -11,9 +11,12 @@ synchronized (this.updateLock) {
       byte[] encodedRegionName=info.getEncodedNameAsBytes();
       if (isInMemstore)       this.oldestUnflushedSeqNums.putIfAbsent(encodedRegionName,seqNum);
       HLogKey logKey=makeKey(encodedRegionName,tableName,seqNum,now,clusterIds,nonceGroup,nonce);
-      doWrite(info,logKey,edits,htd);
+synchronized (pendingWritesLock) {
+        doWrite(info,logKey,edits,htd);
+        txid=this.unflushedEntries.incrementAndGet();
+      }
       this.numEntries.incrementAndGet();
-      txid=this.unflushedEntries.incrementAndGet();
+      this.asyncWriter.setPendingTxid(txid);
       if (htd.isDeferredLogFlush()) {
         lastDeferredTxid=txid;
       }
