@@ -1,0 +1,37 @@
+{
+  Replication replication;
+  ReplicationSourceManager manager;
+  FileSystem fs;
+  Path oldLogDir, logDir, rootDir;
+  ZooKeeperWatcher zkw;
+  Abortable abortable=new Abortable(){
+    @Override public void abort(    String why,    Throwable e){
+    }
+    @Override public boolean isAborted(){
+      return false;
+    }
+  }
+;
+  zkw=new ZooKeeperWatcher(conf,"syncupReplication" + System.currentTimeMillis(),abortable,true);
+  rootDir=FSUtils.getRootDir(conf);
+  fs=FileSystem.get(conf);
+  oldLogDir=new Path(rootDir,HConstants.HREGION_OLDLOGDIR_NAME);
+  logDir=new Path(rootDir,HConstants.HREGION_LOGDIR_NAME);
+  System.out.println("Start Replication Server start");
+  replication=new Replication(new DummyServer(zkw),fs,logDir,oldLogDir);
+  manager=replication.getReplicationManager();
+  manager.init();
+  try {
+    int numberOfOldSource=1;
+    while (numberOfOldSource > 0) {
+      Thread.sleep(SLEEP_TIME);
+      numberOfOldSource=manager.getOldSources().size();
+    }
+  }
+ catch (  InterruptedException e) {
+    System.err.println("didn't wait long enough:" + e);
+    return (-1);
+  }
+  manager.join();
+  return (0);
+}
