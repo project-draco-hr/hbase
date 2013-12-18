@@ -1,11 +1,12 @@
 {
+  boolean logRollNeeded=false;
   try {
     int numCurrentReplicas=getLogReplication();
     if (numCurrentReplicas != 0 && numCurrentReplicas < this.minTolerableReplication) {
       if (this.lowReplicationRollEnabled) {
         if (this.consecutiveLogRolls.get() < this.lowReplicationRollLimit) {
           LOG.warn("HDFS pipeline error detected. " + "Found " + numCurrentReplicas + " replicas but expecting no less than "+ this.minTolerableReplication+ " replicas. "+ " Requesting close of hlog.");
-          requestLogRoll();
+          logRollNeeded=true;
           this.consecutiveLogRolls.getAndIncrement();
         }
  else {
@@ -18,7 +19,7 @@
  else     if (numCurrentReplicas >= this.minTolerableReplication) {
       if (!this.lowReplicationRollEnabled) {
         if (this.numEntries.get() <= 1) {
-          return;
+          return logRollNeeded;
         }
         this.lowReplicationRollEnabled=true;
         LOG.info("LowReplication-Roller was enabled.");
@@ -28,4 +29,5 @@
  catch (  Exception e) {
     LOG.warn("Unable to invoke DFSOutputStream.getNumCurrentReplicas" + e + " still proceeding ahead...");
   }
+  return logRollNeeded;
 }

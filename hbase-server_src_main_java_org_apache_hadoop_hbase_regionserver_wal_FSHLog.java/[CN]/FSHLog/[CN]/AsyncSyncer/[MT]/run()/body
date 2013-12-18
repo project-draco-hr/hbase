@@ -25,10 +25,16 @@ synchronized (this.syncLock) {
       metrics.finishSync(EnvironmentEdgeManager.currentTimeMillis() - now);
       this.lastSyncedTxid=this.txidToSync;
       asyncNotifier.setFlushedTxid(this.lastSyncedTxid);
-      if (!logRollRunning) {
-        checkLowReplication();
+      boolean logRollNeeded=false;
+      if (rollWriterLock.tryLock()) {
         try {
-          if (writer != null && writer.getLength() > logrollsize) {
+          logRollNeeded=checkLowReplication();
+        }
+  finally {
+          rollWriterLock.unlock();
+        }
+        try {
+          if (logRollNeeded || writer != null && writer.getLength() > logrollsize) {
             requestLogRoll();
           }
         }
