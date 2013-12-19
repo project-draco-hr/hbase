@@ -1,6 +1,7 @@
 {
   servlet.getMetrics().incrementRequests(1);
   if (servlet.isReadOnly()) {
+    servlet.getMetrics().incrementFailedPutRequests(1);
     return Response.status(Response.Status.FORBIDDEN).type(MIMETYPE_TEXT).entity("Forbidden" + CRLF).build();
   }
   HTableInterface table=null;
@@ -25,7 +26,8 @@
       timestamp=Long.valueOf(vals.get(0));
     }
     if (column == null) {
-      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+      servlet.getMetrics().incrementFailedPutRequests(1);
+      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Column found to be null." + CRLF).build();
     }
     Put put=new Put(row);
     byte parts[][]=KeyValue.parseColumn(column);
@@ -41,15 +43,16 @@
     servlet.getMetrics().incrementSucessfulPutRequests(1);
     return Response.ok().build();
   }
- catch (  IOException e) {
+ catch (  Exception e) {
     servlet.getMetrics().incrementFailedPutRequests(1);
-    return Response.status(Response.Status.SERVICE_UNAVAILABLE).type(MIMETYPE_TEXT).entity("Unavailable" + CRLF).build();
+    return processException(e);
   }
  finally {
     if (table != null)     try {
       table.close();
     }
  catch (    IOException ioe) {
+      LOG.debug(ioe);
     }
   }
 }

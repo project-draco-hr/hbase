@@ -1,8 +1,10 @@
 {
   HTableInterface table=null;
   try {
+    table=servlet.getTable(tableResource.getName());
     if (model.getRows().size() != 1) {
-      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+      servlet.getMetrics().incrementFailedPutRequests(1);
+      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Number of rows specified is not 1." + CRLF).build();
     }
     RowModel rowModel=model.getRows().get(0);
     byte[] key=rowModel.getKey();
@@ -12,46 +14,57 @@
     List<CellModel> cellModels=rowModel.getCells();
     int cellModelCount=cellModels.size();
     if (key == null || cellModelCount <= 1) {
-      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+      servlet.getMetrics().incrementFailedPutRequests(1);
+      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Either row key is null or no data found for columns specified." + CRLF).build();
     }
     Put put=new Put(key);
+    boolean retValue;
     CellModel valueToCheckCell=cellModels.get(cellModelCount - 1);
     byte[] valueToCheckColumn=valueToCheckCell.getColumn();
     byte[][] valueToPutParts=KeyValue.parseColumn(valueToCheckColumn);
-    if (valueToPutParts.length != 2) {
-      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
-    }
-    CellModel valueToPutCell=null;
-    for (int i=0, n=cellModelCount - 1; i < n; i++) {
-      if (Bytes.equals(cellModels.get(i).getColumn(),valueToCheckCell.getColumn())) {
-        valueToPutCell=cellModels.get(i);
-        break;
+    if (valueToPutParts.length == 2 && valueToPutParts[1].length > 0) {
+      CellModel valueToPutCell=null;
+      for (int i=0, n=cellModelCount - 1; i < n; i++) {
+        if (Bytes.equals(cellModels.get(i).getColumn(),valueToCheckCell.getColumn())) {
+          valueToPutCell=cellModels.get(i);
+          break;
+        }
+      }
+      if (valueToPutCell == null) {
+        servlet.getMetrics().incrementFailedPutRequests(1);
+        return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: The column to put and check do not match." + CRLF).build();
+      }
+ else {
+        put.addImmutable(valueToPutParts[0],valueToPutParts[1],valueToPutCell.getTimestamp(),valueToPutCell.getValue());
+        retValue=table.checkAndPut(key,valueToPutParts[0],valueToPutParts[1],valueToCheckCell.getValue(),put);
       }
     }
-    if (null == valueToPutCell) {
-      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+ else {
+      servlet.getMetrics().incrementFailedPutRequests(1);
+      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Column incorrectly specified." + CRLF).build();
     }
-    put.addImmutable(valueToPutParts[0],valueToPutParts[1],valueToPutCell.getTimestamp(),valueToPutCell.getValue());
-    table=servlet.getTable(this.tableResource.getName());
-    boolean retValue=table.checkAndPut(key,valueToPutParts[0],valueToPutParts[1],valueToCheckCell.getValue(),put);
     if (LOG.isDebugEnabled()) {
       LOG.debug("CHECK-AND-PUT " + put.toString() + ", returns "+ retValue);
     }
+    if (!retValue) {
+      servlet.getMetrics().incrementFailedPutRequests(1);
+      return Response.status(Response.Status.NOT_MODIFIED).type(MIMETYPE_TEXT).entity("Value not Modified" + CRLF).build();
+    }
     table.flushCommits();
     ResponseBuilder response=Response.ok();
-    if (!retValue) {
-      response=Response.status(304);
-    }
+    servlet.getMetrics().incrementSucessfulPutRequests(1);
     return response.build();
   }
- catch (  IOException e) {
-    return Response.status(Response.Status.SERVICE_UNAVAILABLE).type(MIMETYPE_TEXT).entity("Unavailable" + CRLF).build();
+ catch (  Exception e) {
+    servlet.getMetrics().incrementFailedPutRequests(1);
+    return processException(e);
   }
  finally {
     if (table != null)     try {
       table.close();
     }
  catch (    IOException ioe) {
+      LOG.debug("Exception received while closing the table",ioe);
     }
   }
 }

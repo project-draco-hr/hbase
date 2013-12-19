@@ -2,7 +2,9 @@
   HTableInterface table=null;
   Delete delete=null;
   try {
+    table=servlet.getTable(tableResource.getName());
     if (model.getRows().size() != 1) {
+      servlet.getMetrics().incrementFailedDeleteRequests(1);
       return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
     }
     RowModel rowModel=model.getRows().get(0);
@@ -11,9 +13,11 @@
       key=rowspec.getRow();
     }
     if (key == null) {
-      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+      servlet.getMetrics().incrementFailedDeleteRequests(1);
+      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Row key found to be null." + CRLF).build();
     }
     delete=new Delete(key);
+    boolean retValue;
     CellModel valueToDeleteCell=rowModel.getCells().get(0);
     byte[] valueToDeleteColumn=valueToDeleteCell.getColumn();
     if (valueToDeleteColumn == null) {
@@ -21,28 +25,41 @@
         valueToDeleteColumn=rowspec.getColumns()[0];
       }
  catch (      final ArrayIndexOutOfBoundsException e) {
-        return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+        servlet.getMetrics().incrementFailedDeleteRequests(1);
+        return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Column not specified for check." + CRLF).build();
       }
     }
     byte[][] parts=KeyValue.parseColumn(valueToDeleteColumn);
-    if (parts.length != 2) {
-      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+    if (parts.length == 2) {
+      if (parts[1].length != 0) {
+        delete.deleteColumns(parts[0],parts[1]);
+        retValue=table.checkAndDelete(key,parts[0],parts[1],valueToDeleteCell.getValue(),delete);
+      }
+ else {
+        delete.deleteColumns(parts[0],Bytes.toBytes(StringUtils.EMPTY));
+        retValue=table.checkAndDelete(key,parts[0],Bytes.toBytes(StringUtils.EMPTY),valueToDeleteCell.getValue(),delete);
+      }
+    }
+ else {
+      servlet.getMetrics().incrementFailedDeleteRequests(1);
+      return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Column incorrectly specified." + CRLF).build();
     }
     delete.deleteColumns(parts[0],parts[1]);
-    table=servlet.getTable(tableResource.getName());
-    boolean retValue=table.checkAndDelete(key,parts[0],parts[1],valueToDeleteCell.getValue(),delete);
     if (LOG.isDebugEnabled()) {
       LOG.debug("CHECK-AND-DELETE " + delete.toString() + ", returns "+ retValue);
     }
+    if (!retValue) {
+      servlet.getMetrics().incrementFailedDeleteRequests(1);
+      return Response.status(Response.Status.NOT_MODIFIED).type(MIMETYPE_TEXT).entity(" Delete check failed." + CRLF).build();
+    }
     table.flushCommits();
     ResponseBuilder response=Response.ok();
-    if (!retValue) {
-      response=Response.status(304);
-    }
+    servlet.getMetrics().incrementSucessfulDeleteRequests(1);
     return response.build();
   }
- catch (  IOException e) {
-    return Response.status(Response.Status.SERVICE_UNAVAILABLE).type(MIMETYPE_TEXT).entity("Unavailable" + CRLF).build();
+ catch (  Exception e) {
+    servlet.getMetrics().incrementFailedDeleteRequests(1);
+    return processException(e);
   }
  finally {
     if (table != null)     try {
