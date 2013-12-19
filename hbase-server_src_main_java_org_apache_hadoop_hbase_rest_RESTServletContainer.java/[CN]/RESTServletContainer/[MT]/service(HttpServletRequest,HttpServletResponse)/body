@@ -1,4 +1,23 @@
 {
-  RESTServlet.getInstance().setEffectiveUser(request.getRemoteUser());
+  final String doAsUserFromQuery=request.getParameter("doAs");
+  Configuration conf=RESTServlet.getInstance().getConfiguration();
+  final boolean proxyConfigured=conf.getBoolean("hbase.rest.support.proxyuser",false);
+  if (doAsUserFromQuery != null && !proxyConfigured) {
+    throw new ServletException("Support for proxyuser is not configured");
+  }
+  UserGroupInformation ugi=RESTServlet.getInstance().getRealUser();
+  if (doAsUserFromQuery != null) {
+    ugi=UserGroupInformation.createProxyUser(doAsUserFromQuery,ugi);
+    try {
+      ProxyUsers.authorize(ugi,request.getRemoteAddr(),conf);
+    }
+ catch (    AuthorizationException e) {
+      throw new ServletException(e.getMessage());
+    }
+  }
+ else {
+    ugi=UserGroupInformation.createProxyUser(request.getRemoteUser(),ugi);
+  }
+  RESTServlet.getInstance().setEffectiveUser(ugi);
   super.service(request,response);
 }
