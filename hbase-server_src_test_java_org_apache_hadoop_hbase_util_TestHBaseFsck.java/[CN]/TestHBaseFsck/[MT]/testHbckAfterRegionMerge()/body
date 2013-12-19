@@ -1,0 +1,34 @@
+{
+  TableName table=TableName.valueOf("testMergeRegionFilesInHdfs");
+  HTable meta=null;
+  try {
+    TEST_UTIL.getHBaseCluster().getMaster().setCatalogJanitorEnabled(false);
+    setupTable(table);
+    assertEquals(ROWKEYS.length,countRows());
+    TEST_UTIL.getHBaseAdmin().flush(table.getName());
+    HRegionInfo region1=tbl.getRegionLocation("A").getRegionInfo();
+    HRegionInfo region2=tbl.getRegionLocation("B").getRegionInfo();
+    int regionCountBeforeMerge=tbl.getRegionLocations().size();
+    assertNotEquals(region1,region2);
+    HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+    admin.mergeRegions(region1.getEncodedNameAsBytes(),region2.getEncodedNameAsBytes(),false);
+    long timeout=System.currentTimeMillis() + 30 * 1000;
+    while (true) {
+      if (tbl.getRegionLocations().size() < regionCountBeforeMerge) {
+        break;
+      }
+ else       if (System.currentTimeMillis() > timeout) {
+        fail("Time out waiting on region " + region1.getEncodedName() + " and "+ region2.getEncodedName()+ " be merged");
+      }
+      Thread.sleep(10);
+    }
+    assertEquals(ROWKEYS.length,countRows());
+    HBaseFsck hbck=doFsck(conf,false);
+    assertNoErrors(hbck);
+  }
+  finally {
+    TEST_UTIL.getHBaseCluster().getMaster().setCatalogJanitorEnabled(true);
+    deleteTable(table);
+    IOUtils.closeQuietly(meta);
+  }
+}
