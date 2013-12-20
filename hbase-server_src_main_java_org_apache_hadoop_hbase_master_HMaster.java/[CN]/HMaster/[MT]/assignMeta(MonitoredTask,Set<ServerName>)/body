@@ -2,7 +2,6 @@
   int assigned=0;
   long timeout=this.conf.getLong("hbase.catalog.verification.timeout",1000);
   status.setStatus("Assigning hbase:meta region");
-  ServerName logReplayFailedMetaServer=null;
   RegionStates regionStates=assignmentManager.getRegionStates();
   regionStates.createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
   boolean rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
@@ -15,10 +14,9 @@
         LOG.info("Forcing expire of " + currentMetaServer);
         serverManager.expireServer(currentMetaServer);
         splitMetaLogBeforeAssignment(currentMetaServer);
-        if (this.distributedLogReplay) {
-          logReplayFailedMetaServer=currentMetaServer;
-        }
+        previouslyFailedMetaRSs.add(currentMetaServer);
       }
+      assignmentManager.getRegionStates().clearLastAssignment(HRegionInfo.FIRST_META_REGIONINFO);
       assignmentManager.assignMeta();
     }
   }
@@ -27,10 +25,11 @@
     this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,currentMetaServer);
   }
   enableMeta(TableName.META_TABLE_NAME);
-  enableServerShutdownHandler(assigned != 0);
-  if (logReplayFailedMetaServer != null) {
-    this.fileSystemManager.splitMetaLog(logReplayFailedMetaServer);
+  if (this.distributedLogReplay && (!previouslyFailedMetaRSs.isEmpty())) {
+    status.setStatus("replaying log for Meta Region");
+    this.fileSystemManager.splitMetaLog(previouslyFailedMetaRSs);
   }
+  enableServerShutdownHandler(assigned != 0);
   LOG.info("hbase:meta assigned=" + assigned + ", rit="+ rit+ ", location="+ catalogTracker.getMetaLocation());
   status.setStatus("META assigned.");
 }
