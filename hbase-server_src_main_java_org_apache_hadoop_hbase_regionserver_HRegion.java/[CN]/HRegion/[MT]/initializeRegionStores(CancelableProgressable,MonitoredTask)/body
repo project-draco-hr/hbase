@@ -13,6 +13,7 @@
       }
 );
     }
+    boolean allStoresOpened=false;
     try {
       for (int i=0; i < htableDescriptor.getFamilies().size(); i++) {
         Future<HStore> future=completionService.take();
@@ -29,6 +30,7 @@
           maxMemstoreTS=maxStoreMemstoreTS;
         }
       }
+      allStoresOpened=true;
     }
  catch (    InterruptedException e) {
       throw new IOException(e);
@@ -38,6 +40,17 @@ catch (    ExecutionException e) {
     }
  finally {
       storeOpenerThreadPool.shutdownNow();
+      if (!allStoresOpened) {
+        LOG.error("Could not initialize all stores for the region=" + this);
+        for (        Store store : this.stores.values()) {
+          try {
+            store.close();
+          }
+ catch (          IOException e) {
+            LOG.warn(e.getMessage());
+          }
+        }
+      }
     }
   }
   mvcc.initialize(maxMemstoreTS + 1);
