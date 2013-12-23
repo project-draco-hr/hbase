@@ -1,0 +1,53 @@
+{
+  try {
+    ByteArrayComparator comparator=new ByteArrayComparator();
+    List<HRegionInfo> regions=MetaScanner.listAllRegions(getConf(),false);
+    final RegionBoundariesInformation currentRegionBoundariesInformation=new RegionBoundariesInformation();
+    for (    HRegionInfo regionInfo : regions) {
+      currentRegionBoundariesInformation.regionName=regionInfo.getRegionName();
+      Path path=new Path(getConf().get(HConstants.HBASE_DIR) + "/" + Bytes.toString(regionInfo.getTable().getName())+ "/"+ regionInfo.getEncodedName()+ "/");
+      FileSystem fs=path.getFileSystem(getConf());
+      FileStatus[] files=fs.listStatus(path);
+      byte[] storeFirstKey=null;
+      byte[] storeLastKey=null;
+      for (      FileStatus file : files) {
+        String fileName=file.getPath().toString();
+        fileName=fileName.substring(fileName.lastIndexOf("/") + 1);
+        if (!fileName.startsWith(".") && !fileName.endsWith("recovered.edits")) {
+          FileStatus[] storeFiles=fs.listStatus(file.getPath());
+          for (          FileStatus storeFile : storeFiles) {
+            HFile.Reader reader=HFile.createReader(fs,storeFile.getPath(),new CacheConfig(getConf()),getConf());
+            if ((reader.getFirstKey() != null) && ((storeFirstKey == null) || (comparator.compare(storeFirstKey,reader.getFirstKey()) > 0))) {
+              storeFirstKey=reader.getFirstKey();
+            }
+            if ((reader.getLastKey() != null) && ((storeLastKey == null) || (comparator.compare(storeLastKey,reader.getLastKey())) < 0)) {
+              storeLastKey=reader.getLastKey();
+            }
+            reader.close();
+          }
+        }
+      }
+      currentRegionBoundariesInformation.metaFirstKey=regionInfo.getStartKey();
+      currentRegionBoundariesInformation.metaLastKey=regionInfo.getEndKey();
+      currentRegionBoundariesInformation.storesFirstKey=keyOnly(storeFirstKey);
+      currentRegionBoundariesInformation.storesLastKey=keyOnly(storeLastKey);
+      if (currentRegionBoundariesInformation.metaFirstKey.length == 0)       currentRegionBoundariesInformation.metaFirstKey=null;
+      if (currentRegionBoundariesInformation.metaLastKey.length == 0)       currentRegionBoundariesInformation.metaLastKey=null;
+      boolean valid=true;
+      if ((currentRegionBoundariesInformation.storesFirstKey != null) && (currentRegionBoundariesInformation.metaFirstKey != null)) {
+        valid=valid && comparator.compare(currentRegionBoundariesInformation.storesFirstKey,currentRegionBoundariesInformation.metaFirstKey) >= 0;
+      }
+      if ((currentRegionBoundariesInformation.storesLastKey != null) && (currentRegionBoundariesInformation.metaLastKey != null)) {
+        valid=valid && comparator.compare(currentRegionBoundariesInformation.storesLastKey,currentRegionBoundariesInformation.metaLastKey) < 0;
+      }
+      if (!valid) {
+        errors.reportError(ERROR_CODE.BOUNDARIES_ERROR,"Found issues with regions boundaries",tablesInfo.get(regionInfo.getTable()));
+        LOG.warn("Region's boundaries not alligned between stores and META for:");
+        LOG.warn(currentRegionBoundariesInformation);
+      }
+    }
+  }
+ catch (  IOException e) {
+    LOG.error(e);
+  }
+}
