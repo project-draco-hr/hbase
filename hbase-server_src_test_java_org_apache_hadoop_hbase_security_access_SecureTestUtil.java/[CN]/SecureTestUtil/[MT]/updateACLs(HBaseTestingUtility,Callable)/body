@@ -1,0 +1,23 @@
+{
+  final Map<AccessController,Long> oldMTimes=getAuthManagerMTimes(util.getHBaseCluster());
+  c.call();
+  util.waitFor(WAIT_TIME,100,new Predicate<IOException>(){
+    @Override public boolean evaluate() throws IOException {
+      Map<AccessController,Long> mtimes=getAuthManagerMTimes(util.getHBaseCluster());
+      for (      Map.Entry<AccessController,Long> e : mtimes.entrySet()) {
+        if (!oldMTimes.containsKey(e.getKey())) {
+          LOG.error("Snapshot of AccessController state does not include instance on region " + e.getKey().getRegion().getRegionNameAsString());
+          return false;
+        }
+        long old=oldMTimes.get(e.getKey());
+        long now=e.getValue();
+        if (now <= old) {
+          LOG.info("AccessController on region " + e.getKey().getRegion().getRegionNameAsString() + " has not updated: mtime="+ now);
+          return false;
+        }
+      }
+      return true;
+    }
+  }
+);
+}
