@@ -36,6 +36,7 @@
           int idx=0;
           for (          Cell kv : family.getValue()) {
             long amount=Bytes.toLong(CellUtil.cloneValue(kv));
+            boolean noWriteBack=(amount == 0);
             Cell c=null;
             if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),kv)) {
               c=results.get(idx);
@@ -66,37 +67,45 @@
             if (coprocessorHost != null) {
               newKV=KeyValueUtil.ensureKeyValue(coprocessorHost.postMutationBeforeWAL(RegionObserver.MutationType.INCREMENT,increment,c,(Cell)newKV));
             }
-            kvs.add(newKV);
-            if (writeToWAL) {
-              if (walEdits == null) {
-                walEdits=new WALEdit();
+            allKVs.add(newKV);
+            if (!noWriteBack) {
+              kvs.add(newKV);
+              if (writeToWAL) {
+                if (walEdits == null) {
+                  walEdits=new WALEdit();
+                }
+                walEdits.add(newKV);
               }
-              walEdits.add(newKV);
             }
           }
-          tempMemstore.put(store,kvs);
+          if (!kvs.isEmpty()) {
+            tempMemstore.put(store,kvs);
+          }
         }
-        if (writeToWAL) {
-          txid=this.log.appendNoSync(this.getRegionInfo(),this.htableDescriptor.getTableName(),walEdits,new ArrayList<UUID>(),EnvironmentEdgeManager.currentTimeMillis(),this.htableDescriptor,this.sequenceId,true,nonceGroup,nonce);
-        }
- else {
-          recordMutationWithoutWal(increment.getFamilyCellMap());
-        }
-        for (        Map.Entry<Store,List<Cell>> entry : tempMemstore.entrySet()) {
-          Store store=entry.getKey();
-          if (store.getFamily().getMaxVersions() == 1) {
-            size+=store.upsert(entry.getValue(),getSmallestReadPoint());
+        if (walEdits != null && !walEdits.isEmpty()) {
+          if (writeToWAL) {
+            txid=this.log.appendNoSync(this.getRegionInfo(),this.htableDescriptor.getTableName(),walEdits,new ArrayList<UUID>(),EnvironmentEdgeManager.currentTimeMillis(),this.htableDescriptor,this.sequenceId,true,nonceGroup,nonce);
           }
  else {
-            for (            Cell cell : entry.getValue()) {
-              KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
-              size+=store.add(kv);
+            recordMutationWithoutWal(increment.getFamilyCellMap());
+          }
+        }
+        if (!tempMemstore.isEmpty()) {
+          for (          Map.Entry<Store,List<Cell>> entry : tempMemstore.entrySet()) {
+            Store store=entry.getKey();
+            if (store.getFamily().getMaxVersions() == 1) {
+              size+=store.upsert(entry.getValue(),getSmallestReadPoint());
+            }
+ else {
+              for (              Cell cell : entry.getValue()) {
+                KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+                size+=store.add(kv);
+              }
             }
           }
-          allKVs.addAll(entry.getValue());
+          size=this.addAndGetGlobalMemstoreSize(size);
+          flush=isFlushSize(size);
         }
-        size=this.addAndGetGlobalMemstoreSize(size);
-        flush=isFlushSize(size);
       }
   finally {
         this.updatesLock.readLock().unlock();
@@ -105,7 +114,7 @@
   finally {
       rowLock.release();
     }
-    if (writeToWAL) {
+    if (writeToWAL && (walEdits != null) && !walEdits.isEmpty()) {
       syncOrDefer(txid,durability);
     }
   }
