@@ -1,14 +1,21 @@
 {
   ObserverContext<RegionCoprocessorEnvironment> ctx=null;
   boolean bypass=false;
+  InternalScanner s=scanner;
   for (  RegionEnvironment env : coprocessors) {
     if (env.getInstance() instanceof RegionObserver) {
       ctx=ObserverContext.createAndPrepare(env,ctx);
+      Thread currentThread=Thread.currentThread();
+      ClassLoader cl=currentThread.getContextClassLoader();
       try {
-        scanner=((RegionObserver)env.getInstance()).preCompact(ctx,store,scanner,scanType,request);
+        currentThread.setContextClassLoader(env.getClassLoader());
+        s=((RegionObserver)env.getInstance()).preCompact(ctx,store,s,scanType,request);
       }
  catch (      Throwable e) {
         handleCoprocessorThrowable(env,e);
+      }
+ finally {
+        currentThread.setContextClassLoader(cl);
       }
       bypass|=ctx.shouldBypass();
       if (ctx.shouldComplete()) {
@@ -16,5 +23,5 @@
       }
     }
   }
-  return bypass ? null : scanner;
+  return bypass ? null : s;
 }

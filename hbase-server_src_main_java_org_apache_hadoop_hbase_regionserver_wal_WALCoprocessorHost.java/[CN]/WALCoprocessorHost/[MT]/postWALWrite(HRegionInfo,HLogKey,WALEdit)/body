@@ -3,7 +3,18 @@
   for (  WALEnvironment env : coprocessors) {
     if (env.getInstance() instanceof org.apache.hadoop.hbase.coprocessor.WALObserver) {
       ctx=ObserverContext.createAndPrepare(env,ctx);
-      ((org.apache.hadoop.hbase.coprocessor.WALObserver)env.getInstance()).postWALWrite(ctx,info,logKey,logEdit);
+      Thread currentThread=Thread.currentThread();
+      ClassLoader cl=currentThread.getContextClassLoader();
+      try {
+        currentThread.setContextClassLoader(env.getClassLoader());
+        ((org.apache.hadoop.hbase.coprocessor.WALObserver)env.getInstance()).postWALWrite(ctx,info,logKey,logEdit);
+      }
+ catch (      Throwable e) {
+        handleCoprocessorThrowable(env,e);
+      }
+ finally {
+        currentThread.setContextClassLoader(cl);
+      }
       if (ctx.shouldComplete()) {
         break;
       }
