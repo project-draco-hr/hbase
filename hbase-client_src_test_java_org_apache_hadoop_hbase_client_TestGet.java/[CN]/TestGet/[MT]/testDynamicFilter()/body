@@ -4,17 +4,34 @@
   File jarFile=new File(localPath,"MockFilter.jar");
   jarFile.delete();
   assertFalse("Should be deleted: " + jarFile.getPath(),jarFile.exists());
-  ClientProtos.Get getProto=ClientProtos.Get.parseFrom(Base64.decode(PB_GET));
+  ClientProtos.Get getProto1=ClientProtos.Get.parseFrom(Base64.decode(PB_GET));
+  ClientProtos.Get getProto2=ClientProtos.Get.parseFrom(Base64.decode(PB_GET_WITH_FILTER_LIST));
   try {
-    ProtobufUtil.toGet(getProto);
+    ProtobufUtil.toGet(getProto1);
     fail("Should not be able to load the filter class");
   }
  catch (  IOException ioe) {
-    Assert.assertTrue(ioe.getCause() instanceof ClassNotFoundException);
+    assertTrue(ioe.getCause() instanceof ClassNotFoundException);
+  }
+  try {
+    ProtobufUtil.toGet(getProto2);
+    fail("Should not be able to load the filter class");
+  }
+ catch (  IOException ioe) {
+    assertTrue(ioe.getCause() instanceof InvocationTargetException);
+    InvocationTargetException ite=(InvocationTargetException)ioe.getCause();
+    assertTrue(ite.getTargetException() instanceof DeserializationException);
   }
   FileOutputStream fos=new FileOutputStream(jarFile);
   fos.write(Base64.decode(MOCK_FILTER_JAR));
   fos.close();
-  Get get=ProtobufUtil.toGet(getProto);
-  Assert.assertEquals("test.MockFilter",get.getFilter().getClass().getName());
+  Get get1=ProtobufUtil.toGet(getProto1);
+  assertEquals("test.MockFilter",get1.getFilter().getClass().getName());
+  Get get2=ProtobufUtil.toGet(getProto2);
+  assertTrue(get2.getFilter() instanceof FilterList);
+  List<Filter> filters=((FilterList)get2.getFilter()).getFilters();
+  assertEquals(3,filters.size());
+  assertEquals("test.MockFilter",filters.get(0).getClass().getName());
+  assertEquals("my.MockFilter",filters.get(1).getClass().getName());
+  assertTrue(filters.get(2) instanceof KeyOnlyFilter);
 }
