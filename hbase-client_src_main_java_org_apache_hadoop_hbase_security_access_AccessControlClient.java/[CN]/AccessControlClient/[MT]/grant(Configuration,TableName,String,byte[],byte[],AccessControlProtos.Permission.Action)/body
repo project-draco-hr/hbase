@@ -1,0 +1,38 @@
+{
+  HTable ht=null;
+  try {
+    TableName aclTableName=TableName.valueOf(NamespaceDescriptor.SYSTEM_NAMESPACE_NAME_STR,"acl");
+    ht=new HTable(conf,aclTableName.getName());
+    Batch.Call<AccessControlService,GrantResponse> callable=new Batch.Call<AccessControlService,GrantResponse>(){
+      ServerRpcController controller=new ServerRpcController();
+      BlockingRpcCallback<GrantResponse> rpcCallback=new BlockingRpcCallback<GrantResponse>();
+      @Override public GrantResponse call(      AccessControlService service) throws IOException {
+        GrantRequest.Builder builder=GrantRequest.newBuilder();
+        AccessControlProtos.Permission.Builder ret=AccessControlProtos.Permission.newBuilder();
+        AccessControlProtos.TablePermission.Builder permissionBuilder=AccessControlProtos.TablePermission.newBuilder();
+        for (        AccessControlProtos.Permission.Action a : actions) {
+          permissionBuilder.addAction(a);
+        }
+        permissionBuilder.setTableName(ProtobufUtil.toProtoTableName(tableName));
+        if (family != null) {
+          permissionBuilder.setFamily(ZeroCopyLiteralByteString.wrap(family));
+        }
+        if (qual != null) {
+          permissionBuilder.setQualifier(ZeroCopyLiteralByteString.wrap(qual));
+        }
+        ret.setType(AccessControlProtos.Permission.Type.Table).setTablePermission(permissionBuilder);
+        builder.setUserPermission(AccessControlProtos.UserPermission.newBuilder().setUser(ByteString.copyFromUtf8(userName)).setPermission(ret));
+        service.grant(controller,builder.build(),rpcCallback);
+        return rpcCallback.get();
+      }
+    }
+;
+    Map<byte[],GrantResponse> result=ht.coprocessorService(AccessControlService.class,HConstants.EMPTY_BYTE_ARRAY,HConstants.EMPTY_BYTE_ARRAY,callable);
+    return result.values().iterator().next();
+  }
+  finally {
+    if (ht != null) {
+      ht.close();
+    }
+  }
+}

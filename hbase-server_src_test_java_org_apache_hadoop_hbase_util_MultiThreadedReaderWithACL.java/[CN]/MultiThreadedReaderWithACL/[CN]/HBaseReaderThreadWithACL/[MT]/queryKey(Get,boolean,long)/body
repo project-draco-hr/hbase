@@ -1,0 +1,50 @@
+{
+  final String rowKey=Bytes.toString(get.getRow());
+  final long start=System.currentTimeMillis();
+  PrivilegedExceptionAction<Object> action=new PrivilegedExceptionAction<Object>(){
+    @Override public Object run() throws Exception {
+      HTable localTable=null;
+      try {
+        get.setACLStrategy(true);
+        Result result=null;
+        int specialPermCellInsertionFactor=Integer.parseInt(dataGenerator.getArgs()[1]);
+        int mod=((int)keyToRead % userNames.length);
+        if (userVsTable.get(userNames[mod]) == null) {
+          localTable=new HTable(conf,tableName);
+          userVsTable.put(userNames[mod],localTable);
+          result=localTable.get(get);
+        }
+ else {
+          localTable=userVsTable.get(userNames[mod]);
+          result=localTable.get(get);
+        }
+        boolean isNullExpected=((((int)keyToRead % specialPermCellInsertionFactor)) == 0);
+        LOG.info("Read happening from ACL " + isNullExpected);
+        getResultMetricUpdation(verify,rowKey,start,result,localTable,isNullExpected);
+      }
+ catch (      IOException e) {
+        recordFailure(keyToRead);
+      }
+      return null;
+    }
+  }
+;
+  if (userNames != null && userNames.length > 0) {
+    int mod=((int)keyToRead % userNames.length);
+    User user;
+    if (!users.containsKey(userNames[mod])) {
+      UserGroupInformation realUserUgi=UserGroupInformation.createRemoteUser(userNames[mod]);
+      user=User.create(realUserUgi);
+      users.put(userNames[mod],user);
+    }
+ else {
+      user=users.get(userNames[mod]);
+    }
+    try {
+      user.runAs(action);
+    }
+ catch (    Exception e) {
+      recordFailure(keyToRead);
+    }
+  }
+}

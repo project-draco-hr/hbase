@@ -1,0 +1,39 @@
+{
+  HTable ht=null;
+  try {
+    TableName aclTableName=TableName.valueOf(NamespaceDescriptor.SYSTEM_NAMESPACE_NAME_STR,"acl");
+    ht=new HTable(conf,aclTableName.getName());
+    Batch.Call<AccessControlService,AccessControlProtos.RevokeResponse> callable=new Batch.Call<AccessControlService,AccessControlProtos.RevokeResponse>(){
+      ServerRpcController controller=new ServerRpcController();
+      BlockingRpcCallback<AccessControlProtos.RevokeResponse> rpcCallback=new BlockingRpcCallback<AccessControlProtos.RevokeResponse>();
+      @Override public RevokeResponse call(      AccessControlService service) throws IOException {
+        AccessControlProtos.Permission.Builder ret=AccessControlProtos.Permission.newBuilder();
+        AccessControlProtos.TablePermission.Builder permissionBuilder=AccessControlProtos.TablePermission.newBuilder();
+        for (        AccessControlProtos.Permission.Action a : actions) {
+          permissionBuilder.addAction(a);
+        }
+        if (tableName != null) {
+          permissionBuilder.setTableName(ProtobufUtil.toProtoTableName(tableName));
+        }
+        if (family != null) {
+          permissionBuilder.setFamily(ZeroCopyLiteralByteString.wrap(family));
+        }
+        if (qualifier != null) {
+          permissionBuilder.setQualifier(ZeroCopyLiteralByteString.wrap(qualifier));
+        }
+        ret.setType(AccessControlProtos.Permission.Type.Table).setTablePermission(permissionBuilder);
+        RevokeRequest builder=AccessControlProtos.RevokeRequest.newBuilder().setUserPermission(AccessControlProtos.UserPermission.newBuilder().setUser(ByteString.copyFromUtf8(username)).setPermission(ret)).build();
+        service.revoke(controller,builder,rpcCallback);
+        return rpcCallback.get();
+      }
+    }
+;
+    Map<byte[],RevokeResponse> result=ht.coprocessorService(AccessControlService.class,HConstants.EMPTY_BYTE_ARRAY,HConstants.EMPTY_BYTE_ARRAY,callable);
+    return result.values().iterator().next();
+  }
+  finally {
+    if (ht != null) {
+      ht.close();
+    }
+  }
+}
