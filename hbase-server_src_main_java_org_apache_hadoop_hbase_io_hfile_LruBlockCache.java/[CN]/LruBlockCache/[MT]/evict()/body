@@ -30,20 +30,46 @@ case MEMORY:
     }
 }
 }
+long bytesFreed=0;
+if (forceInMemory || memoryFactor > 0.999f) {
+long s=bucketSingle.totalSize();
+long m=bucketMulti.totalSize();
+if (bytesToFree > (s + m)) {
+  bytesFreed=bucketSingle.free(s);
+  bytesFreed+=bucketMulti.free(m);
+  bytesFreed+=bucketMemory.free(bytesToFree - bytesFreed);
+}
+ else {
+  long bytesRemain=s + m - bytesToFree;
+  if (3 * s <= bytesRemain) {
+    bytesFreed=bucketMulti.free(bytesToFree);
+  }
+ else   if (3 * m <= 2 * bytesRemain) {
+    bytesFreed=bucketSingle.free(bytesToFree);
+  }
+ else {
+    bytesFreed=bucketSingle.free(s - bytesRemain / 3);
+    if (bytesFreed < bytesToFree) {
+      bytesFreed+=bucketMulti.free(bytesToFree - bytesFreed);
+    }
+  }
+}
+}
+ else {
 PriorityQueue<BlockBucket> bucketQueue=new PriorityQueue<BlockBucket>(3);
 bucketQueue.add(bucketSingle);
 bucketQueue.add(bucketMulti);
 bucketQueue.add(bucketMemory);
 int remainingBuckets=3;
-long bytesFreed=0;
 BlockBucket bucket;
 while ((bucket=bucketQueue.poll()) != null) {
-long overflow=bucket.overflow();
-if (overflow > 0) {
-  long bucketBytesToFree=Math.min(overflow,(bytesToFree - bytesFreed) / remainingBuckets);
-  bytesFreed+=bucket.free(bucketBytesToFree);
+  long overflow=bucket.overflow();
+  if (overflow > 0) {
+    long bucketBytesToFree=Math.min(overflow,(bytesToFree - bytesFreed) / remainingBuckets);
+    bytesFreed+=bucket.free(bucketBytesToFree);
+  }
+  remainingBuckets--;
 }
-remainingBuckets--;
 }
 if (LOG.isTraceEnabled()) {
 long single=bucketSingle.totalSize();
