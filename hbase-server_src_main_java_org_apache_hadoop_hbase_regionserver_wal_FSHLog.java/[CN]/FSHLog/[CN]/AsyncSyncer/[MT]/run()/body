@@ -9,11 +9,18 @@ synchronized (this.syncLock) {
       }
       long now=EnvironmentEdgeManager.currentTimeMillis();
       try {
-        this.isSyncing=true;
-        if (writer != null) {
-          writer.sync();
+        if (writer == null) {
+          if (this.txidToSync > syncedTillHere.get()) {
+            LOG.fatal("should never happen: has unsynced writes but writer is null!");
+            asyncIOE=new IOException("has unsynced writes but writer is null!");
+            failedTxid.set(this.txidToSync);
+          }
         }
-        this.isSyncing=false;
+ else {
+          this.isSyncing=true;
+          writer.sync();
+          this.isSyncing=false;
+        }
         postSync();
       }
  catch (      IOException e) {
@@ -21,6 +28,7 @@ synchronized (this.syncLock) {
         requestLogRoll();
         asyncIOE=e;
         failedTxid.set(this.txidToSync);
+        this.isSyncing=false;
       }
       metrics.finishSync(EnvironmentEdgeManager.currentTimeMillis() - now);
       this.lastSyncedTxid=this.txidToSync;
