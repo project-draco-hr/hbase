@@ -1,18 +1,9 @@
 {
   String[] auths={SECRET};
-  String user="user2";
+  String user="admin";
   VisibilityClient.setAuths(conf,auths,user);
   TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
   final HTable table=createTableAndWriteDataWithLabels(tableName,SECRET + "&" + CONFIDENTIAL+ "&!"+ PRIVATE,SECRET + "&!" + PRIVATE);
-  HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
-  try {
-    BlockingRpcChannel service=acl.coprocessorService(tableName.getName());
-    AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
-    ProtobufUtil.grant(protocol,NORMAL_USER2.getShortName(),tableName,null,null,Permission.Action.READ);
-  }
-  finally {
-    acl.close();
-  }
   PrivilegedExceptionAction<Void> scanAction=new PrivilegedExceptionAction<Void>(){
     public Void run() throws Exception {
       Scan s=new Scan();
@@ -20,11 +11,8 @@
       HTable t=new HTable(conf,table.getTableName());
       try {
         ResultScanner scanner=t.getScanner(s);
-        Result result=scanner.next();
-        assertTrue(!result.isEmpty());
-        assertTrue(Bytes.equals(Bytes.toBytes("row2"),result.getRow()));
-        result=scanner.next();
-        assertNull(result);
+        Result[] result=scanner.next(5);
+        assertTrue(result.length == 2);
       }
   finally {
         t.close();
@@ -33,5 +21,5 @@
     }
   }
 ;
-  NORMAL_USER2.runAs(scanAction);
+  SUPERUSER.runAs(scanAction);
 }
