@@ -1,39 +1,48 @@
 {
-  TableName TEST_TABLE=TABLE_NAME;
-  byte[] TEST_FAMILY=Bytes.toBytes("aaa");
-  HTable table=TEST_UTIL.createTable(TEST_TABLE,TEST_FAMILY);
-  TEST_UTIL.createMultiRegions(table,TEST_FAMILY);
-  TEST_UTIL.waitUntilAllRegionsAssigned(TEST_TABLE);
-  final HRegionServer regionServer=TEST_UTIL.getRSForFirstRegionInTable(TEST_TABLE);
-  boolean threwIOE=false;
+  Configuration conf=TEST_UTIL.getConfiguration();
+  conf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,2);
+  conf.set(CoprocessorHost.REGION_COPROCESSOR_CONF_KEY,BuggyRegionObserver.class.getName());
+  conf.setBoolean(CoprocessorHost.ABORT_ON_ERROR_KEY,true);
+  TEST_UTIL.startMiniCluster(2);
   try {
-    final byte[] ROW=Bytes.toBytes("aaa");
-    Put put=new Put(ROW);
-    put.add(TEST_FAMILY,ROW,ROW);
-    table.put(put);
-    table.flushCommits();
-    table.put(put);
-    table.flushCommits();
-  }
- catch (  IOException e) {
-    threwIOE=true;
-  }
- finally {
-    assertTrue("The regionserver should have thrown an exception",threwIOE);
-  }
-  boolean aborted=false;
-  for (int i=0; i < 10; i++) {
-    aborted=regionServer.isAborted();
-    if (aborted) {
-      break;
-    }
+    final byte[] TEST_FAMILY=Bytes.toBytes("aaa");
+    HTable table=TEST_UTIL.createTable(TABLE_NAME,TEST_FAMILY);
+    TEST_UTIL.createMultiRegions(table,TEST_FAMILY);
+    TEST_UTIL.waitUntilAllRegionsAssigned(TABLE_NAME);
+    final HRegionServer regionServer=TEST_UTIL.getRSForFirstRegionInTable(TABLE_NAME);
+    boolean threwIOE=false;
     try {
-      Thread.sleep(1000);
+      final byte[] ROW=Bytes.toBytes("aaa");
+      Put put=new Put(ROW);
+      put.add(TEST_FAMILY,ROW,ROW);
+      table.put(put);
+      table.flushCommits();
+      table.put(put);
+      table.flushCommits();
     }
- catch (    InterruptedException e) {
-      fail("InterruptedException while waiting for regionserver " + "zk node to be deleted.");
+ catch (    IOException e) {
+      threwIOE=true;
     }
+ finally {
+      assertTrue("The regionserver should have thrown an exception",threwIOE);
+    }
+    boolean aborted=false;
+    for (int i=0; i < 10; i++) {
+      aborted=regionServer.isAborted();
+      if (aborted) {
+        break;
+      }
+      try {
+        Thread.sleep(1000);
+      }
+ catch (      InterruptedException e) {
+        fail("InterruptedException while waiting for regionserver " + "zk node to be deleted.");
+      }
+    }
+    Assert.assertTrue("The region server should have aborted",aborted);
+    table.close();
   }
-  Assert.assertTrue("The region server should have aborted",aborted);
-  table.close();
+  finally {
+    TEST_UTIL.shutdownMiniCluster();
+  }
 }

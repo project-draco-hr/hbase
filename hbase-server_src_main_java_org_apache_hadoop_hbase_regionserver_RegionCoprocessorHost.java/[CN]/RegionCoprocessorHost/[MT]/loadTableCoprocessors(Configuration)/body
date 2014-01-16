@@ -16,28 +16,39 @@
           }
  catch (          IndexOutOfBoundsException ex) {
           }
+          Configuration ourConf;
           if (cfgSpec != null) {
             cfgSpec=cfgSpec.substring(cfgSpec.indexOf('|') + 1);
-            Configuration newConf=new Configuration(false);
-            HBaseConfiguration.merge(newConf,conf);
+            ourConf=new Configuration(false);
+            HBaseConfiguration.merge(ourConf,conf);
             Matcher m=HConstants.CP_HTD_ATTR_VALUE_PARAM_PATTERN.matcher(cfgSpec);
             while (m.find()) {
-              newConf.set(m.group(1),m.group(2));
+              ourConf.set(m.group(1),m.group(2));
             }
-            configured.add(load(path,className,priority,newConf));
           }
  else {
-            configured.add(load(path,className,priority,conf));
+            ourConf=conf;
           }
-          LOG.info("Load coprocessor " + className + " from HTD of "+ region.getTableDesc().getTableName().getNameAsString()+ " successfully.");
+          try {
+            RegionEnvironment env=load(path,className,priority,ourConf);
+            configured.add(env);
+            LOG.info("Loaded coprocessor " + className + " from HTD of "+ region.getTableDesc().getTableName().getNameAsString()+ " successfully.");
+          }
+ catch (          Throwable t) {
+            if (conf.getBoolean(ABORT_ON_ERROR_KEY,DEFAULT_ABORT_ON_ERROR)) {
+              abortServer(className,t);
+            }
+ else {
+              LOG.error("Failed to load coprocessor " + className,t);
+            }
+          }
         }
  else {
-          throw new RuntimeException("specification does not match pattern");
+          LOG.error("Malformed table coprocessor specification: key=" + key + ", spec: "+ spec);
         }
       }
- catch (      Exception ex) {
-        LOG.warn("attribute '" + key + "' has invalid coprocessor specification '"+ spec+ "'");
-        LOG.warn(StringUtils.stringifyException(ex));
+ catch (      Exception ioe) {
+        LOG.error("Malformed table coprocessor specification: key=" + key + ", spec: "+ spec);
       }
     }
   }
