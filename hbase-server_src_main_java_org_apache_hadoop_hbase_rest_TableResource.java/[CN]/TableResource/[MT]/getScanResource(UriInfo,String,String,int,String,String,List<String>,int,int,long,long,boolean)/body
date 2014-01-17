@@ -1,0 +1,47 @@
+{
+  try {
+    Filter filter=null;
+    if (scanSpec.indexOf('*') > 0) {
+      String prefix=scanSpec.substring(0,scanSpec.indexOf('*'));
+      filter=new PrefixFilter(Bytes.toBytes(prefix));
+    }
+    LOG.debug("Query parameters  : Table Name = > " + this.table + " Start Row => "+ startRow+ " End Row => "+ endRow+ " Columns => "+ column+ " Start Time => "+ startTime+ " End Time => "+ endTime+ " Cache Blocks => "+ cacheBlocks+ " Max Versions => "+ maxVersions+ " Batch Size => "+ batchSize);
+    HTableInterface hTable=RESTServlet.getInstance().getTable(this.table);
+    Scan tableScan=new Scan();
+    tableScan.setBatch(batchSize);
+    tableScan.setMaxVersions(maxVersions);
+    tableScan.setTimeRange(startTime,endTime);
+    tableScan.setStartRow(Bytes.toBytes(startRow));
+    tableScan.setStopRow(Bytes.toBytes(endRow));
+    for (    String csplit : column) {
+      String[] familysplit=csplit.trim().split(":");
+      if (familysplit.length == 2) {
+        if (familysplit[1].length() > 0) {
+          LOG.debug("Scan family and column : " + familysplit[0] + "  "+ familysplit[1]);
+          tableScan.addColumn(Bytes.toBytes(familysplit[0]),Bytes.toBytes(familysplit[1]));
+        }
+ else {
+          tableScan.addFamily(Bytes.toBytes(familysplit[0]));
+          LOG.debug("Scan family : " + familysplit[0] + " and empty qualifier.");
+          tableScan.addColumn(Bytes.toBytes(familysplit[0]),null);
+        }
+      }
+ else       if (StringUtils.isNotEmpty(familysplit[0])) {
+        LOG.debug("Scan family : " + familysplit[0]);
+        tableScan.addFamily(Bytes.toBytes(familysplit[0]));
+      }
+    }
+    if (filter != null) {
+      tableScan.setFilter(filter);
+    }
+    int fetchSize=this.servlet.getConfiguration().getInt(Constants.SCAN_FETCH_SIZE,10);
+    tableScan.setCaching(fetchSize);
+    return new TableScanResource(hTable.getScanner(tableScan),userRequestedLimit);
+  }
+ catch (  Exception exp) {
+    servlet.getMetrics().incrementFailedScanRequests(1);
+    processException(exp);
+    LOG.warn(exp);
+    return null;
+  }
+}
