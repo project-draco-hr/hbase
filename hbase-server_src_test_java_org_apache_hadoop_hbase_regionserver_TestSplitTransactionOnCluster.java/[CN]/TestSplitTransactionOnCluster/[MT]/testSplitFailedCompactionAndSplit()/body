@@ -1,0 +1,36 @@
+{
+  final byte[] tableName=Bytes.toBytes("testSplitFailedCompactionAndSplit");
+  Configuration conf=TESTING_UTIL.getConfiguration();
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  HTableDescriptor htd=new HTableDescriptor(tableName);
+  byte[] cf=Bytes.toBytes("cf");
+  htd.addFamily(new HColumnDescriptor(cf));
+  admin.createTable(htd);
+  for (int i=0; cluster.getRegions(tableName).size() == 0 && i < 100; i++) {
+    Thread.sleep(100);
+  }
+  assertEquals(1,cluster.getRegions(tableName).size());
+  HRegion region=cluster.getRegions(tableName).get(0);
+  Store store=region.getStore(cf);
+  int regionServerIndex=cluster.getServerWith(region.getRegionName());
+  HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
+  HTable t=new HTable(conf,tableName);
+  insertData(tableName,admin,t);
+  insertData(tableName,admin,t);
+  insertData(tableName,admin,t);
+  insertData(tableName,admin,t);
+  int fileNum=store.getStorefiles().size();
+  store.triggerMajorCompaction();
+  CompactionContext cc=store.requestCompaction();
+  assertNotNull(cc);
+  assertEquals(2,region.close(false).get(cf).size());
+  region.initialize();
+  assertFalse(region.compact(cc,store));
+  assertTrue(fileNum > store.getStorefiles().size());
+  SplitTransaction st=new SplitTransaction(region,Bytes.toBytes("row3"));
+  assertTrue(st.prepare());
+  st.execute(regionServer,regionServer);
+  assertEquals(2,cluster.getRegions(tableName).size());
+  region.close();
+  t.close();
+}
