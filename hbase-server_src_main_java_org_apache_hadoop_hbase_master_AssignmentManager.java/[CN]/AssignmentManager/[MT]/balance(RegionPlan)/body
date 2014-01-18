@@ -1,12 +1,24 @@
 {
-synchronized (this.regionPlans) {
-    this.regionPlans.put(plan.getRegionName(),plan);
-  }
   HRegionInfo hri=plan.getRegionInfo();
   TableName tableName=hri.getTable();
   if (zkTable.isDisablingOrDisabledTable(tableName)) {
     LOG.info("Ignored moving region of disabling/disabled table " + tableName);
     return;
   }
-  unassign(hri,false,plan.getDestination());
+  String encodedName=hri.getEncodedName();
+  ReentrantLock lock=locker.acquireLock(encodedName);
+  try {
+    if (!regionStates.isRegionOnline(hri)) {
+      RegionState state=regionStates.getRegionState(encodedName);
+      LOG.info("Ignored moving region not assigned: " + hri + ", "+ (state == null ? "not in region states" : state));
+      return;
+    }
+synchronized (this.regionPlans) {
+      this.regionPlans.put(plan.getRegionName(),plan);
+    }
+    unassign(hri,false,plan.getDestination());
+  }
+  finally {
+    lock.unlock();
+  }
 }
