@@ -1,0 +1,38 @@
+{
+  ProcedureDescription.Builder builder=ProcedureDescription.newBuilder();
+  builder.setSignature(signature).setInstance(instance);
+  for (  String key : props.keySet()) {
+    NameStringPair pair=NameStringPair.newBuilder().setName(key).setValue(props.get(key)).build();
+    builder.addConfiguration(pair);
+  }
+  final ExecProcedureRequest request=ExecProcedureRequest.newBuilder().setProcedure(builder.build()).build();
+  ExecProcedureResponse response=executeCallable(new MasterCallable<ExecProcedureResponse>(getConnection()){
+    @Override public ExecProcedureResponse call() throws ServiceException {
+      return master.execProcedure(null,request);
+    }
+  }
+);
+  long start=EnvironmentEdgeManager.currentTimeMillis();
+  long max=response.getExpectedTimeout();
+  long maxPauseTime=max / this.numRetries;
+  int tries=0;
+  LOG.debug("Waiting a max of " + max + " ms for procedure '"+ signature+ " : "+ instance+ "'' to complete. (max "+ maxPauseTime+ " ms per retry)");
+  boolean done=false;
+  while (tries == 0 || ((EnvironmentEdgeManager.currentTimeMillis() - start) < max && !done)) {
+    try {
+      long sleep=getPauseTime(tries++);
+      sleep=sleep > maxPauseTime ? maxPauseTime : sleep;
+      LOG.debug("(#" + tries + ") Sleeping: "+ sleep+ "ms while waiting for procedure completion.");
+      Thread.sleep(sleep);
+    }
+ catch (    InterruptedException e) {
+      LOG.debug("Interrupted while waiting for procedure " + signature + " to complete");
+      Thread.currentThread().interrupt();
+    }
+    LOG.debug("Getting current status of procedure from master...");
+    done=isProcedureFinished(signature,instance,props);
+  }
+  if (!done) {
+    throw new IOException("Procedure '" + signature + " : "+ instance+ "' wasn't completed in expectedTime:"+ max+ " ms");
+  }
+}
