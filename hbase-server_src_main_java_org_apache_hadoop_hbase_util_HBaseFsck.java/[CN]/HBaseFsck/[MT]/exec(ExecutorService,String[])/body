@@ -180,43 +180,48 @@ catch (  IOException ioe) {
     Runtime.getRuntime().exit(-1);
   }
   connect();
-  if (checkCorruptHFiles || sidelineCorruptHFiles) {
-    LOG.info("Checking all hfiles for corruption");
-    HFileCorruptionChecker hfcc=createHFileCorruptionChecker(sidelineCorruptHFiles);
-    setHFileCorruptionChecker(hfcc);
-    Collection<TableName> tables=getIncludedTables();
-    Collection<Path> tableDirs=new ArrayList<Path>();
-    Path rootdir=FSUtils.getRootDir(getConf());
-    if (tables.size() > 0) {
-      for (      TableName t : tables) {
-        tableDirs.add(FSUtils.getTableDir(rootdir,t));
+  try {
+    if (checkCorruptHFiles || sidelineCorruptHFiles) {
+      LOG.info("Checking all hfiles for corruption");
+      HFileCorruptionChecker hfcc=createHFileCorruptionChecker(sidelineCorruptHFiles);
+      setHFileCorruptionChecker(hfcc);
+      Collection<TableName> tables=getIncludedTables();
+      Collection<Path> tableDirs=new ArrayList<Path>();
+      Path rootdir=FSUtils.getRootDir(getConf());
+      if (tables.size() > 0) {
+        for (        TableName t : tables) {
+          tableDirs.add(FSUtils.getTableDir(rootdir,t));
+        }
       }
-    }
  else {
-      tableDirs=FSUtils.getTableDirs(FSUtils.getCurrentFileSystem(getConf()),rootdir);
+        tableDirs=FSUtils.getTableDirs(FSUtils.getCurrentFileSystem(getConf()),rootdir);
+      }
+      hfcc.checkTables(tableDirs);
+      hfcc.report(errors);
     }
-    hfcc.checkTables(tableDirs);
-    hfcc.report(errors);
-  }
-  int code=onlineHbck();
-  setRetCode(code);
-  if (shouldRerun()) {
-    try {
-      LOG.info("Sleeping " + sleepBeforeRerun + "ms before re-checking after fix...");
-      Thread.sleep(sleepBeforeRerun);
-    }
- catch (    InterruptedException ie) {
-      return this;
-    }
-    setFixAssignments(false);
-    setFixMeta(false);
-    setFixHdfsHoles(false);
-    setFixHdfsOverlaps(false);
-    setFixVersionFile(false);
-    setFixTableOrphans(false);
-    errors.resetErrors();
-    code=onlineHbck();
+    int code=onlineHbck();
     setRetCode(code);
+    if (shouldRerun()) {
+      try {
+        LOG.info("Sleeping " + sleepBeforeRerun + "ms before re-checking after fix...");
+        Thread.sleep(sleepBeforeRerun);
+      }
+ catch (      InterruptedException ie) {
+        return this;
+      }
+      setFixAssignments(false);
+      setFixMeta(false);
+      setFixHdfsHoles(false);
+      setFixHdfsOverlaps(false);
+      setFixVersionFile(false);
+      setFixTableOrphans(false);
+      errors.resetErrors();
+      code=onlineHbck();
+      setRetCode(code);
+    }
+  }
+  finally {
+    IOUtils.cleanup(null,connection,meta,admin);
   }
   return this;
 }
