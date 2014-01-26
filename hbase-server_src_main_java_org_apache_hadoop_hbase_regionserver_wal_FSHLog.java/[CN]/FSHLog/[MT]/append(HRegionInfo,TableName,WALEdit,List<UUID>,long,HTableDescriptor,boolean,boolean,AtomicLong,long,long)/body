@@ -1,33 +1,17 @@
 {
-  if (edits.isEmpty())   return this.unflushedEntries.get();
-  if (this.closed) {
-    throw new IOException("Cannot append; log is closed");
-  }
+  if (!this.enabled || edits.isEmpty())   return this.highestUnsyncedSequence;
+  if (this.closed)   throw new IOException("Cannot append; log is closed");
   TraceScope traceScope=Trace.startSpan("FSHlog.append");
+  HLogKey logKey=makeKey(info.getEncodedNameAsBytes(),tableName,-1,now,clusterIds,nonceGroup,nonce);
+  long sequence=this.disruptor.getRingBuffer().next();
   try {
-    long txid=0;
-synchronized (this.updateLock) {
-      long seqNum=sequenceId.incrementAndGet();
-      byte[] encodedRegionName=info.getEncodedNameAsBytes();
-      if (isInMemstore)       this.oldestUnflushedSeqNums.putIfAbsent(encodedRegionName,seqNum);
-      HLogKey logKey=makeKey(encodedRegionName,tableName,seqNum,now,clusterIds,nonceGroup,nonce);
-synchronized (pendingWritesLock) {
-        doWrite(info,logKey,edits,htd);
-        txid=this.unflushedEntries.incrementAndGet();
-      }
-      this.numEntries.incrementAndGet();
-      this.asyncWriter.setPendingTxid(txid);
-      if (htd.isAsyncLogFlush()) {
-        lastUnSyncedTxid=txid;
-      }
-      this.latestSequenceNums.put(encodedRegionName,seqNum);
-    }
-    if (doSync && (info.isMetaRegion() || !htd.isAsyncLogFlush())) {
-      this.sync(txid);
-    }
-    return txid;
+    RingBufferTruck truck=this.disruptor.getRingBuffer().get(sequence);
+    FSWALEntry entry=new FSWALEntry(sequence,logKey,edits,sequenceId,inMemstore,htd,info);
+    truck.loadPayload(entry,traceScope.detach());
   }
   finally {
-    traceScope.close();
+    this.disruptor.getRingBuffer().publish(sequence);
   }
+  if (doSync || info.isMetaRegion())   publishSyncThenBlockOnCompletion();
+  return sequence;
 }

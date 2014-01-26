@@ -1,30 +1,5 @@
 {
-  if (this.closed) {
-    return;
-  }
-  try {
-    asyncNotifier.interrupt();
-    asyncNotifier.join();
-  }
- catch (  InterruptedException e) {
-    LOG.error("Exception while waiting for " + asyncNotifier.getName() + " threads to die",e);
-  }
-  for (int i=0; i < asyncSyncers.length; ++i) {
-    try {
-      asyncSyncers[i].interrupt();
-      asyncSyncers[i].join();
-    }
- catch (    InterruptedException e) {
-      LOG.error("Exception while waiting for " + asyncSyncers[i].getName() + " threads to die",e);
-    }
-  }
-  try {
-    asyncWriter.interrupt();
-    asyncWriter.join();
-  }
- catch (  InterruptedException e) {
-    LOG.error("Exception while waiting for " + asyncWriter.getName() + " thread to die",e);
-  }
+  if (this.closed)   return;
   try {
     closeBarrier.stopAndDrainOps();
   }
@@ -32,19 +7,29 @@
     LOG.error("Exception while waiting for cache flushes and log rolls",e);
     Thread.currentThread().interrupt();
   }
+  if (this.disruptor != null) {
+    long timeoutms=conf.getLong("hbase.wal.disruptor.shutdown.timeout.ms",60000);
+    try {
+      this.disruptor.shutdown(timeoutms,TimeUnit.MILLISECONDS);
+    }
+ catch (    TimeoutException e) {
+      LOG.warn("Timed out bringing down disruptor after " + timeoutms + "ms; forcing halt "+ "(It is a problem if this is NOT an ABORT! -- DATALOSS!!!!)");
+      this.disruptor.halt();
+      this.disruptor.shutdown();
+    }
+  }
+  if (this.appendExecutor != null)   this.appendExecutor.shutdown();
   if (!this.listeners.isEmpty()) {
     for (    WALActionsListener i : this.listeners) {
       i.logCloseRequested();
     }
   }
-synchronized (updateLock) {
-    this.closed=true;
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Closing WAL writer in " + this.dir.toString());
-    }
-    if (this.writer != null) {
-      this.writer.close();
-      this.writer=null;
-    }
+  this.closed=true;
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Closing WAL writer in " + this.fullPathLogDir.toString());
+  }
+  if (this.writer != null) {
+    this.writer.close();
+    this.writer=null;
   }
 }

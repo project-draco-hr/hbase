@@ -1,71 +1,28 @@
 {
   rollWriterLock.lock();
   try {
-    if (!force && this.writer != null && this.numEntries.get() <= 0) {
-      return null;
-    }
+    if (!force && (this.writer != null && this.numEntries.get() <= 0))     return null;
     byte[][] regionsToFlush=null;
-    if (closed) {
+    if (this.closed) {
       LOG.debug("HLog closed. Skipping rolling of writer");
-      return null;
+      return regionsToFlush;
+    }
+    if (!closeBarrier.beginOp()) {
+      LOG.debug("HLog closing. Skipping rolling of writer");
+      return regionsToFlush;
     }
     try {
-      if (!closeBarrier.beginOp()) {
-        LOG.debug("HLog closing. Skipping rolling of writer");
-        return regionsToFlush;
-      }
-      long currentFilenum=this.filenum;
-      Path oldPath=null;
-      if (currentFilenum > 0) {
-        oldPath=computeFilename(currentFilenum);
-      }
-      this.filenum=System.currentTimeMillis();
-      Path newPath=computeFilename();
-      while (fs.exists(newPath)) {
-        this.filenum++;
-        newPath=computeFilename();
-      }
-      if (!this.listeners.isEmpty()) {
-        for (        WALActionsListener i : this.listeners) {
-          i.preLogRoll(oldPath,newPath);
-        }
-      }
+      Path oldPath=getOldPath();
+      Path newPath=getNewPath();
       FSHLog.Writer nextWriter=this.createWriterInstance(fs,newPath,conf);
       FSDataOutputStream nextHdfsOut=null;
       if (nextWriter instanceof ProtobufLogWriter) {
         nextHdfsOut=((ProtobufLogWriter)nextWriter).getStream();
-        try {
-          nextWriter.sync();
-          postSync();
-        }
- catch (        IOException e) {
-          LOG.warn("pre-sync failed",e);
-        }
+        preemptiveSync((ProtobufLogWriter)nextWriter);
       }
-      Path oldFile=null;
-      int oldNumEntries=0;
-synchronized (updateLock) {
-        oldNumEntries=this.numEntries.get();
-        oldFile=cleanupCurrentWriter(currentFilenum);
-        this.writer=nextWriter;
-        this.hdfs_out=nextHdfsOut;
-        this.numEntries.set(0);
-        if (oldFile != null) {
-          this.hlogSequenceNums.put(oldFile,this.latestSequenceNums);
-          this.latestSequenceNums=new HashMap<byte[],Long>();
-        }
-      }
-      if (oldFile == null)       LOG.info("New WAL " + FSUtils.getPath(newPath));
- else {
-        long oldFileLen=this.fs.getFileStatus(oldFile).getLen();
-        this.totalLogSize.addAndGet(oldFileLen);
-        LOG.info("Rolled WAL " + FSUtils.getPath(oldFile) + " with entries="+ oldNumEntries+ ", filesize="+ StringUtils.humanReadableInt(oldFileLen)+ "; new WAL "+ FSUtils.getPath(newPath));
-      }
-      if (!this.listeners.isEmpty()) {
-        for (        WALActionsListener i : this.listeners) {
-          i.postLogRoll(oldPath,newPath);
-        }
-      }
+      tellListenersAboutPreLogRoll(oldPath,newPath);
+      newPath=replaceWriter(oldPath,newPath,nextWriter,nextHdfsOut);
+      tellListenersAboutPostLogRoll(oldPath,newPath);
       if (getNumRolledLogFiles() > 0) {
         cleanOldLogs();
         regionsToFlush=findRegionsToForceFlush();

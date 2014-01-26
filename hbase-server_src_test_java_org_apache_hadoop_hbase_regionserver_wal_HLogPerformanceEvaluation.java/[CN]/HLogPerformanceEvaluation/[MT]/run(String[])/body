@@ -91,6 +91,7 @@
     conf.setBoolean(HConstants.ENABLE_WAL_ENCRYPTION,true);
     conf.set(HConstants.CRYPTO_WAL_ALGORITHM_CONF_KEY,cipher);
   }
+  getConf().setInt(HConstants.REGION_SERVER_HANDLER_COUNT,numThreads);
   FSUtils.setFsDefault(getConf(),FSUtils.getRootDir(getConf()));
   FileSystem fs=FileSystem.get(getConf());
   LOG.info("FileSystem: " + fs);
@@ -102,40 +103,50 @@
     cleanRegionRootDir(fs,rootRegionDir);
     HTableDescriptor htd=createHTableDescriptor(numFamilies);
     final long whenToRoll=roll;
-    HLog hlog=new FSHLog(fs,rootRegionDir,"wals",getConf()){
-      int appends=0;
-      long lastSync=0;
-      @Override protected void doWrite(      HRegionInfo info,      HLogKey logKey,      WALEdit logEdit,      HTableDescriptor htd) throws IOException {
-        this.appends++;
-        if (this.appends % whenToRoll == 0) {
-          LOG.info("Rolling after " + appends + " edits");
-          rollWriter();
-        }
-        super.doWrite(info,logKey,logEdit,htd);
-      }
-      @Override public void postSync(){
-        super.postSync();
+    final HLog hlog=new FSHLog(fs,rootRegionDir,"wals",getConf()){
+      @Override public void postSync(      final long timeInNanos,      final int handlerSyncs){
+        super.postSync(timeInNanos,handlerSyncs);
         syncMeter.mark();
-        long now=System.nanoTime();
-        if (lastSync > 0) {
-          long diff=now - lastSync;
-          syncHistogram.update(diff);
-        }
-        this.lastSync=now;
+        syncHistogram.update(timeInNanos);
+        syncCountHistogram.update(handlerSyncs);
       }
-      @Override public void postAppend(      List<Entry> entries){
-        super.postAppend(entries);
-        int size=0;
-        for (        Entry e : entries)         size+=e.getEdit().heapSize();
+      @Override public long postAppend(      final HLog.Entry entry,      final long elapsedTime){
+        long size=super.postAppend(entry,elapsedTime);
         appendMeter.mark(size);
+        return size;
       }
     }
 ;
+    hlog.registerWALActionsListener(new WALActionsListener(){
+      private int appends=0;
+      @Override public void visitLogEntryBeforeWrite(      HTableDescriptor htd,      HLogKey logKey,      WALEdit logEdit){
+        this.appends++;
+        if (this.appends % whenToRoll == 0) {
+          LOG.info("Rolling after " + appends + " edits");
+          ((FSHLog)hlog).requestLogRoll();
+        }
+      }
+      @Override public void visitLogEntryBeforeWrite(      HRegionInfo info,      HLogKey logKey,      WALEdit logEdit){
+      }
+      @Override public void preLogRoll(      Path oldPath,      Path newPath) throws IOException {
+      }
+      @Override public void preLogArchive(      Path oldPath,      Path newPath) throws IOException {
+      }
+      @Override public void postLogRoll(      Path oldPath,      Path newPath) throws IOException {
+      }
+      @Override public void postLogArchive(      Path oldPath,      Path newPath) throws IOException {
+      }
+      @Override public void logRollRequested(){
+      }
+      @Override public void logCloseRequested(){
+      }
+    }
+);
     hlog.rollWriter();
     HRegion region=null;
     try {
       region=openRegion(fs,rootRegionDir,htd,hlog);
-      ConsoleReporter.enable(this.metrics,60,TimeUnit.SECONDS);
+      ConsoleReporter.enable(this.metrics,30,TimeUnit.SECONDS);
       long putTime=runBenchmark(new HLogPutBenchmark(region,htd,numIterations,noSync,syncInterval),numThreads);
       logBenchmarkResult("Summary: threads=" + numThreads + ", iterations="+ numIterations+ ", syncInterval="+ syncInterval,numIterations * numThreads,putTime);
       if (region != null) {

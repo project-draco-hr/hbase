@@ -1,0 +1,52 @@
+{
+  long currentSequence;
+  while (!isInterrupted()) {
+    int syncCount=0;
+    SyncFuture takeSyncFuture;
+    try {
+      while (true) {
+        takeSyncFuture=this.syncFutures.take();
+        currentSequence=this.sequence;
+        long syncFutureSequence=takeSyncFuture.getRingBufferSequence();
+        if (syncFutureSequence > currentSequence) {
+          throw new IllegalStateException("currentSequence=" + syncFutureSequence + ", syncFutureSequence="+ syncFutureSequence);
+        }
+        long currentHighestSyncedSequence=highestSyncedSequence.get();
+        if (currentSequence < currentHighestSyncedSequence) {
+          syncCount+=releaseSyncFuture(takeSyncFuture,currentHighestSyncedSequence,null);
+          continue;
+        }
+        break;
+      }
+      long start=System.nanoTime();
+      Throwable t=null;
+      try {
+        writer.sync();
+        currentSequence=updateHighestSyncedSequence(currentSequence);
+      }
+ catch (      IOException e) {
+        LOG.error("Error syncing, request close of hlog ",e);
+        t=e;
+      }
+catch (      Exception e) {
+        LOG.warn("UNEXPECTED",e);
+        t=e;
+      }
+ finally {
+        syncCount+=releaseSyncFuture(takeSyncFuture,currentSequence,t);
+        syncCount+=releaseSyncFutures(currentSequence,t);
+        if (t != null) {
+          requestLogRoll();
+        }
+ else         checkLogRoll();
+      }
+      postSync(System.nanoTime() - start,syncCount);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+catch (    Throwable t) {
+      LOG.warn("UNEXPECTED, continuing",t);
+    }
+  }
+}

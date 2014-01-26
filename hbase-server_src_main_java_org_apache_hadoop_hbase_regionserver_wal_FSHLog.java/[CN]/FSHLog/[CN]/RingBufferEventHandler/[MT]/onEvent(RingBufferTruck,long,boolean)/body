@@ -1,0 +1,36 @@
+{
+  TraceScope scope=truck.getSpanPayload() != null ? Trace.continueSpan(truck.getSpanPayload()) : null;
+  try {
+    if (truck.getSyncFuturePayload() != null) {
+      this.syncFutures[this.syncFuturesCount++]=truck.getSyncFuturePayload();
+      if (this.syncFuturesCount == this.syncFutures.length)       endOfBatch=true;
+    }
+ else     if (truck.getFSWALEntryPayload() != null) {
+      try {
+        append(truck.getFSWALEntryPayload());
+      }
+ catch (      Exception e) {
+        cleanupOutstandingSyncsOnException(sequence,e);
+        return;
+      }
+    }
+ else {
+      cleanupOutstandingSyncsOnException(sequence,new IllegalStateException("Neither append nor sync"));
+      return;
+    }
+    if (!endOfBatch || this.syncFuturesCount <= 0)     return;
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Sequence=" + sequence + ", syncCount="+ this.syncFuturesCount);
+    }
+    int index=Math.abs(this.syncRunnerIndex++) % this.syncRunners.length;
+    this.syncRunners[index].offer(sequence,this.syncFutures,this.syncFuturesCount);
+    attainSafePoint(sequence);
+    this.syncFuturesCount=0;
+  }
+ catch (  Throwable t) {
+    LOG.error("UNEXPECTED!!!",t);
+  }
+ finally {
+    if (scope != null)     scope.close();
+  }
+}

@@ -6,6 +6,22 @@
   if (args[0].compareTo("--dump") == 0) {
     HLogPrettyPrinter.run(Arrays.copyOfRange(args,1,args.length));
   }
+ else   if (args[0].compareTo("--perf") == 0) {
+    final int count=Integer.parseInt(args[1]);
+    Configuration conf=HBaseConfiguration.create();
+    Path rootDir=FSUtils.getRootDir(conf);
+    FileSystem fs=rootDir.getFileSystem(conf);
+    FSHLog wal=new FSHLog(fs,rootDir,"perflog","oldPerflog",conf,null,false,"perf",false);
+    long start=System.nanoTime();
+    WALEdit walEdit=new WALEdit();
+    walEdit.add(new KeyValue(Bytes.toBytes("row"),Bytes.toBytes("family"),Bytes.toBytes("qualifier"),-1,new byte[1000]));
+    for (AtomicLong i=new AtomicLong(0); i.get() < count; i.incrementAndGet()) {
+      wal.append(HRegionInfo.FIRST_META_REGIONINFO,TableName.META_TABLE_NAME,walEdit,start,HTableDescriptor.META_TABLEDESC,i);
+      wal.sync();
+    }
+    wal.close();
+    LOG.info("Write " + count + " 1k edits in "+ (System.nanoTime() - start)+ "nanos");
+  }
  else   if (args[0].compareTo("--split") == 0) {
     Configuration conf=HBaseConfiguration.create();
     for (int i=1; i < args.length; i++) {
