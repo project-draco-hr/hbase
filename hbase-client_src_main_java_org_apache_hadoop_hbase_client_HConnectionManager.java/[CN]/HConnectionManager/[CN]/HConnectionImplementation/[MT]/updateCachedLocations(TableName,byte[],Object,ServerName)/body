@@ -1,0 +1,29 @@
+{
+  if (rowkey == null || tableName == null) {
+    LOG.warn("Coding error, see method javadoc. row=" + (rowkey == null ? "null" : rowkey) + ", tableName="+ (tableName == null ? "null" : tableName));
+    return;
+  }
+  if (source == null) {
+    return;
+  }
+  final HRegionLocation oldLocation=getCachedLocation(tableName,rowkey);
+  if (oldLocation == null || !source.equals(oldLocation.getServerName())) {
+    return;
+  }
+  HRegionInfo regionInfo=oldLocation.getRegionInfo();
+  Throwable cause=findException(exception);
+  if (cause != null) {
+    if (cause instanceof RegionTooBusyException || cause instanceof RegionOpeningException) {
+      return;
+    }
+    if (cause instanceof RegionMovedException) {
+      RegionMovedException rme=(RegionMovedException)cause;
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Region " + regionInfo.getRegionNameAsString() + " moved to "+ rme.getHostname()+ ":"+ rme.getPort()+ " according to "+ source.getHostAndPort());
+      }
+      updateCachedLocation(regionInfo,source,rme.getServerName(),rme.getLocationSeqNum());
+      return;
+    }
+  }
+  deleteCachedLocation(regionInfo,source);
+}
