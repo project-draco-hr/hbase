@@ -1,0 +1,34 @@
+{
+  String exportTableName="exporttestDurability";
+  HTable exportTable=UTIL.createTable(Bytes.toBytes(exportTableName),FAMILYA,3);
+  Put put=new Put(ROW1);
+  put.add(FAMILYA,QUAL,now,QUAL);
+  put.add(FAMILYA,QUAL,now + 1,QUAL);
+  put.add(FAMILYA,QUAL,now + 2,QUAL);
+  exportTable.put(put);
+  put=new Put(ROW2);
+  put.add(FAMILYA,QUAL,now,QUAL);
+  put.add(FAMILYA,QUAL,now + 1,QUAL);
+  put.add(FAMILYA,QUAL,now + 2,QUAL);
+  exportTable.put(put);
+  String[] args=new String[]{exportTableName,FQ_OUTPUT_DIR,"1000"};
+  assertTrue(runExport(args));
+  String importTableName="importTestDurability1";
+  HTable importTable=UTIL.createTable(Bytes.toBytes(importTableName),FAMILYA,3);
+  TableWALActionListener walListener=new TableWALActionListener(importTableName);
+  HLog hLog=UTIL.getMiniHBaseCluster().getRegionServer(0).getWAL();
+  hLog.registerWALActionsListener(walListener);
+  args=new String[]{"-D" + Import.WAL_DURABILITY + "="+ Durability.SKIP_WAL.name(),importTableName,FQ_OUTPUT_DIR};
+  assertTrue(runImport(args));
+  assertTrue(!walListener.isWALVisited());
+  assertTrue(getCount(importTable,null) == 2);
+  importTableName="importTestDurability2";
+  importTable=UTIL.createTable(Bytes.toBytes(importTableName),FAMILYA,3);
+  hLog.unregisterWALActionsListener(walListener);
+  walListener=new TableWALActionListener(importTableName);
+  hLog.registerWALActionsListener(walListener);
+  args=new String[]{importTableName,FQ_OUTPUT_DIR};
+  assertTrue(runImport(args));
+  assertTrue(walListener.isWALVisited());
+  assertTrue(getCount(importTable,null) == 2);
+}

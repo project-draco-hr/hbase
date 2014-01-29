@@ -1,29 +1,37 @@
 {
   Put put=null;
   Delete delete=null;
-  for (  Cell kv : result.rawCells()) {
-    kv=filterKv(kv);
-    if (kv == null)     continue;
-    kv=convertKv(kv,cfRenameMap);
-    if (CellUtil.isDelete(kv)) {
-      if (delete == null) {
-        delete=new Delete(key.get());
+  if (filter == null || !filter.filterRowKey(key.get(),key.getOffset(),key.getLength())) {
+    for (    Cell kv : result.rawCells()) {
+      kv=filterKv(filter,kv);
+      if (kv == null)       continue;
+      kv=convertKv(kv,cfRenameMap);
+      if (CellUtil.isDelete(kv)) {
+        if (delete == null) {
+          delete=new Delete(key.get());
+        }
+        delete.addDeleteMarker(kv);
       }
-      delete.addDeleteMarker(kv);
-    }
  else {
-      if (put == null) {
-        put=new Put(key.get());
+        if (put == null) {
+          put=new Put(key.get());
+        }
+        put.add(kv);
       }
-      put.add(kv);
     }
-  }
-  if (put != null) {
-    put.setClusterIds(clusterIds);
-    context.write(key,put);
-  }
-  if (delete != null) {
-    delete.setClusterIds(clusterIds);
-    context.write(key,delete);
+    if (put != null) {
+      if (durability != null) {
+        put.setDurability(durability);
+      }
+      put.setClusterIds(clusterIds);
+      context.write(key,put);
+    }
+    if (delete != null) {
+      if (durability != null) {
+        delete.setDurability(durability);
+      }
+      delete.setClusterIds(clusterIds);
+      context.write(key,delete);
+    }
   }
 }
