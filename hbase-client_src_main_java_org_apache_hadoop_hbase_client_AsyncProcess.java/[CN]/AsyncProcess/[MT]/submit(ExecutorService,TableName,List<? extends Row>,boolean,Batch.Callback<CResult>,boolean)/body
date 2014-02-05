@@ -1,0 +1,56 @@
+{
+  if (rows.isEmpty()) {
+    return NO_REQS_RESULT;
+  }
+  Map<ServerName,MultiAction<Row>> actionsByServer=new HashMap<ServerName,MultiAction<Row>>();
+  List<Action<Row>> retainedActions=new ArrayList<Action<Row>>(rows.size());
+  NonceGenerator ng=this.hConnection.getNonceGenerator();
+  long nonceGroup=ng.getNonceGroup();
+  List<Exception> locationErrors=null;
+  List<Integer> locationErrorRows=null;
+  do {
+    waitForMaximumCurrentTasks(maxTotalConcurrentTasks - 1);
+    Map<Long,Boolean> regionIncluded=new HashMap<Long,Boolean>();
+    Map<ServerName,Boolean> serverIncluded=new HashMap<ServerName,Boolean>();
+    int posInList=-1;
+    Iterator<? extends Row> it=rows.iterator();
+    while (it.hasNext()) {
+      Row r=it.next();
+      HRegionLocation loc=null;
+      try {
+        loc=findDestLocation(tableName,r);
+      }
+ catch (      IOException ex) {
+        if (locationErrors == null) {
+          locationErrors=new ArrayList<Exception>();
+          locationErrorRows=new ArrayList<Integer>();
+        }
+        LOG.error("Failed to get region location ",ex);
+        retainedActions.add(new Action<Row>(r,++posInList));
+        locationErrors.add(ex);
+        locationErrorRows.add(posInList);
+        it.remove();
+        break;
+      }
+      if (canTakeOperation(loc,regionIncluded,serverIncluded)) {
+        Action<Row> action=new Action<Row>(r,++posInList);
+        setNonce(ng,r,action);
+        retainedActions.add(action);
+        addAction(loc,action,actionsByServer,nonceGroup);
+        it.remove();
+      }
+    }
+  }
+ while (retainedActions.isEmpty() && atLeastOne && (locationErrors == null));
+  if (retainedActions.isEmpty())   return NO_REQS_RESULT;
+  AsyncRequestFutureImpl<CResult> ars=createAsyncRequestFuture(tableName,retainedActions,nonceGroup,pool,callback,null,needResults);
+  if (locationErrors != null) {
+    for (int i=0; i < locationErrors.size(); ++i) {
+      int originalIndex=locationErrorRows.get(i);
+      Row row=retainedActions.get(originalIndex).getAction();
+      ars.manageError(originalIndex,row,false,locationErrors.get(i),null);
+    }
+  }
+  ars.sendMultiAction(actionsByServer,1);
+  return ars;
+}

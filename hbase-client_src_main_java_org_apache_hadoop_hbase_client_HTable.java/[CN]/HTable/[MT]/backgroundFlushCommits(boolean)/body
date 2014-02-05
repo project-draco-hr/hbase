@@ -1,24 +1,20 @@
 {
   try {
-    do {
-      ap.submit(writeAsyncBuffer,true);
+    if (!synchronous) {
+      ap.submit(tableName,writeAsyncBuffer,true,null,false);
+      if (ap.hasError()) {
+        LOG.debug(tableName + ": One or more of the operations have failed -" + " waiting for all operation in progress to finish (successfully or not)");
+      }
     }
- while (synchronous && !writeAsyncBuffer.isEmpty());
-    if (synchronous) {
-      ap.waitUntilDone();
-    }
-    if (ap.hasError()) {
-      LOG.debug(tableName + ": One or more of the operations have failed -" + " waiting for all operation in progress to finish (successfully or not)");
+    if (synchronous || ap.hasError()) {
       while (!writeAsyncBuffer.isEmpty()) {
-        ap.submit(writeAsyncBuffer,true);
+        ap.submit(tableName,writeAsyncBuffer,true,null,false);
       }
-      ap.waitUntilDone();
-      if (!clearBufferOnFail) {
-        writeAsyncBuffer.addAll(ap.getFailedOperations());
+      List<Row> failedRows=clearBufferOnFail ? null : writeAsyncBuffer;
+      RetriesExhaustedWithDetailsException error=ap.waitForAllPreviousOpsAndReset(failedRows);
+      if (error != null) {
+        throw error;
       }
-      RetriesExhaustedWithDetailsException e=ap.getErrors();
-      ap.clearErrors();
-      throw e;
     }
   }
   finally {

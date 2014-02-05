@@ -1,13 +1,22 @@
 {
   long lastLog=EnvironmentEdgeManager.currentTimeMillis();
-  long currentTasksDone=this.tasksDone.get();
-  while ((tasksSent.get() - currentTasksDone) > max) {
-    long now=EnvironmentEdgeManager.currentTimeMillis();
-    if (now > lastLog + 10000) {
-      lastLog=now;
-      LOG.info("#" + id + ", waiting for some tasks to finish. Expected max="+ max+ ", tasksSent="+ tasksSent.get()+ ", tasksDone="+ tasksDone.get()+ ", currentTasksDone="+ currentTasksDone+ ", retries="+ retriesCnt.get()+ " hasError="+ hasError()+ ", tableName="+ tableName);
+  long currentInProgress, oldInProgress=Long.MAX_VALUE;
+  while ((currentInProgress=this.tasksInProgress.get()) > max) {
+    if (oldInProgress != currentInProgress) {
+      long now=EnvironmentEdgeManager.currentTimeMillis();
+      if (now > lastLog + 10000) {
+        lastLog=now;
+        LOG.info("#" + id + ", waiting for some tasks to finish. Expected max="+ max+ ", tasksInProgress="+ currentInProgress);
+      }
     }
-    waitForNextTaskDone(currentTasksDone);
-    currentTasksDone=this.tasksDone.get();
+    oldInProgress=currentInProgress;
+    try {
+synchronized (this.tasksInProgress) {
+        this.tasksInProgress.wait(100);
+      }
+    }
+ catch (    InterruptedException e) {
+      throw new InterruptedIOException("#" + id + ", interrupted."+ " currentNumberOfTask="+ currentInProgress);
+    }
   }
 }

@@ -1,8 +1,7 @@
 {
   HTable ht=new HTable();
-  HConnection hc=createHConnection();
-  MyCB mcb=new MyCB();
-  ht.ap=new MyAsyncProcess<Object>(hc,mcb,conf);
+  MyAsyncProcess ap=new MyAsyncProcess(createHConnection(),conf,true);
+  ht.ap=ap;
   ht.setAutoFlush(true,true);
   if (bufferOn) {
     ht.setWriteBufferSize(1024L * 1024L);
@@ -22,8 +21,13 @@
  catch (  RetriesExhaustedException expected) {
   }
   Assert.assertEquals(0L,ht.currentWriteBufferSize);
-  Assert.assertEquals(0,mcb.successCalled.get());
-  Assert.assertEquals(2,mcb.retriableFailure.get());
-  Assert.assertEquals(1,mcb.failureCalled.get());
+  AsyncRequestFuture ars=null;
+  for (  AsyncRequestFuture someReqs : ap.allReqs) {
+    if (someReqs.getResults().length == 0)     continue;
+    Assert.assertTrue(ars == null);
+    ars=someReqs;
+  }
+  Assert.assertTrue(ars != null);
+  verifyResult(ars,false);
   ht.close();
 }

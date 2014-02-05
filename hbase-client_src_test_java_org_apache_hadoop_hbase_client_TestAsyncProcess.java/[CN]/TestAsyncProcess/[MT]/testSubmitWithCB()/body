@@ -1,13 +1,17 @@
 {
   HConnection hc=createHConnection();
-  MyCB mcb=new MyCB();
-  AsyncProcess ap=new MyAsyncProcess<Object>(hc,mcb,conf);
+  final AtomicInteger updateCalled=new AtomicInteger(0);
+  Batch.Callback<Object> cb=new Batch.Callback<Object>(){
+    public void update(    byte[] region,    byte[] row,    Object result){
+      updateCalled.incrementAndGet();
+    }
+  }
+;
+  AsyncProcess ap=new MyAsyncProcess(hc,conf);
   List<Put> puts=new ArrayList<Put>();
   puts.add(createPut(1,true));
-  ap.submit(puts,false);
+  final AsyncRequestFuture ars=ap.submit(DUMMY_TABLE,puts,false,cb,false);
   Assert.assertTrue(puts.isEmpty());
-  while (!(mcb.successCalled.get() == 1) && !ap.hasError()) {
-    Thread.sleep(1);
-  }
-  Assert.assertEquals(mcb.successCalled.get(),1);
+  ars.waitUntilDone();
+  Assert.assertEquals(updateCalled.get(),1);
 }

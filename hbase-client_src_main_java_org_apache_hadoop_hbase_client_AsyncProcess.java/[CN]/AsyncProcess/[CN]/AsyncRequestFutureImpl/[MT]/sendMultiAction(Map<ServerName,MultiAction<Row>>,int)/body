@@ -1,0 +1,51 @@
+{
+  int reuseThreadCountdown=(numAttempt > 1) ? actionsByServer.size() : Integer.MAX_VALUE;
+  for (  Map.Entry<ServerName,MultiAction<Row>> e : actionsByServer.entrySet()) {
+    final ServerName server=e.getKey();
+    final MultiAction<Row> multiAction=e.getValue();
+    incTaskCounters(multiAction.getRegions(),server);
+    Runnable runnable=Trace.wrap("AsyncProcess.sendMultiAction",new Runnable(){
+      @Override public void run(){
+        MultiResponse res;
+        try {
+          MultiServerCallable<Row> callable=createCallable(server,tableName,multiAction);
+          try {
+            res=createCaller(callable).callWithoutRetries(callable);
+          }
+ catch (          IOException e) {
+            receiveGlobalFailure(multiAction,server,numAttempt,e);
+            return;
+          }
+catch (          Throwable t) {
+            LOG.error("#" + id + ", Caught throwable while calling. This is unexpected."+ " Retrying. Server is "+ server.getServerName()+ ", tableName="+ tableName,t);
+            receiveGlobalFailure(multiAction,server,numAttempt,t);
+            return;
+          }
+          receiveMultiAction(multiAction,server,res,numAttempt);
+        }
+ catch (        Throwable t) {
+          LOG.error("Internal AsyncProcess #" + id + " error for "+ tableName+ " processing for "+ server,t);
+          throw new RuntimeException(t);
+        }
+ finally {
+          decTaskCounters(multiAction.getRegions(),server);
+        }
+      }
+    }
+);
+    --reuseThreadCountdown;
+    if (reuseThreadCountdown == 0) {
+      runnable.run();
+    }
+ else {
+      try {
+        pool.submit(runnable);
+      }
+ catch (      RejectedExecutionException ree) {
+        decTaskCounters(multiAction.getRegions(),server);
+        LOG.warn("#" + id + ", the task was rejected by the pool. This is unexpected."+ " Server is "+ server.getServerName(),ree);
+        receiveGlobalFailure(multiAction,server,numAttempt,ree);
+      }
+    }
+  }
+}
