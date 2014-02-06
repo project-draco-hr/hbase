@@ -1,0 +1,32 @@
+{
+  if (!this.cachedServers.contains(serverName)) {
+    return;
+  }
+  boolean deletedSomething=false;
+synchronized (this.cachedServers) {
+    if (!this.cachedServers.contains(serverName)) {
+      return;
+    }
+    for (    ConcurrentMap<byte[],RegionLocations> tableLocations : cachedRegionLocations.values()) {
+      for (      Entry<byte[],RegionLocations> e : tableLocations.entrySet()) {
+        RegionLocations regionLocations=e.getValue();
+        if (regionLocations != null) {
+          RegionLocations updatedLocations=regionLocations.removeByServer(serverName);
+          deletedSomething|=regionLocations == updatedLocations;
+          if (updatedLocations != regionLocations) {
+            if (updatedLocations.isEmpty()) {
+              tableLocations.remove(e.getKey(),regionLocations);
+            }
+ else {
+              tableLocations.replace(e.getKey(),regionLocations,updatedLocations);
+            }
+          }
+        }
+      }
+    }
+    this.cachedServers.remove(serverName);
+  }
+  if (deletedSomething && LOG.isDebugEnabled()) {
+    LOG.debug("Removed all cached region locations that map to " + serverName);
+  }
+}

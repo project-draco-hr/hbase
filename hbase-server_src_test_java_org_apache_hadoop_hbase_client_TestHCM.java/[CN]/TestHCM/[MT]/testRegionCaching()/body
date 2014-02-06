@@ -10,12 +10,12 @@
   table.put(put);
   ConnectionManager.HConnectionImplementation conn=(ConnectionManager.HConnectionImplementation)table.getConnection();
   assertNotNull(conn.getCachedLocation(TABLE_NAME,ROW));
-  final int nextPort=conn.getCachedLocation(TABLE_NAME,ROW).getPort() + 1;
-  HRegionLocation loc=conn.getCachedLocation(TABLE_NAME,ROW);
+  final int nextPort=conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation().getPort() + 1;
+  HRegionLocation loc=conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation();
   conn.updateCachedLocation(loc.getRegionInfo(),loc.getServerName(),ServerName.valueOf("127.0.0.1",nextPort,HConstants.LATEST_TIMESTAMP),HConstants.LATEST_TIMESTAMP);
-  Assert.assertEquals(conn.getCachedLocation(TABLE_NAME,ROW).getPort(),nextPort);
-  conn.forceDeleteCachedLocation(TABLE_NAME,ROW.clone());
-  HRegionLocation rl=conn.getCachedLocation(TABLE_NAME,ROW);
+  Assert.assertEquals(conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation().getPort(),nextPort);
+  conn.clearRegionCache(TABLE_NAME,ROW.clone());
+  RegionLocations rl=conn.getCachedLocation(TABLE_NAME,ROW);
   assertNull("What is this location?? " + rl,rl);
   conn.clearRegionCache(TABLE_NAME);
   Assert.assertEquals(0,conn.getNumberOfCachedRegionLocations(TABLE_NAME));
@@ -29,7 +29,7 @@
   while (master.getAssignmentManager().getRegionStates().isRegionsInTransition()) {
     Thread.sleep(1);
   }
-  HRegionLocation toMove=conn.getCachedLocation(TABLE_NAME,ROW);
+  HRegionLocation toMove=conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation();
   byte[] regionName=toMove.getRegionInfo().getRegionName();
   byte[] encodedRegionNameBytes=toMove.getRegionInfo().getEncodedNameAsBytes();
   int curServerId=TEST_UTIL.getHBaseCluster().getServerWith(regionName);
@@ -53,7 +53,7 @@
   Assert.assertNotNull(destServer.getOnlineRegion(regionName));
   Assert.assertFalse(destServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
   Assert.assertFalse(curServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
-  Assert.assertFalse(conn.getCachedLocation(TABLE_NAME,ROW).getPort() == destServerName.getPort());
+  Assert.assertFalse(conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation().getPort() == destServerName.getPort());
   LOG.info("Put starting");
   Put put3=new Put(ROW);
   put3.add(FAM_NAM,ROW,ROW);
@@ -71,7 +71,7 @@
     Assert.assertTrue(cause instanceof RegionMovedException);
   }
   Assert.assertNotNull("Cached connection is null",conn.getCachedLocation(TABLE_NAME,ROW));
-  Assert.assertEquals("Previous server was " + curServer.getServerName().getHostAndPort(),destServerName.getPort(),conn.getCachedLocation(TABLE_NAME,ROW).getPort());
+  Assert.assertEquals("Previous server was " + curServer.getServerName().getHostAndPort(),destServerName.getPort(),conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation().getPort());
   Assert.assertFalse(destServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
   Assert.assertFalse(curServer.getRegionsInTransitionInRS().containsKey(encodedRegionNameBytes));
   LOG.info("Move starting region=" + toMove.getRegionInfo().getRegionNameAsString());
@@ -82,7 +82,7 @@
   Assert.assertNotNull(curServer.getOnlineRegion(regionName));
   Assert.assertNull(destServer.getOnlineRegion(regionName));
   LOG.info("Move finished for region=" + toMove.getRegionInfo().getRegionNameAsString());
-  Assert.assertFalse(conn.getCachedLocation(TABLE_NAME,ROW).getPort() == curServer.getServerName().getPort());
+  Assert.assertFalse(conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation().getPort() == curServer.getServerName().getPort());
   Scan sc=new Scan();
   sc.setStopRow(ROW);
   sc.setStartRow(ROW);
@@ -97,7 +97,7 @@
     LOG.info("Scan done, expected exception caught: " + e.getClass());
   }
   Assert.assertNotNull(conn.getCachedLocation(TABLE_NAME,ROW));
-  Assert.assertEquals("Previous server was " + destServer.getServerName().getHostAndPort(),curServer.getServerName().getPort(),conn.getCachedLocation(TABLE_NAME,ROW).getPort());
+  Assert.assertEquals("Previous server was " + destServer.getServerName().getHostAndPort(),curServer.getServerName().getPort(),conn.getCachedLocation(TABLE_NAME,ROW).getRegionLocation().getPort());
   TEST_UTIL.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
   table.close();
 }

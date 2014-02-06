@@ -10,7 +10,18 @@
   byte[] tableName=new byte[offset];
   System.arraycopy(regionName,0,tableName,0,offset);
   offset=-1;
-  for (int i=regionName.length - 1; i > 0; i--) {
+  int endOffset=regionName.length;
+  if (regionName.length > MD5_HEX_LENGTH + 2 && regionName[regionName.length - 1] == ENC_SEPARATOR && regionName[regionName.length - MD5_HEX_LENGTH - 2] == ENC_SEPARATOR) {
+    endOffset=endOffset - MD5_HEX_LENGTH - 2;
+  }
+  byte[] replicaId=null;
+  int idEndOffset=endOffset;
+  for (int i=endOffset - 1; i > 0; i--) {
+    if (regionName[i] == REPLICA_ID_DELIMITER) {
+      replicaId=new byte[endOffset - i - 1];
+      System.arraycopy(regionName,i + 1,replicaId,0,endOffset - i - 1);
+      idEndOffset=i;
+    }
     if (regionName[i] == HConstants.DELIMITER) {
       offset=i;
       break;
@@ -22,11 +33,14 @@
     startKey=new byte[offset - tableName.length - 1];
     System.arraycopy(regionName,tableName.length + 1,startKey,0,offset - tableName.length - 1);
   }
-  byte[] id=new byte[regionName.length - offset - 1];
-  System.arraycopy(regionName,offset + 1,id,0,regionName.length - offset - 1);
-  byte[][] elements=new byte[3][];
+  byte[] id=new byte[idEndOffset - offset - 1];
+  System.arraycopy(regionName,offset + 1,id,0,idEndOffset - offset - 1);
+  byte[][] elements=new byte[replicaId == null ? 3 : 4][];
   elements[0]=tableName;
   elements[1]=startKey;
   elements[2]=id;
+  if (replicaId != null) {
+    elements[3]=replicaId;
+  }
   return elements;
 }

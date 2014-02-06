@@ -1,17 +1,19 @@
 {
   final List<HRegionInfo> regions=new ArrayList<HRegionInfo>();
-  MetaScannerVisitor visitor=new DefaultMetaScannerVisitor(){
-    @Override public boolean processRowInternal(    Result result) throws IOException {
+  MetaScannerVisitor visitor=new MetaScannerVisitorBase(){
+    @Override public boolean processRow(    Result result) throws IOException {
       if (result == null || result.isEmpty()) {
         return true;
       }
-      HRegionInfo regionInfo=getHRegionInfo(result);
-      if (regionInfo == null) {
-        LOG.warn("Null REGIONINFO_QUALIFIER: " + result);
-        return true;
+      RegionLocations locations=MetaReader.getRegionLocations(result);
+      if (locations == null)       return true;
+      for (      HRegionLocation loc : locations.getRegionLocations()) {
+        if (loc != null) {
+          HRegionInfo regionInfo=loc.getRegionInfo();
+          if (regionInfo.isOffline() && !offlined)           continue;
+          regions.add(regionInfo);
+        }
       }
-      if (regionInfo.isOffline() && !offlined)       return true;
-      regions.add(regionInfo);
       return true;
     }
   }

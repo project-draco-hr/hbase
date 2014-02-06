@@ -1,0 +1,39 @@
+{
+  int len=tableName.getName().length + 2 + id.length+ (startKey == null ? 0 : startKey.length);
+  if (newFormat) {
+    len+=MD5_HEX_LENGTH + 2;
+  }
+  byte[] replicaIdBytes=null;
+  if (replicaId > 0) {
+    replicaIdBytes=Bytes.toBytes(String.format(REPLICA_ID_FORMAT,replicaId));
+    len+=1 + replicaIdBytes.length;
+  }
+  byte[] b=new byte[len];
+  int offset=tableName.getName().length;
+  System.arraycopy(tableName.getName(),0,b,0,offset);
+  b[offset++]=HConstants.DELIMITER;
+  if (startKey != null && startKey.length > 0) {
+    System.arraycopy(startKey,0,b,offset,startKey.length);
+    offset+=startKey.length;
+  }
+  b[offset++]=HConstants.DELIMITER;
+  System.arraycopy(id,0,b,offset,id.length);
+  offset+=id.length;
+  if (replicaIdBytes != null) {
+    b[offset++]=REPLICA_ID_DELIMITER;
+    System.arraycopy(replicaIdBytes,0,b,offset,replicaIdBytes.length);
+    offset+=replicaIdBytes.length;
+  }
+  if (newFormat) {
+    String md5Hash=MD5Hash.getMD5AsHex(b,0,offset);
+    byte[] md5HashBytes=Bytes.toBytes(md5Hash);
+    if (md5HashBytes.length != MD5_HEX_LENGTH) {
+      LOG.error("MD5-hash length mismatch: Expected=" + MD5_HEX_LENGTH + "; Got="+ md5HashBytes.length);
+    }
+    b[offset++]=ENC_SEPARATOR;
+    System.arraycopy(md5HashBytes,0,b,offset,MD5_HEX_LENGTH);
+    offset+=MD5_HEX_LENGTH;
+    b[offset++]=ENC_SEPARATOR;
+  }
+  return b;
+}

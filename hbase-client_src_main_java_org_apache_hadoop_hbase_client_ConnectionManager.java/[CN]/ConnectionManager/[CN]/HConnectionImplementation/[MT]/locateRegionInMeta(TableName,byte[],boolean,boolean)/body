@@ -1,8 +1,8 @@
 {
   if (useCache) {
-    HRegionLocation location=getCachedLocation(tableName,row);
-    if (location != null) {
-      return location;
+    RegionLocations locations=getCachedLocation(tableName,row);
+    if (locations != null) {
+      return locations;
     }
   }
   byte[] metaKey=HRegionInfo.createRegionName(tableName,row,HConstants.NINES,false);
@@ -18,9 +18,9 @@
       throw new NoServerForRegionException("Unable to find region for " + Bytes.toStringBinary(row) + " in "+ tableName+ " after "+ localNumRetries+ " tries.");
     }
     if (useCache) {
-      HRegionLocation location=getCachedLocation(tableName,row);
-      if (location != null) {
-        return location;
+      RegionLocations locations=getCachedLocation(tableName,row);
+      if (locations != null) {
+        return locations;
       }
     }
     try {
@@ -38,7 +38,8 @@
       if (regionInfoRow == null) {
         throw new TableNotFoundException(tableName);
       }
-      HRegionInfo regionInfo=MetaScanner.getHRegionInfo(regionInfoRow);
+      RegionLocations locations=MetaReader.getRegionLocations(regionInfoRow);
+      HRegionInfo regionInfo=locations.getRegionLocation().getRegionInfo();
       if (regionInfo == null) {
         throw new IOException("HRegionInfo was null or empty in " + TableName.META_TABLE_NAME + ", row="+ regionInfoRow);
       }
@@ -51,16 +52,15 @@
       if (regionInfo.isOffline()) {
         throw new RegionOfflineException("the region is offline, could" + " be caused by a disable table call: " + regionInfo.getRegionNameAsString());
       }
-      ServerName serverName=HRegionInfo.getServerName(regionInfoRow);
+      ServerName serverName=locations.getRegionLocation().getServerName();
       if (serverName == null) {
         throw new NoServerForRegionException("No server address listed " + "in " + TableName.META_TABLE_NAME + " for region "+ regionInfo.getRegionNameAsString()+ " containing row "+ Bytes.toStringBinary(row));
       }
       if (isDeadServer(serverName)) {
         throw new RegionServerStoppedException("hbase:meta says the region " + regionInfo.getRegionNameAsString() + " is managed by the server "+ serverName+ ", but it is dead.");
       }
-      HRegionLocation location=new HRegionLocation(regionInfo,serverName,HRegionInfo.getSeqNumDuringOpen(regionInfoRow));
-      cacheLocation(tableName,null,location);
-      return location;
+      cacheLocation(tableName,locations);
+      return locations;
     }
  catch (    TableNotFoundException e) {
       throw e;

@@ -6,21 +6,27 @@
     return list;
   }
   CollectingVisitor<Pair<HRegionInfo,ServerName>> visitor=new CollectingVisitor<Pair<HRegionInfo,ServerName>>(){
-    private Pair<HRegionInfo,ServerName> current=null;
+    private RegionLocations current=null;
     @Override public boolean visit(    Result r) throws IOException {
-      HRegionInfo hri=HRegionInfo.getHRegionInfo(r,HConstants.REGIONINFO_QUALIFIER);
-      if (hri == null) {
+      current=getRegionLocations(r);
+      if (current == null || current.getRegionLocation().getRegionInfo() == null) {
         LOG.warn("No serialized HRegionInfo in " + r);
         return true;
       }
+      HRegionInfo hri=current.getRegionLocation().getRegionInfo();
       if (!isInsideTable(hri,tableName))       return false;
       if (excludeOfflinedSplitParents && hri.isSplitParent())       return true;
-      ServerName sn=HRegionInfo.getServerName(r);
-      this.current=new Pair<HRegionInfo,ServerName>(hri,sn);
       return super.visit(r);
     }
     @Override void add(    Result r){
-      this.results.add(this.current);
+      if (current == null) {
+        return;
+      }
+      for (      HRegionLocation loc : current.getRegionLocations()) {
+        if (loc != null) {
+          this.results.add(new Pair<HRegionInfo,ServerName>(loc.getRegionInfo(),loc.getServerName()));
+        }
+      }
     }
   }
 ;
