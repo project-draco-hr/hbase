@@ -13,6 +13,22 @@
     }
     SinkPeer sinkPeer=null;
     try {
+      if (this.throttler.isEnabled()) {
+        long sleepTicks=this.throttler.getNextSleepInterval(currentSize);
+        if (sleepTicks > 0) {
+          try {
+            if (LOG.isTraceEnabled()) {
+              LOG.trace("To sleep " + sleepTicks + "ms for throttling control");
+            }
+            Thread.sleep(sleepTicks);
+          }
+ catch (          InterruptedException e) {
+            LOG.debug("Interrupted while sleeping for throttling control");
+            Thread.currentThread().interrupt();
+          }
+          this.throttler.resetStartTick();
+        }
+      }
       sinkPeer=replicationSinkMgr.getReplicationSink();
       BlockingInterface rrs=sinkPeer.getRegionServer();
       if (LOG.isTraceEnabled()) {
@@ -22,6 +38,9 @@
       if (this.lastLoggedPosition != this.repLogReader.getPosition()) {
         this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.repLogReader.getPosition(),this.replicationQueueInfo.isQueueRecovered(),currentWALisBeingWrittenTo);
         this.lastLoggedPosition=this.repLogReader.getPosition();
+      }
+      if (this.throttler.isEnabled()) {
+        this.throttler.addPushSize(currentSize);
       }
       this.totalReplicatedEdits+=entries.size();
       this.totalReplicatedOperations+=currentNbOperations;
