@@ -21,7 +21,7 @@
     while (true) {
       setupConnection();
       InputStream inStream=NetUtils.getInputStream(socket);
-      OutputStream outStream=NetUtils.getOutputStream(socket,pingInterval);
+      OutputStream outStream=NetUtils.getOutputStream(socket,remoteId.rpcTimeout);
       writeConnectionHeaderPreamble(outStream);
       if (useSasl) {
         final InputStream in2=inStream;
@@ -32,7 +32,7 @@
             ticket=ticket.getRealUser();
           }
         }
-        boolean continueSasl=false;
+        boolean continueSasl;
         if (ticket == null)         throw new FatalConnectionException("ticket/user is null");
         try {
           continueSasl=ticket.doAs(new PrivilegedExceptionAction<Boolean>(){
@@ -58,25 +58,23 @@
           useSasl=false;
         }
       }
-      this.in=new DataInputStream(new BufferedInputStream(new PingInputStream(inStream)));
+      this.in=new DataInputStream(new BufferedInputStream(inStream));
       this.out=new DataOutputStream(new BufferedOutputStream(outStream));
       writeConnectionHeader();
-      touch();
       start();
       return;
     }
   }
  catch (  Throwable t) {
     failedServers.addToFailedServers(remoteId.address);
-    IOException e=null;
+    IOException e;
     if (t instanceof IOException) {
       e=(IOException)t;
-      markClosed(e);
     }
  else {
       e=new IOException("Could not set up IO Streams",t);
-      markClosed(e);
     }
+    markClosed(e);
     close();
     throw e;
   }

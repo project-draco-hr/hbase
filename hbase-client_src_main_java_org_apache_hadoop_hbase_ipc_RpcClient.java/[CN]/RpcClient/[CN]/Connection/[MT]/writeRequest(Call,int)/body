@@ -1,30 +1,41 @@
 {
-  if (shouldCloseConnection.get())   return;
+  RequestHeader.Builder builder=RequestHeader.newBuilder();
+  builder.setCallId(call.id);
+  if (Trace.isTracing()) {
+    Span s=Trace.currentSpan();
+    builder.setTraceInfo(RPCTInfo.newBuilder().setParentId(s.getSpanId()).setTraceId(s.getTraceId()));
+  }
+  builder.setMethodName(call.md.getName());
+  builder.setRequestParam(call.param != null);
+  ByteBuffer cellBlock=ipcUtil.buildCellBlock(this.codec,this.compressor,call.cells);
+  if (cellBlock != null) {
+    CellBlockMeta.Builder cellBlockBuilder=CellBlockMeta.newBuilder();
+    cellBlockBuilder.setLength(cellBlock.limit());
+    builder.setCellBlockMeta(cellBlockBuilder.build());
+  }
+  if (priority != 0)   builder.setPriority(priority);
+  RequestHeader header=builder.build();
+  checkIsOpen();
+  calls.put(call.id,call);
   try {
-    RequestHeader.Builder builder=RequestHeader.newBuilder();
-    builder.setCallId(call.id);
-    if (Trace.isTracing()) {
-      Span s=Trace.currentSpan();
-      builder.setTraceInfo(RPCTInfo.newBuilder().setParentId(s.getSpanId()).setTraceId(s.getTraceId()));
-    }
-    builder.setMethodName(call.md.getName());
-    builder.setRequestParam(call.param != null);
-    ByteBuffer cellBlock=ipcUtil.buildCellBlock(this.codec,this.compressor,call.cells);
-    if (cellBlock != null) {
-      CellBlockMeta.Builder cellBlockBuilder=CellBlockMeta.newBuilder();
-      cellBlockBuilder.setLength(cellBlock.limit());
-      builder.setCellBlockMeta(cellBlockBuilder.build());
-    }
-    if (priority != 0)     builder.setPriority(priority);
-    RequestHeader header=builder.build();
 synchronized (this.out) {
-      IPCUtil.write(this.out,header,call.param,cellBlock);
-    }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug(getName() + ": wrote request header " + TextFormat.shortDebugString(header));
+      if (Thread.interrupted())       throw new InterruptedIOException();
+      checkIsOpen();
+      try {
+        IPCUtil.write(this.out,header,call.param,cellBlock);
+      }
+ catch (      IOException e) {
+        shouldCloseConnection.set(true);
+        throw e;
+      }
     }
   }
- catch (  IOException e) {
-    markClosed(e);
+  finally {
+synchronized (this) {
+      notifyAll();
+    }
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug(getName() + ": wrote request header " + TextFormat.shortDebugString(header));
   }
 }

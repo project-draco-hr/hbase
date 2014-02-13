@@ -4,33 +4,27 @@
     Call c=itor.next().getValue();
     long waitTime=System.currentTimeMillis() - c.getStartTime();
     if (waitTime >= rpcTimeout) {
-      if (this.closeException == null) {
-        this.closeException=new CallTimeoutException("Call id=" + c.id + ", waitTime="+ waitTime+ ", rpcTimetout="+ rpcTimeout);
-      }
-      c.setException(this.closeException);
-synchronized (c) {
-        c.notifyAll();
-      }
+      IOException ie=new CallTimeoutException("Call id=" + c.id + ", waitTime="+ waitTime+ ", rpcTimeout="+ rpcTimeout);
+      c.setException(ie);
       itor.remove();
     }
  else {
       break;
     }
   }
-  try {
-    if (!calls.isEmpty()) {
-      Call firstCall=calls.get(calls.firstKey());
-      long maxWaitTime=System.currentTimeMillis() - firstCall.getStartTime();
-      if (maxWaitTime < rpcTimeout) {
-        rpcTimeout-=maxWaitTime;
-      }
+  if (!calls.isEmpty()) {
+    Call firstCall=calls.get(calls.firstKey());
+    long maxWaitTime=System.currentTimeMillis() - firstCall.getStartTime();
+    if (maxWaitTime < rpcTimeout) {
+      rpcTimeout-=maxWaitTime;
     }
+  }
+  try {
     if (!shouldCloseConnection.get()) {
-      closeException=null;
       setSocketTimeout(socket,(int)rpcTimeout);
     }
   }
  catch (  SocketException e) {
-    LOG.debug("Couldn't lower timeout, which may result in longer than expected calls");
+    LOG.warn("Couldn't lower timeout, which may result in longer than expected calls");
   }
 }
