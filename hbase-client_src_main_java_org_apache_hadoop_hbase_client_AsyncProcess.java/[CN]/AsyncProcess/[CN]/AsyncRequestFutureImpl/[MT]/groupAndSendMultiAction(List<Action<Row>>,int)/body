@@ -1,17 +1,32 @@
 {
   final Map<ServerName,MultiAction<Row>> actionsByServer=new HashMap<ServerName,MultiAction<Row>>();
-  HRegionLocation loc;
+  boolean isReplica=false;
   for (  Action<Row> action : currentActions) {
+    RegionLocations locs=null;
     try {
-      loc=findDestLocation(tableName,action.getAction());
+      locs=findDestLocation(tableName,action.getAction(),false);
     }
  catch (    IOException ex) {
       manageError(action.getOriginalIndex(),action.getAction(),false,ex,null);
       continue;
     }
-    addAction(loc,action,actionsByServer,nonceGroup);
+    boolean isReplicaAction=!RegionReplicaUtil.isDefaultReplica(action.getReplicaId());
+    if (isReplica && !isReplicaAction) {
+      throw new AssertionError("Replica and non-replica actions in the same retry");
+    }
+    isReplica=isReplicaAction;
+    HRegionLocation loc=locs.getRegionLocation(action.getReplicaId());
+    if (loc == null || loc.getServerName() == null) {
+      String str="Cannot find location for replica " + action.getReplicaId();
+      LOG.error(str);
+      manageError(action.getOriginalIndex(),action.getAction(),false,new IOException(str),null);
+      continue;
+    }
+    byte[] regionName=loc.getRegionInfo().getRegionName();
+    addAction(loc.getServerName(),regionName,action,actionsByServer,nonceGroup);
   }
   if (!actionsByServer.isEmpty()) {
-    sendMultiAction(actionsByServer,numAttempt);
+    boolean doStartReplica=(numAttempt == 1 && !isReplica && hasAnyReplicaGets);
+    sendMultiAction(actionsByServer,numAttempt,doStartReplica ? currentActions : null);
   }
 }

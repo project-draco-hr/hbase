@@ -1,0 +1,30 @@
+{
+  if (results[index] != null)   return;
+  Action<Row> action=initialActions.get(index);
+  RegionLocations loc=null;
+  try {
+    loc=findDestLocation(tableName,action.getAction(),false);
+  }
+ catch (  IOException ex) {
+    manageError(action.getOriginalIndex(),action.getAction(),false,ex,null);
+    LOG.error("Cannot get location - no replica calls for some actions",ex);
+    return;
+  }
+  HRegionLocation[] locs=loc.getRegionLocations();
+  int replicaCount=0;
+  for (int i=1; i < locs.length; ++i) {
+    replicaCount+=(locs[i] != null) ? 1 : 0;
+  }
+  if (replicaCount == 0) {
+    LOG.warn("No replicas found for " + action.getAction());
+    return;
+  }
+synchronized (replicaResultLock) {
+    if (results[index] != null)     return;
+    results[index]=new ReplicaResultState(replicaCount + 1);
+  }
+  for (int i=1; i < locs.length; ++i) {
+    if (locs[i] == null)     continue;
+    addAction(locs[i].getServerName(),locs[i].getRegionInfo().getRegionName(),new Action<Row>(action,i),actionsByServer,nonceGroup);
+  }
+}
