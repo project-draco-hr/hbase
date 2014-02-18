@@ -7,10 +7,9 @@
   Server server=new DummyServer();
   ReplicationQueues repQueues=ReplicationFactory.getReplicationQueues(server.getZooKeeper(),conf,server);
   repQueues.init(server.getServerName().toString());
-  Path oldLogDir=new Path(TEST_UTIL.getDataTestDir(),HConstants.HREGION_OLDLOGDIR_NAME);
+  final Path oldLogDir=new Path(TEST_UTIL.getDataTestDir(),HConstants.HREGION_OLDLOGDIR_NAME);
   String fakeMachineName=URLEncoder.encode(server.getServerName().toString(),"UTF8");
-  FileSystem fs=FileSystem.get(conf);
-  LogCleaner cleaner=new LogCleaner(1000,server,conf,fs,oldLogDir);
+  final FileSystem fs=FileSystem.get(conf);
   long now=System.currentTimeMillis();
   fs.delete(oldLogDir,true);
   fs.mkdirs(oldLogDir);
@@ -32,8 +31,14 @@
     System.out.println(stat.getPath().toString());
   }
   assertEquals(34,fs.listStatus(oldLogDir).length);
+  LogCleaner cleaner=new LogCleaner(1000,server,conf,fs,oldLogDir);
   cleaner.chore();
-  assertEquals(5,fs.listStatus(oldLogDir).length);
+  TEST_UTIL.waitFor(1000,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return 5 == fs.listStatus(oldLogDir).length;
+    }
+  }
+);
   for (  FileStatus file : fs.listStatus(oldLogDir)) {
     System.out.println("Kept log files: " + file.getPath().getName());
   }
