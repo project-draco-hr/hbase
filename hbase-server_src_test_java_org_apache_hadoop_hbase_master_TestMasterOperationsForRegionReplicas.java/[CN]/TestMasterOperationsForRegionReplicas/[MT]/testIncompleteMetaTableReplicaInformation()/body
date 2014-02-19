@@ -1,0 +1,36 @@
+{
+  final TableName table=TableName.valueOf("fooTableTest1");
+  final int numRegions=3;
+  final int numReplica=2;
+  try {
+    HTableDescriptor desc=new HTableDescriptor(table);
+    desc.setRegionReplication(numReplica);
+    desc.addFamily(new HColumnDescriptor("family"));
+    admin.createTable(desc,Bytes.toBytes("A"),Bytes.toBytes("Z"),numRegions);
+    TEST_UTIL.waitTableEnabled(table.getName());
+    CatalogTracker ct=new CatalogTracker(TEST_UTIL.getConfiguration());
+    Set<byte[]> tableRows=new HashSet<byte[]>();
+    List<HRegionInfo> hris=MetaReader.getTableRegions(ct,table);
+    for (    HRegionInfo hri : hris) {
+      tableRows.add(hri.getRegionName());
+    }
+    admin.disableTable(table);
+    HTable metaTable=new HTable(TableName.META_TABLE_NAME,ct.getConnection());
+    for (    byte[] row : tableRows) {
+      Delete deleteOneReplicaLocation=new Delete(row);
+      deleteOneReplicaLocation.deleteColumns(HConstants.CATALOG_FAMILY,MetaReader.getServerColumn(1));
+      deleteOneReplicaLocation.deleteColumns(HConstants.CATALOG_FAMILY,MetaReader.getSeqNumColumn(1));
+      deleteOneReplicaLocation.deleteColumns(HConstants.CATALOG_FAMILY,MetaReader.getStartCodeColumn(1));
+      metaTable.delete(deleteOneReplicaLocation);
+    }
+    metaTable.close();
+    admin.enableTable(table);
+    assert(admin.isTableEnabled(table));
+    List<HRegionInfo> regions=TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates().getRegionsOfTable(table);
+    assert(regions.size() == numRegions * numReplica);
+  }
+  finally {
+    admin.disableTable(table);
+    admin.deleteTable(table);
+  }
+}

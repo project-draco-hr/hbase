@@ -10,22 +10,21 @@
   ServerName serverName=newState.getServerName();
   State state=newState.getState();
   try {
-    Put put=new Put(hri.getRegionName());
+    int replicaId=hri.getReplicaId();
+    Put put=new Put(MetaReader.getMetaKeyForRegion(hri));
     StringBuilder info=new StringBuilder("Updating row ");
     info.append(hri.getRegionNameAsString()).append(" with state=").append(state);
     if (serverName != null && !serverName.equals(oldServer)) {
-      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.SERVERNAME_QUALIFIER,Bytes.toBytes(serverName.getServerName()));
+      put.addImmutable(HConstants.CATALOG_FAMILY,getServerNameColumn(replicaId),Bytes.toBytes(serverName.getServerName()));
       info.append("&sn=").append(serverName);
     }
     if (openSeqNum >= 0) {
       Preconditions.checkArgument(state == State.OPEN && serverName != null,"Open region should be on a server");
-      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(serverName.getHostAndPort()));
-      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(serverName.getStartcode()));
-      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.SEQNUM_QUALIFIER,Bytes.toBytes(openSeqNum));
+      MetaEditor.addLocation(put,serverName,openSeqNum,replicaId);
       info.append("&openSeqNum=").append(openSeqNum);
       info.append("&server=").append(serverName);
     }
-    put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.STATE_QUALIFIER,Bytes.toBytes(state.name()));
+    put.addImmutable(HConstants.CATALOG_FAMILY,getStateColumn(replicaId),Bytes.toBytes(state.name()));
     LOG.info(info);
     if (metaRegion != null) {
       try {

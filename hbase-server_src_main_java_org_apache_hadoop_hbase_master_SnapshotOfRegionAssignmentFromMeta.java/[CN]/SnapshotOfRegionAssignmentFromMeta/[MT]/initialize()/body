@@ -4,16 +4,23 @@
     @Override public boolean visit(    Result result) throws IOException {
       try {
         if (result == null || result.isEmpty())         return true;
-        Pair<HRegionInfo,ServerName> regionAndServer=HRegionInfo.getHRegionInfoAndServerName(result);
-        HRegionInfo hri=regionAndServer.getFirst();
+        RegionLocations rl=MetaReader.getRegionLocations(result);
+        if (rl == null)         return true;
+        HRegionInfo hri=rl.getRegionLocation(0).getRegionInfo();
         if (hri == null)         return true;
         if (hri.getTable() == null)         return true;
         if (disabledTables.contains(hri.getTable())) {
           return true;
         }
         if (excludeOfflinedSplitParents && hri.isSplit())         return true;
-        addAssignment(hri,regionAndServer.getSecond());
-        addRegion(hri);
+        HRegionLocation[] hrls=rl.getRegionLocations();
+        for (int i=0; i < hrls.length; i++) {
+          if (hrls[i] == null)           continue;
+          hri=hrls[i].getRegionInfo();
+          if (hri == null)           continue;
+          addAssignment(hri,hrls[i].getServerName());
+          addRegion(hri);
+        }
         byte[] favoredNodes=result.getValue(HConstants.CATALOG_FAMILY,FavoredNodeAssignmentHelper.FAVOREDNODES_QUALIFIER);
         if (favoredNodes == null)         return true;
         ServerName[] favoredServerList=FavoredNodeAssignmentHelper.getFavoredNodesList(favoredNodes);

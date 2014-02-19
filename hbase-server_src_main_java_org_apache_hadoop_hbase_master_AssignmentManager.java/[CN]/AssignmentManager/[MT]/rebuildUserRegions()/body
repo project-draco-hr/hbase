@@ -5,31 +5,36 @@
   Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
   Set<ServerName> offlineServers=new HashSet<ServerName>();
   for (  Result result : results) {
-    HRegionInfo regionInfo=HRegionInfo.getHRegionInfo(result);
-    if (regionInfo == null)     continue;
-    State state=RegionStateStore.getRegionState(result);
-    ServerName lastHost=HRegionInfo.getServerName(result);
-    ServerName regionLocation=RegionStateStore.getRegionServer(result);
-    regionStates.createRegionState(regionInfo,state,regionLocation,lastHost);
-    if (!regionStates.isRegionInState(regionInfo,State.OPEN)) {
-      continue;
-    }
-    TableName tableName=regionInfo.getTable();
-    if (!onlineServers.contains(regionLocation)) {
-      offlineServers.add(regionLocation);
-      if (useZKForAssignment) {
+    HRegionLocation[] locations=MetaReader.getRegionLocations(result).getRegionLocations();
+    if (locations == null)     continue;
+    for (    HRegionLocation hrl : locations) {
+      HRegionInfo regionInfo=hrl.getRegionInfo();
+      if (regionInfo == null)       continue;
+      int replicaId=regionInfo.getReplicaId();
+      State state=RegionStateStore.getRegionState(result,replicaId);
+      ServerName lastHost=hrl.getServerName();
+      ServerName regionLocation=RegionStateStore.getRegionServer(result,replicaId);
+      regionStates.createRegionState(regionInfo,state,regionLocation,lastHost);
+      if (!regionStates.isRegionInState(regionInfo,State.OPEN)) {
+        continue;
+      }
+      TableName tableName=regionInfo.getTable();
+      if (!onlineServers.contains(regionLocation)) {
+        offlineServers.add(regionLocation);
+        if (useZKForAssignment) {
+          regionStates.regionOffline(regionInfo);
+        }
+      }
+ else       if (!disabledOrEnablingTables.contains(tableName)) {
+        regionStates.regionOnline(regionInfo,regionLocation);
+        balancer.regionOnline(regionInfo,regionLocation);
+      }
+ else       if (useZKForAssignment) {
         regionStates.regionOffline(regionInfo);
       }
-    }
- else     if (!disabledOrEnablingTables.contains(tableName)) {
-      regionStates.regionOnline(regionInfo,regionLocation);
-      balancer.regionOnline(regionInfo,regionLocation);
-    }
- else     if (useZKForAssignment) {
-      regionStates.regionOffline(regionInfo);
-    }
-    if (!disabledOrDisablingOrEnabling.contains(tableName) && !getTableStateManager().isTableState(tableName,ZooKeeperProtos.Table.State.ENABLED)) {
-      setEnabledTable(tableName);
+      if (!disabledOrDisablingOrEnabling.contains(tableName) && !getTableStateManager().isTableState(tableName,ZooKeeperProtos.Table.State.ENABLED)) {
+        setEnabledTable(tableName);
+      }
     }
   }
   return offlineServers;

@@ -1,0 +1,27 @@
+{
+  final TableName table=TableName.valueOf("fooTable");
+  final int numRegions=3;
+  final int numReplica=2;
+  try {
+    HTableDescriptor desc=new HTableDescriptor(table);
+    desc.setRegionReplication(numReplica);
+    desc.addFamily(new HColumnDescriptor("family"));
+    admin.createTable(desc,Bytes.toBytes("A"),Bytes.toBytes("Z"),numRegions);
+    TEST_UTIL.waitTableEnabled(table.getName());
+    CatalogTracker ct=new CatalogTracker(TEST_UTIL.getConfiguration());
+    validateNumberOfRowsInMeta(table,numRegions,ct);
+    List<HRegionInfo> hris=MetaReader.getTableRegions(ct,table);
+    assert(hris.size() == numRegions * numReplica);
+    for (int i=0; i < numRegions; i++) {
+      for (int j=0; j < numReplica; j++) {
+        HRegionInfo replica=RegionReplicaUtil.getRegionInfoForReplica(hris.get(i),j);
+        RegionState state=TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionStates().getRegionState(replica);
+        assert(state != null);
+      }
+    }
+  }
+  finally {
+    admin.disableTable(table);
+    admin.deleteTable(table);
+  }
+}

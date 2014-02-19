@@ -5,7 +5,7 @@
  catch (  SocketTimeoutException ste) {
     LOG.warn("Creating " + desc.getTableName() + " took too long",ste);
   }
-  int numRegs=splitKeys == null ? 1 : splitKeys.length + 1;
+  int numRegs=(splitKeys == null ? 1 : splitKeys.length + 1) * desc.getRegionReplication();
   int prevRegCount=0;
   boolean doneWithMetaScan=false;
   for (int tries=0; tries < this.numRetries * this.retryLongerMultiplier; ++tries) {
@@ -13,17 +13,26 @@
       final AtomicInteger actualRegCount=new AtomicInteger(0);
       MetaScannerVisitor visitor=new MetaScannerVisitorBase(){
         @Override public boolean processRow(        Result rowResult) throws IOException {
-          HRegionInfo info=HRegionInfo.getHRegionInfo(rowResult);
-          if (info == null) {
+          RegionLocations list=MetaReader.getRegionLocations(rowResult);
+          if (list == null) {
             LOG.warn("No serialized HRegionInfo in " + rowResult);
             return true;
           }
-          if (!info.getTable().equals(desc.getTableName())) {
+          HRegionLocation l=list.getRegionLocation();
+          if (l == null) {
+            return true;
+          }
+          if (!l.getRegionInfo().getTable().equals(desc.getTableName())) {
             return false;
           }
-          ServerName serverName=HRegionInfo.getServerName(rowResult);
-          if (!(info.isOffline() || info.isSplit()) && serverName != null && serverName.getHostAndPort() != null) {
-            actualRegCount.incrementAndGet();
+          if (l.getRegionInfo().isOffline() || l.getRegionInfo().isSplit())           return true;
+          HRegionLocation[] locations=list.getRegionLocations();
+          for (          HRegionLocation location : locations) {
+            if (location == null)             continue;
+            ServerName serverName=location.getServerName();
+            if (serverName != null && serverName.getHostAndPort() != null) {
+              actualRegCount.incrementAndGet();
+            }
           }
           return true;
         }
