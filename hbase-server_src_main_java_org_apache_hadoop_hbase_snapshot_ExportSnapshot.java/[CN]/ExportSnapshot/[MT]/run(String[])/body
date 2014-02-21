@@ -1,6 +1,7 @@
 {
   boolean verifyChecksum=true;
   String snapshotName=null;
+  boolean overwrite=false;
   String filesGroup=null;
   String filesUser=null;
   Path outputRoot=null;
@@ -30,6 +31,9 @@
  else       if (cmd.equals("-chmod")) {
         filesMode=Integer.parseInt(args[++i],8);
       }
+ else       if (cmd.equals("-overwrite")) {
+        overwrite=true;
+      }
  else       if (cmd.equals("-h") || cmd.equals("--help")) {
         printUsageAndExit();
       }
@@ -58,10 +62,18 @@
   Path snapshotTmpDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshotName,outputRoot);
   Path outputSnapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,outputRoot);
   if (outputFs.exists(outputSnapshotDir)) {
-    System.err.println("The snapshot '" + snapshotName + "' already exists in the destination: "+ outputSnapshotDir);
-    return 1;
+    if (overwrite) {
+      if (!outputFs.delete(outputSnapshotDir,true)) {
+        System.err.println("Unable to remove existing snapshot directory: " + outputSnapshotDir);
+        return 1;
+      }
+    }
+ else {
+      System.err.println("The snapshot '" + snapshotName + "' already exists in the destination: "+ outputSnapshotDir);
+      return 1;
+    }
   }
-  if (outputFs.exists(snapshotTmpDir)) {
+  if (!overwrite && outputFs.exists(snapshotTmpDir)) {
     System.err.println("A snapshot with the same name '" + snapshotName + "' may be in-progress");
     System.err.println("Please check " + snapshotTmpDir + ". If the snapshot has completed, ");
     System.err.println("consider removing " + snapshotTmpDir + " before retrying export");
@@ -69,7 +81,7 @@
   }
   final List<Pair<Path,Long>> files=getSnapshotFiles(inputFs,snapshotDir);
   try {
-    FileUtil.copy(inputFs,snapshotDir,outputFs,snapshotTmpDir,false,false,conf);
+    FileUtil.copy(inputFs,snapshotDir,outputFs,snapshotTmpDir,false,overwrite,conf);
   }
  catch (  IOException e) {
     System.err.println("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ snapshotTmpDir);
