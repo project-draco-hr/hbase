@@ -1,0 +1,70 @@
+{
+  util=new HBaseTestingUtility();
+  Configuration conf=util.getConfiguration();
+  byte[][] startKeys=generateRandomStartKeys(5);
+  HBaseAdmin admin=null;
+  try {
+    util.startMiniCluster();
+    Path testDir=util.getDataTestDirOnTestFS("testLocalMRIncrementalLoad");
+    admin=new HBaseAdmin(conf);
+    HTable table=util.createTable(TABLE_NAME,FAMILIES);
+    assertEquals("Should start with empty table",0,util.countRows(table));
+    int numRegions=util.createMultiRegions(util.getConfiguration(),table,FAMILIES[0],startKeys);
+    assertEquals("Should make 5 regions",numRegions,5);
+    util.startMiniMapReduceCluster();
+    runIncrementalPELoad(conf,table,testDir);
+    assertEquals("HFOF should not touch actual table",0,util.countRows(table));
+    int dir=0;
+    for (    FileStatus f : testDir.getFileSystem(conf).listStatus(testDir)) {
+      for (      byte[] family : FAMILIES) {
+        if (Bytes.toString(family).equals(f.getPath().getName())) {
+          ++dir;
+        }
+      }
+    }
+    assertEquals("Column family not found in FS.",FAMILIES.length,dir);
+    if (shouldChangeRegions) {
+      LOG.info("Changing regions in table");
+      admin.disableTable(table.getTableName());
+      while (util.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates().isRegionsInTransition()) {
+        Threads.sleep(200);
+        LOG.info("Waiting on table to finish disabling");
+      }
+      byte[][] newStartKeys=generateRandomStartKeys(15);
+      util.createMultiRegions(util.getConfiguration(),table,FAMILIES[0],newStartKeys);
+      admin.enableTable(table.getTableName());
+      while (table.getRegionLocations().size() != 15 || !admin.isTableAvailable(table.getTableName())) {
+        Thread.sleep(200);
+        LOG.info("Waiting for new region assignment to happen");
+      }
+    }
+    new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
+    int expectedRows=NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
+    assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
+    Scan scan=new Scan();
+    ResultScanner results=table.getScanner(scan);
+    for (    Result res : results) {
+      assertEquals(FAMILIES.length,res.rawCells().length);
+      Cell first=res.rawCells()[0];
+      for (      Cell kv : res.rawCells()) {
+        assertTrue(CellUtil.matchingRow(first,kv));
+        assertTrue(Bytes.equals(CellUtil.cloneValue(first),CellUtil.cloneValue(kv)));
+      }
+    }
+    results.close();
+    String tableDigestBefore=util.checksumRows(table);
+    admin.disableTable(TABLE_NAME);
+    while (!admin.isTableDisabled(TABLE_NAME)) {
+      Thread.sleep(200);
+      LOG.info("Waiting for table to disable");
+    }
+    admin.enableTable(TABLE_NAME);
+    util.waitTableAvailable(TABLE_NAME.getName());
+    assertEquals("Data should remain after reopening of regions",tableDigestBefore,util.checksumRows(table));
+  }
+  finally {
+    if (admin != null)     admin.close();
+    util.shutdownMiniMapReduceCluster();
+    util.shutdownMiniCluster();
+  }
+}

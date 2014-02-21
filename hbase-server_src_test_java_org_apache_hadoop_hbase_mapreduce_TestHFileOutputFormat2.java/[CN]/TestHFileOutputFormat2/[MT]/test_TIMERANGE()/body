@@ -1,0 +1,42 @@
+{
+  Configuration conf=new Configuration(this.util.getConfiguration());
+  RecordWriter<ImmutableBytesWritable,Cell> writer=null;
+  TaskAttemptContext context=null;
+  Path dir=util.getDataTestDir("test_TIMERANGE_present");
+  LOG.info("Timerange dir writing to dir: " + dir);
+  try {
+    Job job=new Job(conf);
+    FileOutputFormat.setOutputPath(job,dir);
+    context=createTestTaskAttemptContext(job);
+    HFileOutputFormat2 hof=new HFileOutputFormat2();
+    writer=hof.getRecordWriter(context);
+    final byte[] b=Bytes.toBytes("b");
+    KeyValue kv=new KeyValue(b,b,b,2000,b);
+    KeyValue original=kv.clone();
+    writer.write(new ImmutableBytesWritable(),kv);
+    assertEquals(original,kv);
+    kv=new KeyValue(b,b,b,1000,b);
+    original=kv.clone();
+    writer.write(new ImmutableBytesWritable(),kv);
+    assertEquals(original,kv);
+    writer.close(context);
+    FileSystem fs=FileSystem.get(conf);
+    Path attemptDirectory=hof.getDefaultWorkFile(context,"").getParent();
+    FileStatus[] sub1=fs.listStatus(attemptDirectory);
+    FileStatus[] file=fs.listStatus(sub1[0].getPath());
+    HFile.Reader rd=HFile.createReader(fs,file[0].getPath(),new CacheConfig(conf),conf);
+    Map<byte[],byte[]> finfo=rd.loadFileInfo();
+    byte[] range=finfo.get("TIMERANGE".getBytes());
+    assertNotNull(range);
+    TimeRangeTracker timeRangeTracker=new TimeRangeTracker();
+    Writables.copyWritable(range,timeRangeTracker);
+    LOG.info(timeRangeTracker.getMinimumTimestamp() + "...." + timeRangeTracker.getMaximumTimestamp());
+    assertEquals(1000,timeRangeTracker.getMinimumTimestamp());
+    assertEquals(2000,timeRangeTracker.getMaximumTimestamp());
+    rd.close();
+  }
+  finally {
+    if (writer != null && context != null)     writer.close(context);
+    dir.getFileSystem(conf).delete(dir,true);
+  }
+}
