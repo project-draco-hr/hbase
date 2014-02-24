@@ -1,6 +1,6 @@
 {
   if (shouldCloseConnection.get())   return;
-  int totalSize=-1;
+  int totalSize;
   try {
     totalSize=in.readInt();
     ResponseHeader responseHeader=ResponseHeader.parseDelimitedFrom(in);
@@ -9,7 +9,8 @@
       LOG.debug(getName() + ": got response header " + TextFormat.shortDebugString(responseHeader)+ ", totalSize: "+ totalSize+ " bytes");
     }
     Call call=calls.remove(id);
-    if (call == null) {
+    boolean expectedCall=(call != null && !call.done);
+    if (!expectedCall) {
       int readSoFar=IPCUtil.getTotalSizeWhenWrittenDelimited(responseHeader);
       int whatIsLeftToRead=totalSize - readSoFar;
       LOG.debug("Unknown callId: " + id + ", skipping over this response of "+ whatIsLeftToRead+ " bytes");
@@ -22,12 +23,12 @@
         markClosed(re);
       }
  else {
-        if (call != null)         call.setException(re);
+        if (expectedCall)         call.setException(re);
       }
     }
  else {
       Message value=null;
-      if (call != null && call.responseDefaultType != null) {
+      if (expectedCall && call.responseDefaultType != null) {
         Builder builder=call.responseDefaultType.newBuilderForType();
         builder.mergeDelimitedFrom(in);
         value=builder.build();
@@ -39,7 +40,7 @@
         IOUtils.readFully(this.in,cellBlock,0,cellBlock.length);
         cellBlockScanner=ipcUtil.createCellScanner(this.codec,this.compressor,cellBlock);
       }
-      if (call != null)       call.setResponse(value,cellBlockScanner);
+      if (expectedCall)       call.setResponse(value,cellBlockScanner);
     }
   }
  catch (  IOException e) {
@@ -50,8 +51,6 @@
     }
   }
  finally {
-    if (remoteId.rpcTimeout > 0) {
-      cleanupCalls(remoteId.rpcTimeout);
-    }
+    cleanupCalls(remoteId.rpcTimeout);
   }
 }

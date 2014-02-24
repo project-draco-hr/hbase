@@ -1,30 +1,30 @@
 {
+  if (rpcTimeout == 0)   return;
   Iterator<Entry<Integer,Call>> itor=calls.entrySet().iterator();
   while (itor.hasNext()) {
     Call c=itor.next().getValue();
-    long waitTime=System.currentTimeMillis() - c.getStartTime();
-    if (waitTime >= rpcTimeout) {
+    long waitTime=EnvironmentEdgeManager.currentTimeMillis() - c.getStartTime();
+    if (rpcTimeout < 0) {
+      IOException ie=new IOException("Call id=" + c.id + ", waitTime="+ waitTime);
+      c.setException(ie);
+      itor.remove();
+    }
+ else     if (waitTime >= rpcTimeout) {
       IOException ie=new CallTimeoutException("Call id=" + c.id + ", waitTime="+ waitTime+ ", rpcTimeout="+ rpcTimeout);
       c.setException(ie);
       itor.remove();
     }
  else {
+      rpcTimeout-=waitTime;
       break;
     }
   }
-  if (!calls.isEmpty()) {
-    Call firstCall=calls.get(calls.firstKey());
-    long maxWaitTime=System.currentTimeMillis() - firstCall.getStartTime();
-    if (maxWaitTime < rpcTimeout) {
-      rpcTimeout-=maxWaitTime;
+  if (!shouldCloseConnection.get() && socket != null && rpcTimeout > 0) {
+    try {
+      socket.setSoTimeout((int)rpcTimeout);
     }
-  }
-  try {
-    if (!shouldCloseConnection.get()) {
-      setSocketTimeout(socket,(int)rpcTimeout);
+ catch (    SocketException e) {
+      LOG.warn("Couldn't change timeout, which may result in longer than expected calls");
     }
-  }
- catch (  SocketException e) {
-    LOG.warn("Couldn't lower timeout, which may result in longer than expected calls");
   }
 }

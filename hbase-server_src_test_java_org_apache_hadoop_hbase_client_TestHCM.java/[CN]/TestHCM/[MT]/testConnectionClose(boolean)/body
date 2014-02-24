@@ -1,0 +1,61 @@
+{
+  String tableName="HCM-testConnectionClose" + allowsInterrupt;
+  TEST_UTIL.createTable(tableName.getBytes(),FAM_NAM).close();
+  boolean previousBalance=TEST_UTIL.getHBaseAdmin().setBalancerRunning(false,true);
+  Configuration c2=new Configuration(TEST_UTIL.getConfiguration());
+  c2.set(HConstants.HBASE_CLIENT_INSTANCE_ID,String.valueOf(-1));
+  c2.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,Integer.MAX_VALUE - 1);
+  c2.setInt(HConstants.HBASE_CLIENT_PAUSE,0);
+  c2.setInt(RpcClient.FAILED_SERVER_EXPIRY_KEY,0);
+  c2.setBoolean(RpcClient.ALLOWS_INTERRUPTS,allowsInterrupt);
+  final HTable table=new HTable(c2,tableName.getBytes());
+  Put put=new Put(ROW);
+  put.add(FAM_NAM,ROW,ROW);
+  table.put(put);
+  final AtomicInteger step=new AtomicInteger(0);
+  final AtomicReference<Throwable> failed=new AtomicReference<Throwable>(null);
+  Thread t=new Thread("testConnectionCloseThread"){
+    public void run(){
+      int done=0;
+      try {
+        step.set(1);
+        while (step.get() == 1) {
+          Get get=new Get(ROW);
+          table.get(get);
+          done++;
+          if (done % 100 == 0)           LOG.info("done=" + done);
+        }
+      }
+ catch (      Throwable t) {
+        failed.set(t);
+        LOG.error(t);
+      }
+      step.set(3);
+    }
+  }
+;
+  t.start();
+  TEST_UTIL.waitFor(20000,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return step.get() == 1;
+    }
+  }
+);
+  ServerName sn=table.getRegionLocation(ROW).getServerName();
+  ConnectionManager.HConnectionImplementation conn=(ConnectionManager.HConnectionImplementation)table.getConnection();
+  RpcClient rpcClient=conn.getRpcClient();
+  LOG.info("Going to cancel connections. connection=" + conn.toString() + ", sn="+ sn);
+  for (int i=0; i < 5000; i++) {
+    rpcClient.cancelConnections(sn.getHostname(),sn.getPort(),null);
+    Thread.sleep(5);
+  }
+  step.compareAndSet(1,2);
+  TEST_UTIL.waitFor(20000,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return step.get() == 3;
+    }
+  }
+);
+  Assert.assertTrue("Unexpected exception is " + failed.get(),failed.get() == null);
+  TEST_UTIL.getHBaseAdmin().setBalancerRunning(previousBalance,true);
+}

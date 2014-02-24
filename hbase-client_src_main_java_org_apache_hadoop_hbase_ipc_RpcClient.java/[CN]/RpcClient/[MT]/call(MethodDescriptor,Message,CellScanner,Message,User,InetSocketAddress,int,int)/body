@@ -1,18 +1,35 @@
 {
   Call call=new Call(md,param,cells,returnType);
   Connection connection=getConnection(ticket,call,addr,rpcTimeout,this.codec,this.compressor);
-  connection.writeRequest(call,priority);
-synchronized (call) {
-    while (!call.done) {
-      call.wait(1000);
-    }
-    if (call.error != null) {
-      if (call.error instanceof RemoteException) {
-        call.error.fillInStackTrace();
-        throw call.error;
-      }
-      throw wrapException(addr,call.error);
-    }
-    return new Pair<Message,CellScanner>(call.response,call.cells);
+  CallFuture cts=null;
+  if (connection.callSender != null) {
+    cts=connection.callSender.sendCall(call,priority,Trace.currentSpan());
   }
+ else {
+    connection.tracedWriteRequest(call,priority,Trace.currentSpan());
+  }
+  while (!call.done) {
+    try {
+synchronized (call) {
+        call.wait(1000);
+      }
+    }
+ catch (    InterruptedException e) {
+      if (cts != null) {
+        connection.callSender.cancel(cts);
+      }
+ else {
+        call.done=true;
+      }
+      throw e;
+    }
+  }
+  if (call.error != null) {
+    if (call.error instanceof RemoteException) {
+      call.error.fillInStackTrace();
+      throw call.error;
+    }
+    throw wrapException(addr,call.error);
+  }
+  return new Pair<Message,CellScanner>(call.response,call.cells);
 }
