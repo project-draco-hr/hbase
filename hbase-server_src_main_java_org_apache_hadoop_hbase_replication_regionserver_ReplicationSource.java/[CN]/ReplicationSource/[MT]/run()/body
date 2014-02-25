@@ -1,17 +1,21 @@
 {
   connectToPeers();
   if (!this.isActive()) {
-    metrics.clear();
+    uninitialize();
     return;
   }
   int sleepMultiplier=1;
-  while (this.peerClusterId == null) {
+  while (this.isActive() && this.peerClusterId == null) {
     this.peerClusterId=replicationPeers.getPeerUUID(this.peerId);
-    if (this.peerClusterId == null) {
+    if (this.isActive() && this.peerClusterId == null) {
       if (sleepForRetries("Cannot contact the peer's zk ensemble",sleepMultiplier)) {
         sleepMultiplier++;
       }
     }
+  }
+  if (!this.isActive()) {
+    uninitialize();
+    return;
   }
   sleepMultiplier=1;
   if (clusterId.equals(peerClusterId)) {
@@ -118,14 +122,5 @@
     sleepMultiplier=1;
     shipEdits(currentWALisBeingWrittenTo,entries);
   }
-  if (this.conn != null) {
-    try {
-      this.conn.close();
-    }
- catch (    IOException e) {
-      LOG.debug("Attempt to close connection failed",e);
-    }
-  }
-  LOG.debug("Source exiting " + this.peerId);
-  metrics.clear();
+  uninitialize();
 }
