@@ -1,6 +1,6 @@
 {
-  Call call=new Call(md,param,cells,returnType);
-  Connection connection=getConnection(ticket,call,addr,rpcTimeout,this.codec,this.compressor);
+  Call call=new Call(md,param,cells,returnType,callTimeout);
+  Connection connection=getConnection(ticket,call,addr,this.codec,this.compressor);
   CallFuture cts=null;
   if (connection.callSender != null) {
     cts=connection.callSender.sendCall(call,priority,Trace.currentSpan());
@@ -9,18 +9,18 @@
     connection.tracedWriteRequest(call,priority,Trace.currentSpan());
   }
   while (!call.done) {
+    if (call.checkTimeout()) {
+      if (cts != null)       connection.callSender.remove(cts);
+      break;
+    }
     try {
 synchronized (call) {
-        call.wait(1000);
+        call.wait(Math.min(call.remainingTime(),1000) + 1);
       }
     }
  catch (    InterruptedException e) {
-      if (cts != null) {
-        connection.callSender.cancel(cts);
-      }
- else {
-        call.done=true;
-      }
+      call.setException(new InterruptedIOException());
+      if (cts != null)       connection.callSender.remove(cts);
       throw e;
     }
   }

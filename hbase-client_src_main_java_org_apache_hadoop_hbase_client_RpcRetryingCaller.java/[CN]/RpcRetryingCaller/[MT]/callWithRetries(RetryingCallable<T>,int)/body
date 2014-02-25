@@ -3,13 +3,14 @@
   List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
   this.globalStartTime=EnvironmentEdgeManager.currentTimeMillis();
   for (int tries=0; ; tries++) {
-    long expectedSleep=0;
+    long expectedSleep;
     try {
-      beforeCall();
       callable.prepare(tries != 0);
-      return callable.call();
+      beforeCall();
+      return callable.call(remainingTime);
     }
  catch (    Throwable t) {
+      ExceptionUtil.rethrowIfInterrupt(t);
       if (LOG.isTraceEnabled()) {
         LOG.trace("Call exception, tries=" + tries + ", retries="+ retries+ ", retryTime="+ (EnvironmentEdgeManager.currentTimeMillis() - this.globalStartTime)+ "ms",t);
       }
@@ -17,7 +18,6 @@
       callable.throwable(t,retries != 1);
       RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,EnvironmentEdgeManager.currentTimeMillis(),toString());
       exceptions.add(qt);
-      ExceptionUtil.rethrowIfInterrupt(t);
       if (tries >= retries - 1) {
         throw new RetriesExhaustedException(tries,exceptions);
       }
@@ -27,9 +27,6 @@
         String msg="callTimeout=" + this.callTimeout + ", callDuration="+ duration+ ": "+ callable.getExceptionMessageAdditionalDetail();
         throw (SocketTimeoutException)(new SocketTimeoutException(msg).initCause(t));
       }
-    }
- finally {
-      afterCall();
     }
     try {
       Thread.sleep(expectedSleep);

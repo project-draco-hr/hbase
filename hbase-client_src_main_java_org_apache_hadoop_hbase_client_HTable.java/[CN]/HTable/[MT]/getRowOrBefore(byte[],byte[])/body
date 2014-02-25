@@ -1,7 +1,18 @@
 {
   RegionServerCallable<Result> callable=new RegionServerCallable<Result>(this.connection,tableName,row){
-    public Result call() throws IOException {
-      return ProtobufUtil.getRowOrBefore(getStub(),getLocation().getRegionInfo().getRegionName(),row,family);
+    public Result call(    int callTimeout) throws IOException {
+      PayloadCarryingRpcController controller=new PayloadCarryingRpcController();
+      controller.setPriority(tableName);
+      controller.setCallTimeout(callTimeout);
+      ClientProtos.GetRequest request=RequestConverter.buildGetRowOrBeforeRequest(getLocation().getRegionInfo().getRegionName(),row,family);
+      try {
+        ClientProtos.GetResponse response=getStub().get(controller,request);
+        if (!response.hasResult())         return null;
+        return ProtobufUtil.toResult(response.getResult());
+      }
+ catch (      ServiceException se) {
+        throw ProtobufUtil.getRemoteException(se);
+      }
     }
   }
 ;

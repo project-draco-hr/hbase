@@ -1,0 +1,79 @@
+{
+  if (closed) {
+    if (scannerId != -1) {
+      close();
+    }
+  }
+ else {
+    if (scannerId == -1L) {
+      this.scannerId=openScanner();
+    }
+ else {
+      Result[] rrs=null;
+      ScanRequest request=null;
+      try {
+        incRPCcallsMetrics();
+        request=RequestConverter.buildScanRequest(scannerId,caching,false,nextCallSeq);
+        ScanResponse response=null;
+        PayloadCarryingRpcController controller=new PayloadCarryingRpcController();
+        controller.setPriority(getTableName());
+        controller.setCallTimeout(callTimeout);
+        try {
+          response=getStub().scan(controller,request);
+          nextCallSeq++;
+          long timestamp=System.currentTimeMillis();
+          CellScanner cellScanner=controller.cellScanner();
+          rrs=ResponseConverter.getResults(cellScanner,response);
+          if (logScannerActivity) {
+            long now=System.currentTimeMillis();
+            if (now - timestamp > logCutOffLatency) {
+              int rows=rrs == null ? 0 : rrs.length;
+              LOG.info("Took " + (now - timestamp) + "ms to fetch "+ rows+ " rows from scanner="+ scannerId);
+            }
+          }
+          if (response.hasMoreResults() && !response.getMoreResults()) {
+            scannerId=-1L;
+            closed=true;
+            return null;
+          }
+        }
+ catch (        ServiceException se) {
+          throw ProtobufUtil.getRemoteException(se);
+        }
+        updateResultsMetrics(rrs);
+      }
+ catch (      IOException e) {
+        if (logScannerActivity) {
+          LOG.info("Got exception making request " + TextFormat.shortDebugString(request) + " to "+ getLocation(),e);
+        }
+        IOException ioe=e;
+        if (e instanceof RemoteException) {
+          ioe=RemoteExceptionHandler.decodeRemoteException((RemoteException)e);
+        }
+        if (logScannerActivity && (ioe instanceof UnknownScannerException)) {
+          try {
+            HRegionLocation location=getConnection().relocateRegion(getTableName(),scan.getStartRow());
+            LOG.info("Scanner=" + scannerId + " expired, current region location is "+ location.toString());
+          }
+ catch (          Throwable t) {
+            LOG.info("Failed to relocate region",t);
+          }
+        }
+        if (ioe instanceof NotServingRegionException) {
+          if (this.scanMetrics != null) {
+            this.scanMetrics.countOfNSRE.incrementAndGet();
+          }
+          throw new DoNotRetryIOException("Resetting the scanner -- see exception cause",ioe);
+        }
+ else         if (ioe instanceof RegionServerStoppedException) {
+          throw new DoNotRetryIOException("Resetting the scanner -- see exception cause",ioe);
+        }
+ else {
+          throw ioe;
+        }
+      }
+      return rrs;
+    }
+  }
+  return null;
+}

@@ -5,14 +5,15 @@
   NonceGenerator ng=this.connection.getNonceGenerator();
   final long nonceGroup=ng.getNonceGroup(), nonce=ng.newNonce();
   RegionServerCallable<Result> callable=new RegionServerCallable<Result>(this.connection,getName(),append.getRow()){
-    public Result call() throws IOException {
+    public Result call(    int callTimeout) throws IOException {
+      PayloadCarryingRpcController controller=new PayloadCarryingRpcController();
+      controller.setPriority(getTableName());
+      controller.setCallTimeout(callTimeout);
       try {
         MutateRequest request=RequestConverter.buildMutateRequest(getLocation().getRegionInfo().getRegionName(),append,nonceGroup,nonce);
-        PayloadCarryingRpcController rpcController=new PayloadCarryingRpcController();
-        rpcController.setPriority(getTableName());
-        MutateResponse response=getStub().mutate(rpcController,request);
+        MutateResponse response=getStub().mutate(controller,request);
         if (!response.hasResult())         return null;
-        return ProtobufUtil.toResult(response.getResult(),rpcController.cellScanner());
+        return ProtobufUtil.toResult(response.getResult(),controller.cellScanner());
       }
  catch (      ServiceException se) {
         throw ProtobufUtil.getRemoteException(se);
