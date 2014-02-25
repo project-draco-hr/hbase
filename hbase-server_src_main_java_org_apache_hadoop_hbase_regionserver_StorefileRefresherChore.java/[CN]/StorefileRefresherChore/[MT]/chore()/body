@@ -1,0 +1,31 @@
+{
+  for (  HRegion r : regionServer.getOnlineRegionsLocalContext()) {
+    if (!r.writestate.isReadOnly()) {
+      continue;
+    }
+    String encodedName=r.getRegionInfo().getEncodedName();
+    long time=EnvironmentEdgeManager.currentTimeMillis();
+    if (!lastRefreshTimes.containsKey(encodedName)) {
+      lastRefreshTimes.put(encodedName,time);
+    }
+    try {
+      for (      Store store : r.getStores().values()) {
+        store.refreshStoreFiles();
+      }
+    }
+ catch (    IOException ex) {
+      LOG.warn("Exception while trying to refresh store files for region:" + r.getRegionInfo() + ", exception:"+ StringUtils.stringifyException(ex));
+      if (isRegionStale(encodedName,time)) {
+        r.setReadsEnabled(false);
+      }
+      continue;
+    }
+    lastRefreshTimes.put(encodedName,time);
+    r.setReadsEnabled(true);
+  }
+  for (  String encodedName : lastRefreshTimes.keySet()) {
+    if (regionServer.getFromOnlineRegions(encodedName) == null) {
+      lastRefreshTimes.remove(encodedName);
+    }
+  }
+}
