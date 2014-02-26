@@ -1,0 +1,50 @@
+{
+  final String CONF_KEY="hbase.table.sanity.checks";
+  if (!conf.getBoolean(CONF_KEY,true)) {
+    return;
+  }
+  String tableVal=htd.getConfigurationValue(CONF_KEY);
+  if (tableVal != null && !Boolean.valueOf(tableVal)) {
+    return;
+  }
+  long maxFileSizeLowerLimit=2 * 1024 * 1024L;
+  long maxFileSize=htd.getMaxFileSize();
+  if (maxFileSize < 0) {
+    maxFileSize=conf.getLong(HConstants.HREGION_MAX_FILESIZE,maxFileSizeLowerLimit);
+  }
+  if (maxFileSize < conf.getLong("hbase.hregion.max.filesize.limit",maxFileSizeLowerLimit)) {
+    throw new DoNotRetryIOException("MAX_FILESIZE for table descriptor or " + "\"hbase.hregion.max.filesize\" (" + maxFileSize + ") is too small, which might cause over splitting into unmanageable "+ "number of regions. Set "+ CONF_KEY+ " to false at conf or table descriptor "+ "if you want to bypass sanity checks");
+  }
+  long flushSizeLowerLimit=1024 * 1024L;
+  long flushSize=htd.getMemStoreFlushSize();
+  if (flushSize < 0) {
+    flushSize=conf.getLong(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,flushSizeLowerLimit);
+  }
+  if (flushSize < conf.getLong("hbase.hregion.memstore.flush.size.limit",flushSizeLowerLimit)) {
+    throw new DoNotRetryIOException("MEMSTORE_FLUSHSIZE for table descriptor or " + "\"hbase.hregion.memstore.flush.size\" (" + flushSize + ") is too small, which might cause"+ " very frequent flushing. Set "+ CONF_KEY+ " to false at conf or table descriptor "+ "if you want to bypass sanity checks");
+  }
+  try {
+    RegionSplitPolicy.getSplitPolicyClass(htd,conf);
+  }
+ catch (  Exception ex) {
+    throw new DoNotRetryIOException(ex);
+  }
+  checkCompression(htd);
+  if (htd.getColumnFamilies().length == 0) {
+    throw new DoNotRetryIOException("Table should have at least one column family " + "Set " + CONF_KEY + " at conf or table descriptor if you want to bypass sanity checks");
+  }
+  for (  HColumnDescriptor hcd : htd.getColumnFamilies()) {
+    if (hcd.getTimeToLive() <= 0) {
+      throw new DoNotRetryIOException("TTL for column family " + hcd.getNameAsString() + "  must be positive. Set "+ CONF_KEY+ " to false at conf or table descriptor "+ "if you want to bypass sanity checks");
+    }
+    if (hcd.getBlocksize() < 1024 || hcd.getBlocksize() > 16 * 1024 * 1024) {
+      throw new DoNotRetryIOException("Block size for column family " + hcd.getNameAsString() + "  must be between 1K and 16MB Set "+ CONF_KEY+ " to false at conf or table descriptor "+ "if you want to bypass sanity checks");
+    }
+    if (hcd.getMinVersions() < 0) {
+      throw new DoNotRetryIOException("Min versions for column family " + hcd.getNameAsString() + "  must be positive. Set "+ CONF_KEY+ " to false at conf or table descriptor "+ "if you want to bypass sanity checks");
+    }
+    if (hcd.getScope() < 0) {
+      throw new DoNotRetryIOException("Replication scope for column family " + hcd.getNameAsString() + "  must be positive. Set "+ CONF_KEY+ " to false at conf "+ "or table descriptor if you want to bypass sanity checks");
+    }
+  }
+}
