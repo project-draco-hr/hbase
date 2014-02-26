@@ -8,33 +8,30 @@
     return null;
   }
   long startTime=EnvironmentEdgeManager.currentTimeMillis();
-  Cluster cluster=new Cluster(masterServerName,clusterState,loads,regionFinder,getBackupMasters(),tablesOnMaster);
+  Cluster cluster=new Cluster(masterServerName,clusterState,loads,regionFinder,getBackupMasters(),tablesOnMaster,rackManager);
+  initCosts(cluster);
   double currentCost=computeCost(cluster,Double.MAX_VALUE);
   double initCost=currentCost;
   double newCost=currentCost;
   long computedMaxSteps=Math.min(this.maxSteps,((long)cluster.numRegions * (long)this.stepsPerRegion * (long)cluster.numServers));
   long step;
   for (step=0; step < computedMaxSteps; step++) {
-    int pickerIdx=RANDOM.nextInt(pickers.length);
-    RegionPicker p=pickers[pickerIdx];
-    Pair<Pair<Integer,Integer>,Pair<Integer,Integer>> picks=p.pick(cluster);
-    int leftServer=picks.getFirst().getFirst();
-    int leftRegion=picks.getFirst().getSecond();
-    int rightServer=picks.getSecond().getFirst();
-    int rightRegion=picks.getSecond().getSecond();
-    if (rightServer < 0 || leftServer < 0) {
+    int generatorIdx=RANDOM.nextInt(candidateGenerators.length);
+    CandidateGenerator p=candidateGenerators[generatorIdx];
+    Cluster.Action action=p.generate(cluster);
+    if (action.type == Type.NULL) {
       continue;
     }
-    if (leftRegion < 0 && rightRegion < 0) {
-      continue;
-    }
-    cluster.moveOrSwapRegion(leftServer,rightServer,leftRegion,rightRegion);
+    cluster.doAction(action);
+    updateCostsWithAction(cluster,action);
     newCost=computeCost(cluster,currentCost);
     if (newCost < currentCost) {
       currentCost=newCost;
     }
  else {
-      cluster.moveOrSwapRegion(leftServer,rightServer,rightRegion,leftRegion);
+      Action undoAction=action.undoAction();
+      cluster.doAction(undoAction);
+      updateCostsWithAction(cluster,undoAction);
     }
     if (EnvironmentEdgeManager.currentTimeMillis() - startTime > maxRunningTime) {
       break;

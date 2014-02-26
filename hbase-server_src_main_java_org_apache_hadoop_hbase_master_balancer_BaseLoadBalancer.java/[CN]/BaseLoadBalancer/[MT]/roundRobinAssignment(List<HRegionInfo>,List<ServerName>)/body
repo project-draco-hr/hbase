@@ -23,17 +23,67 @@
       numServers=0;
     }
   }
+  Cluster cluster=createCluster(servers,regions,backupMasters,tablesOnMaster);
+  List<HRegionInfo> unassignedRegions=new ArrayList<HRegionInfo>();
   int total=regions.size();
   int numRegions=total * numBackupMasters / (numServers * backupMasterWeight + numBackupMasters);
   if (numRegions > 0) {
-    roundRobinAssignment(regions,0,numRegions,backupMasters,masterRegions,assignments);
+    roundRobinAssignment(cluster,regions,unassignedRegions,0,numRegions,backupMasters,masterRegions,assignments);
   }
   int remainder=total - numRegions;
   if (remainder > 0) {
-    roundRobinAssignment(regions,numRegions,remainder,servers,masterRegions,assignments);
+    roundRobinAssignment(cluster,regions,unassignedRegions,numRegions,remainder,servers,masterRegions,assignments);
   }
   if (masterRegions != null && !masterRegions.isEmpty()) {
     assignments.put(masterServerName,masterRegions);
+    for (    HRegionInfo r : masterRegions) {
+      cluster.doAssignRegion(r,masterServerName);
+    }
+  }
+  List<HRegionInfo> lastFewRegions=new ArrayList<HRegionInfo>();
+  int serverIdx=RANDOM.nextInt(numServers);
+  for (  HRegionInfo region : unassignedRegions) {
+    for (int j=0; j < numServers; j++) {
+      ServerName serverName=servers.get((j + serverIdx) % numServers);
+      if (serverName.equals(masterServerName)) {
+        continue;
+      }
+      if (!cluster.wouldLowerAvailability(region,serverName)) {
+        List<HRegionInfo> serverRegions=assignments.get(serverName);
+        if (serverRegions == null) {
+          serverRegions=new ArrayList<HRegionInfo>();
+          assignments.put(serverName,serverRegions);
+        }
+        serverRegions.add(region);
+        cluster.doAssignRegion(region,serverName);
+        serverIdx=(j + serverIdx + 1) % numServers;
+        break;
+      }
+ else {
+        lastFewRegions.add(region);
+      }
+    }
+  }
+  for (  HRegionInfo region : lastFewRegions) {
+    ServerName server=null;
+    if (numServers == 0) {
+      int i=RANDOM.nextInt(backupMasters.size());
+      server=backupMasters.get(i);
+    }
+ else {
+      do {
+        int i=RANDOM.nextInt(numServers);
+        server=servers.get(i);
+      }
+ while (numServers > 1 && server.equals(masterServerName));
+    }
+    List<HRegionInfo> serverRegions=assignments.get(server);
+    if (serverRegions == null) {
+      serverRegions=new ArrayList<HRegionInfo>();
+      assignments.put(server,serverRegions);
+    }
+    serverRegions.add(region);
+    cluster.doAssignRegion(region,server);
   }
   return assignments;
 }

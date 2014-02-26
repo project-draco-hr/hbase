@@ -1,0 +1,41 @@
+{
+  int serverIndex=pickRandomServer(cluster);
+  if (cluster.numServers <= 1 || serverIndex == -1) {
+    return Cluster.NullAction;
+  }
+  int currentPrimary=-1;
+  int currentPrimaryIndex=-1;
+  int primaryIndex=-1;
+  double currentLargestRandom=-1;
+  for (int j=0; j <= cluster.primariesOfRegionsPerServer[serverIndex].length; j++) {
+    int primary=j < cluster.primariesOfRegionsPerServer[serverIndex].length ? cluster.primariesOfRegionsPerServer[serverIndex][j] : -1;
+    if (primary != currentPrimary) {
+      int numReplicas=j - currentPrimaryIndex;
+      if (numReplicas > 1) {
+        double currentRandom=RANDOM.nextDouble();
+        if (currentRandom > currentLargestRandom) {
+          primaryIndex=currentPrimary;
+          currentLargestRandom=currentRandom;
+        }
+      }
+      currentPrimary=primary;
+      currentPrimaryIndex=j;
+    }
+  }
+  if (primaryIndex == -1) {
+    return randomGenerator.generate(cluster);
+  }
+  int regionIndex=-1;
+  for (int k=0; k < cluster.regionsPerServer[serverIndex].length; k++) {
+    int region=cluster.regionsPerServer[serverIndex][k];
+    if (primaryIndex == cluster.regionIndexToPrimaryIndex[region]) {
+      if (!RegionReplicaUtil.isDefaultReplica(cluster.regions[region])) {
+        regionIndex=region;
+        break;
+      }
+    }
+  }
+  int toServerIndex=pickOtherRandomServer(cluster,serverIndex);
+  int toRegionIndex=pickRandomRegion(cluster,toServerIndex,0.9f);
+  return getAction(serverIndex,regionIndex,toServerIndex,toRegionIndex);
+}

@@ -32,6 +32,7 @@
   boolean masterIncluded=servers.contains(masterServerName);
   int numRandomAssignments=0;
   int numRetainedAssigments=0;
+  Cluster cluster=createCluster(servers,regions.keySet(),backupMasters,tablesOnMaster);
   for (  Map.Entry<HRegionInfo,ServerName> entry : regions.entrySet()) {
     HRegionInfo region=entry.getKey();
     ServerName oldServerName=entry.getValue();
@@ -49,28 +50,35 @@
       }
     }
  else     if (localServers.isEmpty()) {
-      ServerName randomServer=randomAssignment(region,servers,backupMasters);
+      ServerName randomServer=randomAssignment(cluster,region,servers,backupMasters);
       assignments.get(randomServer).add(region);
       numRandomAssignments++;
       if (oldServerName != null)       oldHostsNoLongerPresent.add(oldServerName.getHostname());
     }
  else     if (localServers.size() == 1) {
-      assignments.get(localServers.get(0)).add(region);
+      ServerName target=localServers.get(0);
+      assignments.get(target).add(region);
+      cluster.doAssignRegion(region,target);
       numRetainedAssigments++;
     }
  else {
-      ServerName target=null;
-      for (      ServerName tmp : localServers) {
-        if (tmp.getPort() == oldServerName.getPort()) {
-          target=tmp;
-          break;
+      if (localServers.contains(oldServerName)) {
+        assignments.get(oldServerName).add(region);
+        cluster.doAssignRegion(region,oldServerName);
+      }
+ else {
+        ServerName target=null;
+        for (        ServerName tmp : localServers) {
+          if (tmp.getPort() == oldServerName.getPort()) {
+            target=tmp;
+            break;
+          }
         }
+        if (target == null) {
+          target=randomAssignment(cluster,region,localServers,backupMasters);
+        }
+        assignments.get(target).add(region);
       }
-      if (target == null) {
-        int size=localServers.size();
-        target=localServers.get(RANDOM.nextInt(size));
-      }
-      assignments.get(target).add(region);
       numRetainedAssigments++;
     }
   }
