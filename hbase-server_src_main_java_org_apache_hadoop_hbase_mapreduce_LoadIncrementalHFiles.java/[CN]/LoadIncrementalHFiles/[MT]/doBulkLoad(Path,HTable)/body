@@ -35,17 +35,7 @@
     }
     if (userProvider.isHBaseSecurityEnabled()) {
       FileSystem fs=FileSystem.get(getConf());
-      if (userProvider.isHadoopSecurityEnabled()) {
-        userToken=userProvider.getCurrent().getToken("HDFS_DELEGATION_TOKEN",fs.getCanonicalServiceName());
-        if (userToken == null) {
-          hasForwardedToken=false;
-          userToken=fs.getDelegationToken("renewer");
-        }
- else {
-          hasForwardedToken=true;
-          LOG.info("Use the existing token: " + userToken);
-        }
-      }
+      fsDelegationToken.acquireDelegationToken(fs);
       bulkToken=new SecureBulkLoadClient(table).prepareBulkLoad(table.getName());
     }
     while (!queue.isEmpty()) {
@@ -68,14 +58,7 @@
   }
   finally {
     if (userProvider.isHBaseSecurityEnabled()) {
-      if (userToken != null && !hasForwardedToken) {
-        try {
-          userToken.cancel(getConf());
-        }
- catch (        Exception e) {
-          LOG.warn("Failed to cancel HDFS delegation token.",e);
-        }
-      }
+      fsDelegationToken.releaseDelegationToken();
       if (bulkToken != null) {
         new SecureBulkLoadClient(table).cleanupBulkLoad(bulkToken);
       }
