@@ -6,7 +6,7 @@
   String filesUser=null;
   Path outputRoot=null;
   int filesMode=0;
-  int mappers=getConf().getInt("mapreduce.job.maps",1);
+  int mappers=0;
   for (int i=0; i < args.length; i++) {
     String cmd=args[i];
     try {
@@ -73,41 +73,46 @@
       return 1;
     }
   }
-  if (!overwrite && outputFs.exists(snapshotTmpDir)) {
-    System.err.println("A snapshot with the same name '" + snapshotName + "' may be in-progress");
-    System.err.println("Please check " + snapshotTmpDir + ". If the snapshot has completed, ");
-    System.err.println("consider removing " + snapshotTmpDir + " before retrying export");
-    return 1;
+  if (outputFs.exists(snapshotTmpDir)) {
+    if (overwrite) {
+      if (!outputFs.delete(snapshotTmpDir,true)) {
+        System.err.println("Unable to remove existing snapshot tmp directory: " + snapshotTmpDir);
+        return 1;
+      }
+    }
+ else {
+      System.err.println("A snapshot with the same name '" + snapshotName + "' may be in-progress");
+      System.err.println("Please check " + snapshotTmpDir + ". If the snapshot has completed, ");
+      System.err.println("consider removing " + snapshotTmpDir + " before retrying export");
+      return 1;
+    }
   }
   final List<Pair<Path,Long>> files=getSnapshotFiles(inputFs,snapshotDir);
+  if (mappers == 0 && files.size() > 0) {
+    mappers=1 + (files.size() / conf.getInt(CONF_MAP_GROUP,10));
+    mappers=Math.min(mappers,files.size());
+  }
   try {
-    FileUtil.copy(inputFs,snapshotDir,outputFs,snapshotTmpDir,false,overwrite,conf);
+    FileUtil.copy(inputFs,snapshotDir,outputFs,snapshotTmpDir,false,false,conf);
   }
  catch (  IOException e) {
-    System.err.println("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ snapshotTmpDir);
-    e.printStackTrace(System.err);
-    return 1;
+    throw new ExportSnapshotException("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ snapshotTmpDir);
   }
   try {
     if (files.size() == 0) {
       LOG.warn("There are 0 store file to be copied. There may be no data in the table.");
     }
  else {
-      if (!runCopyJob(inputFs,inputRoot,outputFs,outputRoot,files,verifyChecksum,filesUser,filesGroup,filesMode,mappers)) {
-        throw new ExportSnapshotException("Snapshot export failed!");
-      }
+      runCopyJob(inputFs,inputRoot,outputFs,outputRoot,files,verifyChecksum,filesUser,filesGroup,filesMode,mappers);
     }
     if (!outputFs.rename(snapshotTmpDir,outputSnapshotDir)) {
-      System.err.println("Snapshot export failed!");
-      System.err.println("Unable to rename snapshot directory from=" + snapshotTmpDir + " to="+ outputSnapshotDir);
-      return 1;
+      throw new ExportSnapshotException("Unable to rename snapshot directory from=" + snapshotTmpDir + " to="+ outputSnapshotDir);
     }
     return 0;
   }
  catch (  Exception e) {
     LOG.error("Snapshot export failed",e);
-    System.err.println("Snapshot export failed!");
-    e.printStackTrace(System.err);
+    outputFs.delete(snapshotTmpDir,true);
     outputFs.delete(outputSnapshotDir,true);
     return 1;
   }

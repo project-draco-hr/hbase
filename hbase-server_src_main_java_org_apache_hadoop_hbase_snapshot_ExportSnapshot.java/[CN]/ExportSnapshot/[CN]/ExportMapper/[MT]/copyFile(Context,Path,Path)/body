@@ -1,23 +1,15 @@
 {
   injectTestFailure(context,inputPath);
-  FSDataInputStream in=openSourceFile(inputPath);
-  if (in == null) {
-    context.getCounter(Counter.MISSING_FILES).increment(1);
-    throw new FileNotFoundException(inputPath.toString());
+  FileStatus inputStat=getSourceFileStatus(context,inputPath);
+  if (outputFs.exists(outputPath)) {
+    FileStatus outputStat=outputFs.getFileStatus(outputPath);
+    if (outputStat != null && sameFile(inputStat,outputStat)) {
+      LOG.info("Skip copy " + inputPath + " to "+ outputPath+ ", same file.");
+      return;
+    }
   }
+  FSDataInputStream in=openSourceFile(context,inputPath);
   try {
-    FileStatus inputStat=getFileStatus(inputFs,inputPath);
-    if (inputStat == null) {
-      context.getCounter(Counter.MISSING_FILES).increment(1);
-      throw new FileNotFoundException(inputPath.toString());
-    }
-    if (outputFs.exists(outputPath)) {
-      FileStatus outputStat=outputFs.getFileStatus(outputPath);
-      if (sameFile(inputStat,outputStat)) {
-        LOG.info("Skip copy " + inputPath + " to "+ outputPath+ ", same file.");
-        return;
-      }
-    }
     context.getCounter(Counter.BYTES_EXPECTED).increment(inputStat.getLen());
     outputFs.mkdirs(outputPath.getParent());
     FSDataOutputStream out=outputFs.create(outputPath,true);
@@ -27,7 +19,9 @@
   finally {
       out.close();
     }
-    preserveAttributes(outputPath,inputStat);
+    if (!preserveAttributes(outputPath,inputStat)) {
+      LOG.warn("You may have to run manually chown on: " + outputPath);
+    }
   }
   finally {
     in.close();

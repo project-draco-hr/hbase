@@ -1,26 +1,31 @@
 {
-  final String statusMessage="copied %s/" + StringUtils.humanReadableInt(inputFileSize) + " (%.3f%%)";
+  final String statusMessage="copied %s/" + StringUtils.humanReadableInt(inputFileSize) + " (%.1f%%)";
   try {
-    byte[] buffer=new byte[BUFFER_SIZE];
+    byte[] buffer=new byte[bufferSize];
     long totalBytesWritten=0;
     int reportBytes=0;
     int bytesRead;
+    long stime=System.currentTimeMillis();
     while ((bytesRead=in.read(buffer)) > 0) {
       out.write(buffer,0,bytesRead);
       totalBytesWritten+=bytesRead;
       reportBytes+=bytesRead;
       if (reportBytes >= REPORT_SIZE) {
         context.getCounter(Counter.BYTES_COPIED).increment(reportBytes);
-        context.setStatus(String.format(statusMessage,StringUtils.humanReadableInt(totalBytesWritten),totalBytesWritten / (float)inputFileSize) + " from " + inputPath+ " to "+ outputPath);
+        context.setStatus(String.format(statusMessage,StringUtils.humanReadableInt(totalBytesWritten),(totalBytesWritten / (float)inputFileSize) * 100.0f) + " from " + inputPath+ " to "+ outputPath);
         reportBytes=0;
       }
     }
+    long etime=System.currentTimeMillis();
     context.getCounter(Counter.BYTES_COPIED).increment(reportBytes);
-    context.setStatus(String.format(statusMessage,StringUtils.humanReadableInt(totalBytesWritten),totalBytesWritten / (float)inputFileSize) + " from " + inputPath+ " to "+ outputPath);
+    context.setStatus(String.format(statusMessage,StringUtils.humanReadableInt(totalBytesWritten),(totalBytesWritten / (float)inputFileSize) * 100.0f) + " from " + inputPath+ " to "+ outputPath);
     if (totalBytesWritten != inputFileSize) {
       String msg="number of bytes copied not matching copied=" + totalBytesWritten + " expected="+ inputFileSize+ " for file="+ inputPath;
       throw new IOException(msg);
     }
+    LOG.info("copy completed for input=" + inputPath + " output="+ outputPath);
+    LOG.info("size=" + totalBytesWritten + " ("+ StringUtils.humanReadableInt(totalBytesWritten)+ ")"+ " time="+ StringUtils.formatTimeDiff(etime,stime)+ String.format(" %.3fM/sec",(totalBytesWritten / ((etime - stime) / 1000.0)) / 1048576.0));
+    context.getCounter(Counter.FILES_COPIED).increment(1);
   }
  catch (  IOException e) {
     LOG.error("Error copying " + inputPath + " to "+ outputPath,e);
