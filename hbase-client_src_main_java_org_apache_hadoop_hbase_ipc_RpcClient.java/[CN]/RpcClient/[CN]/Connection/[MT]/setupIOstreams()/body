@@ -1,6 +1,9 @@
 {
-  if (socket != null || shouldCloseConnection.get()) {
+  if (socket != null) {
     return;
+  }
+  if (shouldCloseConnection.get()) {
+    throw new IOException("This connection is closing");
   }
   if (failedServers.isFailedServer(remoteId.getAddress())) {
     if (LOG.isDebugEnabled()) {
@@ -43,6 +46,7 @@
 );
         }
  catch (        Exception ex) {
+          ExceptionUtil.rethrowIfInterrupt(ex);
           if (rand == null) {
             rand=new Random();
           }
@@ -66,13 +70,15 @@
     }
   }
  catch (  Throwable t) {
-    failedServers.addToFailedServers(remoteId.address);
-    IOException e;
-    if (t instanceof IOException) {
-      e=(IOException)t;
-    }
+    IOException e=ExceptionUtil.asInterrupt(t);
+    if (e == null) {
+      failedServers.addToFailedServers(remoteId.address);
+      if (t instanceof IOException) {
+        e=(IOException)t;
+      }
  else {
-      e=new IOException("Could not set up IO Streams",t);
+        e=new IOException("Could not set up IO Streams to " + server,t);
+      }
     }
     markClosed(e);
     close();
