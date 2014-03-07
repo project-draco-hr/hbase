@@ -1,21 +1,26 @@
 {
   boolean hasWait=cutoff != Long.MAX_VALUE;
-  long lastLog=hasWait ? 0 : EnvironmentEdgeManager.currentTimeMillis();
+  long lastLog=EnvironmentEdgeManager.currentTimeMillis();
   long currentInProgress;
   while (0 != (currentInProgress=actionsInProgress.get())) {
-    long now=0;
-    if (hasWait && (now=EnvironmentEdgeManager.currentTimeMillis()) > cutoff) {
+    long now=EnvironmentEdgeManager.currentTimeMillis();
+    if (hasWait && (now * 1000L) > cutoff) {
       return false;
     }
     if (!hasWait) {
-      now=EnvironmentEdgeManager.currentTimeMillis();
       if (now > lastLog + 10000) {
         lastLog=now;
         LOG.info("#" + id + ", waiting for "+ currentInProgress+ "  actions to finish");
       }
+    }
 synchronized (actionsInProgress) {
-        if (actionsInProgress.get() == 0)         break;
-        actionsInProgress.wait(Math.min(100,hasWait ? (cutoff - now) : Long.MAX_VALUE));
+      if (actionsInProgress.get() == 0)       break;
+      if (!hasWait) {
+        actionsInProgress.wait(100);
+      }
+ else {
+        long waitMicroSecond=Math.min(100000L,(cutoff - now * 1000L));
+        TimeUnit.MICROSECONDS.timedWait(actionsInProgress,waitMicroSecond);
       }
     }
   }

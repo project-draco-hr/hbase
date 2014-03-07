@@ -1,20 +1,27 @@
 {
-  RegionServerCallable<Result> callable=new RegionServerCallable<Result>(this.connection,getName(),get.getRow()){
-    @Override public Result call(    int callTimeout) throws IOException {
-      ClientProtos.GetRequest request=RequestConverter.buildGetRequest(getLocation().getRegionInfo().getRegionName(),get);
-      PayloadCarryingRpcController controller=rpcControllerFactory.newController();
-      controller.setPriority(tableName);
-      controller.setCallTimeout(callTimeout);
-      try {
-        ClientProtos.GetResponse response=getStub().get(controller,request);
-        if (response == null)         return null;
-        return ProtobufUtil.toResult(response.getResult());
-      }
- catch (      ServiceException se) {
-        throw ProtobufUtil.getRemoteException(se);
+  if (get.getConsistency() == null) {
+    get.setConsistency(defaultConsistency);
+  }
+  if (get.getConsistency() == Consistency.STRONG) {
+    RegionServerCallable<Result> callable=new RegionServerCallable<Result>(this.connection,getName(),get.getRow()){
+      @Override public Result call(      int callTimeout) throws IOException {
+        ClientProtos.GetRequest request=RequestConverter.buildGetRequest(getLocation().getRegionInfo().getRegionName(),get);
+        PayloadCarryingRpcController controller=rpcControllerFactory.newController();
+        controller.setPriority(tableName);
+        controller.setCallTimeout(callTimeout);
+        try {
+          ClientProtos.GetResponse response=getStub().get(controller,request);
+          if (response == null)           return null;
+          return ProtobufUtil.toResult(response.getResult());
+        }
+ catch (        ServiceException se) {
+          throw ProtobufUtil.getRemoteException(se);
+        }
       }
     }
-  }
 ;
-  return rpcCallerFactory.<Result>newCaller().callWithRetries(callable,this.operationTimeout);
+    return rpcCallerFactory.<Result>newCaller().callWithRetries(callable,this.operationTimeout);
+  }
+  RpcRetryingCallerWithReadReplicas callable=new RpcRetryingCallerWithReadReplicas(rpcControllerFactory,tableName,this.connection,get,pool,retries,operationTimeout,primaryCallTimeoutMicroSecond);
+  return callable.call();
 }
