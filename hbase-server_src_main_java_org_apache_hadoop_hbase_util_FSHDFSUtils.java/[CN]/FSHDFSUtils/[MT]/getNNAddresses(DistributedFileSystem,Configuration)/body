@@ -1,0 +1,31 @@
+{
+  Set<InetSocketAddress> addresses=new HashSet<InetSocketAddress>();
+  String serviceName=fs.getCanonicalServiceName();
+  if (serviceName.startsWith("ha-hdfs")) {
+    try {
+      if (dfsUtilClazz == null) {
+        dfsUtilClazz=Class.forName("org.apache.hadoop.hdfs.DFSUtil");
+      }
+      if (getNNAddressesMethod == null) {
+        getNNAddressesMethod=dfsUtilClazz.getMethod("getNNServiceRpcAddresses",Configuration.class);
+      }
+      Map<String,Map<String,InetSocketAddress>> addressMap=(Map<String,Map<String,InetSocketAddress>>)getNNAddressesMethod.invoke(null,conf);
+      for (      Map.Entry<String,Map<String,InetSocketAddress>> entry : addressMap.entrySet()) {
+        Map<String,InetSocketAddress> nnMap=entry.getValue();
+        for (        Map.Entry<String,InetSocketAddress> e2 : nnMap.entrySet()) {
+          InetSocketAddress addr=e2.getValue();
+          addresses.add(addr);
+        }
+      }
+    }
+ catch (    Exception e) {
+      LOG.warn("DFSUtil.getNNServiceRpcAddresses failed. serviceName=" + serviceName,e);
+    }
+  }
+ else {
+    URI uri=fs.getUri();
+    InetSocketAddress addr=new InetSocketAddress(uri.getHost(),uri.getPort());
+    addresses.add(addr);
+  }
+  return addresses;
+}
