@@ -1,35 +1,44 @@
 {
   LOG.info(String.format("Performing action: Rolling batch restarting %d%% of region servers",(int)(ratio * 100)));
-  List<ServerName> selectedServers=PolicyBasedChaosMonkey.selectRandomItems(getCurrentServers(),ratio);
+  List<ServerName> selectedServers=selectServers();
   Queue<ServerName> serversToBeKilled=new LinkedList<ServerName>(selectedServers);
   Queue<ServerName> deadServers=new LinkedList<ServerName>();
   while (!serversToBeKilled.isEmpty() || !deadServers.isEmpty()) {
-    boolean action=true;
-    if (serversToBeKilled.isEmpty() || deadServers.isEmpty()) {
-      action=deadServers.isEmpty();
+    KillOrStart action=KillOrStart.KILL;
+    if (serversToBeKilled.isEmpty()) {
+      action=KillOrStart.START;
+    }
+ else     if (deadServers.isEmpty()) {
+      action=KillOrStart.KILL;
+    }
+ else     if (deadServers.size() >= maxDeadServers) {
+      action=KillOrStart.START;
     }
  else {
-      action=RandomUtils.nextBoolean();
+      action=RandomUtils.nextBoolean() ? KillOrStart.KILL : KillOrStart.START;
     }
-    if (action) {
-      ServerName server=serversToBeKilled.remove();
-      try {
-        killRs(server);
-      }
- catch (      org.apache.hadoop.util.Shell.ExitCodeException e) {
-        LOG.info("Problem killing but presume successful; code=" + e.getExitCode(),e);
-      }
-      deadServers.add(server);
+    ServerName server;
+switch (action) {
+case KILL:
+      server=serversToBeKilled.remove();
+    try {
+      killRs(server);
     }
- else {
-      try {
-        ServerName server=deadServers.remove();
-        startRs(server);
-      }
- catch (      org.apache.hadoop.util.Shell.ExitCodeException e) {
-        LOG.info("Problem starting, will retry; code=" + e.getExitCode(),e);
-      }
+ catch (    org.apache.hadoop.util.Shell.ExitCodeException e) {
+      LOG.info("Problem killing but presume successful; code=" + e.getExitCode(),e);
     }
-    sleep(RandomUtils.nextInt((int)sleepTime));
-  }
+  deadServers.add(server);
+break;
+case START:
+try {
+server=deadServers.remove();
+startRs(server);
+}
+ catch (org.apache.hadoop.util.Shell.ExitCodeException e) {
+LOG.info("Problem starting, will retry; code=" + e.getExitCode(),e);
+}
+break;
+}
+sleep(RandomUtils.nextInt((int)sleepTime));
+}
 }

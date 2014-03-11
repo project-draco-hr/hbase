@@ -1,0 +1,56 @@
+{
+  LOG.info("Cluster size:" + util.getHBaseClusterInterface().getClusterStatus().getServersSize());
+  long start=System.currentTimeMillis();
+  String runtimeKey=String.format(RUN_TIME_KEY,this.getClass().getSimpleName());
+  long runtime=util.getConfiguration().getLong(runtimeKey,defaultRunTime);
+  long startKey=0;
+  long numKeys=getNumKeys(keysPerServerPerIter);
+  LOG.info("Writing some data to the table");
+  writeData(colsPerKey,recordSize,writeThreads,startKey,numKeys);
+  LOG.info("Flushing the table");
+  HBaseAdmin admin=util.getHBaseAdmin();
+  admin.flush(getTablename());
+  long refreshTime=conf.getLong(StorefileRefresherChore.REGIONSERVER_STOREFILE_REFRESH_PERIOD,0);
+  if (refreshTime > 0 && refreshTime <= 10000) {
+    LOG.info("Sleeping " + refreshTime + "ms to ensure that the data is replicated");
+    Threads.sleep(refreshTime);
+  }
+ else {
+    LOG.info("Reopening the table");
+    admin.disableTable(getTablename());
+    admin.enableTable(getTablename());
+  }
+  long chaosMonkeyDelay=conf.getLong(String.format("%s.%s",TEST_NAME,CHAOS_MONKEY_DELAY_KEY),DEFAUL_CHAOS_MONKEY_DELAY);
+  ScheduledExecutorService executorService=Executors.newSingleThreadScheduledExecutor();
+  LOG.info(String.format("ChaosMonkey delay is : %d seconds. Will start %s " + "ChaosMonkey after delay",chaosMonkeyDelay / 1000,monkeyToUse));
+  ScheduledFuture<?> result=executorService.schedule(new Runnable(){
+    @Override public void run(){
+      try {
+        LOG.info("Starting ChaosMonkey");
+        monkey.start();
+        monkey.waitForStop();
+      }
+ catch (      Exception e) {
+        LOG.warn(StringUtils.stringifyException(e));
+      }
+    }
+  }
+,chaosMonkeyDelay,TimeUnit.MILLISECONDS);
+  long remainingTime=runtime - (System.currentTimeMillis() - start);
+  LOG.info("Reading random keys from the table for " + remainingTime / 60000 + " min");
+  this.conf.setLong(String.format(RUN_TIME_KEY,TimeBoundedMultiThreadedReader.class.getSimpleName()),remainingTime);
+  try {
+    int ret=loadTool.run(getArgsForLoadTestTool("-read",String.format("100:%d",readThreads),startKey,numKeys));
+    if (0 != ret) {
+      String errorMsg="Verification failed with error code " + ret;
+      LOG.error(errorMsg);
+      Assert.fail(errorMsg);
+    }
+  }
+  finally {
+    if (result != null)     result.cancel(false);
+    monkey.stop("Stopping the test");
+    monkey.waitForStop();
+    executorService.shutdown();
+  }
+}

@@ -1,0 +1,32 @@
+{
+  LOG.info("Running ingest");
+  LOG.info("Cluster size:" + util.getHBaseClusterInterface().getClusterStatus().getServersSize());
+  long start=System.currentTimeMillis();
+  String runtimeKey=String.format(RUN_TIME_KEY,this.getClass().getSimpleName());
+  long runtime=util.getConfiguration().getLong(runtimeKey,defaultRunTime);
+  long startKey=0;
+  long numKeys=getNumKeys(keysPerServerPerIter);
+  while (System.currentTimeMillis() - start < 0.9 * runtime) {
+    LOG.info("Intended run time: " + (runtime / 60000) + " min, left:"+ ((runtime - (System.currentTimeMillis() - start)) / 60000)+ " min");
+    int ret=-1;
+    ret=loadTool.run(getArgsForLoadTestTool("-write",String.format("%d:%d:%d",colsPerKey,recordSize,writeThreads),startKey,numKeys));
+    if (0 != ret) {
+      String errorMsg="Load failed with error code " + ret;
+      LOG.error(errorMsg);
+      Assert.fail(errorMsg);
+    }
+    ret=loadTool.run(getArgsForLoadTestTool("-update",String.format("60:%d:1",writeThreads),startKey,numKeys));
+    if (0 != ret) {
+      String errorMsg="Update failed with error code " + ret;
+      LOG.error(errorMsg);
+      Assert.fail(errorMsg);
+    }
+    ret=loadTool.run(getArgsForLoadTestTool("-read",String.format("100:%d",readThreads),startKey,numKeys));
+    if (0 != ret) {
+      String errorMsg="Verification failed with error code " + ret;
+      LOG.error(errorMsg);
+      Assert.fail(errorMsg);
+    }
+    startKey+=numKeys;
+  }
+}
