@@ -1,0 +1,47 @@
+{
+  Pair<List<byte[]>,List<HRegionLocation>> keysAndRegions=getKeysAndRegionsInRange(startKey,endKey,true);
+  List<byte[]> keys=keysAndRegions.getFirst();
+  List<HRegionLocation> regions=keysAndRegions.getSecond();
+  if (keys.isEmpty()) {
+    LOG.info("No regions were selected by key range start=" + Bytes.toStringBinary(startKey) + ", end="+ Bytes.toStringBinary(endKey));
+    return;
+  }
+  List<RegionCoprocessorServiceExec> execs=new ArrayList<RegionCoprocessorServiceExec>();
+  final Map<byte[],RegionCoprocessorServiceExec> execsByRow=new TreeMap<byte[],RegionCoprocessorServiceExec>(Bytes.BYTES_COMPARATOR);
+  for (int i=0; i < keys.size(); i++) {
+    final byte[] rowKey=keys.get(i);
+    final byte[] region=regions.get(i).getRegionInfo().getRegionName();
+    RegionCoprocessorServiceExec exec=new RegionCoprocessorServiceExec(region,rowKey,methodDescriptor,request);
+    execs.add(exec);
+    execsByRow.put(rowKey,exec);
+  }
+  final List<Throwable> callbackErrorExceptions=new ArrayList<Throwable>();
+  final List<Row> callbackErrorActions=new ArrayList<Row>();
+  final List<String> callbackErrorServers=new ArrayList<String>();
+  Object[] results=new Object[execs.size()];
+  AsyncProcess asyncProcess=new AsyncProcess(connection,configuration,pool,RpcRetryingCallerFactory.instantiate(configuration),true);
+  AsyncRequestFuture future=asyncProcess.submitAll(tableName,execs,new Callback<ClientProtos.CoprocessorServiceResult>(){
+    @Override public void update(    byte[] region,    byte[] row,    ClientProtos.CoprocessorServiceResult serviceResult){
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Received result for endpoint " + methodDescriptor.getFullName() + ": region="+ Bytes.toStringBinary(region)+ ", row="+ Bytes.toStringBinary(row)+ ", value="+ serviceResult.getValue().getValue());
+      }
+      try {
+        callback.update(region,row,(R)responsePrototype.newBuilderForType().mergeFrom(serviceResult.getValue().getValue()).build());
+      }
+ catch (      InvalidProtocolBufferException e) {
+        LOG.error("Unexpected response type from endpoint " + methodDescriptor.getFullName(),e);
+        callbackErrorExceptions.add(e);
+        callbackErrorActions.add(execsByRow.get(row));
+        callbackErrorServers.add("null");
+      }
+    }
+  }
+,results);
+  future.waitUntilDone();
+  if (future.hasError()) {
+    throw future.getErrors();
+  }
+ else   if (!callbackErrorExceptions.isEmpty()) {
+    throw new RetriesExhaustedWithDetailsException(callbackErrorExceptions,callbackErrorActions,callbackErrorServers);
+  }
+}

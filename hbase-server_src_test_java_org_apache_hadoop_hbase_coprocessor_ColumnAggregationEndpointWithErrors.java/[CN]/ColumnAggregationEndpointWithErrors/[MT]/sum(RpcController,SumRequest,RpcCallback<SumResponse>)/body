@@ -1,0 +1,50 @@
+{
+  Scan scan=new Scan();
+  byte[] family=request.getFamily().toByteArray();
+  byte[] qualifier=request.hasQualifier() ? request.getQualifier().toByteArray() : null;
+  if (request.hasQualifier()) {
+    scan.addColumn(family,qualifier);
+  }
+ else {
+    scan.addFamily(family);
+  }
+  int sumResult=0;
+  InternalScanner scanner=null;
+  try {
+    HRegion region=this.env.getRegion();
+    if (Bytes.equals(region.getEndKey(),HConstants.EMPTY_END_ROW)) {
+      throw new DoNotRetryIOException("An expected exception");
+    }
+    scanner=region.getScanner(scan);
+    List<Cell> curVals=new ArrayList<Cell>();
+    boolean hasMore=false;
+    do {
+      curVals.clear();
+      hasMore=scanner.next(curVals);
+      for (      Cell kv : curVals) {
+        if (CellUtil.matchingQualifier(kv,qualifier)) {
+          sumResult+=Bytes.toInt(kv.getValueArray(),kv.getValueOffset());
+        }
+      }
+    }
+ while (hasMore);
+  }
+ catch (  IOException e) {
+    ResponseConverter.setControllerException(controller,e);
+    sumResult=-1;
+    LOG.info("Setting sum result to -1 to indicate error",e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException e) {
+        ResponseConverter.setControllerException(controller,e);
+        sumResult=-1;
+        LOG.info("Setting sum result to -1 to indicate error",e);
+      }
+    }
+  }
+  done.run(SumResponse.newBuilder().setSum(sumResult).build());
+}
