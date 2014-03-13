@@ -4,18 +4,29 @@
   }
   startTimeMs=System.currentTimeMillis();
   curKey=startKey;
+  long[] keysForThisReader=new long[batchSize];
+  int readingRandomKeyStartIndex=-1;
   while (curKey < endKey && !aborted) {
-    long k=getNextKeyToRead();
-    if (k < startKey || k >= endKey) {
-      numReadErrors.incrementAndGet();
-      throw new AssertionError("Load tester logic error: proposed key " + "to read " + k + " is out of range (startKey="+ startKey+ ", endKey="+ endKey+ ")");
+    int numKeys=0;
+    do {
+      long k=getNextKeyToRead();
+      if (k < startKey || k >= endKey) {
+        numReadErrors.incrementAndGet();
+        throw new AssertionError("Load tester logic error: proposed key " + "to read " + k + " is out of range (startKey="+ startKey+ ", endKey="+ endKey+ ")");
+      }
+      if (k % numThreads != readerId || writer != null && writer.failedToWriteKey(k)) {
+        continue;
+      }
+      keysForThisReader[numKeys]=k;
+      if (readingRandomKey && readingRandomKeyStartIndex == -1) {
+        readingRandomKeyStartIndex=numKeys;
+      }
+      numKeys++;
     }
-    if (k % numThreads != readerId || writer != null && writer.failedToWriteKey(k)) {
-      continue;
-    }
-    readKey(k);
-    if (k == curKey - 1 && !readingRandomKey) {
-      numUniqueKeysVerified.incrementAndGet();
+ while (numKeys < batchSize);
+    if (numKeys > 1) {
+      readKey(keysForThisReader);
+      numUniqueKeysVerified.getAndAdd(readingRandomKeyStartIndex == -1 ? numKeys : readingRandomKeyStartIndex);
     }
   }
 }
