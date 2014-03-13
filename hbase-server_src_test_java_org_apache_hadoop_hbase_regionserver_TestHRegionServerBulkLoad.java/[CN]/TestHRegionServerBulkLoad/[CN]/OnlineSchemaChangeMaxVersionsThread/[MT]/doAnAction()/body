@@ -1,0 +1,65 @@
+{
+  final long START_TIME=System.currentTimeMillis();
+  final int ONLINE_CHANGE_TIMEOUT=2000000;
+  HTableDescriptor htd=null;
+  try {
+    htd=admin.getTableDescriptor(tableName);
+  }
+ catch (  IOException ioe) {
+    ioe.printStackTrace();
+    fail("Issue pulling table descriptor");
+  }
+  HColumnDescriptor hcd=null;
+  assertTrue(htd != null);
+  final int countOfFamilies=htd.getFamilies().size();
+  assertTrue(countOfFamilies > 0);
+  boolean expectedException=false;
+  int numIterations=0;
+  while (numIterations < totalNumIterations) {
+    htd=admin.getTableDescriptor(tableName);
+    if (System.currentTimeMillis() - START_TIME > ONLINE_CHANGE_TIMEOUT) {
+      fail("Timed out reaching before required modify count. Only had " + numIterations + " updates");
+    }
+    for (    byte[] targetFamily : targetFamilies) {
+      hcd=htd.getFamily(targetFamily);
+      int maxversions=hcd.getMaxVersions();
+      System.out.println("NumIterations is: " + numIterations);
+      System.out.println("DEBUG: Current number of versions for family " + Bytes.toString(targetFamily) + " is "+ maxversions);
+      int newMaxVersions=maxversions + 1;
+      System.out.println("Setting max versions on CF to " + newMaxVersions + " on CF "+ Bytes.toString(targetFamily));
+      hcd.setMaxVersions(newMaxVersions);
+      final byte[] hcdName=hcd.getName();
+      expectedException=false;
+      try {
+        this.admin.modifyColumn(tableName,hcd);
+      }
+ catch (      TableNotDisabledException re) {
+        expectedException=true;
+      }
+catch (      IOException e) {
+        e.printStackTrace();
+        fail("IO Issue while modifying column");
+      }
+      assertFalse(expectedException);
+      HColumnDescriptor modifiedHcd;
+      try {
+        int EXPECTED_NUM_REGIONS=UTIL.getHBaseAdmin().getTableRegions(tableName).size();
+        assertEquals("The max version count was not updated",newMaxVersions,TestAdmin.waitForColumnSchemasToSettle(UTIL.getMiniHBaseCluster(),tableName,EXPECTED_NUM_REGIONS).getMaxVersions());
+        Thread.sleep(2000);
+      }
+ catch (      TableNotFoundException e) {
+        e.printStackTrace();
+        fail("Table not found. Failing.");
+      }
+catch (      IOException e) {
+        e.printStackTrace();
+        fail("IO Issue while modifying column");
+      }
+catch (      InterruptedException e) {
+        System.out.println("WARN: Sleep was interrupted. This is unusual, but not grounds for TF");
+        e.printStackTrace();
+      }
+    }
+    numIterations++;
+  }
+}

@@ -1,0 +1,23 @@
+{
+  final TableName tableName=TableName.valueOf("changeReplicationTable");
+  TEST_UTIL.getMiniHBaseCluster().getMaster().getConfiguration().setBoolean("hbase.online.schema.update.enable",true);
+  HTableDescriptor[] tables=admin.listTables();
+  int numTables=tables.length;
+  TEST_UTIL.createTable(tableName,HConstants.CATALOG_FAMILY).close();
+  tables=this.admin.listTables();
+  assertEquals(numTables + 1,tables.length);
+  final int EXPECTED_NUM_REGIONS=TEST_UTIL.getHBaseAdmin().getTableRegions(tableName).size();
+  HTableDescriptor htd=this.admin.getTableDescriptor(tableName);
+  HColumnDescriptor hcd=new HColumnDescriptor(HConstants.CATALOG_FAMILY);
+  HColumnDescriptor originalHCD=htd.getFamily(HConstants.CATALOG_FAMILY);
+  assertEquals("Replication is enabled by default, which should not be the case",0,hcd.getScope());
+  originalHCD.setScope(1);
+  this.admin.modifyColumn(tableName,originalHCD);
+  HColumnDescriptor[] hcds=this.admin.getTableDescriptor(tableName).getColumnFamilies();
+  assertEquals("Unexpected number of column families returned",1,hcds.length);
+  assertEquals(1,waitForColumnSchemasToSettle(TEST_UTIL.getHBaseCluster(),tableName,EXPECTED_NUM_REGIONS).getScope());
+  this.admin.disableTable(tableName);
+  this.admin.deleteTable(tableName);
+  this.admin.listTables();
+  assertFalse(this.admin.tableExists(tableName));
+}

@@ -6,6 +6,7 @@
   TEST_UTIL.createTable(tableName,HConstants.CATALOG_FAMILY).close();
   tables=this.admin.listTables();
   assertEquals(numTables + 1,tables.length);
+  final int EXPECTED_NUM_REGIONS=TEST_UTIL.getHBaseAdmin().getTableRegions(tableName).size();
   HTableDescriptor htd=this.admin.getTableDescriptor(tableName);
   HTableDescriptor copy=new HTableDescriptor(htd);
   assertTrue(htd.equals(copy));
@@ -47,7 +48,7 @@
   assertFalse(expectedException);
   modifiedHtd=this.admin.getTableDescriptor(tableName);
   HColumnDescriptor modifiedHcd=modifiedHtd.getFamily(hcdName);
-  assertEquals(newMaxVersions,modifiedHcd.getMaxVersions());
+  assertEquals(newMaxVersions,waitForColumnSchemasToSettle(TEST_UTIL.getMiniHBaseCluster(),tableName,EXPECTED_NUM_REGIONS).getMaxVersions());
   assertFalse(this.admin.isTableDisabled(tableName));
   final String xtracolName="xtracol";
   HColumnDescriptor xtracol=new HColumnDescriptor(xtracolName);
@@ -68,6 +69,30 @@
   modifiedHtd=this.admin.getTableDescriptor(tableName);
   hcd=modifiedHtd.getFamily(xtracol.getName());
   assertTrue(hcd == null);
+  countOfFamilies=modifiedHtd.getFamilies().size();
+  assertTrue(countOfFamilies > 0);
+  hcd=modifiedHtd.getFamilies().iterator().next();
+  BloomType initialBT=hcd.getBloomFilterType();
+  BloomType newBloomType=null;
+  BloomType[] possibleBloomFilters=BloomType.values();
+  for (  BloomType type : possibleBloomFilters) {
+    if (initialBT == null || !initialBT.equals(type)) {
+      newBloomType=type;
+      break;
+    }
+  }
+  hcd.setBloomFilterType(newBloomType);
+  expectedException=false;
+  try {
+    this.admin.modifyColumn(tableName,hcd);
+  }
+ catch (  TableNotDisabledException re) {
+    expectedException=true;
+  }
+  assertFalse(expectedException);
+  modifiedHtd=this.admin.getTableDescriptor(tableName);
+  modifiedHcd=modifiedHtd.getFamily(hcdName);
+  assertEquals(newBloomType,waitForColumnSchemasToSettle(TEST_UTIL.getMiniHBaseCluster(),tableName,EXPECTED_NUM_REGIONS).getBloomFilterType());
   this.admin.disableTable(tableName);
   this.admin.deleteTable(tableName);
   this.admin.listTables();

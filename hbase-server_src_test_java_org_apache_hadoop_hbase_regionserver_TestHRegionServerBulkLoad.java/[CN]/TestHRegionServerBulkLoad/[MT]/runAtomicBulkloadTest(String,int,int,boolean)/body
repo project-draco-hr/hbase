@@ -1,0 +1,37 @@
+{
+  setupTable(tableName,NUM_CFS);
+  TestContext ctx=new TestContext(UTIL.getConfiguration());
+  HTableDescriptor htd=UTIL.getHBaseAdmin().getTableDescriptor(TableName.valueOf(tableName));
+  final int INITIAL_UPDATE_COUNT=htd.getColumnFamilies()[0].getMaxVersions();
+  AtomicHFileLoader loader=new AtomicHFileLoader(tableName,ctx,null);
+  ctx.addThread(loader);
+  List<AtomicScanReader> scanners=Lists.newArrayList();
+  for (int i=0; i < numScanners; i++) {
+    AtomicScanReader scanner=new AtomicScanReader(tableName,ctx,families);
+    scanners.add(scanner);
+    ctx.addThread(scanner);
+  }
+  if (schemaChange) {
+    OnlineSchemaChangeMaxVersionsThread maxVersionsChangeThread=new OnlineSchemaChangeMaxVersionsThread(tableName,ctx,families,NUM_CF_ITERATIONS);
+    ctx.addThread(maxVersionsChangeThread);
+  }
+  ctx.startThreads();
+  ctx.waitFor(millisToRun);
+  ctx.stop();
+  LOG.info("Loaders:");
+  LOG.info("  loaded " + loader.numBulkLoads.get());
+  LOG.info("  compations " + loader.numCompactions.get());
+  LOG.info("Scanners:");
+  for (  AtomicScanReader scanner : scanners) {
+    LOG.info("  scanned " + scanner.numScans.get());
+    LOG.info("  verified " + scanner.numRowsScanned.get() + " rows");
+  }
+  Assert.assertEquals("Incorrect number of rows found.",NUM_ROWS,UTIL.countRows(new HTable(UTIL.getConfiguration(),tableName)));
+  if (schemaChange) {
+    htd=UTIL.getHBaseAdmin().getTableDescriptor(TableName.valueOf(tableName));
+    for (    byte[] family : families) {
+      HColumnDescriptor hcd=htd.getFamily(family);
+      assertTrue("The full number of iterations for family " + Bytes.toString(family) + " was not done. Expecting at least "+ (NUM_CF_ITERATIONS + INITIAL_UPDATE_COUNT)+ " but received "+ hcd.getMaxVersions(),hcd.getMaxVersions() >= (NUM_CF_ITERATIONS + INITIAL_UPDATE_COUNT));
+    }
+  }
+}
