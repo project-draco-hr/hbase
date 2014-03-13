@@ -1,0 +1,41 @@
+{
+  final Configuration conf=HBaseConfiguration.create(CONF);
+  conf.setInt("hbase.hstore.flush.retries.number",1);
+  final User user=User.createUserForTesting(conf,this.name.getMethodName(),new String[]{"foo"});
+  conf.setClass("fs.file.impl",FaultyFileSystem.class,FileSystem.class);
+  user.runAs(new PrivilegedExceptionAction<Object>(){
+    public Object run() throws Exception {
+      FileSystem fs=FileSystem.get(conf);
+      Assert.assertEquals(FaultyFileSystem.class,fs.getClass());
+      FaultyFileSystem ffs=(FaultyFileSystem)fs;
+      HRegion region=null;
+      try {
+        region=initHRegion(tableName,name.getMethodName(),conf,COLUMN_FAMILY_BYTES);
+        long size=region.getMemstoreSize().get();
+        Assert.assertEquals(0,size);
+        Put p1=new Put(row);
+        p1.add(new KeyValue(row,COLUMN_FAMILY_BYTES,qual1,1,(byte[])null));
+        region.put(p1);
+        Store store=region.getStore(COLUMN_FAMILY_BYTES);
+        StoreFlushContext storeFlushCtx=store.createFlushContext(12345);
+        storeFlushCtx.prepare();
+        Put p2=new Put(row);
+        p2.add(new KeyValue(row,COLUMN_FAMILY_BYTES,qual2,2,(byte[])null));
+        p2.add(new KeyValue(row,COLUMN_FAMILY_BYTES,qual3,3,(byte[])null));
+        region.put(p2);
+        region.close();
+        fail();
+      }
+ catch (      DroppedSnapshotException dse) {
+        LOG.info("Expected DroppedSnapshotException");
+      }
+ finally {
+        ffs.fault.set(false);
+        HRegion.closeHRegion(region);
+      }
+      return null;
+    }
+  }
+);
+  FileSystem.closeAllForUGI(user.getUGI());
+}

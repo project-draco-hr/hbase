@@ -12,7 +12,7 @@
   MultiVersionConsistencyControl.WriteEntry w=null;
   status.setStatus("Obtaining lock to block concurrent updates");
   this.updatesLock.writeLock().lock();
-  long flushsize=this.memstoreSize.get();
+  long totalFlushableSize=0;
   status.setStatus("Preparing to flush by snapshotting stores");
   List<StoreFlushContext> storeFlushCtxs=new ArrayList<StoreFlushContext>(stores.size());
   long flushSeqId=-1L;
@@ -30,6 +30,7 @@
       flushSeqId=myseqid;
     }
     for (    Store s : stores.values()) {
+      totalFlushableSize+=s.getFlushableSize();
       storeFlushCtxs.add(s.createFlushContext(flushSeqId));
     }
     for (    StoreFlushContext flush : storeFlushCtxs) {
@@ -39,7 +40,7 @@
   finally {
     this.updatesLock.writeLock().unlock();
   }
-  String s="Finished memstore snapshotting " + this + ", syncing WAL and waiting on mvcc, flushsize="+ flushsize;
+  String s="Finished memstore snapshotting " + this + ", syncing WAL and waiting on mvcc, flushsize="+ totalFlushableSize;
   status.setStatus(s);
   if (LOG.isTraceEnabled())   LOG.trace(s);
   if (wal != null && !shouldSyncLog()) {
@@ -61,7 +62,7 @@
       }
     }
     storeFlushCtxs.clear();
-    this.addAndGetGlobalMemstoreSize(-flushsize);
+    this.addAndGetGlobalMemstoreSize(-totalFlushableSize);
   }
  catch (  Throwable t) {
     if (wal != null) {
@@ -82,9 +83,9 @@ synchronized (this) {
   }
   long time=EnvironmentEdgeManager.currentTimeMillis() - startTime;
   long memstoresize=this.memstoreSize.get();
-  String msg="Finished memstore flush of ~" + StringUtils.humanReadableInt(flushsize) + "/"+ flushsize+ ", currentsize="+ StringUtils.humanReadableInt(memstoresize)+ "/"+ memstoresize+ " for region "+ this+ " in "+ time+ "ms, sequenceid="+ flushSeqId+ ", compaction requested="+ compactionRequested+ ((wal == null) ? "; wal=null" : "");
+  String msg="Finished memstore flush of ~" + StringUtils.humanReadableInt(totalFlushableSize) + "/"+ totalFlushableSize+ ", currentsize="+ StringUtils.humanReadableInt(memstoresize)+ "/"+ memstoresize+ " for region "+ this+ " in "+ time+ "ms, sequenceid="+ flushSeqId+ ", compaction requested="+ compactionRequested+ ((wal == null) ? "; wal=null" : "");
   LOG.info(msg);
   status.setStatus(msg);
-  this.recentFlushes.add(new Pair<Long,Long>(time / 1000,flushsize));
+  this.recentFlushes.add(new Pair<Long,Long>(time / 1000,totalFlushableSize));
   return compactionRequested;
 }

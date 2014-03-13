@@ -1,0 +1,42 @@
+{
+  LOG.info("Setting up a faulty file system that cannot write in " + this.name.getMethodName());
+  final Configuration conf=HBaseConfiguration.create();
+  conf.setInt("hbase.hstore.flush.retries.number",1);
+  User user=User.createUserForTesting(conf,this.name.getMethodName(),new String[]{"foo"});
+  conf.setClass("fs.file.impl",FaultyFileSystem.class,FileSystem.class);
+  user.runAs(new PrivilegedExceptionAction<Object>(){
+    public Object run() throws Exception {
+      FileSystem fs=FileSystem.get(conf);
+      Assert.assertEquals(FaultyFileSystem.class,fs.getClass());
+      FaultyFileSystem ffs=(FaultyFileSystem)fs;
+      init(name.getMethodName(),conf);
+      long size=store.memstore.getFlushableSize();
+      Assert.assertEquals(0,size);
+      LOG.info("Adding some data");
+      long kvSize=store.add(new KeyValue(row,family,qf1,1,(byte[])null));
+      size=store.memstore.getFlushableSize();
+      Assert.assertEquals(kvSize,size);
+      try {
+        LOG.info("Flushing");
+        flushStore(store,id++);
+        Assert.fail("Didn't bubble up IOE!");
+      }
+ catch (      IOException ioe) {
+        Assert.assertTrue(ioe.getMessage().contains("Fault injected"));
+      }
+      size=store.memstore.getFlushableSize();
+      Assert.assertEquals(kvSize,size);
+      store.add(new KeyValue(row,family,qf2,2,(byte[])null));
+      Assert.assertEquals(kvSize,size);
+      ffs.fault.set(false);
+      flushStore(store,id++);
+      size=store.memstore.getFlushableSize();
+      Assert.assertEquals(kvSize,size);
+      flushStore(store,id++);
+      size=store.memstore.getFlushableSize();
+      Assert.assertEquals(0,size);
+      return null;
+    }
+  }
+);
+}
