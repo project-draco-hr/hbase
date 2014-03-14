@@ -1,0 +1,26 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  conf.setBoolean(DefaultMemStore.USEMSLAB_KEY,true);
+  memstore=new DefaultMemStore(conf,KeyValue.COMPARATOR);
+  int ROW_SIZE=2048;
+  byte[] qualifier=new byte[ROW_SIZE - 4];
+  MemoryMXBean bean=ManagementFactory.getMemoryMXBean();
+  for (int i=0; i < 3; i++) {
+    System.gc();
+  }
+  long usageBefore=bean.getHeapMemoryUsage().getUsed();
+  long size=0;
+  long ts=0;
+  for (int newValue=0; newValue < 1000; newValue++) {
+    for (int row=newValue; row < newValue + 1000; row++) {
+      byte[] rowBytes=Bytes.toBytes(row);
+      size+=memstore.updateColumnValue(rowBytes,FAMILY,qualifier,newValue,++ts);
+    }
+  }
+  System.out.println("Wrote " + ts + " vals");
+  for (int i=0; i < 3; i++) {
+    System.gc();
+  }
+  long usageAfter=bean.getHeapMemoryUsage().getUsed();
+  System.out.println("Memory used: " + (usageAfter - usageBefore) + " (heapsize: "+ memstore.heapSize()+ " size: "+ size+ ")");
+}

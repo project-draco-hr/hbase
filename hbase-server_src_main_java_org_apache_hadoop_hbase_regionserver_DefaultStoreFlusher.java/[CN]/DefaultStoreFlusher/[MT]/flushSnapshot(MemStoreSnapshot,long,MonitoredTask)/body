@@ -1,0 +1,30 @@
+{
+  ArrayList<Path> result=new ArrayList<Path>();
+  int cellsCount=snapshot.getCellsCount();
+  if (cellsCount == 0)   return result;
+  long smallestReadPoint=store.getSmallestReadPoint();
+  InternalScanner scanner=createScanner(snapshot.getScanner(),smallestReadPoint);
+  if (scanner == null) {
+    return result;
+  }
+  StoreFile.Writer writer;
+  try {
+synchronized (flushLock) {
+      status.setStatus("Flushing " + store + ": creating writer");
+      writer=store.createWriterInTmp(cellsCount,store.getFamily().getCompression(),false,true,true);
+      writer.setTimeRangeTracker(snapshot.getTimeRangeTracker());
+      try {
+        performFlush(scanner,writer,smallestReadPoint);
+      }
+  finally {
+        finalizeWriter(writer,cacheFlushId,status);
+      }
+    }
+  }
+  finally {
+    scanner.close();
+  }
+  LOG.info("Flushed, sequenceid=" + cacheFlushId + ", memsize="+ StringUtils.humanReadableInt(snapshot.getSize())+ ", hasBloomFilter="+ writer.hasGeneralBloom()+ ", into tmp file "+ writer.getPath());
+  result.add(writer.getPath());
+  return result;
+}

@@ -1,0 +1,72 @@
+{
+  int rowCount=addRows(this.memstore);
+  List<KeyValueScanner> memstorescanners=this.memstore.getScanners(0);
+  Scan scan=new Scan();
+  List<Cell> result=new ArrayList<Cell>();
+  ScanInfo scanInfo=new ScanInfo(null,0,1,HConstants.LATEST_TIMESTAMP,false,0,this.memstore.comparator);
+  ScanType scanType=ScanType.USER_SCAN;
+  StoreScanner s=new StoreScanner(scan,scanInfo,scanType,null,memstorescanners);
+  int count=0;
+  try {
+    while (s.next(result)) {
+      LOG.info(result);
+      count++;
+      assertEquals(rowCount,result.size());
+      result.clear();
+    }
+  }
+  finally {
+    s.close();
+  }
+  assertEquals(rowCount,count);
+  for (  KeyValueScanner scanner : memstorescanners) {
+    scanner.close();
+  }
+  memstorescanners=this.memstore.getScanners(mvcc.memstoreReadPoint());
+  s=new StoreScanner(scan,scanInfo,scanType,null,memstorescanners);
+  count=0;
+  try {
+    while (s.next(result)) {
+      LOG.info(result);
+      assertTrue(CellUtil.matchingRow(result.get(0),Bytes.toBytes(count)));
+      count++;
+      assertEquals(rowCount,result.size());
+      if (count == 2) {
+        this.memstore.snapshot();
+        LOG.info("Snapshotted");
+      }
+      result.clear();
+    }
+  }
+  finally {
+    s.close();
+  }
+  assertEquals(rowCount,count);
+  for (  KeyValueScanner scanner : memstorescanners) {
+    scanner.close();
+  }
+  memstorescanners=this.memstore.getScanners(mvcc.memstoreReadPoint());
+  long ts=System.currentTimeMillis();
+  s=new StoreScanner(scan,scanInfo,scanType,null,memstorescanners);
+  count=0;
+  int snapshotIndex=5;
+  try {
+    while (s.next(result)) {
+      LOG.info(result);
+      assertTrue(CellUtil.matchingRow(result.get(0),Bytes.toBytes(count)));
+      assertEquals("count=" + count + ", result="+ result,rowCount,result.size());
+      count++;
+      if (count == snapshotIndex) {
+        MemStoreSnapshot snapshot=this.memstore.snapshot();
+        this.memstore.clearSnapshot(snapshot.getId());
+        addRows(this.memstore,ts);
+        LOG.info("Snapshotted, cleared it and then added values (which wont be seen)");
+      }
+      result.clear();
+    }
+  }
+  finally {
+    s.close();
+  }
+  assertEquals(rowCount,count);
+}
