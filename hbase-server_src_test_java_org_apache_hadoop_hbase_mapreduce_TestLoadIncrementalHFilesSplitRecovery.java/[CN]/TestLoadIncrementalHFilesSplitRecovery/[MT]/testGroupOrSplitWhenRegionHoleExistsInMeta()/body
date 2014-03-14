@@ -1,0 +1,43 @@
+{
+  String tableName="testGroupOrSplitWhenRegionHoleExistsInMeta";
+  HTable table=new HTable(util.getConfiguration(),Bytes.toBytes(tableName));
+  byte[][] SPLIT_KEYS=new byte[][]{Bytes.toBytes("row_00000100")};
+  setupTableWithSplitkeys(tableName,10,SPLIT_KEYS);
+  Path dir=buildBulkFiles(tableName,2);
+  final AtomicInteger countedLqis=new AtomicInteger();
+  LoadIncrementalHFiles loader=new LoadIncrementalHFiles(util.getConfiguration()){
+    protected List<LoadQueueItem> groupOrSplit(    Multimap<ByteBuffer,LoadQueueItem> regionGroups,    final LoadQueueItem item,    final HTable htable,    final Pair<byte[][],byte[][]> startEndKeys) throws IOException {
+      List<LoadQueueItem> lqis=super.groupOrSplit(regionGroups,item,htable,startEndKeys);
+      if (lqis != null) {
+        countedLqis.addAndGet(lqis.size());
+      }
+      return lqis;
+    }
+  }
+;
+  try {
+    loader.doBulkLoad(dir,table);
+  }
+ catch (  Exception e) {
+    LOG.error("exeception=",e);
+  }
+  this.assertExpectedTable(tableName,ROWCOUNT,2);
+  dir=buildBulkFiles(tableName,3);
+  CatalogTracker ct=new CatalogTracker(util.getConfiguration());
+  List<HRegionInfo> regionInfos=MetaReader.getTableRegions(ct,TableName.valueOf(tableName));
+  for (  HRegionInfo regionInfo : regionInfos) {
+    if (Bytes.equals(regionInfo.getStartKey(),HConstants.EMPTY_BYTE_ARRAY)) {
+      MetaEditor.deleteRegion(ct,regionInfo);
+      break;
+    }
+  }
+  try {
+    loader.doBulkLoad(dir,table);
+  }
+ catch (  Exception e) {
+    LOG.error("exeception=",e);
+    assertTrue("IOException expected",e instanceof IOException);
+  }
+  table.close();
+  this.assertExpectedTable(tableName,ROWCOUNT,2);
+}
