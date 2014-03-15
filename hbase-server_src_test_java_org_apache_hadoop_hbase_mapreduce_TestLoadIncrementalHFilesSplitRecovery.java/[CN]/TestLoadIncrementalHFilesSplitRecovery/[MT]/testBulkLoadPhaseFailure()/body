@@ -3,27 +3,33 @@
   setupTable(table,10);
   final AtomicInteger attmptedCalls=new AtomicInteger();
   final AtomicInteger failedCalls=new AtomicInteger();
-  LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
-    protected List<LoadQueueItem> tryAtomicRegionLoad(    final HConnection conn,    TableName tableName,    final byte[] first,    Collection<LoadQueueItem> lqis) throws IOException {
-      int i=attmptedCalls.incrementAndGet();
-      if (i == 1) {
-        HConnection errConn=null;
-        try {
-          errConn=getMockedConnection(util.getConfiguration());
+  util.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,2);
+  try {
+    LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
+      protected List<LoadQueueItem> tryAtomicRegionLoad(      final HConnection conn,      TableName tableName,      final byte[] first,      Collection<LoadQueueItem> lqis) throws IOException {
+        int i=attmptedCalls.incrementAndGet();
+        if (i == 1) {
+          HConnection errConn=null;
+          try {
+            errConn=getMockedConnection(util.getConfiguration());
+          }
+ catch (          Exception e) {
+            LOG.fatal("mocking cruft, should never happen",e);
+            throw new RuntimeException("mocking cruft, should never happen");
+          }
+          failedCalls.incrementAndGet();
+          return super.tryAtomicRegionLoad(errConn,tableName,first,lqis);
         }
- catch (        Exception e) {
-          LOG.fatal("mocking cruft, should never happen",e);
-          throw new RuntimeException("mocking cruft, should never happen");
-        }
-        failedCalls.incrementAndGet();
-        return super.tryAtomicRegionLoad(errConn,tableName,first,lqis);
+        return super.tryAtomicRegionLoad(conn,tableName,first,lqis);
       }
-      return super.tryAtomicRegionLoad(conn,tableName,first,lqis);
     }
-  }
 ;
-  Path dir=buildBulkFiles(table,1);
-  HTable t=new HTable(util.getConfiguration(),Bytes.toBytes(table));
-  lih.doBulkLoad(dir,t);
+    Path dir=buildBulkFiles(table,1);
+    HTable t=new HTable(util.getConfiguration(),Bytes.toBytes(table));
+    lih.doBulkLoad(dir,t);
+  }
+  finally {
+    util.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
+  }
   fail("doBulkLoad should have thrown an exception");
 }
