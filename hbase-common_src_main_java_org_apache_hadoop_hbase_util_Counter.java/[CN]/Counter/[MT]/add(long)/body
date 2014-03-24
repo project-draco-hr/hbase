@@ -1,9 +1,21 @@
 {
   Container container=containerRef.get();
   Cell[] cells=container.cells;
-  int index=hash() & (cells.length - 1);
-  Cell cell=cells[index];
-  if (cell.addAndIsCongested(delta) && cells.length < MAX_CELLS_LENGTH && container.demoted.compareAndSet(false,true)) {
+  int mask=cells.length - 1;
+  IndexHolder indexHolder=indexHolderThreadLocal.get();
+  int baseIndex=indexHolder.index;
+  if (cells[baseIndex & mask].add(delta)) {
+    return;
+  }
+  int index=baseIndex + 1;
+  while (true) {
+    if (cells[index & mask].add(delta)) {
+      break;
+    }
+    index++;
+  }
+  indexHolder.index=index;
+  if (index - baseIndex >= cells.length && cells.length < MAX_CELLS_LENGTH && container.demoted.compareAndSet(false,true)) {
     if (containerRef.get() == container) {
       Cell[] newCells=new Cell[cells.length * 2];
       System.arraycopy(cells,0,newCells,0,cells.length);
