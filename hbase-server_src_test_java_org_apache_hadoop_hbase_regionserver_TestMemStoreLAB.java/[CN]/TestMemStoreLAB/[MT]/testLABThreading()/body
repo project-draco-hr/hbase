@@ -2,7 +2,7 @@
   Configuration conf=new Configuration();
   MultithreadedTestUtil.TestContext ctx=new MultithreadedTestUtil.TestContext(conf);
   final AtomicInteger totalAllocated=new AtomicInteger();
-  final MemStoreLAB mslab=new MemStoreLAB();
+  final MemStoreLAB mslab=new HeapMemStoreLAB();
   List<List<AllocRecord>> allocations=Lists.newArrayList();
   for (int i=0; i < 10; i++) {
     final List<AllocRecord> allocsByThisThread=Lists.newLinkedList();
@@ -11,7 +11,7 @@
       private Random r=new Random();
       @Override public void doAnAction() throws Exception {
         int size=r.nextInt(1000);
-        Allocation alloc=mslab.allocateBytes(size);
+        ByteRange alloc=mslab.allocateBytes(size);
         totalAllocated.addAndGet(size);
         allocsByThisThread.add(new AllocRecord(alloc,size));
       }
@@ -29,10 +29,10 @@
   for (  AllocRecord rec : Iterables.concat(allocations)) {
     sizeCounted+=rec.size;
     if (rec.size == 0)     continue;
-    Map<Integer,AllocRecord> mapForThisByteArray=mapsByChunk.get(rec.alloc.getData());
+    Map<Integer,AllocRecord> mapForThisByteArray=mapsByChunk.get(rec.alloc.getBytes());
     if (mapForThisByteArray == null) {
       mapForThisByteArray=Maps.newTreeMap();
-      mapsByChunk.put(rec.alloc.getData(),mapForThisByteArray);
+      mapsByChunk.put(rec.alloc.getBytes(),mapForThisByteArray);
     }
     AllocRecord oldVal=mapForThisByteArray.put(rec.alloc.getOffset(),rec);
     assertNull("Already had an entry " + oldVal + " for allocation "+ rec,oldVal);
@@ -42,7 +42,7 @@
     int expectedOff=0;
     for (    AllocRecord alloc : allocsInChunk.values()) {
       assertEquals(expectedOff,alloc.alloc.getOffset());
-      assertTrue("Allocation " + alloc + " overruns buffer",alloc.alloc.getOffset() + alloc.size <= alloc.alloc.getData().length);
+      assertTrue("Allocation overruns buffer",alloc.alloc.getOffset() + alloc.size <= alloc.alloc.getBytes().length);
       expectedOff+=alloc.size;
     }
   }
