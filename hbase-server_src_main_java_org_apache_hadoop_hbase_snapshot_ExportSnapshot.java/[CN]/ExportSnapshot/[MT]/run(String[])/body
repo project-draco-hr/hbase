@@ -83,20 +83,22 @@
  else {
       System.err.println("A snapshot with the same name '" + snapshotName + "' may be in-progress");
       System.err.println("Please check " + snapshotTmpDir + ". If the snapshot has completed, ");
-      System.err.println("consider removing " + snapshotTmpDir + " before retrying export");
+      System.err.println("consider removing " + snapshotTmpDir + " by using the -overwrite option");
       return 1;
     }
   }
+  LOG.info("Loading Snapshot hfile list");
   final List<Pair<Path,Long>> files=getSnapshotFiles(inputFs,snapshotDir);
   if (mappers == 0 && files.size() > 0) {
     mappers=1 + (files.size() / conf.getInt(CONF_MAP_GROUP,10));
     mappers=Math.min(mappers,files.size());
   }
   try {
+    LOG.info("Copy Snapshot Manifest");
     FileUtil.copy(inputFs,snapshotDir,outputFs,snapshotTmpDir,false,false,conf);
   }
  catch (  IOException e) {
-    throw new ExportSnapshotException("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ snapshotTmpDir);
+    throw new ExportSnapshotException("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ snapshotTmpDir,e);
   }
   try {
     if (files.size() == 0) {
@@ -105,9 +107,13 @@
  else {
       runCopyJob(inputFs,inputRoot,outputFs,outputRoot,files,verifyChecksum,filesUser,filesGroup,filesMode,mappers);
     }
+    LOG.info("Finalize the Snapshot Export");
     if (!outputFs.rename(snapshotTmpDir,outputSnapshotDir)) {
       throw new ExportSnapshotException("Unable to rename snapshot directory from=" + snapshotTmpDir + " to="+ outputSnapshotDir);
     }
+    LOG.info("Verify snapshot validity");
+    verifySnapshot(conf,outputFs,outputRoot,outputSnapshotDir);
+    LOG.info("Export Completed: " + snapshotName);
     return 0;
   }
  catch (  Exception e) {
