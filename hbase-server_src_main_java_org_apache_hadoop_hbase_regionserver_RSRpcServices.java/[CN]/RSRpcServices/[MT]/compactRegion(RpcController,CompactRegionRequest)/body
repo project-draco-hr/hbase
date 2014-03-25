@@ -1,0 +1,45 @@
+{
+  try {
+    checkOpen();
+    requestCount.increment();
+    HRegion region=getRegion(request.getRegion());
+    region.startRegionOperation(Operation.COMPACT_REGION);
+    LOG.info("Compacting " + region.getRegionNameAsString());
+    boolean major=false;
+    byte[] family=null;
+    Store store=null;
+    if (request.hasFamily()) {
+      family=request.getFamily().toByteArray();
+      store=region.getStore(family);
+      if (store == null) {
+        throw new ServiceException(new IOException("column family " + Bytes.toString(family) + " does not exist in region "+ region.getRegionNameAsString()));
+      }
+    }
+    if (request.hasMajor()) {
+      major=request.getMajor();
+    }
+    if (major) {
+      if (family != null) {
+        store.triggerMajorCompaction();
+      }
+ else {
+        region.triggerMajorCompaction();
+      }
+    }
+    String familyLogMsg=(family != null) ? " for column family: " + Bytes.toString(family) : "";
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("User-triggered compaction requested for region " + region.getRegionNameAsString() + familyLogMsg);
+    }
+    String log="User-triggered " + (major ? "major " : "") + "compaction"+ familyLogMsg;
+    if (family != null) {
+      regionServer.compactSplitThread.requestCompaction(region,store,log,Store.PRIORITY_USER,null);
+    }
+ else {
+      regionServer.compactSplitThread.requestCompaction(region,log,Store.PRIORITY_USER,null);
+    }
+    return CompactRegionResponse.newBuilder().build();
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
+}

@@ -1,0 +1,52 @@
+{
+  long before=EnvironmentEdgeManager.currentTimeMillis();
+  CellScanner cells=((PayloadCarryingRpcController)controller).cellScanner();
+  try {
+    checkOpen();
+    List<WALEntry> entries=request.getEntryList();
+    if (entries == null || entries.isEmpty()) {
+      return ReplicateWALEntryResponse.newBuilder().build();
+    }
+    HRegion region=regionServer.getRegionByEncodedName(entries.get(0).getKey().getEncodedRegionName().toStringUtf8());
+    RegionCoprocessorHost coprocessorHost=region.getCoprocessorHost();
+    List<Pair<HLogKey,WALEdit>> walEntries=new ArrayList<Pair<HLogKey,WALEdit>>();
+    List<HLogSplitter.MutationReplay> mutations=new ArrayList<HLogSplitter.MutationReplay>();
+    boolean needAddReplayTag=(HFile.getFormatVersion(regionServer.conf) >= 3);
+    for (    WALEntry entry : entries) {
+      if (regionServer.nonceManager != null) {
+        long nonceGroup=entry.getKey().hasNonceGroup() ? entry.getKey().getNonceGroup() : HConstants.NO_NONCE;
+        long nonce=entry.getKey().hasNonce() ? entry.getKey().getNonce() : HConstants.NO_NONCE;
+        regionServer.nonceManager.reportOperationFromWal(nonceGroup,nonce,entry.getKey().getWriteTime());
+      }
+      Pair<HLogKey,WALEdit> walEntry=(coprocessorHost == null) ? null : new Pair<HLogKey,WALEdit>();
+      List<HLogSplitter.MutationReplay> edits=HLogSplitter.getMutationsFromWALEntry(entry,cells,walEntry,needAddReplayTag);
+      if (coprocessorHost != null) {
+        if (coprocessorHost.preWALRestore(region.getRegionInfo(),walEntry.getFirst(),walEntry.getSecond())) {
+          continue;
+        }
+        walEntries.add(walEntry);
+      }
+      mutations.addAll(edits);
+    }
+    if (!mutations.isEmpty()) {
+      OperationStatus[] result=doReplayBatchOp(region,mutations);
+      for (int i=0; result != null && i < result.length; i++) {
+        if (result[i] != OperationStatus.SUCCESS) {
+          throw new IOException(result[i].getExceptionMsg());
+        }
+      }
+    }
+    if (coprocessorHost != null) {
+      for (      Pair<HLogKey,WALEdit> wal : walEntries) {
+        coprocessorHost.postWALRestore(region.getRegionInfo(),wal.getFirst(),wal.getSecond());
+      }
+    }
+    return ReplicateWALEntryResponse.newBuilder().build();
+  }
+ catch (  IOException ie) {
+    throw new ServiceException(ie);
+  }
+ finally {
+    regionServer.metricsRegionServer.updateReplay(EnvironmentEdgeManager.currentTimeMillis() - before);
+  }
+}

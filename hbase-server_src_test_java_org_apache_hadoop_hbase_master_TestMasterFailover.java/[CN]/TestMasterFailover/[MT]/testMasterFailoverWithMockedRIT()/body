@@ -76,6 +76,15 @@
   cluster.abortMaster(0);
   cluster.waitOnMaster(0);
   log("Master has aborted");
+  ZKAssign.createNodeOffline(zkw,HRegionInfo.FIRST_META_REGIONINFO,hrs.getServerName());
+  ProtobufUtil.openRegion(hrs.getRSRpcServices(),hrs.getServerName(),HRegionInfo.FIRST_META_REGIONINFO);
+  while (true) {
+    ServerName sn=MetaRegionTracker.getMetaRegionLocation(zkw);
+    if (sn != null && sn.equals(hrs.getServerName())) {
+      break;
+    }
+    Thread.sleep(100);
+  }
   List<HRegionInfo> regionsThatShouldBeOnline=new ArrayList<HRegionInfo>();
   List<HRegionInfo> regionsThatShouldBeOffline=new ArrayList<HRegionInfo>();
   log("Beginning to mock scenarios");
@@ -97,7 +106,7 @@
   region=enabledRegions.remove(0);
   regionsThatShouldBeOnline.add(region);
   ZKAssign.createNodeOffline(zkw,region,serverName);
-  ProtobufUtil.openRegion(hrs,hrs.getServerName(),region);
+  ProtobufUtil.openRegion(hrs.getRSRpcServices(),hrs.getServerName(),region);
   while (true) {
     byte[] bytes=ZKAssign.getData(zkw,region.getEncodedName());
     RegionTransition rt=RegionTransition.parseFrom(bytes);
@@ -109,7 +118,7 @@
   region=disabledRegions.remove(0);
   regionsThatShouldBeOffline.add(region);
   ZKAssign.createNodeOffline(zkw,region,serverName);
-  ProtobufUtil.openRegion(hrs,hrs.getServerName(),region);
+  ProtobufUtil.openRegion(hrs.getRSRpcServices(),hrs.getServerName(),region);
   while (true) {
     byte[] bytes=ZKAssign.getData(zkw,region.getEncodedName());
     RegionTransition rt=RegionTransition.parseFrom(bytes);
@@ -135,7 +144,7 @@
   log("No more RIT in ZK, now doing final test verification");
   Set<HRegionInfo> onlineRegions=new TreeSet<HRegionInfo>();
   for (  JVMClusterUtil.RegionServerThread rst : cluster.getRegionServerThreads()) {
-    onlineRegions.addAll(ProtobufUtil.getOnlineRegions(rst.getRegionServer()));
+    onlineRegions.addAll(ProtobufUtil.getOnlineRegions(rst.getRegionServer().getRSRpcServices()));
   }
   for (  HRegionInfo hri : regionsThatShouldBeOnline) {
     assertTrue(onlineRegions.contains(hri));

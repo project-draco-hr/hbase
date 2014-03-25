@@ -1,0 +1,24 @@
+{
+  long before=EnvironmentEdgeManager.currentTimeMillis();
+  Increment increment=ProtobufUtil.toIncrement(mutation,cells);
+  Result r=null;
+  if (region.getCoprocessorHost() != null) {
+    r=region.getCoprocessorHost().preIncrement(increment);
+  }
+  if (r == null) {
+    long nonce=startNonceOperation(mutation,nonceGroup);
+    boolean success=false;
+    try {
+      r=region.increment(increment,nonceGroup,nonce);
+      success=true;
+    }
+  finally {
+      endNonceOperation(mutation,nonceGroup,success);
+    }
+    if (region.getCoprocessorHost() != null) {
+      r=region.getCoprocessorHost().postIncrement(increment,r);
+    }
+  }
+  regionServer.metricsRegionServer.updateIncrement(EnvironmentEdgeManager.currentTimeMillis() - before);
+  return r;
+}

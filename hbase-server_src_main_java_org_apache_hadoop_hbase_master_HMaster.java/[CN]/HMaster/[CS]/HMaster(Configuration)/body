@@ -1,47 +1,13 @@
 {
-  this.conf=new Configuration(conf);
-  this.conf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY,0.0f);
-  FSUtils.setupShortCircuitRead(conf);
-  String hostname=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.master.dns.interface","default"),conf.get("hbase.master.dns.nameserver","default")));
-  int port=conf.getInt(HConstants.MASTER_PORT,HConstants.DEFAULT_MASTER_PORT);
-  InetSocketAddress initialIsa=new InetSocketAddress(hostname,port);
-  if (initialIsa.getAddress() == null) {
-    throw new IllegalArgumentException("Failed resolve of hostname " + initialIsa);
-  }
-  String bindAddress=conf.get("hbase.master.ipc.address");
-  if (bindAddress != null) {
-    initialIsa=new InetSocketAddress(bindAddress,port);
-    if (initialIsa.getAddress() == null) {
-      throw new IllegalArgumentException("Failed resolve of bind address " + initialIsa);
-    }
-  }
-  String name="master/" + initialIsa.toString();
-  ConnectionUtils.setServerSideHConnectionRetriesConfig(this.conf,name,LOG);
-  int numHandlers=conf.getInt(HConstants.MASTER_HANDLER_COUNT,conf.getInt(HConstants.REGION_SERVER_HANDLER_COUNT,HConstants.DEFAULT_MASTER_HANLDER_COUNT));
-  this.rpcServer=new RpcServer(this,name,getServices(),initialIsa,conf,new FifoRpcScheduler(conf,numHandlers));
-  this.isa=this.rpcServer.getListenerAddress();
-  this.serverName=ServerName.valueOf(hostname,this.isa.getPort(),System.currentTimeMillis());
+  super(conf);
   this.rsFatals=new MemoryBoundedLogMessageBuffer(conf.getLong("hbase.master.buffer.for.rs.fatals",1 * 1024 * 1024));
-  ZKUtil.loginClient(this.conf,"hbase.zookeeper.client.keytab.file","hbase.zookeeper.client.kerberos.principal",this.isa.getHostName());
-  UserProvider provider=UserProvider.instantiate(conf);
-  provider.login("hbase.master.keytab.file","hbase.master.kerberos.principal",this.isa.getHostName());
   LOG.info("hbase.rootdir=" + FSUtils.getRootDir(this.conf) + ", hbase.cluster.distributed="+ this.conf.getBoolean("hbase.cluster.distributed",false));
-  setName(MASTER + ":" + this.serverName.toShortString());
   Replication.decorateMasterConfiguration(this.conf);
   if (this.conf.get("mapred.task.id") == null) {
     this.conf.set("mapred.task.id","hb_m_" + this.serverName.toString());
   }
-  this.zooKeeper=new ZooKeeperWatcher(conf,MASTER + ":" + isa.getPort(),this,true);
-  this.rpcServer.startThreads();
-  this.pauseMonitor=new JvmPauseMonitor(conf);
-  this.pauseMonitor.start();
-  this.msgInterval=conf.getInt("hbase.regionserver.msginterval",3 * 1000);
   this.masterCheckCompression=conf.getBoolean("hbase.master.check.compression",true);
   this.metricsMaster=new MetricsMaster(new MetricsMasterWrapperImpl(this));
-  int sleepTime=this.conf.getInt(HConstants.HEALTH_CHORE_WAKE_FREQ,HConstants.DEFAULT_THREAD_WAKE_FREQUENCY);
-  if (isHealthCheckerConfigured()) {
-    healthCheckChore=new HealthCheckChore(sleepTime,this,getConfiguration());
-  }
   boolean shouldPublish=conf.getBoolean(HConstants.STATUS_PUBLISHED,HConstants.STATUS_PUBLISHED_DEFAULT);
   Class<? extends ClusterStatusPublisher.Publisher> publisherClass=conf.getClass(ClusterStatusPublisher.STATUS_PUBLISHER_CLASS,ClusterStatusPublisher.DEFAULT_STATUS_PUBLISHER_CLASS,ClusterStatusPublisher.Publisher.class);
   if (shouldPublish) {
@@ -53,5 +19,5 @@
       Threads.setDaemonThreadRunning(clusterStatusPublisherChore.getThread());
     }
   }
-  distributedLogReplay=this.conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,HConstants.DEFAULT_DISTRIBUTED_LOG_REPLAY_CONFIG);
+  startActiveMasterManager();
 }

@@ -6,11 +6,10 @@
   final int NUM_REGIONS_TO_CREATE=40;
   final int NUM_LOG_LINES=1000;
   master.balanceSwitch(false);
-  List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
   final ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"table-creation",null);
   HTable ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE);
   HRegionServer hrs=findRSToKill(false,"table");
-  List<HRegionInfo> regions=ProtobufUtil.getOnlineRegions(hrs);
+  List<HRegionInfo> regions=ProtobufUtil.getOnlineRegions(hrs.getRSRpcServices());
   makeHLog(hrs.getWAL(),regions,"table","family",NUM_LOG_LINES,100);
   abortMaster(cluster);
   LOG.info("Aborting region server: " + hrs.getServerName());
@@ -22,15 +21,14 @@
   }
 );
   Thread.sleep(2000);
-  LOG.info("Current Open Regions:" + getAllOnlineRegions(cluster).size());
-  startMasterAndWaitUntilLogSplit(cluster);
+  LOG.info("Current Open Regions:" + HBaseTestingUtility.getAllOnlineRegions(cluster).size());
   TEST_UTIL.waitFor(120000,200,new Waiter.Predicate<Exception>(){
     @Override public boolean evaluate() throws Exception {
-      return (getAllOnlineRegions(cluster).size() >= (NUM_REGIONS_TO_CREATE + 1));
+      return (HBaseTestingUtility.getAllOnlineRegions(cluster).size() >= (NUM_REGIONS_TO_CREATE + 1));
     }
   }
 );
-  LOG.info("Current Open Regions After Master Node Starts Up:" + getAllOnlineRegions(cluster).size());
+  LOG.info("Current Open Regions After Master Node Starts Up:" + HBaseTestingUtility.getAllOnlineRegions(cluster).size());
   assertEquals(NUM_LOG_LINES,TEST_UTIL.countRows(ht));
   ht.close();
   zkw.close();

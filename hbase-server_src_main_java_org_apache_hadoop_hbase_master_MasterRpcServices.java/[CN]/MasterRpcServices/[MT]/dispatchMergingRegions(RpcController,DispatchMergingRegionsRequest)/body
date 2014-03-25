@@ -1,0 +1,38 @@
+{
+  try {
+    master.checkInitialized();
+  }
+ catch (  IOException ioe) {
+    throw new ServiceException(ioe);
+  }
+  final byte[] encodedNameOfRegionA=request.getRegionA().getValue().toByteArray();
+  final byte[] encodedNameOfRegionB=request.getRegionB().getValue().toByteArray();
+  final boolean forcible=request.getForcible();
+  if (request.getRegionA().getType() != RegionSpecifierType.ENCODED_REGION_NAME || request.getRegionB().getType() != RegionSpecifierType.ENCODED_REGION_NAME) {
+    LOG.warn("mergeRegions specifier type: expected: " + RegionSpecifierType.ENCODED_REGION_NAME + " actual: region_a="+ request.getRegionA().getType()+ ", region_b="+ request.getRegionB().getType());
+  }
+  RegionStates regionStates=master.assignmentManager.getRegionStates();
+  RegionState regionStateA=regionStates.getRegionState(Bytes.toString(encodedNameOfRegionA));
+  RegionState regionStateB=regionStates.getRegionState(Bytes.toString(encodedNameOfRegionB));
+  if (regionStateA == null || regionStateB == null) {
+    throw new ServiceException(new UnknownRegionException(Bytes.toStringBinary(regionStateA == null ? encodedNameOfRegionA : encodedNameOfRegionB)));
+  }
+  if (!regionStateA.isOpened() || !regionStateB.isOpened()) {
+    throw new ServiceException(new MergeRegionException("Unable to merge regions not online " + regionStateA + ", "+ regionStateB));
+  }
+  HRegionInfo regionInfoA=regionStateA.getRegion();
+  HRegionInfo regionInfoB=regionStateB.getRegion();
+  if (regionInfoA.compareTo(regionInfoB) == 0) {
+    throw new ServiceException(new MergeRegionException("Unable to merge a region to itself " + regionInfoA + ", "+ regionInfoB));
+  }
+  if (!forcible && !HRegionInfo.areAdjacent(regionInfoA,regionInfoB)) {
+    throw new ServiceException(new MergeRegionException("Unable to merge not adjacent regions " + regionInfoA.getRegionNameAsString() + ", "+ regionInfoB.getRegionNameAsString()+ " where forcible = "+ forcible));
+  }
+  try {
+    master.dispatchMergingRegions(regionInfoA,regionInfoB,forcible);
+  }
+ catch (  IOException ioe) {
+    throw new ServiceException(ioe);
+  }
+  return DispatchMergingRegionsResponse.newBuilder().build();
+}

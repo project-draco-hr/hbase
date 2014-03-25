@@ -1,0 +1,28 @@
+{
+  try {
+    final byte[] regionName=req.getRegion().getValue().toByteArray();
+    RegionSpecifierType type=req.getRegion().getType();
+    AssignRegionResponse arr=AssignRegionResponse.newBuilder().build();
+    master.checkInitialized();
+    if (type != RegionSpecifierType.REGION_NAME) {
+      LOG.warn("assignRegion specifier type: expected: " + RegionSpecifierType.REGION_NAME + " actual: "+ type);
+    }
+    RegionStates regionStates=master.assignmentManager.getRegionStates();
+    HRegionInfo regionInfo=regionStates.getRegionInfo(regionName);
+    if (regionInfo == null)     throw new UnknownRegionException(Bytes.toString(regionName));
+    if (master.cpHost != null) {
+      if (master.cpHost.preAssign(regionInfo)) {
+        return arr;
+      }
+    }
+    LOG.info(master.getClientIdAuditPrefix() + " assign " + regionInfo.getRegionNameAsString());
+    master.assignmentManager.assign(regionInfo,true,true);
+    if (master.cpHost != null) {
+      master.cpHost.postAssign(regionInfo);
+    }
+    return arr;
+  }
+ catch (  IOException ioe) {
+    throw new ServiceException(ioe);
+  }
+}

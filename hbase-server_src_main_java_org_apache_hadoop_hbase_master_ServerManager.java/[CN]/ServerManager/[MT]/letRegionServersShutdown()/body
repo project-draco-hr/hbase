@@ -1,9 +1,17 @@
 {
   long previousLogTime=0;
+  ServerName sn=master.getServerName();
+  ZooKeeperWatcher zkw=master.getZooKeeper();
   while (!onlineServers.isEmpty()) {
     if (System.currentTimeMillis() > (previousLogTime + 1000)) {
+      Set<ServerName> remainingServers=onlineServers.keySet();
+synchronized (onlineServers) {
+        if (remainingServers.size() == 1 && remainingServers.contains(sn)) {
+          return;
+        }
+      }
       StringBuilder sb=new StringBuilder();
-      for (      ServerName key : this.onlineServers.keySet()) {
+      for (      ServerName key : remainingServers) {
         if (sb.length() > 0) {
           sb.append(", ");
         }
@@ -11,6 +19,17 @@
       }
       LOG.info("Waiting on regionserver(s) to go down " + sb.toString());
       previousLogTime=System.currentTimeMillis();
+    }
+    try {
+      List<String> servers=ZKUtil.listChildrenNoWatch(zkw,zkw.rsZNode);
+      if (servers == null || (servers.size() == 1 && servers.contains(sn.toString()))) {
+        LOG.info("ZK shows there is only the master self online, exiting now");
+        break;
+      }
+    }
+ catch (    KeeperException ke) {
+      LOG.warn("Failed to list regionservers",ke);
+      break;
     }
 synchronized (onlineServers) {
       try {

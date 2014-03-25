@@ -4,19 +4,38 @@
     return null;
   }
   Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
-  int numRegions=regions.size();
   int numServers=servers.size();
-  int max=(int)Math.ceil((float)numRegions / numServers);
-  int serverIdx=0;
-  if (numServers > 1) {
-    serverIdx=RANDOM.nextInt(numServers);
+  if (numServers == 1) {
+    assignments.put(servers.get(0),new ArrayList<HRegionInfo>(regions));
+    return assignments;
   }
+  int numRegions=regions.size();
+  boolean masterIncluded=servers.contains(masterServerName);
+  int skipServers=numServers;
+  if (masterIncluded) {
+    skipServers--;
+  }
+  int max=(int)Math.ceil((float)numRegions / skipServers);
+  int serverIdx=RANDOM.nextInt(numServers);
   int regionIdx=0;
   for (int j=0; j < numServers; j++) {
     ServerName server=servers.get((j + serverIdx) % numServers);
+    if (server.equals(masterServerName)) {
+      continue;
+    }
     List<HRegionInfo> serverRegions=new ArrayList<HRegionInfo>(max);
-    for (int i=regionIdx; i < numRegions; i+=numServers) {
-      serverRegions.add(regions.get(i % numRegions));
+    for (int i=regionIdx; i < numRegions; i+=skipServers) {
+      HRegionInfo region=regions.get(i % numRegions);
+      if (!(masterIncluded && shouldBeOnMaster(region))) {
+        serverRegions.add(region);
+        continue;
+      }
+      List<HRegionInfo> masterRegions=assignments.get(masterServerName);
+      if (masterRegions == null) {
+        masterRegions=new ArrayList<HRegionInfo>(max);
+        assignments.put(masterServerName,masterRegions);
+      }
+      masterRegions.add(region);
     }
     assignments.put(server,serverRegions);
     regionIdx++;

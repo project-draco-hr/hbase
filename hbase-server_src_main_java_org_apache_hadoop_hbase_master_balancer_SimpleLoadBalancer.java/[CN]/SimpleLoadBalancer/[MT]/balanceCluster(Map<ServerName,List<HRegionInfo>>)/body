@@ -1,7 +1,11 @@
 {
+  List<RegionPlan> regionsToReturn=balanceMasterRegions(clusterMap);
+  if (regionsToReturn != null) {
+    return regionsToReturn;
+  }
   boolean emptyRegionServerPresent=false;
   long startTime=System.currentTimeMillis();
-  ClusterLoadState cs=new ClusterLoadState(clusterMap);
+  ClusterLoadState cs=new ClusterLoadState(masterServerName,clusterMap);
   if (!this.needsBalance(cs))   return null;
   int numServers=cs.getNumServers();
   NavigableMap<ServerAndLoad,List<HRegionInfo>> serversByLoad=cs.getServersByLoad();
@@ -12,7 +16,7 @@
   strBalanceParam.append("Balance parameter: numRegions=").append(numRegions).append(", numServers=").append(numServers).append(", max=").append(max).append(", min=").append(min);
   LOG.debug(strBalanceParam.toString());
   MinMaxPriorityQueue<RegionPlan> regionsToMove=MinMaxPriorityQueue.orderedBy(rpComparator).create();
-  List<RegionPlan> regionsToReturn=new ArrayList<RegionPlan>();
+  regionsToReturn=new ArrayList<RegionPlan>();
   int serversOverloaded=0;
   boolean fetchFromTail=false;
   Map<ServerName,BalanceInfo> serverBalanceInfo=new TreeMap<ServerName,BalanceInfo>();
@@ -34,7 +38,7 @@
         hri=regions.get(regions.size() - 1 - i);
       }
       i++;
-      if (hri.isMetaRegion())       continue;
+      if (shouldBeOnMaster(hri) && masterServerName.equals(sal.getServerName()))       continue;
       regionsToMove.add(new RegionPlan(hri,sal.getServerName(),null));
       numTaken++;
       if (numTaken >= numToOffload)       break;

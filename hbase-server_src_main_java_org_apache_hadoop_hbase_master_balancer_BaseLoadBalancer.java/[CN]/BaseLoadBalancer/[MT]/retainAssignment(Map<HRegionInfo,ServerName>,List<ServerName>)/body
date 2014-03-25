@@ -1,14 +1,25 @@
 {
   metricsBalancer.incrMiscInvocations();
-  ArrayListMultimap<String,ServerName> serversByHostname=ArrayListMultimap.create();
-  for (  ServerName server : servers) {
-    serversByHostname.put(server.getHostname(),server);
+  if (regions.isEmpty() || servers.isEmpty()) {
+    return null;
   }
   Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
+  int numServers=servers.size();
+  if (numServers == 1) {
+    assignments.put(servers.get(0),new ArrayList<HRegionInfo>(regions.keySet()));
+    return assignments;
+  }
+  ArrayListMultimap<String,ServerName> serversByHostname=ArrayListMultimap.create();
+  for (  ServerName server : servers) {
+    if (!server.equals(masterServerName)) {
+      serversByHostname.put(server.getHostname(),server);
+    }
+  }
   for (  ServerName server : servers) {
     assignments.put(server,new ArrayList<HRegionInfo>());
   }
   Set<String> oldHostsNoLongerPresent=Sets.newTreeSet();
+  boolean masterIncluded=servers.contains(masterServerName);
   int numRandomAssignments=0;
   int numRetainedAssigments=0;
   for (  Map.Entry<HRegionInfo,ServerName> entry : regions.entrySet()) {
@@ -18,8 +29,22 @@
     if (oldServerName != null) {
       localServers=serversByHostname.get(oldServerName.getHostname());
     }
-    if (localServers.isEmpty()) {
-      ServerName randomServer=servers.get(RANDOM.nextInt(servers.size()));
+    if (masterIncluded && shouldBeOnMaster(region)) {
+      assignments.get(masterServerName).add(region);
+      if (localServers.contains(masterServerName)) {
+        numRetainedAssigments++;
+      }
+ else {
+        numRandomAssignments++;
+      }
+    }
+ else     if (localServers.isEmpty()) {
+      int i=RANDOM.nextInt(numServers);
+      ServerName randomServer=servers.get(i);
+      if (randomServer.equals(masterServerName)) {
+        i=(i == 0 ? 1 : i - 1);
+        randomServer=servers.get(i);
+      }
       assignments.get(randomServer).add(region);
       numRandomAssignments++;
       if (oldServerName != null)       oldHostsNoLongerPresent.add(oldServerName.getHostname());

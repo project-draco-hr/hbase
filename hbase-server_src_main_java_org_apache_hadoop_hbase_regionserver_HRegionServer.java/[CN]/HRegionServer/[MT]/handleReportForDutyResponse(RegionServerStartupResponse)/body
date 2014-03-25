@@ -4,9 +4,9 @@
       String key=e.getName();
       if (key.equals(HConstants.KEY_FOR_HOSTNAME_SEEN_BY_MASTER)) {
         String hostnameFromMasterPOV=e.getValue();
-        this.serverNameFromMasterPOV=ServerName.valueOf(hostnameFromMasterPOV,this.isa.getPort(),this.startcode);
-        if (!hostnameFromMasterPOV.equals(this.isa.getHostName())) {
-          LOG.info("Master passed us a different hostname to use; was=" + this.isa.getHostName() + ", but now="+ hostnameFromMasterPOV);
+        this.serverName=ServerName.valueOf(hostnameFromMasterPOV,rpcServices.isa.getPort(),this.startcode);
+        if (!hostnameFromMasterPOV.equals(rpcServices.isa.getHostName())) {
+          LOG.info("Master passed us a different hostname to use; was=" + rpcServices.isa.getHostName() + ", but now="+ hostnameFromMasterPOV);
         }
         continue;
       }
@@ -17,24 +17,20 @@
       this.conf.set(key,value);
     }
     if (this.conf.get("mapred.task.id") == null) {
-      this.conf.set("mapred.task.id","hb_rs_" + this.serverNameFromMasterPOV.toString());
+      this.conf.set("mapred.task.id","hb_rs_" + this.serverName.toString());
     }
     ZNodeClearer.writeMyEphemeralNodeOnDisk(getMyEphemeralNodePath());
-    FSUtils.setFsDefault(this.conf,FSUtils.getRootDir(this.conf));
-    boolean useHBaseChecksum=conf.getBoolean(HConstants.HBASE_CHECKSUM_VERIFICATION,true);
-    this.fs=new HFileSystem(this.conf,useHBaseChecksum);
-    this.rootDir=FSUtils.getRootDir(this.conf);
-    this.tableDescriptors=new FSTableDescriptors(this.fs,this.rootDir,true);
     this.hlog=setupWALAndReplication();
     this.metricsRegionServer=new MetricsRegionServer(new MetricsRegionServerWrapperImpl(this));
-    spanReceiverHost=SpanReceiverHost.getInstance(getConfiguration());
     startServiceThreads();
     startHeapMemoryManager();
-    LOG.info("Serving as " + this.serverNameFromMasterPOV + ", RpcServer on "+ this.isa+ ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getRecoverableZooKeeper().getSessionId()));
-    isOnline=true;
+    LOG.info("Serving as " + this.serverName + ", RpcServer on "+ rpcServices.isa+ ", sessionid=0x"+ Long.toHexString(this.zooKeeper.getRecoverableZooKeeper().getSessionId()));
+synchronized (online) {
+      online.set(true);
+      online.notifyAll();
+    }
   }
  catch (  Throwable e) {
-    this.isOnline=false;
     stop("Failed initialization");
     throw convertThrowableToIOE(cleanup(e,"Failed init"),"Region server startup failed");
   }

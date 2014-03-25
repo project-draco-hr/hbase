@@ -6,8 +6,11 @@
     abort("Fatal exception during initialization",e);
   }
   try {
-    createMyEphemeralNode();
-    this.rsHost=new RegionServerCoprocessorHost(this,this.conf);
+    if (!isStopped() && !isAborted()) {
+      ShutdownHook.install(conf,fs,this,Thread.currentThread());
+      createMyEphemeralNode();
+      this.rsHost=new RegionServerCoprocessorHost(this,this.conf);
+    }
     while (keepLooping()) {
       RegionServerStartupResponse w=reportForDuty();
       if (w == null) {
@@ -19,12 +22,12 @@
         break;
       }
     }
-    if (!this.stopped && isHealthy()) {
+    if (!isStopped() && isHealthy()) {
       rspmHost.start();
     }
-    long lastMsg=0;
+    long lastMsg=System.currentTimeMillis();
     long oldRequestCount=-1;
-    while (!this.stopped && isHealthy()) {
+    while (!isStopped() && isHealthy()) {
       if (!isClusterUp()) {
         if (isOnlineRegionsEmpty()) {
           stop("Exiting; cluster shutdown set and not carrying any regions");
@@ -53,12 +56,15 @@
       if ((now - lastMsg) >= msgInterval) {
         tryRegionServerReport(lastMsg,now);
         lastMsg=System.currentTimeMillis();
+        doMetrics();
       }
-      if (!this.stopped)       this.sleeper.sleep();
+      if (!isStopped() && !isAborted()) {
+        this.sleeper.sleep();
+      }
     }
   }
  catch (  Throwable t) {
-    if (!checkOOME(t)) {
+    if (!rpcServices.checkOOME(t)) {
       String prefix=t instanceof YouAreDeadException ? "" : "Unhandled: ";
       abort(prefix + t.getMessage(),t);
     }
@@ -68,7 +74,6 @@
     mxBean=null;
   }
   if (this.leases != null)   this.leases.closeAfterLeasesExpire();
-  this.rpcServer.stop();
   if (this.splitLogWorker != null) {
     splitLogWorker.stop();
   }
@@ -88,8 +93,6 @@
   if (this.hMemManager != null)   this.hMemManager.stop();
   if (this.cacheFlusher != null)   this.cacheFlusher.interruptIfNecessary();
   if (this.compactSplitThread != null)   this.compactSplitThread.interruptIfNecessary();
-  if (this.hlogRoller != null)   this.hlogRoller.interruptIfNecessary();
-  if (this.metaHLogRoller != null)   this.metaHLogRoller.interruptIfNecessary();
   if (this.compactionChecker != null)   this.compactionChecker.interrupt();
   if (this.healthCheckChore != null) {
     this.healthCheckChore.interrupt();
@@ -104,12 +107,11 @@
     if (this.fsOk) {
       closeUserRegions(abortRequested);
     }
-    LOG.info("aborting server " + this.serverNameFromMasterPOV);
+    LOG.info("aborting server " + this.serverName);
   }
  else {
     closeUserRegions(abortRequested);
-    closeAllScanners();
-    LOG.info("stopping server " + this.serverNameFromMasterPOV);
+    LOG.info("stopping server " + this.serverName);
   }
   if (this.catalogTracker != null)   this.catalogTracker.stop();
   if (!this.killed && containsMetaTableRegions()) {
@@ -123,7 +125,7 @@
   }
   if (!this.killed && this.fsOk) {
     waitOnAllRegionsToClose(abortRequested);
-    LOG.info("stopping server " + this.serverNameFromMasterPOV + "; all regions closed.");
+    LOG.info("stopping server " + this.serverName + "; all regions closed.");
   }
   if (this.fsOk) {
     closeWAL(!abortRequested);
@@ -137,8 +139,9 @@
     this.pauseMonitor.stop();
   }
   if (!killed) {
-    join();
+    stopServiceThreads();
   }
+  this.rpcServices.stop();
   try {
     deleteMyEphemeralNode();
   }
@@ -147,6 +150,6 @@
   }
   ZNodeClearer.deleteMyEphemeralNodeOnDisk();
   this.zooKeeper.close();
-  LOG.info("stopping server " + this.serverNameFromMasterPOV + "; zookeeper connection closed.");
+  LOG.info("stopping server " + this.serverName + "; zookeeper connection closed.");
   LOG.info(Thread.currentThread().getName() + " exiting");
 }
