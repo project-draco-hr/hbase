@@ -1,15 +1,16 @@
 {
   if (shouldCloseConnection.get())   return;
-  int totalSize;
+  Call call=null;
+  boolean expectedCall=false;
   try {
-    totalSize=in.readInt();
+    int totalSize=in.readInt();
     ResponseHeader responseHeader=ResponseHeader.parseDelimitedFrom(in);
     int id=responseHeader.getCallId();
     if (LOG.isDebugEnabled()) {
       LOG.debug(getName() + ": got response header " + TextFormat.shortDebugString(responseHeader)+ ", totalSize: "+ totalSize+ " bytes");
     }
-    Call call=calls.remove(id);
-    boolean expectedCall=(call != null && !call.done);
+    call=calls.remove(id);
+    expectedCall=(call != null && !call.done);
     if (!expectedCall) {
       int readSoFar=IPCUtil.getTotalSizeWhenWrittenDelimited(responseHeader);
       int whatIsLeftToRead=totalSize - readSoFar;
@@ -19,11 +20,9 @@
     if (responseHeader.hasException()) {
       ExceptionResponse exceptionResponse=responseHeader.getException();
       RemoteException re=createRemoteException(exceptionResponse);
+      if (expectedCall)       call.setException(re);
       if (isFatalConnectionException(exceptionResponse)) {
         markClosed(re);
-      }
- else {
-        if (expectedCall)         call.setException(re);
       }
     }
  else {
@@ -44,6 +43,7 @@
     }
   }
  catch (  IOException e) {
+    if (expectedCall)     call.setException(e);
     if (e instanceof SocketTimeoutException) {
     }
  else {
@@ -52,5 +52,8 @@
   }
  finally {
     cleanupCalls(false);
+    if (expectedCall && !call.done) {
+      LOG.warn("Coding error: code should be true for callId=" + call.id + ", server="+ getRemoteAddress()+ ", shouldCloseConnection="+ shouldCloseConnection.get());
+    }
   }
 }
