@@ -1,5 +1,4 @@
 {
-  HRegionLocation firstMetaServer=getFirstMetaServerForTable(tableName);
   boolean tableExists=true;
   executeCallable(new MasterCallable<Void>(getConnection()){
     @Override public Void call(    int callTimeout) throws ServiceException {
@@ -9,8 +8,10 @@
     }
   }
 );
+  int failures=0;
   for (int tries=0; tries < (this.numRetries * this.retryLongerMultiplier); tries++) {
     try {
+      HRegionLocation firstMetaServer=getFirstMetaServerForTable(tableName);
       Scan scan=MetaReader.getScanForTableName(tableName);
       scan.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
       ScanRequest request=RequestConverter.buildScanRequest(firstMetaServer.getRegionInfo().getRegionName(),scan,1,true);
@@ -46,7 +47,8 @@
       }
     }
  catch (    IOException ex) {
-      if (tries == numRetries - 1) {
+      failures++;
+      if (failures == numRetries - 1) {
         if (ex instanceof RemoteException) {
           throw ((RemoteException)ex).unwrapRemoteException();
         }
