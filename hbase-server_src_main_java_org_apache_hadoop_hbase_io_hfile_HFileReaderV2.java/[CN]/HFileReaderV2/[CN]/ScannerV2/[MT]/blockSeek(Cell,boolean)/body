@@ -1,0 +1,64 @@
+{
+  int klen, vlen;
+  long memstoreTS=0;
+  int memstoreTSLen=0;
+  int lastKeyValueSize=-1;
+  KeyValue.KeyOnlyKeyValue keyOnlykv=new KeyValue.KeyOnlyKeyValue();
+  do {
+    blockBuffer.mark();
+    klen=blockBuffer.getInt();
+    vlen=blockBuffer.getInt();
+    blockBuffer.reset();
+    if (this.reader.shouldIncludeMemstoreTS()) {
+      if (this.reader.decodeMemstoreTS) {
+        try {
+          int memstoreTSOffset=blockBuffer.arrayOffset() + blockBuffer.position() + KEY_VALUE_LEN_SIZE+ klen+ vlen;
+          memstoreTS=Bytes.readVLong(blockBuffer.array(),memstoreTSOffset);
+          memstoreTSLen=WritableUtils.getVIntSize(memstoreTS);
+        }
+ catch (        Exception e) {
+          throw new RuntimeException("Error reading memstore timestamp",e);
+        }
+      }
+ else {
+        memstoreTS=0;
+        memstoreTSLen=1;
+      }
+    }
+    int keyOffset=blockBuffer.arrayOffset() + blockBuffer.position() + KEY_VALUE_LEN_SIZE;
+    keyOnlykv.setKey(blockBuffer.array(),keyOffset,klen);
+    int comp=reader.getComparator().compareOnlyKeyPortion(key,keyOnlykv);
+    if (comp == 0) {
+      if (seekBefore) {
+        if (lastKeyValueSize < 0) {
+          KeyValue kv=KeyValueUtil.ensureKeyValue(key);
+          throw new IllegalStateException("blockSeek with seekBefore " + "at the first key of the block: key=" + Bytes.toStringBinary(kv.getKey(),kv.getKeyOffset(),kv.getKeyLength()) + ", blockOffset="+ block.getOffset()+ ", onDiskSize="+ block.getOnDiskSizeWithHeader());
+        }
+        blockBuffer.position(blockBuffer.position() - lastKeyValueSize);
+        readKeyValueLen();
+        return 1;
+      }
+      currKeyLen=klen;
+      currValueLen=vlen;
+      if (this.reader.shouldIncludeMemstoreTS()) {
+        currMemstoreTS=memstoreTS;
+        currMemstoreTSLen=memstoreTSLen;
+      }
+      return 0;
+    }
+ else     if (comp < 0) {
+      if (lastKeyValueSize > 0)       blockBuffer.position(blockBuffer.position() - lastKeyValueSize);
+      readKeyValueLen();
+      if (lastKeyValueSize == -1 && blockBuffer.position() == 0 && this.reader.trailer.getMinorVersion() >= MINOR_VERSION_WITH_FAKED_KEY) {
+        return HConstants.INDEX_KEY_MAGIC;
+      }
+      return 1;
+    }
+    lastKeyValueSize=klen + vlen + memstoreTSLen+ KEY_VALUE_LEN_SIZE;
+    blockBuffer.position(blockBuffer.position() + lastKeyValueSize);
+  }
+ while (blockBuffer.remaining() > 0);
+  blockBuffer.position(blockBuffer.position() - lastKeyValueSize);
+  readKeyValueLen();
+  return 1;
+}

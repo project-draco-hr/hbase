@@ -38,27 +38,15 @@
       }
       return true;
     }
-    public boolean seekBefore(    byte[] key) throws IOException {
+    @Override public boolean seekBefore(    byte[] key) throws IOException {
       return seekBefore(key,0,key.length);
     }
-    public boolean seekBefore(    byte[] key,    int offset,    int length) throws IOException {
-      if (top) {
-        byte[] fk=getFirstKey();
-        if (fk == null)         return false;
-        if (getComparator().compareFlatKey(key,offset,length,fk,0,fk.length) <= 0) {
-          return false;
-        }
-      }
- else {
-        if (getComparator().compareFlatKey(key,offset,length,splitkey,0,splitkey.length) >= 0) {
-          return this.delegate.seekBefore(splitkey,0,splitkey.length);
-        }
-      }
-      return this.delegate.seekBefore(key,offset,length);
+    @Override public boolean seekBefore(    byte[] key,    int offset,    int length) throws IOException {
+      return seekBefore(new KeyValue.KeyOnlyKeyValue(key,offset,length));
     }
-    public boolean seekTo() throws IOException {
+    @Override public boolean seekTo() throws IOException {
       if (top) {
-        int r=this.delegate.seekTo(splitkey);
+        int r=this.delegate.seekTo(new KeyValue.KeyOnlyKeyValue(splitkey,0,splitkey.length));
         if (r == HConstants.INDEX_KEY_MAGIC) {
           return true;
         }
@@ -77,38 +65,50 @@
       ByteBuffer k=this.delegate.getKey();
       return this.delegate.getReader().getComparator().compareFlatKey(k.array(),k.arrayOffset(),k.limit(),splitkey,0,splitkey.length) < 0;
     }
-    public int seekTo(    byte[] key) throws IOException {
+    @Override public int seekTo(    byte[] key) throws IOException {
       return seekTo(key,0,key.length);
     }
-    public int seekTo(    byte[] key,    int offset,    int length) throws IOException {
-      if (top) {
-        if (getComparator().compareFlatKey(key,offset,length,splitkey,0,splitkey.length) < 0) {
-          return -1;
-        }
-      }
- else {
-        if (getComparator().compareFlatKey(key,offset,length,splitkey,0,splitkey.length) >= 0) {
-          boolean res=delegate.seekBefore(splitkey,0,splitkey.length);
-          if (!res) {
-            throw new IOException("Seeking for a key in bottom of file, but key exists in top of file, failed on seekBefore(midkey)");
-          }
-          return 1;
-        }
-      }
-      return delegate.seekTo(key,offset,length);
+    @Override public int seekTo(    byte[] key,    int offset,    int length) throws IOException {
+      return seekTo(new KeyValue.KeyOnlyKeyValue(key,offset,length));
     }
     @Override public int reseekTo(    byte[] key) throws IOException {
       return reseekTo(key,0,key.length);
     }
     @Override public int reseekTo(    byte[] key,    int offset,    int length) throws IOException {
+      return reseekTo(new KeyValue.KeyOnlyKeyValue(key,offset,length));
+    }
+    public org.apache.hadoop.hbase.io.hfile.HFile.Reader getReader(){
+      return this.delegate.getReader();
+    }
+    public boolean isSeeked(){
+      return this.delegate.isSeeked();
+    }
+    @Override public int seekTo(    Cell key) throws IOException {
       if (top) {
-        if (getComparator().compareFlatKey(key,offset,length,splitkey,0,splitkey.length) < 0) {
+        if (getComparator().compareOnlyKeyPortion(key,splitCell) < 0) {
           return -1;
         }
       }
  else {
-        if (getComparator().compareFlatKey(key,offset,length,splitkey,0,splitkey.length) >= 0) {
-          boolean res=delegate.seekBefore(splitkey,0,splitkey.length);
+        if (getComparator().compareOnlyKeyPortion(key,splitCell) >= 0) {
+          boolean res=delegate.seekBefore(splitCell);
+          if (!res) {
+            throw new IOException("Seeking for a key in bottom of file, but key exists in top of file, " + "failed on seekBefore(midkey)");
+          }
+          return 1;
+        }
+      }
+      return delegate.seekTo(key);
+    }
+    @Override public int reseekTo(    Cell key) throws IOException {
+      if (top) {
+        if (getComparator().compareOnlyKeyPortion(key,splitCell) < 0) {
+          return -1;
+        }
+      }
+ else {
+        if (getComparator().compareOnlyKeyPortion(key,splitCell) >= 0) {
+          boolean res=delegate.seekBefore(splitCell);
           if (!res) {
             throw new IOException("Seeking for a key in bottom of file, but" + " key exists in top of file, failed on seekBefore(midkey)");
           }
@@ -118,13 +118,22 @@
       if (atEnd) {
         return 1;
       }
-      return delegate.reseekTo(key,offset,length);
+      return delegate.reseekTo(key);
     }
-    public org.apache.hadoop.hbase.io.hfile.HFile.Reader getReader(){
-      return this.delegate.getReader();
-    }
-    public boolean isSeeked(){
-      return this.delegate.isSeeked();
+    @Override public boolean seekBefore(    Cell key) throws IOException {
+      if (top) {
+        Cell fk=new KeyValue.KeyOnlyKeyValue(getFirstKey(),0,getFirstKey().length);
+        if (fk == null)         return false;
+        if (getComparator().compareOnlyKeyPortion(key,fk) <= 0) {
+          return false;
+        }
+      }
+ else {
+        if (getComparator().compareOnlyKeyPortion(key,splitCell) >= 0) {
+          return this.delegate.seekBefore(splitCell);
+        }
+      }
+      return this.delegate.seekBefore(key);
     }
   }
 ;
