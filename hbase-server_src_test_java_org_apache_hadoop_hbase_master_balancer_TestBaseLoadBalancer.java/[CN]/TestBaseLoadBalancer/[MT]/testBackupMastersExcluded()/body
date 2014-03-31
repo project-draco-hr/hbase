@@ -1,0 +1,35 @@
+{
+  ClusterStatus st=Mockito.mock(ClusterStatus.class);
+  ArrayList<ServerName> backupMasters=new ArrayList<ServerName>();
+  ServerName backupMaster=ServerName.valueOf("fake-backupmaster",0,1L);
+  backupMasters.add(backupMaster);
+  BaseLoadBalancer balancer=(BaseLoadBalancer)loadBalancer;
+  balancer.usingBackupMasters=false;
+  Mockito.when(st.getBackupMasters()).thenReturn(backupMasters);
+  loadBalancer.setClusterStatus(st);
+  assertEquals(1,balancer.excludedServers.size());
+  assertTrue(balancer.excludedServers.contains(backupMaster));
+  List<HRegionInfo> regions=randomRegions(1);
+  HRegionInfo region=regions.get(0);
+  assertNull(loadBalancer.randomAssignment(region,backupMasters));
+  assertNull(loadBalancer.roundRobinAssignment(regions,backupMasters));
+  HashMap<HRegionInfo,ServerName> assignments=new HashMap<HRegionInfo,ServerName>();
+  assignments.put(region,backupMaster);
+  assertNull(loadBalancer.retainAssignment(assignments,backupMasters));
+  ArrayList<ServerName> servers=new ArrayList<ServerName>(backupMasters);
+  ServerName sn=ServerName.valueOf("fake-rs",0,1L);
+  servers.add(sn);
+  assertEquals(sn,loadBalancer.randomAssignment(region,servers));
+  Map<ServerName,List<HRegionInfo>> plans=loadBalancer.roundRobinAssignment(regions,servers);
+  assertEquals(1,plans.size());
+  assertTrue(plans.get(sn).contains(region));
+  plans=loadBalancer.retainAssignment(assignments,servers);
+  assertEquals(1,plans.size());
+  assertTrue(plans.get(sn).contains(region));
+  Map<ServerName,List<HRegionInfo>> clusterMap=new HashMap<ServerName,List<HRegionInfo>>();
+  clusterMap.put(backupMaster,new ArrayList<HRegionInfo>());
+  clusterMap.put(sn,new ArrayList<HRegionInfo>());
+  balancer.filterExcludedServers(clusterMap);
+  assertTrue(clusterMap.containsKey(sn));
+  assertEquals(1,clusterMap.size());
+}
