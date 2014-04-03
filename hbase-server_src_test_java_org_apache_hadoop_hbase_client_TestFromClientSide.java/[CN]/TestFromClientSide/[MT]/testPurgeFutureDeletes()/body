@@ -1,0 +1,41 @@
+{
+  final byte[] TABLENAME=Bytes.toBytes("testPurgeFutureDeletes");
+  final byte[] ROW=Bytes.toBytes("row");
+  final byte[] FAMILY=Bytes.toBytes("family");
+  final byte[] COLUMN=Bytes.toBytes("column");
+  final byte[] VALUE=Bytes.toBytes("value");
+  HTable table=TEST_UTIL.createTable(TABLENAME,FAMILY);
+  long ts=System.currentTimeMillis() * 2;
+  Put put=new Put(ROW,ts);
+  put.add(FAMILY,COLUMN,VALUE);
+  table.put(put);
+  Get get=new Get(ROW);
+  Result result=table.get(get);
+  assertArrayEquals(VALUE,result.getValue(FAMILY,COLUMN));
+  Delete del=new Delete(ROW);
+  del.deleteColumn(FAMILY,COLUMN,ts);
+  table.delete(del);
+  get=new Get(ROW);
+  result=table.get(get);
+  assertNull(result.getValue(FAMILY,COLUMN));
+  TEST_UTIL.getHBaseAdmin().flush(TABLENAME);
+  TEST_UTIL.getHBaseAdmin().majorCompact(TABLENAME);
+  TEST_UTIL.waitFor(6000,new Waiter.Predicate<IOException>(){
+    @Override public boolean evaluate() throws IOException {
+      try {
+        return TEST_UTIL.getHBaseAdmin().getCompactionState(TABLENAME) == AdminProtos.GetRegionInfoResponse.CompactionState.NONE;
+      }
+ catch (      InterruptedException e) {
+        throw new IOException(e);
+      }
+    }
+  }
+);
+  put=new Put(ROW,ts);
+  put.add(FAMILY,COLUMN,VALUE);
+  table.put(put);
+  get=new Get(ROW);
+  result=table.get(get);
+  assertArrayEquals(VALUE,result.getValue(FAMILY,COLUMN));
+  table.close();
+}
