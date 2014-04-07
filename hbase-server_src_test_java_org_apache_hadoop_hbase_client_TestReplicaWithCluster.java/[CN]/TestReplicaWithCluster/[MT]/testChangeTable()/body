@@ -1,0 +1,44 @@
+{
+  HTableDescriptor hdt=HTU.createTableDescriptor("testChangeTable");
+  hdt.setRegionReplication(NB_SERVERS);
+  hdt.addCoprocessor(SlowMeCopro.class.getName());
+  HTable table=HTU.createTable(hdt,new byte[][]{f},HTU.getConfiguration());
+  Put p=new Put(row);
+  p.add(f,row,row);
+  table.put(p);
+  Get g=new Get(row);
+  Result r=table.get(g);
+  Assert.assertFalse(r.isStale());
+  HTableDescriptor bHdt=HTU.getHBaseAdmin().getTableDescriptor(hdt.getTableName());
+  HColumnDescriptor hcd=new HColumnDescriptor(row);
+  hdt.addFamily(hcd);
+  HTU.getHBaseAdmin().disableTable(hdt.getTableName());
+  HTU.getHBaseAdmin().modifyTable(hdt.getTableName(),hdt);
+  HTU.getHBaseAdmin().enableTable(hdt.getTableName());
+  HTableDescriptor nHdt=HTU.getHBaseAdmin().getTableDescriptor(hdt.getTableName());
+  Assert.assertEquals("fams=" + Arrays.toString(nHdt.getColumnFamilies()),bHdt.getColumnFamilies().length + 1,nHdt.getColumnFamilies().length);
+  p=new Put(row);
+  p.add(row,row,row);
+  table.put(p);
+  g=new Get(row);
+  r=table.get(g);
+  Assert.assertFalse(r.isStale());
+  try {
+    SlowMeCopro.cdl.set(new CountDownLatch(1));
+    g=new Get(row);
+    g.setConsistency(Consistency.TIMELINE);
+    r=table.get(g);
+    Assert.assertTrue(r.isStale());
+  }
+  finally {
+    SlowMeCopro.cdl.get().countDown();
+    SlowMeCopro.sleepTime.set(0);
+  }
+  HTU.getHBaseCluster().stopMaster(0);
+  HBaseAdmin admin=new HBaseAdmin(HTU.getConfiguration());
+  nHdt=admin.getTableDescriptor(hdt.getTableName());
+  Assert.assertEquals("fams=" + Arrays.toString(nHdt.getColumnFamilies()),bHdt.getColumnFamilies().length + 1,nHdt.getColumnFamilies().length);
+  admin.disableTable(hdt.getTableName());
+  admin.deleteTable(hdt.getTableName());
+  HTU.getHBaseCluster().startMaster();
+}
