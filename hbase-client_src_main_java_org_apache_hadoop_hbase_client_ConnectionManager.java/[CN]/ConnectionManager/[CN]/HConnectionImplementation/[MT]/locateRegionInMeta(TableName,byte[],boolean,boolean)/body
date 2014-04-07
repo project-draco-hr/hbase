@@ -1,48 +1,46 @@
 {
-  HRegionLocation location;
   if (useCache) {
-    location=getCachedLocation(tableName,row);
+    HRegionLocation location=getCachedLocation(tableName,row);
     if (location != null) {
       return location;
     }
   }
-  int localNumRetries=retry ? numTries : 1;
   byte[] metaKey=HRegionInfo.createRegionName(tableName,row,HConstants.NINES,false);
+  Scan s=new Scan();
+  s.setReversed(true);
+  s.setStartRow(metaKey);
+  s.setSmall(true);
+  s.setCaching(1);
+  HConnection connection=ConnectionManager.getConnectionInternal(conf);
+  int localNumRetries=(retry ? numTries : 1);
   for (int tries=0; true; tries++) {
     if (tries >= localNumRetries) {
-      throw new NoServerForRegionException("Unable to find region for " + Bytes.toStringBinary(row) + " after "+ numTries+ " tries.");
+      throw new NoServerForRegionException("Unable to find region for " + Bytes.toStringBinary(row) + " in "+ tableName+ " after "+ localNumRetries+ " tries.");
     }
-    HRegionLocation metaLocation=null;
+    if (useCache) {
+      HRegionLocation location=getCachedLocation(tableName,row);
+      if (location != null) {
+        return location;
+      }
+    }
     try {
-      metaLocation=locateRegion(parentTable,metaKey,true,false);
-      if (metaLocation == null)       continue;
-      ClientService.BlockingInterface service=getClient(metaLocation.getServerName());
-      Result regionInfoRow;
-      if (useCache) {
-        if (TableName.META_TABLE_NAME.equals(parentTable) && getRegionCachePrefetch(tableName)) {
-synchronized (regionLockObject) {
-            location=getCachedLocation(tableName,row);
-            if (location != null) {
-              return location;
-            }
-            prefetchRegionCache(tableName,row);
-          }
-        }
-        location=getCachedLocation(tableName,row);
-        if (location != null) {
-          return location;
+      Result regionInfoRow=null;
+      ReversedClientScanner rcs=null;
+      try {
+        rcs=new ClientSmallReversedScanner(conf,s,TableName.META_TABLE_NAME,connection);
+        regionInfoRow=rcs.next();
+      }
+  finally {
+        if (rcs != null) {
+          rcs.close();
         }
       }
- else {
-        forceDeleteCachedLocation(tableName,row);
-      }
-      regionInfoRow=ProtobufUtil.getRowOrBefore(service,metaLocation.getRegionInfo().getRegionName(),metaKey,HConstants.CATALOG_FAMILY);
       if (regionInfoRow == null) {
         throw new TableNotFoundException(tableName);
       }
       HRegionInfo regionInfo=MetaScanner.getHRegionInfo(regionInfoRow);
       if (regionInfo == null) {
-        throw new IOException("HRegionInfo was null or empty in " + parentTable + ", row="+ regionInfoRow);
+        throw new IOException("HRegionInfo was null or empty in " + TableName.META_TABLE_NAME + ", row="+ regionInfoRow);
       }
       if (!regionInfo.getTable().equals(tableName)) {
         throw new TableNotFoundException("Table '" + tableName + "' was not found, got: "+ regionInfo.getTable()+ ".");
@@ -55,12 +53,12 @@ synchronized (regionLockObject) {
       }
       ServerName serverName=HRegionInfo.getServerName(regionInfoRow);
       if (serverName == null) {
-        throw new NoServerForRegionException("No server address listed " + "in " + parentTable + " for region "+ regionInfo.getRegionNameAsString()+ " containing row "+ Bytes.toStringBinary(row));
+        throw new NoServerForRegionException("No server address listed " + "in " + TableName.META_TABLE_NAME + " for region "+ regionInfo.getRegionNameAsString()+ " containing row "+ Bytes.toStringBinary(row));
       }
       if (isDeadServer(serverName)) {
         throw new RegionServerStoppedException("hbase:meta says the region " + regionInfo.getRegionNameAsString() + " is managed by the server "+ serverName+ ", but it is dead.");
       }
-      location=new HRegionLocation(regionInfo,serverName,HRegionInfo.getSeqNumDuringOpen(regionInfoRow));
+      HRegionLocation location=new HRegionLocation(regionInfo,serverName,HRegionInfo.getSeqNumDuringOpen(regionInfoRow));
       cacheLocation(tableName,null,location);
       return location;
     }
@@ -72,16 +70,16 @@ catch (    IOException e) {
       if (e instanceof RemoteException) {
         e=((RemoteException)e).unwrapRemoteException();
       }
-      if (tries < numTries - 1) {
+      if (tries < localNumRetries - 1) {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("locateRegionInMeta parentTable=" + parentTable + ", metaLocation="+ ((metaLocation == null) ? "null" : "{" + metaLocation + "}")+ ", attempt="+ tries+ " of "+ this.numTries+ " failed; retrying after sleep of "+ ConnectionUtils.getPauseTime(this.pause,tries)+ " because: "+ e.getMessage());
+          LOG.debug("locateRegionInMeta parentTable=" + TableName.META_TABLE_NAME + ", metaLocation="+ ", attempt="+ tries+ " of "+ localNumRetries+ " failed; retrying after sleep of "+ ConnectionUtils.getPauseTime(this.pause,tries)+ " because: "+ e.getMessage());
         }
       }
  else {
         throw e;
       }
       if (!(e instanceof RegionOfflineException || e instanceof NoServerForRegionException)) {
-        relocateRegion(parentTable,metaKey);
+        relocateRegion(TableName.META_TABLE_NAME,metaKey);
       }
     }
     try {
