@@ -1,7 +1,7 @@
 {
   if (useCache) {
     RegionLocations locations=getCachedLocation(tableName,row);
-    if (locations != null) {
+    if (locations != null && locations.getRegionLocation(replicaId) != null) {
       return locations;
     }
   }
@@ -19,9 +19,12 @@
     }
     if (useCache) {
       RegionLocations locations=getCachedLocation(tableName,row);
-      if (locations != null) {
+      if (locations != null && locations.getRegionLocation(replicaId) != null) {
         return locations;
       }
+    }
+ else {
+      metaCache.clearCache(tableName,row);
     }
     try {
       Result regionInfoRow=null;
@@ -39,10 +42,10 @@
         throw new TableNotFoundException(tableName);
       }
       RegionLocations locations=MetaReader.getRegionLocations(regionInfoRow);
-      if (locations == null || locations.getRegionLocation() == null) {
+      if (locations == null || locations.getRegionLocation(replicaId) == null) {
         throw new IOException("HRegionInfo was null in " + tableName + ", row="+ regionInfoRow);
       }
-      HRegionInfo regionInfo=locations.getRegionLocation().getRegionInfo();
+      HRegionInfo regionInfo=locations.getRegionLocation(replicaId).getRegionInfo();
       if (regionInfo == null) {
         throw new IOException("HRegionInfo was null or empty in " + TableName.META_TABLE_NAME + ", row="+ regionInfoRow);
       }
@@ -55,7 +58,7 @@
       if (regionInfo.isOffline()) {
         throw new RegionOfflineException("the region is offline, could" + " be caused by a disable table call: " + regionInfo.getRegionNameAsString());
       }
-      ServerName serverName=locations.getRegionLocation().getServerName();
+      ServerName serverName=locations.getRegionLocation(replicaId).getServerName();
       if (serverName == null) {
         throw new NoServerForRegionException("No server address listed " + "in " + TableName.META_TABLE_NAME + " for region "+ regionInfo.getRegionNameAsString()+ " containing row "+ Bytes.toStringBinary(row));
       }
@@ -82,7 +85,7 @@ catch (    IOException e) {
         throw e;
       }
       if (!(e instanceof RegionOfflineException || e instanceof NoServerForRegionException)) {
-        relocateRegion(TableName.META_TABLE_NAME,metaKey);
+        relocateRegion(TableName.META_TABLE_NAME,metaKey,replicaId);
       }
     }
     try {

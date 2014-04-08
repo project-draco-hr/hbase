@@ -1,13 +1,19 @@
 {
-  byte[] startKey=location.getRegionLocation().getRegionInfo().getStartKey();
+  byte[] startKey=locations.getRegionLocation().getRegionInfo().getStartKey();
   ConcurrentMap<byte[],RegionLocations> tableLocations=getTableLocations(tableName);
-  RegionLocations oldLocation=tableLocations.putIfAbsent(startKey,location);
+  RegionLocations oldLocation=tableLocations.putIfAbsent(startKey,locations);
   boolean isNewCacheEntry=(oldLocation == null);
   if (isNewCacheEntry) {
-    addToCachedServers(location);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Cached location: " + locations);
+    }
+    addToCachedServers(locations);
     return;
   }
-  RegionLocations mergedLocation=oldLocation.mergeLocations(location);
-  tableLocations.replace(startKey,oldLocation,mergedLocation);
-  addToCachedServers(location);
+  RegionLocations mergedLocation=oldLocation.mergeLocations(locations);
+  boolean replaced=tableLocations.replace(startKey,oldLocation,mergedLocation);
+  if (replaced && LOG.isTraceEnabled()) {
+    LOG.trace("Merged cached locations: " + mergedLocation);
+  }
+  addToCachedServers(locations);
 }
