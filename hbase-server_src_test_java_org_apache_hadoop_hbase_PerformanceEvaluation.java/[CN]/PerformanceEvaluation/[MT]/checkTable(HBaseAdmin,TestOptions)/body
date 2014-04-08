@@ -1,23 +1,33 @@
 {
-  HTableDescriptor tableDescriptor=getTableDescriptor(opts);
-  if (opts.presplitRegions > 0) {
-    if (admin.tableExists(tableDescriptor.getTableName())) {
-      admin.disableTable(tableDescriptor.getTableName());
-      admin.deleteTable(tableDescriptor.getTableName());
-    }
-    byte[][] splits=getSplits(opts);
-    for (int i=0; i < splits.length; i++) {
-      LOG.debug(" split " + i + ": "+ Bytes.toStringBinary(splits[i]));
-    }
-    admin.createTable(tableDescriptor,splits);
-    LOG.info("Table created with " + opts.presplitRegions + " splits");
+  TableName tableName=TableName.valueOf(opts.tableName);
+  boolean needsDelete=false, exists=admin.tableExists(tableName);
+  boolean isReadCmd=opts.cmdName.toLowerCase().contains("read") || opts.cmdName.toLowerCase().contains("scan");
+  if (!exists && isReadCmd) {
+    throw new IllegalStateException("Must specify an existing table for read commands. Run a write command first.");
   }
- else {
-    boolean tableExists=admin.tableExists(tableDescriptor.getTableName());
-    if (!tableExists) {
-      admin.createTable(tableDescriptor);
-      LOG.info("Table " + tableDescriptor + " created");
-    }
+  HTableDescriptor desc=exists ? admin.getTableDescriptor(TableName.valueOf(opts.tableName)) : null;
+  byte[][] splits=getSplits(opts);
+  if ((exists && opts.presplitRegions != DEFAULT_OPTS.presplitRegions) || (!isReadCmd && desc != null && desc.getRegionSplitPolicyClassName() != opts.splitPolicy) || (!isReadCmd && desc != null && desc.getRegionReplication() != opts.replicas)) {
+    needsDelete=true;
+    LOG.debug(Objects.toStringHelper("needsDelete").add("needsDelete",needsDelete).add("isReadCmd",isReadCmd).add("exists",exists).add("desc",desc).add("presplit",opts.presplitRegions).add("splitPolicy",opts.splitPolicy).add("replicas",opts.replicas));
   }
-  return admin.tableExists(tableDescriptor.getTableName());
+  if (needsDelete) {
+    if (admin.isTableEnabled(tableName)) {
+      admin.disableTable(tableName);
+    }
+    admin.deleteTable(tableName);
+  }
+  if (!exists || needsDelete) {
+    desc=getTableDescriptor(opts);
+    if (splits != null) {
+      if (LOG.isDebugEnabled()) {
+        for (int i=0; i < splits.length; i++) {
+          LOG.debug(" split " + i + ": "+ Bytes.toStringBinary(splits[i]));
+        }
+      }
+    }
+    admin.createTable(desc,splits);
+    LOG.info("Table " + desc + " created");
+  }
+  return admin.tableExists(tableName);
 }
