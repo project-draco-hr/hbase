@@ -1,0 +1,31 @@
+{
+  if (kv.getFamilyLength() == 0) {
+    useBloom=false;
+  }
+  boolean haveToSeek=true;
+  if (useBloom) {
+    if (reader.getBloomFilterType() == BloomType.ROWCOL) {
+      haveToSeek=reader.passesGeneralBloomFilter(kv.getRowArray(),kv.getRowOffset(),kv.getRowLength(),kv.getQualifierArray(),kv.getQualifierOffset(),kv.getQualifierLength());
+    }
+ else     if (this.matcher != null && !matcher.hasNullColumnInQuery() && ((CellUtil.isDeleteFamily(kv) || CellUtil.isDeleteFamilyVersion(kv)))) {
+      haveToSeek=reader.passesDeleteFamilyBloomFilter(kv.getRowArray(),kv.getRowOffset(),kv.getRowLength());
+    }
+  }
+  delayedReseek=forward;
+  delayedSeekKV=kv;
+  if (haveToSeek) {
+    realSeekDone=false;
+    long maxTimestampInFile=reader.getMaxTimestamp();
+    long seekTimestamp=kv.getTimestamp();
+    if (seekTimestamp > maxTimestampInFile) {
+      cur=KeyValueUtil.createFirstOnRowColTS(kv,maxTimestampInFile);
+    }
+ else {
+      enforceSeek();
+    }
+    return cur != null;
+  }
+  cur=KeyValueUtil.createLastOnRowCol(kv);
+  realSeekDone=true;
+  return true;
+}
