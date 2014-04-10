@@ -1,16 +1,35 @@
 {
   errorsByServer.reportServerError(server);
-  boolean canRetry=errorsByServer.canRetryMore(numAttempt);
+  Retry canRetry=errorsByServer.canRetryMore(numAttempt) ? Retry.YES : Retry.NO_RETRIES_EXHAUSTED;
+  int failed=0, stopped=0;
+  boolean isReplica=false;
+  boolean firstAction=false;
   List<Action<Row>> toReplay=new ArrayList<Action<Row>>();
   for (  Map.Entry<byte[],List<Action<Row>>> e : rsActions.actions.entrySet()) {
     byte[] regionName=e.getKey();
     byte[] row=e.getValue().iterator().next().getAction().getRow();
     hConnection.updateCachedLocations(tableName,regionName,row,null,server);
     for (    Action<Row> action : e.getValue()) {
-      if (manageError(action.getOriginalIndex(),action.getAction(),canRetry,t,server)) {
+      if (firstAction) {
+        firstAction=false;
+        isReplica=!RegionReplicaUtil.isDefaultReplica(action.getReplicaId());
+      }
+      Retry retry=manageError(action.getOriginalIndex(),action.getAction(),canRetry,t,server);
+      if (retry == Retry.YES) {
         toReplay.add(action);
+      }
+ else       if (retry == Retry.NO_OTHER_SUCCEEDED) {
+        ++stopped;
+      }
+ else {
+        ++failed;
       }
     }
   }
-  logAndResubmit(server,toReplay,numAttempt,rsActions.size(),t);
+  if (toReplay.isEmpty()) {
+    logNoResubmit(server,numAttempt,rsActions.size(),t,isReplica,failed,stopped);
+  }
+ else {
+    resubmit(server,toReplay,numAttempt,rsActions.size(),t,isReplica);
+  }
 }

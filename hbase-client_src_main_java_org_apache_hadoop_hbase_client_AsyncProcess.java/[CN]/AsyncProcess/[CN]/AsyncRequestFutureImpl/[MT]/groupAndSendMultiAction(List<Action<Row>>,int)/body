@@ -1,15 +1,10 @@
 {
-  final Map<ServerName,MultiAction<Row>> actionsByServer=new HashMap<ServerName,MultiAction<Row>>();
+  Map<ServerName,MultiAction<Row>> actionsByServer=new HashMap<ServerName,MultiAction<Row>>();
   boolean isReplica=false;
+  List<Action<Row>> unknownReplicaActions=null;
   for (  Action<Row> action : currentActions) {
-    RegionLocations locs=null;
-    try {
-      locs=findDestLocation(tableName,action.getAction(),false);
-    }
- catch (    IOException ex) {
-      manageError(action.getOriginalIndex(),action.getAction(),false,ex,null);
-      continue;
-    }
+    RegionLocations locs=findAllLocationsOrFail(action,true);
+    if (locs == null)     continue;
     boolean isReplicaAction=!RegionReplicaUtil.isDefaultReplica(action.getReplicaId());
     if (isReplica && !isReplicaAction) {
       throw new AssertionError("Replica and non-replica actions in the same retry");
@@ -17,26 +12,36 @@
     isReplica=isReplicaAction;
     HRegionLocation loc=locs.getRegionLocation(action.getReplicaId());
     if (loc == null || loc.getServerName() == null) {
-      try {
-        locs=hConnection.locateRegion(tableName,action.getAction().getRow(),false,true,action.getReplicaId());
-        loc=locs.getRegionLocation(action.getReplicaId());
+      if (isReplica) {
+        if (unknownReplicaActions == null) {
+          unknownReplicaActions=new ArrayList<Action<Row>>();
+        }
+        unknownReplicaActions.add(action);
       }
- catch (      IOException e) {
-        manageError(action.getOriginalIndex(),action.getAction(),false,e,null);
-        continue;
-      }
-      if (loc == null || loc.getServerName() == null) {
-        String str="Cannot find location for replica " + action.getReplicaId();
-        LOG.error(str);
-        manageError(action.getOriginalIndex(),action.getAction(),false,new IOException(str),null);
-        continue;
+ else {
+        manageLocationError(action,null);
       }
     }
-    byte[] regionName=loc.getRegionInfo().getRegionName();
-    addAction(loc.getServerName(),regionName,action,actionsByServer,nonceGroup);
+ else {
+      byte[] regionName=loc.getRegionInfo().getRegionName();
+      addAction(loc.getServerName(),regionName,action,actionsByServer,nonceGroup);
+    }
   }
+  boolean doStartReplica=(numAttempt == 1 && !isReplica && hasAnyReplicaGets);
+  boolean hasUnknown=unknownReplicaActions != null && !unknownReplicaActions.isEmpty();
   if (!actionsByServer.isEmpty()) {
-    boolean doStartReplica=(numAttempt == 1 && !isReplica && hasAnyReplicaGets);
-    sendMultiAction(actionsByServer,numAttempt,doStartReplica ? currentActions : null);
+    sendMultiAction(actionsByServer,numAttempt,(doStartReplica && !hasUnknown) ? currentActions : null,numAttempt > 1 && !hasUnknown);
+  }
+  if (hasUnknown) {
+    actionsByServer=new HashMap<ServerName,MultiAction<Row>>();
+    for (    Action<Row> action : unknownReplicaActions) {
+      HRegionLocation loc=getReplicaLocationOrFail(action);
+      if (loc == null)       continue;
+      byte[] regionName=loc.getRegionInfo().getRegionName();
+      addAction(loc.getServerName(),regionName,action,actionsByServer,nonceGroup);
+    }
+    if (!actionsByServer.isEmpty()) {
+      sendMultiAction(actionsByServer,numAttempt,doStartReplica ? currentActions : null,true);
+    }
   }
 }

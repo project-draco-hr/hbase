@@ -18,7 +18,12 @@
       Row r=it.next();
       HRegionLocation loc;
       try {
-        loc=findDestLocation(tableName,r,true).getDefaultRegionLocation();
+        if (r == null)         throw new IllegalArgumentException("#" + id + ", row cannot be null");
+        RegionLocations locs=hConnection.locateRegion(tableName,r.getRow(),true,true,RegionReplicaUtil.DEFAULT_REPLICA_ID);
+        if (locs == null || locs.isEmpty() || locs.getDefaultRegionLocation() == null) {
+          throw new IOException("#" + id + ", no location found, aborting submit for"+ " tableName="+ tableName+ " rowkey="+ Arrays.toString(r.getRow()));
+        }
+        loc=locs.getDefaultRegionLocation();
       }
  catch (      IOException ex) {
         locationErrors=new ArrayList<Exception>();
@@ -47,9 +52,9 @@
     for (int i=0; i < locationErrors.size(); ++i) {
       int originalIndex=locationErrorRows.get(i);
       Row row=retainedActions.get(originalIndex).getAction();
-      ars.manageError(originalIndex,row,false,locationErrors.get(i),null);
+      ars.manageError(originalIndex,row,Retry.NO_LOCATION_PROBLEM,locationErrors.get(i),null);
     }
   }
-  ars.sendMultiAction(actionsByServer,1,null);
+  ars.sendMultiAction(actionsByServer,1,null,false);
   return ars;
 }
