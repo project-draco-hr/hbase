@@ -1,12 +1,21 @@
 {
   Path p=new Path(srcPath);
   Path stageP=new Path(stagingDir,new Path(Bytes.toString(family),p.getName()));
+  if (srcFs == null) {
+    srcFs=FileSystem.get(p.toUri(),conf);
+  }
   if (!isFile(p)) {
     throw new IOException("Path does not reference a file: " + p);
   }
-  LOG.debug("Moving " + p + " to "+ stageP);
-  if (!fs.rename(p,stageP)) {
-    throw new IOException("Failed to move HFile: " + p + " to "+ stageP);
+  if (!FSHDFSUtils.isSameHdfs(conf,srcFs,fs)) {
+    LOG.debug("Bulk-load file " + srcPath + " is on different filesystem than "+ "the destination filesystem. Copying file over to destination staging dir.");
+    FileUtil.copy(srcFs,p,fs,stageP,false,conf);
+  }
+ else {
+    LOG.debug("Moving " + p + " to "+ stageP);
+    if (!fs.rename(p,stageP)) {
+      throw new IOException("Failed to move HFile: " + p + " to "+ stageP);
+    }
   }
   return stageP.toString();
 }
