@@ -21,9 +21,10 @@
     return;
   }
   int cellsChecked=0;
+  opTs=opTs != HConstants.LATEST_TIMESTAMP ? opTs : 0;
+  long latestCellTs=0;
   if (canPersistCellACLs) {
     Get get=new Get(row);
-    if (timestamp != HConstants.LATEST_TIMESTAMP)     get.setTimeStamp(timestamp);
     if (allVersions) {
       get.setMaxVersions();
     }
@@ -56,6 +57,9 @@
  else {
               get.addColumn(col,CellUtil.cloneQualifier(cell));
             }
+            if (cell.getTimestamp() != HConstants.LATEST_TIMESTAMP) {
+              latestCellTs=Math.max(latestCellTs,cell.getTimestamp());
+            }
           }
         }
       }
@@ -63,6 +67,11 @@
         throw new RuntimeException("Unhandled collection type " + entry.getValue().getClass().getName());
       }
     }
+    long latestTs=Math.max(opTs,latestCellTs);
+    if (latestTs == 0) {
+      latestTs=EnvironmentEdgeManager.currentTimeMillis();
+    }
+    get.setTimeRange(0,latestTs + 1);
     if (LOG.isTraceEnabled()) {
       LOG.trace("Scanning for cells with " + get);
     }
