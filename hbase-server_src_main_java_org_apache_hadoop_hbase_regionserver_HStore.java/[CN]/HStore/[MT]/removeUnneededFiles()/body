@@ -1,0 +1,23 @@
+{
+  if (!conf.getBoolean("hbase.store.delete.expired.storefile",true))   return;
+  this.lock.readLock().lock();
+  Collection<StoreFile> delSfs=null;
+  try {
+synchronized (filesCompacting) {
+      long cfTtl=getStoreFileTtl();
+      if (cfTtl != Long.MAX_VALUE) {
+        delSfs=storeEngine.getStoreFileManager().getUnneededFiles(EnvironmentEdgeManager.currentTimeMillis() - cfTtl,filesCompacting);
+        addToCompactingFiles(delSfs);
+      }
+    }
+  }
+  finally {
+    this.lock.readLock().unlock();
+  }
+  if (delSfs == null || delSfs.isEmpty())   return;
+  Collection<StoreFile> newFiles=new ArrayList<StoreFile>();
+  writeCompactionWalRecord(delSfs,newFiles);
+  replaceStoreFiles(delSfs,newFiles);
+  completeCompaction(delSfs);
+  LOG.info("Completed removal of " + delSfs.size() + " unnecessary (expired) file(s) in "+ this+ " of "+ this.getRegionInfo().getRegionNameAsString()+ "; total size for store is "+ StringUtils.humanReadableInt(storeSize));
+}
