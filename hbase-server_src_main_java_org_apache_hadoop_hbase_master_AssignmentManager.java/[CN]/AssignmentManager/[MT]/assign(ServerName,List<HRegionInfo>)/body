@@ -28,7 +28,7 @@
               LOG.info("Skip assigning " + region.getRegionNameAsString() + ", it's host "+ regionStates.getLastRegionServerOfRegion(encodedName)+ " is dead but not processed yet");
               onDeadServer=true;
             }
- else             if (asyncSetOfflineInZooKeeper(state,cb,destination)) {
+ else             if (!useZKForAssignment || asyncSetOfflineInZooKeeper(state,cb,destination)) {
               RegionPlan plan=new RegionPlan(region,state.getServerName(),destination);
               plans.put(encodedName,plan);
               states.add(state);
@@ -43,15 +43,17 @@
         Lock lock=locks.remove(encodedName);
         lock.unlock();
       }
-      int total=states.size();
-      for (int oldCounter=0; !server.isStopped(); ) {
-        int count=counter.get();
-        if (oldCounter != count) {
-          LOG.debug(destination.toString() + " unassigned znodes=" + count+ " of total="+ total+ "; oldCounter="+ oldCounter);
-          oldCounter=count;
+      if (useZKForAssignment) {
+        int total=states.size();
+        for (int oldCounter=0; !server.isStopped(); ) {
+          int count=counter.get();
+          if (oldCounter != count) {
+            LOG.debug(destination.toString() + " unassigned znodes=" + count+ " of total="+ total+ "; oldCounter="+ oldCounter);
+            oldCounter=count;
+          }
+          if (count >= total)           break;
+          Thread.sleep(5);
         }
-        if (count >= total)         break;
-        Thread.sleep(5);
       }
       if (server.isStopped()) {
         return false;
@@ -62,7 +64,7 @@
         HRegionInfo region=state.getRegion();
         String encodedRegionName=region.getEncodedName();
         Integer nodeVersion=offlineNodesVersions.get(encodedRegionName);
-        if (nodeVersion == null || nodeVersion == -1) {
+        if (useZKForAssignment && (nodeVersion == null || nodeVersion == -1)) {
           LOG.warn("failed to offline in zookeeper: " + region);
           failedToOpenRegions.add(region);
           Lock lock=locks.remove(encodedRegionName);

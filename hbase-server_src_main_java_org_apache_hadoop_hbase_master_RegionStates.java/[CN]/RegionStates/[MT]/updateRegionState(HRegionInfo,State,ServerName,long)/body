@@ -1,0 +1,36 @@
+{
+  if (state == State.FAILED_CLOSE || state == State.FAILED_OPEN) {
+    LOG.warn("Failed to open/close " + hri.getShortNameToLog() + " on "+ serverName+ ", set to "+ state);
+  }
+  String encodedName=hri.getEncodedName();
+  RegionState regionState=new RegionState(hri,state,System.currentTimeMillis(),serverName);
+  RegionState oldState=getRegionState(encodedName);
+  if (!regionState.equals(oldState)) {
+    LOG.info("Transition " + oldState + " to "+ regionState);
+    regionStateStore.updateRegionState(openSeqNum,regionState,oldState);
+  }
+synchronized (this) {
+    regionsInTransition.put(encodedName,regionState);
+    regionStates.put(encodedName,regionState);
+    if ((state == State.CLOSED || state == State.MERGED || state == State.SPLIT) && lastAssignments.containsKey(encodedName)) {
+      ServerName last=lastAssignments.get(encodedName);
+      if (last.equals(serverName)) {
+        lastAssignments.remove(encodedName);
+      }
+ else {
+        LOG.warn(encodedName + " moved to " + state+ " on "+ serverName+ ", expected "+ last);
+      }
+    }
+    if (serverName != null && state == State.OPEN) {
+      ServerName last=lastAssignments.get(encodedName);
+      if (!serverName.equals(last)) {
+        lastAssignments.put(encodedName,serverName);
+        if (last != null && isServerDeadAndNotProcessed(last)) {
+          LOG.warn(encodedName + " moved to " + serverName+ ", while it's previous host "+ last+ " is dead but not processed yet");
+        }
+      }
+    }
+    this.notifyAll();
+  }
+  return regionState;
+}

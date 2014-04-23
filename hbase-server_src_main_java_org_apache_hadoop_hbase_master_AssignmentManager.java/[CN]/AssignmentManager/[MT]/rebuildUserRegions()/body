@@ -1,47 +1,37 @@
 {
-  Set<TableName> enablingTables=tableStateManager.getTablesInStates(ZooKeeperProtos.Table.State.ENABLING);
   Set<TableName> disabledOrEnablingTables=tableStateManager.getTablesInStates(ZooKeeperProtos.Table.State.DISABLED,ZooKeeperProtos.Table.State.ENABLING);
   Set<TableName> disabledOrDisablingOrEnabling=tableStateManager.getTablesInStates(ZooKeeperProtos.Table.State.DISABLED,ZooKeeperProtos.Table.State.DISABLING,ZooKeeperProtos.Table.State.ENABLING);
   List<Result> results=MetaReader.fullScan(this.catalogTracker);
   Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
   Map<ServerName,List<HRegionInfo>> offlineServers=new TreeMap<ServerName,List<HRegionInfo>>();
   for (  Result result : results) {
-    Pair<HRegionInfo,ServerName> region=HRegionInfo.getHRegionInfoAndServerName(result);
-    if (region == null)     continue;
-    HRegionInfo regionInfo=region.getFirst();
-    ServerName regionLocation=region.getSecond();
+    HRegionInfo regionInfo=HRegionInfo.getHRegionInfo(result);
     if (regionInfo == null)     continue;
-    regionStates.createRegionState(regionInfo);
-    if (regionStates.isRegionInState(regionInfo,State.SPLIT)) {
-      LOG.debug("Region " + regionInfo.getRegionNameAsString() + " split is completed. Hence need not add to regions list");
+    State state=RegionStateStore.getRegionState(result);
+    ServerName regionLocation=RegionStateStore.getRegionServer(result);
+    regionStates.createRegionState(regionInfo,state,regionLocation);
+    if (!regionStates.isRegionInState(regionInfo,State.OPEN)) {
       continue;
     }
     TableName tableName=regionInfo.getTable();
-    if (regionLocation == null) {
-      if (!enablingTables.contains(tableName)) {
-        LOG.warn("Region " + regionInfo.getEncodedName() + " has null regionLocation."+ " But its table "+ tableName+ " isn't in ENABLING state.");
-      }
-    }
- else     if (!onlineServers.contains(regionLocation)) {
+    if (!onlineServers.contains(regionLocation)) {
       List<HRegionInfo> offlineRegions=offlineServers.get(regionLocation);
       if (offlineRegions == null) {
         offlineRegions=new ArrayList<HRegionInfo>(1);
         offlineServers.put(regionLocation,offlineRegions);
       }
+      regionStates.regionOffline(regionInfo);
       offlineRegions.add(regionInfo);
-      if (!disabledOrDisablingOrEnabling.contains(tableName) && !getTableStateManager().isTableState(tableName,ZooKeeperProtos.Table.State.ENABLED)) {
-        setEnabledTable(tableName);
-      }
     }
- else {
-      if (!disabledOrEnablingTables.contains(tableName)) {
-        regionStates.updateRegionState(regionInfo,State.OPEN,regionLocation);
-        regionStates.regionOnline(regionInfo,regionLocation);
-        balancer.regionOnline(regionInfo,regionLocation);
-      }
-      if (!disabledOrDisablingOrEnabling.contains(tableName) && !getTableStateManager().isTableState(tableName,ZooKeeperProtos.Table.State.ENABLED)) {
-        setEnabledTable(tableName);
-      }
+ else     if (!disabledOrEnablingTables.contains(tableName)) {
+      regionStates.regionOnline(regionInfo,regionLocation);
+      balancer.regionOnline(regionInfo,regionLocation);
+    }
+ else     if (useZKForAssignment) {
+      regionStates.regionOffline(regionInfo);
+    }
+    if (!disabledOrDisablingOrEnabling.contains(tableName) && !getTableStateManager().isTableState(tableName,ZooKeeperProtos.Table.State.ENABLED)) {
+      setEnabledTable(tableName);
     }
   }
   return offlineServers;

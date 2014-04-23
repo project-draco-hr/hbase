@@ -1,0 +1,58 @@
+{
+  TransitionCode code=transition.getTransitionCode();
+  HRegionInfo hri=HRegionInfo.convert(transition.getRegionInfo(0));
+  RegionState current=regionStates.getRegionState(hri);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Got transition " + code + " for "+ (current != null ? current.toString() : hri.getShortNameToLog())+ " from "+ serverName);
+  }
+  String errorMsg=null;
+switch (code) {
+case OPENED:
+case FAILED_OPEN:
+    if (current == null || !current.isPendingOpenOrOpeningOnServer(serverName)) {
+      errorMsg=hri.getShortNameToLog() + " is not pending open on " + serverName;
+    }
+ else     if (code == TransitionCode.FAILED_OPEN) {
+      onRegionFailedOpen(hri,serverName);
+    }
+ else {
+      long openSeqNum=HConstants.NO_SEQNUM;
+      if (transition.hasOpenSeqNum()) {
+        openSeqNum=transition.getOpenSeqNum();
+      }
+      if (openSeqNum < 0) {
+        errorMsg="Newly opened region has invalid open seq num " + openSeqNum;
+      }
+ else {
+        onRegionOpen(hri,serverName,openSeqNum);
+      }
+    }
+  break;
+case CLOSED:
+if (current == null || !current.isPendingCloseOrClosingOnServer(serverName)) {
+  errorMsg=hri.getShortNameToLog() + " is not pending close on " + serverName;
+}
+ else {
+  onRegionClosed(hri);
+}
+break;
+case READY_TO_SPLIT:
+case SPLIT_PONR:
+case SPLIT:
+case SPLIT_REVERTED:
+errorMsg=onRegionSplit(serverName,code,hri,HRegionInfo.convert(transition.getRegionInfo(1)),HRegionInfo.convert(transition.getRegionInfo(2)));
+break;
+case READY_TO_MERGE:
+case MERGE_PONR:
+case MERGED:
+case MERGE_REVERTED:
+errorMsg=onRegionMerge(serverName,code,hri,HRegionInfo.convert(transition.getRegionInfo(1)),HRegionInfo.convert(transition.getRegionInfo(2)));
+break;
+default :
+errorMsg="Unexpected transition code " + code;
+}
+if (errorMsg != null) {
+LOG.error("Failed to transtion region from " + current + " to "+ code+ " by "+ serverName+ ": "+ errorMsg);
+}
+return errorMsg;
+}

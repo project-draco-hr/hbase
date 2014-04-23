@@ -1,37 +1,87 @@
 {
   List<String> nodes=ZKUtil.listChildrenNoWatch(watcher,watcher.assignmentZNode);
-  if (nodes == null) {
+  if (useZKForAssignment && nodes == null) {
     String errorMessage="Failed to get the children from ZK";
     server.abort(errorMessage,new IOException(errorMessage));
-    return;
+    return true;
   }
-  boolean failover=(!serverManager.getDeadServers().isEmpty() || !serverManager.getRequeuedDeadServers().isEmpty());
-  if (!failover) {
-    Map<HRegionInfo,ServerName> regions=regionStates.getRegionAssignments();
-    for (    HRegionInfo hri : regions.keySet()) {
+  boolean failover=!serverManager.getDeadServers().isEmpty();
+  if (failover) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Found dead servers out on cluster " + serverManager.getDeadServers());
+    }
+  }
+ else {
+    for (    HRegionInfo hri : regionStates.getRegionAssignments().keySet()) {
       if (!hri.isMetaTable()) {
         LOG.debug("Found " + hri + " out on cluster");
         failover=true;
         break;
       }
     }
-    if (!failover) {
-      for (      String encodedName : nodes) {
-        RegionState state=regionStates.getRegionState(encodedName);
-        if (state != null && !state.getRegion().isMetaRegion()) {
-          LOG.debug("Found " + state.getRegion().getRegionNameAsString() + " in RITs");
+  }
+  if (!failover && nodes != null) {
+    for (    String encodedName : nodes) {
+      RegionState regionState=regionStates.getRegionState(encodedName);
+      if (regionState != null && !regionState.getRegion().isMetaRegion()) {
+        LOG.debug("Found " + regionState + " in RITs");
+        failover=true;
+        break;
+      }
+    }
+  }
+  if (!failover && !useZKForAssignment) {
+    Map<String,RegionState> regionsInTransition=regionStates.getRegionsInTransition();
+    if (!regionsInTransition.isEmpty()) {
+      Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
+      for (      RegionState regionState : regionsInTransition.values()) {
+        if (!regionState.getRegion().isMetaRegion() && onlineServers.contains(regionState.getServerName())) {
+          LOG.debug("Found " + regionState + " in RITs");
           failover=true;
           break;
         }
       }
     }
   }
+  if (!failover) {
+    Set<ServerName> queuedDeadServers=serverManager.getRequeuedDeadServers().keySet();
+    if (!queuedDeadServers.isEmpty()) {
+      Configuration conf=server.getConfiguration();
+      Path rootdir=FSUtils.getRootDir(conf);
+      FileSystem fs=rootdir.getFileSystem(conf);
+      for (      ServerName serverName : queuedDeadServers) {
+        Path logDir=new Path(rootdir,HLogUtil.getHLogDirectoryName(serverName.toString()));
+        Path splitDir=logDir.suffix(HLog.SPLITTING_EXT);
+        if (fs.exists(logDir) || fs.exists(splitDir)) {
+          LOG.debug("Found queued dead server " + serverName);
+          failover=true;
+          break;
+        }
+      }
+      if (!failover) {
+        LOG.info("AM figured that it's not a failover and cleaned up " + queuedDeadServers.size() + " queued dead servers");
+        serverManager.removeRequeuedDeadServers();
+      }
+    }
+  }
+  Set<TableName> disabledOrDisablingOrEnabling=null;
+  if (!failover) {
+    disabledOrDisablingOrEnabling=tableStateManager.getTablesInStates(ZooKeeperProtos.Table.State.DISABLED,ZooKeeperProtos.Table.State.DISABLING,ZooKeeperProtos.Table.State.ENABLING);
+    regionStates.closeAllUserRegions(disabledOrDisablingOrEnabling);
+  }
+  regionStateStore.start();
   if (failover) {
     LOG.info("Found regions out on cluster or in RIT; presuming failover");
     processDeadServersAndRecoverLostRegions(deadServers);
   }
- else {
-    LOG.info("Clean cluster startup. Assigning userregions");
-    assignAllUserRegions();
+  if (!failover && useZKForAssignment) {
+    ZKAssign.deleteAllNodes(watcher);
+    ZKUtil.listChildrenAndWatchForNewChildren(this.watcher,this.watcher.assignmentZNode);
   }
+  failoverCleanupDone();
+  if (!failover) {
+    LOG.info("Clean cluster startup. Assigning user regions");
+    assignAllUserRegions(disabledOrDisablingOrEnabling);
+  }
+  return failover;
 }

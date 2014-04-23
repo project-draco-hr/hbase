@@ -1,0 +1,28 @@
+{
+  if (!serverManager.isServerOnline(serverName)) {
+    LOG.warn("Ignored, " + hri.getEncodedName() + " was opened on a dead server: "+ serverName);
+    return;
+  }
+  updateRegionState(hri,State.OPEN,serverName,openSeqNum);
+synchronized (this) {
+    regionsInTransition.remove(hri.getEncodedName());
+    ServerName oldServerName=regionAssignments.put(hri,serverName);
+    if (!serverName.equals(oldServerName)) {
+      LOG.info("Onlined " + hri.getShortNameToLog() + " on "+ serverName);
+      Set<HRegionInfo> regions=serverHoldings.get(serverName);
+      if (regions == null) {
+        regions=new HashSet<HRegionInfo>();
+        serverHoldings.put(serverName,regions);
+      }
+      regions.add(hri);
+      if (oldServerName != null) {
+        LOG.info("Offlined " + hri.getShortNameToLog() + " from "+ oldServerName);
+        Set<HRegionInfo> oldRegions=serverHoldings.get(oldServerName);
+        oldRegions.remove(hri);
+        if (oldRegions.isEmpty()) {
+          serverHoldings.remove(oldServerName);
+        }
+      }
+    }
+  }
+}

@@ -1,26 +1,25 @@
 {
-  if (server == null || server.getZooKeeper() == null) {
-    return;
-  }
-  try {
-    this.znodeVersion=transitionMergingNode(server.getZooKeeper(),this.mergedRegionInfo,region_a.getRegionInfo(),region_b.getRegionInfo(),server.getServerName(),this.znodeVersion,RS_ZK_REGION_MERGING,RS_ZK_REGION_MERGED);
-    long startTime=EnvironmentEdgeManager.currentTimeMillis();
-    int spins=0;
-    do {
-      if (spins % 10 == 0) {
-        LOG.debug("Still waiting on the master to process the merge for " + this.mergedRegionInfo.getEncodedName() + ", waited "+ (EnvironmentEdgeManager.currentTimeMillis() - startTime)+ "ms");
+  if (useZKAndZKIsSet(server)) {
+    try {
+      this.znodeVersion=transitionMergingNode(server.getZooKeeper(),this.mergedRegionInfo,region_a.getRegionInfo(),region_b.getRegionInfo(),server.getServerName(),this.znodeVersion,RS_ZK_REGION_MERGING,RS_ZK_REGION_MERGED);
+      long startTime=EnvironmentEdgeManager.currentTimeMillis();
+      int spins=0;
+      do {
+        if (spins % 10 == 0) {
+          LOG.debug("Still waiting on the master to process the merge for " + this.mergedRegionInfo.getEncodedName() + ", waited "+ (EnvironmentEdgeManager.currentTimeMillis() - startTime)+ "ms");
+        }
+        Thread.sleep(100);
+        this.znodeVersion=transitionMergingNode(server.getZooKeeper(),this.mergedRegionInfo,region_a.getRegionInfo(),region_b.getRegionInfo(),server.getServerName(),this.znodeVersion,RS_ZK_REGION_MERGED,RS_ZK_REGION_MERGED);
+        spins++;
       }
-      Thread.sleep(100);
-      this.znodeVersion=transitionMergingNode(server.getZooKeeper(),this.mergedRegionInfo,region_a.getRegionInfo(),region_b.getRegionInfo(),server.getServerName(),this.znodeVersion,RS_ZK_REGION_MERGED,RS_ZK_REGION_MERGED);
-      spins++;
-    }
  while (this.znodeVersion != -1 && !server.isStopped() && !services.isStopping());
-  }
- catch (  Exception e) {
-    if (e instanceof InterruptedException) {
-      Thread.currentThread().interrupt();
     }
-    throw new IOException("Failed telling master about merge " + mergedRegionInfo.getEncodedName(),e);
+ catch (    Exception e) {
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      throw new IOException("Failed telling master about merge " + mergedRegionInfo.getEncodedName(),e);
+    }
   }
   if (rsCoprocessorHost != null) {
     rsCoprocessorHost.postMerge(this.region_a,this.region_b,mergedRegion);

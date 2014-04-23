@@ -1,16 +1,21 @@
 {
   Preconditions.checkArgument(expectedState == null || RegionState.isUnassignable(expectedState),"Offlined region should not be " + expectedState);
-  String encodedName=hri.getEncodedName();
+  if (isRegionInState(hri,State.SPLITTING_NEW,State.MERGING_NEW)) {
+    deleteRegion(hri);
+    return;
+  }
   State newState=expectedState == null ? State.OFFLINE : expectedState;
   updateRegionState(hri,newState);
-  regionsInTransition.remove(encodedName);
-  ServerName oldServerName=regionAssignments.remove(hri);
-  if (oldServerName != null) {
-    LOG.info("Offlined " + hri.getShortNameToLog() + " from "+ oldServerName);
-    Set<HRegionInfo> oldRegions=serverHoldings.get(oldServerName);
-    oldRegions.remove(hri);
-    if (oldRegions.isEmpty()) {
-      serverHoldings.remove(oldServerName);
+synchronized (this) {
+    regionsInTransition.remove(hri.getEncodedName());
+    ServerName oldServerName=regionAssignments.remove(hri);
+    if (oldServerName != null && serverHoldings.containsKey(oldServerName)) {
+      LOG.info("Offlined " + hri.getShortNameToLog() + " from "+ oldServerName);
+      Set<HRegionInfo> oldRegions=serverHoldings.get(oldServerName);
+      oldRegions.remove(hri);
+      if (oldRegions.isEmpty()) {
+        serverHoldings.remove(oldServerName);
+      }
     }
   }
 }

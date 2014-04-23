@@ -13,32 +13,37 @@
     int regionCount=ProtobufUtil.getOnlineRegions(server.getRSRpcServices()).size();
     AssignmentManager.TEST_SKIP_SPLIT_HANDLING=true;
     split(hri,server,regionCount);
-    List<HRegion> daughters=checkAndGetDaughters(tableName);
     String path=ZKAssign.getNodeName(TESTING_UTIL.getZooKeeperWatcher(),hri.getEncodedName());
     RegionTransition rt=null;
     Stat stats=null;
-    for (int i=0; i < 100; i++) {
-      stats=TESTING_UTIL.getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
-      rt=RegionTransition.parseFrom(ZKAssign.getData(TESTING_UTIL.getZooKeeperWatcher(),hri.getEncodedName()));
-      if (rt.getEventType().equals(EventType.RS_ZK_REGION_SPLIT))       break;
-      Thread.sleep(100);
+    List<HRegion> daughters=null;
+    if (useZKForAssignment) {
+      daughters=checkAndGetDaughters(tableName);
+      for (int i=0; i < 100; i++) {
+        stats=TESTING_UTIL.getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
+        rt=RegionTransition.parseFrom(ZKAssign.getData(TESTING_UTIL.getZooKeeperWatcher(),hri.getEncodedName()));
+        if (rt.getEventType().equals(EventType.RS_ZK_REGION_SPLIT))         break;
+        Thread.sleep(100);
+      }
+      LOG.info("EPHEMERAL NODE BEFORE SERVER ABORT, path=" + path + ", stats="+ stats);
+      assertTrue(rt != null && rt.getEventType().equals(EventType.RS_ZK_REGION_SPLIT));
+      cluster.abortRegionServer(tableRegionIndex);
     }
-    LOG.info("EPHEMERAL NODE BEFORE SERVER ABORT, path=" + path + ", stats="+ stats);
-    assertTrue(rt != null && rt.getEventType().equals(EventType.RS_ZK_REGION_SPLIT));
-    cluster.abortRegionServer(tableRegionIndex);
     waitUntilRegionServerDead();
-    awaitDaughters(tableName,daughters.size());
-    regions=cluster.getRegions(tableName);
-    for (    HRegion r : regions) {
-      assertTrue(daughters.contains(r));
+    awaitDaughters(tableName,2);
+    if (useZKForAssignment) {
+      regions=cluster.getRegions(tableName);
+      for (      HRegion r : regions) {
+        assertTrue(daughters.contains(r));
+      }
+      for (int i=0; i < 100; i++) {
+        stats=TESTING_UTIL.getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
+        if (stats == null)         break;
+        Thread.sleep(100);
+      }
+      LOG.info("EPHEMERAL NODE AFTER SERVER ABORT, path=" + path + ", stats="+ stats);
+      assertTrue(stats == null);
     }
-    for (int i=0; i < 100; i++) {
-      stats=TESTING_UTIL.getZooKeeperWatcher().getRecoverableZooKeeper().exists(path,false);
-      if (stats == null)       break;
-      Thread.sleep(100);
-    }
-    LOG.info("EPHEMERAL NODE AFTER SERVER ABORT, path=" + path + ", stats="+ stats);
-    assertTrue(stats == null);
   }
   finally {
     AssignmentManager.TEST_SKIP_SPLIT_HANDLING=false;

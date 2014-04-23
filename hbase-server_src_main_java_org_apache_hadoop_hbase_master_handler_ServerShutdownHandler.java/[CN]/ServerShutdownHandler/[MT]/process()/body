@@ -7,12 +7,12 @@
       this.services.getServerManager().processDeadServer(serverName,this.shouldSplitHlog);
       return;
     }
-    NavigableMap<HRegionInfo,Result> hris=null;
+    Set<HRegionInfo> hris=null;
     while (!this.server.isStopped()) {
       try {
         this.server.getCatalogTracker().waitForMeta();
         if (!this.server.isStopped()) {
-          hris=MetaReader.getServerUserRegions(this.server.getCatalogTracker(),this.serverName);
+          hris=MetaReader.getServerUserRegions(this.server.getCatalogTracker(),this.serverName).keySet();
         }
         break;
       }
@@ -34,9 +34,8 @@ catch (      IOException ioe) {
         LOG.info("Splitting logs for " + serverName + " before assignment.");
         if (distributedLogReplay) {
           LOG.info("Mark regions in recovery before assignment.");
-          Set<ServerName> serverNames=new HashSet<ServerName>();
-          serverNames.add(serverName);
-          this.services.getMasterFileSystem().prepareLogReplay(serverNames);
+          MasterFileSystem mfs=this.services.getMasterFileSystem();
+          mfs.prepareLogReplay(serverName,hris);
         }
  else {
           this.services.getMasterFileSystem().splitLog(serverName);
@@ -54,10 +53,9 @@ catch (      IOException ioe) {
     LOG.info("Reassigning " + ((hris == null) ? 0 : hris.size()) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (and "+ regionsInTransition.size()+ " regions(s) that were opening on this server)");
     List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
     toAssignRegions.addAll(regionsInTransition);
-    if (hris != null) {
+    if (hris != null && !hris.isEmpty()) {
       RegionStates regionStates=am.getRegionStates();
-      for (      Map.Entry<HRegionInfo,Result> e : hris.entrySet()) {
-        HRegionInfo hri=e.getKey();
+      for (      HRegionInfo hri : hris) {
         if (regionsInTransition.contains(hri)) {
           continue;
         }
@@ -65,7 +63,7 @@ catch (      IOException ioe) {
         Lock lock=am.acquireRegionLock(encodedName);
         try {
           RegionState rit=regionStates.getRegionTransitionState(hri);
-          if (processDeadRegion(hri,e.getValue(),am,server.getCatalogTracker())) {
+          if (processDeadRegion(hri,am,server.getCatalogTracker())) {
             ServerName addressFromAM=regionStates.getRegionServerOfRegion(hri);
             if (addressFromAM != null && !addressFromAM.equals(this.serverName)) {
               LOG.info("Skip assigning region " + hri.getRegionNameAsString() + " because it has been opened in "+ addressFromAM.getServerName());
@@ -87,7 +85,7 @@ catch (      IOException ioe) {
               }
             }
  else             if (regionStates.isRegionInState(hri,State.SPLITTING_NEW,State.MERGING_NEW)) {
-              regionStates.regionOffline(hri);
+              regionStates.updateRegionState(hri,State.OFFLINE);
             }
             toAssignRegions.add(hri);
           }

@@ -1,0 +1,41 @@
+{
+  this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY){
+    @Override public void process() throws IOException {
+      HRegionInfo hri=regionState.getRegion();
+      ServerName serverName=regionState.getServerName();
+      ReentrantLock lock=locker.acquireLock(hri.getEncodedName());
+      try {
+        if (!regionState.equals(regionStates.getRegionState(hri))) {
+          return;
+        }
+        while (serverManager.isServerOnline(serverName) && !server.isStopped() && !server.isAborted()) {
+          try {
+            if (!serverManager.sendRegionClose(serverName,hri,-1,null,false)) {
+              LOG.debug("Got false in retry sendRegionClose for " + regionState + ", re-close it");
+              invokeUnAssign(hri);
+            }
+            return;
+          }
+ catch (          Throwable t) {
+            if (t instanceof RemoteException) {
+              t=((RemoteException)t).unwrapRemoteException();
+            }
+            if (t instanceof java.net.SocketTimeoutException || t instanceof FailedServerException) {
+              Threads.sleep(100);
+              continue;
+            }
+            if (!(t instanceof NotServingRegionException || t instanceof RegionAlreadyInTransitionException)) {
+              LOG.debug("Got exception in retry sendRegionClose for " + regionState + ", re-close it",t);
+              invokeUnAssign(hri);
+            }
+            return;
+          }
+        }
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+  }
+);
+}

@@ -1,0 +1,32 @@
+{
+  if (newState == null || (newState == State.OPEN && serverName == null)) {
+    newState=State.OFFLINE;
+  }
+  if (hri.isOffline() && hri.isSplit()) {
+    newState=State.SPLIT;
+    serverName=null;
+  }
+  String encodedName=hri.getEncodedName();
+  RegionState regionState=regionStates.get(encodedName);
+  if (regionState != null) {
+    LOG.warn("Tried to create a state for a region already in RegionStates, " + "used existing: " + regionState + ", ignored new: "+ newState);
+  }
+ else {
+    regionState=new RegionState(hri,newState,serverName);
+    regionStates.put(encodedName,regionState);
+    if (newState == State.OPEN) {
+      regionAssignments.put(hri,serverName);
+      lastAssignments.put(encodedName,serverName);
+      Set<HRegionInfo> regions=serverHoldings.get(serverName);
+      if (regions == null) {
+        regions=new HashSet<HRegionInfo>();
+        serverHoldings.put(serverName,regions);
+      }
+      regions.add(hri);
+    }
+ else     if (!regionState.isUnassignable()) {
+      regionsInTransition.put(encodedName,regionState);
+    }
+  }
+  return regionState;
+}

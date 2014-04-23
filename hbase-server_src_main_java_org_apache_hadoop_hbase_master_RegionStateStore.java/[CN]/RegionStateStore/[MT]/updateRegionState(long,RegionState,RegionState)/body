@@ -1,0 +1,53 @@
+{
+  if (noPersistence || !initialized) {
+    return;
+  }
+  HRegionInfo hri=newState.getRegion();
+  if (!shouldPersistStateChange(hri,newState,oldState)) {
+    return;
+  }
+  ServerName oldServer=oldState != null ? oldState.getServerName() : null;
+  ServerName serverName=newState.getServerName();
+  State state=newState.getState();
+  try {
+    Put put=new Put(hri.getRegionName());
+    StringBuilder info=new StringBuilder("Updating row ");
+    info.append(hri.getRegionNameAsString()).append(" with state=").append(state);
+    if (serverName != null && !serverName.equals(oldServer)) {
+      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.SERVERNAME_QUALIFIER,Bytes.toBytes(serverName.getServerName()));
+      info.append("&sn=").append(serverName);
+    }
+    if (openSeqNum >= 0) {
+      Preconditions.checkArgument(state == State.OPEN && serverName != null,"Open region should be on a server");
+      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(serverName.getHostAndPort()));
+      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(serverName.getStartcode()));
+      put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.SEQNUM_QUALIFIER,Bytes.toBytes(openSeqNum));
+      info.append("&openSeqNum=").append(openSeqNum);
+      info.append("&server=").append(serverName);
+    }
+    put.addImmutable(HConstants.CATALOG_FAMILY,HConstants.STATE_QUALIFIER,Bytes.toBytes(state.name()));
+    LOG.info(info);
+    if (metaRegion != null) {
+      try {
+        metaRegion.put(put);
+        return;
+      }
+ catch (      Throwable t) {
+synchronized (this) {
+          if (metaRegion != null) {
+            LOG.info("Meta region shortcut failed",t);
+            metaTable=new HTable(TableName.META_TABLE_NAME,catalogTracker.getConnection());
+            metaRegion=null;
+          }
+        }
+      }
+    }
+synchronized (metaTable) {
+      metaTable.put(put);
+    }
+  }
+ catch (  IOException ioe) {
+    LOG.error("Failed to persist region state " + newState,ioe);
+    server.abort("Failed to update region location",ioe);
+  }
+}

@@ -1,0 +1,44 @@
+{
+  this.executorService.submit(new EventHandler(server,EventType.M_MASTER_RECOVERY){
+    @Override public void process() throws IOException {
+      HRegionInfo hri=regionState.getRegion();
+      ServerName serverName=regionState.getServerName();
+      ReentrantLock lock=locker.acquireLock(hri.getEncodedName());
+      try {
+        if (!regionState.equals(regionStates.getRegionState(hri))) {
+          return;
+        }
+        while (serverManager.isServerOnline(serverName) && !server.isStopped() && !server.isAborted()) {
+          try {
+            List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
+            if (shouldAssignRegionsWithFavoredNodes) {
+              favoredNodes=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(hri);
+            }
+            RegionOpeningState regionOpenState=serverManager.sendRegionOpen(serverName,hri,-1,favoredNodes);
+            if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
+              LOG.debug("Got failed_opening in retry sendRegionOpen for " + regionState + ", re-assign it");
+              invokeAssign(hri,true);
+            }
+            return;
+          }
+ catch (          Throwable t) {
+            if (t instanceof RemoteException) {
+              t=((RemoteException)t).unwrapRemoteException();
+            }
+            if (t instanceof java.net.SocketTimeoutException || t instanceof FailedServerException) {
+              Threads.sleep(100);
+              continue;
+            }
+            LOG.debug("Got exception in retry sendRegionOpen for " + regionState + ", re-assign it",t);
+            invokeAssign(hri);
+            return;
+          }
+        }
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+  }
+);
+}
