@@ -1,16 +1,24 @@
 {
   SyncFuture syncFuture=null;
   SafePointZigZagLatch zigzagLatch=(this.ringBufferEventHandler == null) ? null : this.ringBufferEventHandler.attainSafePoint();
+  TraceScope scope=Trace.startSpan("FSHFile.replaceWriter");
   try {
     try {
-      if (zigzagLatch != null)       syncFuture=zigzagLatch.waitSafePoint(publishSyncOnRingBuffer());
+      if (zigzagLatch != null) {
+        Trace.addTimelineAnnotation("awaiting safepoint");
+        syncFuture=zigzagLatch.waitSafePoint(publishSyncOnRingBuffer());
+      }
     }
  catch (    FailedSyncBeforeLogCloseException e) {
       if (isUnflushedEntries())       throw e;
       LOG.warn("Failed last sync but no outstanding unsync edits so falling through to close; " + e.getMessage());
     }
     try {
-      if (this.writer != null)       this.writer.close();
+      if (this.writer != null) {
+        Trace.addTimelineAnnotation("closing writer");
+        this.writer.close();
+        Trace.addTimelineAnnotation("writer closed");
+      }
       this.closeErrorCount.set(0);
     }
  catch (    IOException ioe) {
@@ -50,6 +58,7 @@ catch (  IOException e) {
       zigzagLatch.releaseSafePoint();
       if (syncFuture != null)       blockOnSync(syncFuture);
     }
+    scope.close();
   }
   return newPath;
 }

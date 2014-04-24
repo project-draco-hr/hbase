@@ -12,6 +12,9 @@
   long roll=Long.MAX_VALUE;
   boolean compress=false;
   String cipher=null;
+  String spanReceivers=getConf().get("hbase.trace.spanreceiver.classes");
+  boolean trace=spanReceivers != null && !spanReceivers.isEmpty();
+  double traceFreq=1.0;
   for (int i=0; i < args.length; i++) {
     String cmd=args[i];
     try {
@@ -63,6 +66,9 @@
  else       if (cmd.equals("-encryption")) {
         cipher=args[++i];
       }
+ else       if (cmd.equals("-traceFreq")) {
+        traceFreq=Double.parseDouble(args[++i]);
+      }
  else       if (cmd.equals("-h")) {
         printUsageAndExit();
       }
@@ -95,6 +101,8 @@
   FSUtils.setFsDefault(getConf(),FSUtils.getRootDir(getConf()));
   FileSystem fs=FileSystem.get(getConf());
   LOG.info("FileSystem: " + fs);
+  SpanReceiverHost receiverHost=trace ? SpanReceiverHost.getInstance(getConf()) : null;
+  TraceScope scope=Trace.startSpan("HLogPerfEval",trace ? Sampler.ALWAYS : Sampler.NEVER);
   try {
     if (rootRegionDir == null) {
       rootRegionDir=TEST_UTIL.getDataTestDirOnTestFS("HLogPerformanceEvaluation");
@@ -147,7 +155,7 @@
     try {
       region=openRegion(fs,rootRegionDir,htd,hlog);
       ConsoleReporter.enable(this.metrics,30,TimeUnit.SECONDS);
-      long putTime=runBenchmark(new HLogPutBenchmark(region,htd,numIterations,noSync,syncInterval),numThreads);
+      long putTime=runBenchmark(Trace.wrap(new HLogPutBenchmark(region,htd,numIterations,noSync,syncInterval,traceFreq)),numThreads);
       logBenchmarkResult("Summary: threads=" + numThreads + ", iterations="+ numIterations+ ", syncInterval="+ syncInterval,numIterations * numThreads,putTime);
       if (region != null) {
         closeRegion(region);
@@ -176,6 +184,8 @@
   }
   finally {
     if (!noclosefs)     fs.close();
+    scope.close();
+    if (receiverHost != null)     receiverHost.closeReceivers();
   }
   return (0);
 }
