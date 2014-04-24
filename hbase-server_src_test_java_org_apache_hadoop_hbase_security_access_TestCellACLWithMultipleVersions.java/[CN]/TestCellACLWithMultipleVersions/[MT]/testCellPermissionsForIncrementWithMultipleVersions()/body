@@ -1,0 +1,78 @@
+{
+  final byte[] TEST_ROW1=Bytes.toBytes("r1");
+  final byte[] TEST_Q1=Bytes.toBytes("q1");
+  final byte[] TEST_Q2=Bytes.toBytes("q2");
+  final byte[] ZERO=Bytes.toBytes(0L);
+  final User user1=User.createUserForTesting(conf,"user1",new String[0]);
+  final User user2=User.createUserForTesting(conf,"user2",new String[0]);
+  verifyAllowed(new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Map<String,Permission> permsU1andOwner=new HashMap<String,Permission>();
+        permsU1andOwner.put(user1.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
+        permsU1andOwner.put(USER_OWNER.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
+        Map<String,Permission> permsU2andOwner=new HashMap<String,Permission>();
+        permsU2andOwner.put(user2.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
+        permsU2andOwner.put(USER_OWNER.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
+        Put p=new Put(TEST_ROW1);
+        p.add(TEST_FAMILY1,TEST_Q1,123,ZERO);
+        p.setACL(permsU1andOwner);
+        t.put(p);
+        p=new Put(TEST_ROW1);
+        p.add(TEST_FAMILY1,TEST_Q2,123,ZERO);
+        p.setACL(permsU2andOwner);
+        t.put(p);
+        p=new Put(TEST_ROW1);
+        p.add(TEST_FAMILY1,TEST_Q1,127,ZERO);
+        p.setACL(permsU2andOwner);
+        t.put(p);
+        p=new Put(TEST_ROW1);
+        p.add(TEST_FAMILY1,TEST_Q2,127,ZERO);
+        p.setACL(permsU1andOwner);
+        t.put(p);
+      }
+  finally {
+        t.close();
+      }
+      return null;
+    }
+  }
+,USER_OWNER);
+  user1.runAs(new PrivilegedExceptionAction<Void>(){
+    @Override public Void run() throws Exception {
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Increment inc=new Increment(TEST_ROW1);
+        inc.setTimeRange(0,123);
+        inc.addColumn(TEST_FAMILY1,TEST_Q1,2L);
+        t.increment(inc);
+        t.incrementColumnValue(TEST_ROW1,TEST_FAMILY1,TEST_Q2,1L);
+      }
+  finally {
+        t.close();
+      }
+      return null;
+    }
+  }
+);
+  user2.runAs(new PrivilegedExceptionAction<Void>(){
+    @Override public Void run() throws Exception {
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Increment inc=new Increment(TEST_ROW1);
+        inc.setTimeRange(0,127);
+        inc.addColumn(TEST_FAMILY1,TEST_Q2,2L);
+        t.increment(inc);
+        fail();
+      }
+ catch (      Exception e) {
+      }
+ finally {
+        t.close();
+      }
+      return null;
+    }
+  }
+);
+}
