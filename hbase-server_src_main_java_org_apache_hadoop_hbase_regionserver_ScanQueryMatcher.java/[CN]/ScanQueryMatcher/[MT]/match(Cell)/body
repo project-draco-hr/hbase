@@ -24,27 +24,32 @@
     stickyNextRow=true;
     return MatchCode.SEEK_NEXT_ROW;
   }
-  if (columns.isDone(cell.getTimestamp())) {
-    return columns.getNextRowOrNextColumn(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+  int qualifierOffset=cell.getQualifierOffset();
+  int qualifierLength=cell.getQualifierLength();
+  long timestamp=cell.getTimestamp();
+  if (columns.isDone(timestamp)) {
+    return columns.getNextRowOrNextColumn(cell.getQualifierArray(),qualifierOffset,qualifierLength);
   }
+  byte typeByte=cell.getTypeByte();
+  long mvccVersion=cell.getMvccVersion();
   if (CellUtil.isDelete(cell)) {
     if (!keepDeletedCells) {
-      boolean includeDeleteMarker=seePastDeleteMarkers ? tr.withinTimeRange(cell.getTimestamp()) : tr.withinOrAfterTimeRange(cell.getTimestamp());
-      if (includeDeleteMarker && cell.getMvccVersion() <= maxReadPointToTrackVersions) {
-        this.deletes.add(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTimestamp(),cell.getTypeByte());
+      boolean includeDeleteMarker=seePastDeleteMarkers ? tr.withinTimeRange(timestamp) : tr.withinOrAfterTimeRange(timestamp);
+      if (includeDeleteMarker && mvccVersion <= maxReadPointToTrackVersions) {
+        this.deletes.add(cell.getQualifierArray(),qualifierOffset,qualifierLength,timestamp,typeByte);
       }
     }
-    if ((!isUserScan) && timeToPurgeDeletes > 0 && (EnvironmentEdgeManager.currentTimeMillis() - cell.getTimestamp()) <= timeToPurgeDeletes) {
+    if ((!isUserScan) && timeToPurgeDeletes > 0 && (EnvironmentEdgeManager.currentTimeMillis() - timestamp) <= timeToPurgeDeletes) {
       return MatchCode.INCLUDE;
     }
- else     if (retainDeletesInOutput || cell.getMvccVersion() > maxReadPointToTrackVersions) {
+ else     if (retainDeletesInOutput || mvccVersion > maxReadPointToTrackVersions) {
       if (!isUserScan) {
         return MatchCode.INCLUDE;
       }
     }
  else     if (keepDeletedCells) {
-      if (cell.getTimestamp() < earliestPutTs) {
-        return columns.getNextRowOrNextColumn(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+      if (timestamp < earliestPutTs) {
+        return columns.getNextRowOrNextColumn(cell.getQualifierArray(),qualifierOffset,qualifierLength);
       }
     }
  else {
@@ -52,11 +57,11 @@
     }
   }
  else   if (!this.deletes.isEmpty()) {
-    DeleteResult deleteResult=deletes.isDeleted(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTimestamp());
+    DeleteResult deleteResult=deletes.isDeleted(cell.getQualifierArray(),qualifierOffset,qualifierLength,timestamp);
 switch (deleteResult) {
 case FAMILY_DELETED:
 case COLUMN_DELETED:
-      return columns.getNextRowOrNextColumn(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+      return columns.getNextRowOrNextColumn(cell.getQualifierArray(),qualifierOffset,qualifierLength);
 case VERSION_DELETED:
 case FAMILY_VERSION_DELETED:
     return MatchCode.SKIP;
@@ -66,14 +71,14 @@ default :
 throw new RuntimeException("UNEXPECTED");
 }
 }
-int timestampComparison=tr.compare(cell.getTimestamp());
+int timestampComparison=tr.compare(timestamp);
 if (timestampComparison >= 1) {
 return MatchCode.SKIP;
 }
  else if (timestampComparison <= -1) {
-return columns.getNextRowOrNextColumn(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+return columns.getNextRowOrNextColumn(cell.getQualifierArray(),qualifierOffset,qualifierLength);
 }
-MatchCode colChecker=columns.checkColumn(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTypeByte());
+MatchCode colChecker=columns.checkColumn(cell.getQualifierArray(),qualifierOffset,qualifierLength,typeByte);
 if (colChecker == MatchCode.INCLUDE) {
 ReturnCode filterResponse=ReturnCode.SKIP;
 if (filter != null) {
@@ -82,7 +87,7 @@ switch (filterResponse) {
 case SKIP:
 return MatchCode.SKIP;
 case NEXT_COL:
-return columns.getNextRowOrNextColumn(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+return columns.getNextRowOrNextColumn(cell.getQualifierArray(),qualifierOffset,qualifierLength);
 case NEXT_ROW:
 stickyNextRow=true;
 return MatchCode.SEEK_NEXT_ROW;
@@ -92,7 +97,7 @@ default :
 break;
 }
 }
-colChecker=columns.checkVersions(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTimestamp(),cell.getTypeByte(),cell.getMvccVersion() > maxReadPointToTrackVersions);
+colChecker=columns.checkVersions(cell.getQualifierArray(),qualifierOffset,qualifierLength,timestamp,typeByte,mvccVersion > maxReadPointToTrackVersions);
 stickyNextRow=colChecker == MatchCode.INCLUDE_AND_SEEK_NEXT_ROW ? true : stickyNextRow;
 return (filterResponse == ReturnCode.INCLUDE_AND_NEXT_COL && colChecker == MatchCode.INCLUDE) ? MatchCode.INCLUDE_AND_SEEK_NEXT_COL : colChecker;
 }
