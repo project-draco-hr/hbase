@@ -1,25 +1,32 @@
 {
   metricsBalancer.incrMiscInvocations();
-  if (!excludedServers.isEmpty() && servers != null) {
-    servers.removeAll(excludedServers);
+  if (regions == null || regions.isEmpty()) {
+    return null;
   }
-  if (regions.isEmpty() || servers.isEmpty()) {
+  List<ServerName> backupMasters=normalizeServers(servers);
+  int numServers=servers == null ? 0 : servers.size();
+  int numBackupMasters=backupMasters == null ? 0 : backupMasters.size();
+  if (numServers == 0 && numBackupMasters == 0) {
+    LOG.warn("Wanted to do retain assignment but no servers to assign to");
     return null;
   }
   Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
-  int numServers=servers.size();
-  if (numServers == 1) {
-    assignments.put(servers.get(0),new ArrayList<HRegionInfo>(regions.keySet()));
+  if (numServers + numBackupMasters == 1) {
+    ServerName server=numServers > 0 ? servers.get(0) : backupMasters.get(0);
+    assignments.put(server,new ArrayList<HRegionInfo>(regions.keySet()));
     return assignments;
   }
   ArrayListMultimap<String,ServerName> serversByHostname=ArrayListMultimap.create();
   for (  ServerName server : servers) {
+    assignments.put(server,new ArrayList<HRegionInfo>());
     if (!server.equals(masterServerName)) {
       serversByHostname.put(server.getHostname(),server);
     }
   }
-  for (  ServerName server : servers) {
-    assignments.put(server,new ArrayList<HRegionInfo>());
+  if (numBackupMasters > 0) {
+    for (    ServerName server : backupMasters) {
+      assignments.put(server,new ArrayList<HRegionInfo>());
+    }
   }
   Set<String> oldHostsNoLongerPresent=Sets.newTreeSet();
   boolean masterIncluded=servers.contains(masterServerName);
@@ -42,12 +49,7 @@
       }
     }
  else     if (localServers.isEmpty()) {
-      int i=RANDOM.nextInt(numServers);
-      ServerName randomServer=servers.get(i);
-      if (randomServer.equals(masterServerName)) {
-        i=(i == 0 ? 1 : i - 1);
-        randomServer=servers.get(i);
-      }
+      ServerName randomServer=randomAssignment(region,servers,backupMasters);
       assignments.get(randomServer).add(region);
       numRandomAssignments++;
       if (oldServerName != null)       oldHostsNoLongerPresent.add(oldServerName.getHostname());
