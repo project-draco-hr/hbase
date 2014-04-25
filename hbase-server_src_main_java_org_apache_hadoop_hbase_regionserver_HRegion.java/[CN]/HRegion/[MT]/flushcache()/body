@@ -1,16 +1,18 @@
 {
   if (this.closing.get()) {
-    LOG.debug("Skipping flush on " + this + " because closing");
-    return false;
+    String msg="Skipping flush on " + this + " because closing";
+    LOG.debug(msg);
+    return new FlushResult(FlushResult.Result.CANNOT_FLUSH,msg);
   }
   MonitoredTask status=TaskMonitor.get().createStatus("Flushing " + this);
   status.setStatus("Acquiring readlock on region");
   lock.readLock().lock();
   try {
     if (this.closed.get()) {
-      LOG.debug("Skipping flush on " + this + " because closed");
-      status.abort("Skipped: closed");
-      return false;
+      String msg="Skipping flush on " + this + " because closed";
+      LOG.debug(msg);
+      status.abort(msg);
+      return new FlushResult(FlushResult.Result.CANNOT_FLUSH,msg);
     }
     if (coprocessorHost != null) {
       status.setStatus("Running coprocessor pre-flush hooks");
@@ -28,18 +30,19 @@ synchronized (writestate) {
         if (LOG.isDebugEnabled()) {
           LOG.debug("NOT flushing memstore for region " + this + ", flushing="+ writestate.flushing+ ", writesEnabled="+ writestate.writesEnabled);
         }
-        status.abort("Not flushing since " + (writestate.flushing ? "already flushing" : "writes not enabled"));
-        return false;
+        String msg="Not flushing since " + (writestate.flushing ? "already flushing" : "writes not enabled");
+        status.abort(msg);
+        return new FlushResult(FlushResult.Result.CANNOT_FLUSH,msg);
       }
     }
     try {
-      boolean result=internalFlushcache(status);
+      FlushResult fs=internalFlushcache(status);
       if (coprocessorHost != null) {
         status.setStatus("Running post-flush coprocessor hooks");
         coprocessorHost.postFlush();
       }
       status.markComplete("Flush successful");
-      return result;
+      return fs;
     }
   finally {
 synchronized (writestate) {

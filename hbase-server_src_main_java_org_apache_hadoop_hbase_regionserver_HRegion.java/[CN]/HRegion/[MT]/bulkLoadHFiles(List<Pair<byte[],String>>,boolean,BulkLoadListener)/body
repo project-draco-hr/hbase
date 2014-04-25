@@ -38,6 +38,19 @@ catch (        IOException ioe) {
       LOG.warn("There was a recoverable bulk load failure likely due to a" + " split.  These (family, HFile) pairs were not loaded: " + list);
       return false;
     }
+    long seqId=-1;
+    if (assignSeqId) {
+      FlushResult fs=this.flushcache();
+      if (fs.isFlushSucceeded()) {
+        seqId=fs.flushSequenceId;
+      }
+ else       if (fs.result == FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY) {
+        seqId=this.sequenceId.incrementAndGet();
+      }
+ else {
+        throw new IOException("Could not bulk load with an assigned sequential ID because the " + "flush didn't run. Reason for not flushing: " + fs.failureReason);
+      }
+    }
     for (    Pair<byte[],String> p : familyPaths) {
       byte[] familyName=p.getFirst();
       String path=p.getSecond();
@@ -47,7 +60,7 @@ catch (        IOException ioe) {
         if (bulkLoadListener != null) {
           finalPath=bulkLoadListener.prepareBulkLoad(familyName,path);
         }
-        store.bulkLoadHFile(finalPath,assignSeqId ? this.sequenceId.incrementAndGet() : -1);
+        store.bulkLoadHFile(finalPath,seqId);
         if (bulkLoadListener != null) {
           bulkLoadListener.doneBulkLoad(familyName,path);
         }

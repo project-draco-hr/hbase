@@ -4,7 +4,7 @@
   }
   final long startTime=EnvironmentEdgeManager.currentTimeMillis();
   if (this.memstoreSize.get() <= 0) {
-    return false;
+    return new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush");
   }
   if (LOG.isDebugEnabled()) {
     LOG.debug("Started memstore flush for " + this + ", current region memstore size "+ StringUtils.humanReadableInt(this.memstoreSize.get())+ ((wal != null) ? "" : "; wal is null, using passed sequenceid=" + myseqid));
@@ -21,8 +21,9 @@
     mvcc.advanceMemstore(w);
     if (wal != null) {
       if (!wal.startCacheFlush(this.getRegionInfo().getEncodedNameAsBytes())) {
-        status.setStatus("Flush will not be started for [" + this.getRegionInfo().getEncodedName() + "] - because the WAL is closing.");
-        return false;
+        String msg="Flush will not be started for [" + this.getRegionInfo().getEncodedName() + "] - because the WAL is closing.";
+        status.setStatus(msg);
+        return new FlushResult(FlushResult.Result.CANNOT_FLUSH,msg);
       }
       flushSeqId=this.sequenceId.incrementAndGet();
     }
@@ -87,5 +88,5 @@ synchronized (this) {
   LOG.info(msg);
   status.setStatus(msg);
   this.recentFlushes.add(new Pair<Long,Long>(time / 1000,totalFlushableSize));
-  return compactionRequested;
+  return new FlushResult(compactionRequested ? FlushResult.Result.FLUSHED_COMPACTION_NEEDED : FlushResult.Result.FLUSHED_NO_COMPACTION_NEEDED,flushSeqId);
 }
