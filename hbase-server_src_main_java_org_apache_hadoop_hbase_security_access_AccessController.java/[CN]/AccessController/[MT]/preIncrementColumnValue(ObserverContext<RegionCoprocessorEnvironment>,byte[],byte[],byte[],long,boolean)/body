@@ -1,4 +1,15 @@
 {
-  requireCoveringPermission(OpType.INCREMENT_COLUMN_VALUE,c.getEnvironment(),row,makeFamilyMap(family,qualifier),HConstants.LATEST_TIMESTAMP,Action.WRITE);
+  RegionCoprocessorEnvironment env=c.getEnvironment();
+  Map<byte[],? extends Collection<byte[]>> families=makeFamilyMap(family,qualifier);
+  User user=getActiveUser();
+  AuthResult authResult=permissionGranted(OpType.INCREMENT_COLUMN_VALUE,user,env,families,Action.WRITE);
+  if (!authResult.isAllowed() && cellFeaturesEnabled && !compatibleEarlyTermination) {
+    authResult.setAllowed(checkCoveringPermission(OpType.INCREMENT_COLUMN_VALUE,env,row,families,HConstants.LATEST_TIMESTAMP,Action.WRITE));
+    authResult.setReason("Covering cell set");
+  }
+  logResult(authResult);
+  if (!authResult.isAllowed()) {
+    throw new AccessDeniedException("Insufficient permissions " + authResult.toContextString());
+  }
   return -1;
 }

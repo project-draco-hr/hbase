@@ -1,0 +1,126 @@
+{
+  grantOnTable(TEST_UTIL,USER_OTHER.getShortName(),TEST_TABLE.getTableName(),TEST_FAMILY1,null,Action.READ);
+  verifyAllowed(new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      conf.set("testkey",UUID.randomUUID().toString());
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Put put=new Put(TEST_ROW).add(TEST_FAMILY1,TEST_Q1,ZERO);
+        t.put(put);
+        put=new Put(TEST_ROW).add(TEST_FAMILY2,TEST_Q1,ZERO);
+        put.setACL(USER_OTHER.getShortName(),new Permission(Action.READ));
+        t.put(put);
+        put=new Put(TEST_ROW).add(TEST_FAMILY2,TEST_Q2,ZERO);
+        put.setACL(USER_OTHER.getShortName(),new Permission());
+        t.put(put);
+      }
+  finally {
+        t.close();
+      }
+      return null;
+    }
+  }
+,USER_OWNER);
+  verifyAllowed(new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      conf.set("testkey",UUID.randomUUID().toString());
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Scan scan=new Scan().addFamily(TEST_FAMILY1);
+        Result result=t.getScanner(scan).next();
+        if (result != null) {
+          assertTrue("Improper exclusion",result.containsColumn(TEST_FAMILY1,TEST_Q1));
+          assertFalse("Improper inclusion",result.containsColumn(TEST_FAMILY2,TEST_Q1));
+          return result.listCells();
+        }
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+,USER_OTHER);
+  verifyAllowed(new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      conf.set("testkey",UUID.randomUUID().toString());
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Scan scan=new Scan();
+        Result result=t.getScanner(scan).next();
+        if (result != null) {
+          assertTrue("Improper exclusion",result.containsColumn(TEST_FAMILY1,TEST_Q1));
+          assertFalse("Improper inclusion",result.containsColumn(TEST_FAMILY2,TEST_Q1));
+          return result.listCells();
+        }
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+,USER_OTHER);
+  verifyDeniedWithException(new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      conf.set("testkey",UUID.randomUUID().toString());
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Scan scan=new Scan().addFamily(TEST_FAMILY2);
+        Result result=t.getScanner(scan).next();
+        if (result != null) {
+          return result.listCells();
+        }
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+,USER_OTHER);
+  grantOnTable(TEST_UTIL,USER_OTHER.getShortName(),TEST_TABLE.getTableName(),TEST_FAMILY2,TEST_Q2,Action.READ);
+  verifyAllowed(new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      conf.set("testkey",UUID.randomUUID().toString());
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Scan scan=new Scan();
+        Result result=t.getScanner(scan).next();
+        if (result != null) {
+          assertTrue("Improper exclusion",result.containsColumn(TEST_FAMILY1,TEST_Q1));
+          assertFalse("Improper inclusion",result.containsColumn(TEST_FAMILY2,TEST_Q1));
+          assertTrue("Improper exclusion",result.containsColumn(TEST_FAMILY2,TEST_Q2));
+          return result.listCells();
+        }
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+,USER_OTHER);
+  verifyAllowed(new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      conf.set("testkey",UUID.randomUUID().toString());
+      HTable t=new HTable(conf,TEST_TABLE.getTableName());
+      try {
+        Scan scan=new Scan();
+        scan.setACLStrategy(true);
+        Result result=t.getScanner(scan).next();
+        if (result != null) {
+          assertTrue("Improper exclusion",result.containsColumn(TEST_FAMILY1,TEST_Q1));
+          assertTrue("Improper exclusion",result.containsColumn(TEST_FAMILY2,TEST_Q1));
+          assertFalse("Improper inclusion",result.containsColumn(TEST_FAMILY2,TEST_Q2));
+          return result.listCells();
+        }
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+,USER_OTHER);
+}

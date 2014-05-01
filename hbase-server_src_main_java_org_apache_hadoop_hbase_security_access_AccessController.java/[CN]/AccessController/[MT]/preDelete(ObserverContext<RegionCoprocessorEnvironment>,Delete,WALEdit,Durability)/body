@@ -2,5 +2,16 @@
   if (delete.getAttribute(AccessControlConstants.OP_ATTRIBUTE_ACL) != null) {
     throw new DoNotRetryIOException("ACL on delete has no effect: " + delete.toString());
   }
-  requireCoveringPermission(OpType.DELETE,c.getEnvironment(),delete.getRow(),delete.getFamilyCellMap(),delete.getTimeStamp(),Action.WRITE);
+  RegionCoprocessorEnvironment env=c.getEnvironment();
+  Map<byte[],? extends Collection<Cell>> families=delete.getFamilyCellMap();
+  User user=getActiveUser();
+  AuthResult authResult=permissionGranted(OpType.DELETE,user,env,families,Action.WRITE);
+  if (!authResult.isAllowed() && cellFeaturesEnabled && !compatibleEarlyTermination) {
+    authResult.setAllowed(checkCoveringPermission(OpType.DELETE,env,delete.getRow(),families,delete.getTimeStamp(),Action.WRITE));
+    authResult.setReason("Covering cell set");
+  }
+  logResult(authResult);
+  if (!authResult.isAllowed()) {
+    throw new AccessDeniedException("Insufficient permissions " + authResult.toContextString());
+  }
 }

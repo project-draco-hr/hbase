@@ -1,0 +1,132 @@
+{
+  if (!cellFeaturesEnabled) {
+    return false;
+  }
+  long cellGrants=0;
+  User user=getActiveUser();
+  long latestCellTs=0;
+  Get get=new Get(row);
+  boolean considerCellTs=(request == OpType.PUT || request == OpType.DELETE);
+  if (considerCellTs) {
+    get.setMaxVersions();
+  }
+ else {
+    get.setMaxVersions(1);
+  }
+  boolean diffCellTsFromOpTs=false;
+  for (  Map.Entry<byte[],? extends Collection<?>> entry : familyMap.entrySet()) {
+    byte[] col=entry.getKey();
+    if (entry.getValue() instanceof Set) {
+      Set<byte[]> set=(Set<byte[]>)entry.getValue();
+      if (set == null || set.isEmpty()) {
+        get.addFamily(col);
+      }
+ else {
+        for (        byte[] qual : set) {
+          get.addColumn(col,qual);
+        }
+      }
+    }
+ else     if (entry.getValue() instanceof List) {
+      List<Cell> list=(List<Cell>)entry.getValue();
+      if (list == null || list.isEmpty()) {
+        get.addFamily(col);
+      }
+ else {
+        for (        Cell cell : list) {
+          if (cell.getQualifierLength() == 0 && (cell.getTypeByte() == Type.DeleteFamily.getCode() || cell.getTypeByte() == Type.DeleteFamilyVersion.getCode())) {
+            get.addFamily(col);
+          }
+ else {
+            get.addColumn(col,CellUtil.cloneQualifier(cell));
+          }
+          if (considerCellTs) {
+            long cellTs=cell.getTimestamp();
+            latestCellTs=Math.max(latestCellTs,cellTs);
+            diffCellTsFromOpTs=diffCellTsFromOpTs || (opTs != cellTs);
+          }
+        }
+      }
+    }
+ else {
+      throw new RuntimeException("Unhandled collection type " + entry.getValue().getClass().getName());
+    }
+  }
+  long latestTs=Math.max(opTs,latestCellTs);
+  if (latestTs == 0 || latestTs == HConstants.LATEST_TIMESTAMP) {
+    latestTs=EnvironmentEdgeManager.currentTimeMillis();
+  }
+  get.setTimeRange(0,latestTs + 1);
+  if (!diffCellTsFromOpTs && request == OpType.PUT) {
+    get.setMaxVersions(1);
+  }
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("Scanning for cells with " + get);
+  }
+  Map<ByteRange,List<Cell>> familyMap1=new HashMap<ByteRange,List<Cell>>();
+  for (  Entry<byte[],? extends Collection<?>> entry : familyMap.entrySet()) {
+    if (entry.getValue() instanceof List) {
+      familyMap1.put(new SimpleByteRange(entry.getKey()),(List<Cell>)entry.getValue());
+    }
+  }
+  RegionScanner scanner=getRegion(e).getScanner(new Scan(get));
+  List<Cell> cells=Lists.newArrayList();
+  Cell prevCell=null;
+  ByteRange curFam=new SimpleByteRange();
+  boolean curColAllVersions=(request == OpType.DELETE);
+  long curColCheckTs=opTs;
+  boolean foundColumn=false;
+  try {
+    boolean more=false;
+    do {
+      cells.clear();
+      more=scanner.next(cells,1);
+      for (      Cell cell : cells) {
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Found cell " + cell);
+        }
+        boolean colChange=prevCell == null || !CellUtil.matchingColumn(prevCell,cell);
+        if (colChange)         foundColumn=false;
+        prevCell=cell;
+        if (!curColAllVersions && foundColumn) {
+          continue;
+        }
+        if (colChange && considerCellTs) {
+          curFam.set(cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength());
+          List<Cell> cols=familyMap1.get(curFam);
+          for (          Cell col : cols) {
+            if ((col.getQualifierLength() == 0 && request == OpType.DELETE) || CellUtil.matchingQualifier(cell,col)) {
+              byte type=col.getTypeByte();
+              if (considerCellTs) {
+                curColCheckTs=col.getTimestamp();
+              }
+              curColAllVersions=(KeyValue.Type.DeleteColumn.getCode() == type) || (KeyValue.Type.DeleteFamily.getCode() == type);
+              break;
+            }
+          }
+        }
+        if (cell.getTimestamp() > curColCheckTs) {
+          continue;
+        }
+        foundColumn=true;
+        for (        Action action : actions) {
+          if (!authManager.authorize(user,getTableName(e),cell,action)) {
+            return false;
+          }
+        }
+        cellGrants++;
+      }
+    }
+ while (more);
+  }
+ catch (  AccessDeniedException ex) {
+    throw ex;
+  }
+catch (  IOException ex) {
+    LOG.error("Exception while getting cells to calculate covering permission",ex);
+  }
+ finally {
+    scanner.close();
+  }
+  return cellGrants > 0;
+}

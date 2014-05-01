@@ -1,0 +1,75 @@
+{
+  Filter filter=query.getFilter();
+  if (filter != null && filter instanceof AccessControlFilter) {
+    return;
+  }
+  User user=getActiveUser();
+  RegionCoprocessorEnvironment env=c.getEnvironment();
+  Map<byte[],? extends Collection<byte[]>> families=null;
+switch (opType) {
+case GET:
+case EXISTS:
+    families=((Get)query).getFamilyMap();
+  break;
+case SCAN:
+families=((Scan)query).getFamilyMap();
+break;
+default :
+throw new RuntimeException("Unhandled operation " + opType);
+}
+AuthResult authResult=permissionGranted(opType,user,env,families,Action.READ);
+HRegion region=getRegion(env);
+TableName table=getTableName(region);
+Map<ByteRange,Integer> cfVsMaxVersions=Maps.newHashMap();
+for (HColumnDescriptor hcd : region.getTableDesc().getFamilies()) {
+cfVsMaxVersions.put(new SimpleByteRange(hcd.getName()),hcd.getMaxVersions());
+}
+if (!authResult.isAllowed()) {
+if (!cellFeaturesEnabled || compatibleEarlyTermination) {
+if (hasFamilyQualifierPermission(user,Action.READ,env,families)) {
+Filter ourFilter=new AccessControlFilter(authManager,user,table,query.getACLStrategy() ? AccessControlFilter.Strategy.CHECK_CELL_FIRST : AccessControlFilter.Strategy.CHECK_TABLE_AND_CF_ONLY,cfVsMaxVersions);
+if (filter != null) {
+ourFilter=new FilterList(FilterList.Operator.MUST_PASS_ALL,Lists.newArrayList(ourFilter,filter));
+}
+authResult.setAllowed(true);
+;
+authResult.setReason("Access allowed with filter");
+switch (opType) {
+case GET:
+case EXISTS:
+((Get)query).setFilter(ourFilter);
+break;
+case SCAN:
+((Scan)query).setFilter(ourFilter);
+break;
+default :
+throw new RuntimeException("Unhandled operation " + opType);
+}
+}
+}
+ else {
+Filter ourFilter=new AccessControlFilter(authManager,user,table,query.getACLStrategy() ? AccessControlFilter.Strategy.CHECK_CELL_FIRST : AccessControlFilter.Strategy.CHECK_CELL_DEFAULT,cfVsMaxVersions);
+if (filter != null) {
+ourFilter=new FilterList(FilterList.Operator.MUST_PASS_ALL,Lists.newArrayList(ourFilter,filter));
+}
+authResult.setAllowed(true);
+;
+authResult.setReason("Access allowed with filter");
+switch (opType) {
+case GET:
+case EXISTS:
+((Get)query).setFilter(ourFilter);
+break;
+case SCAN:
+((Scan)query).setFilter(ourFilter);
+break;
+default :
+throw new RuntimeException("Unhandled operation " + opType);
+}
+}
+}
+logResult(authResult);
+if (!authResult.isAllowed()) {
+throw new AccessDeniedException("Insufficient permissions (table=" + table + ", action=READ)");
+}
+}

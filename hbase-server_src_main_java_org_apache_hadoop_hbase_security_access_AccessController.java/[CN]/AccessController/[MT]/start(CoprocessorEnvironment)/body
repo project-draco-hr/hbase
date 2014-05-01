@@ -1,6 +1,9 @@
 {
-  canPersistCellACLs=HFile.getFormatVersion(env.getConfiguration()) >= HFile.MIN_FORMAT_VERSION_WITH_TAGS;
-  if (!canPersistCellACLs) {
+  CompoundConfiguration conf=new CompoundConfiguration();
+  conf.add(env.getConfiguration());
+  shouldCheckExecPermission=conf.getBoolean(AccessControlConstants.EXEC_PERMISSION_CHECKS_KEY,AccessControlConstants.DEFAULT_EXEC_PERMISSION_CHECKS);
+  cellFeaturesEnabled=HFile.getFormatVersion(conf) >= HFile.MIN_FORMAT_VERSION_WITH_TAGS;
+  if (!cellFeaturesEnabled) {
     LOG.info("A minimum HFile version of " + HFile.MIN_FORMAT_VERSION_WITH_TAGS + " is required to persist cell ACLs. Consider setting "+ HFile.FORMAT_VERSION_KEY+ " accordingly.");
   }
   ZooKeeperWatcher zk=null;
@@ -14,7 +17,9 @@
   }
  else   if (env instanceof RegionCoprocessorEnvironment) {
     regionEnv=(RegionCoprocessorEnvironment)env;
+    conf.addStringMap(regionEnv.getRegion().getTableDesc().getConfiguration());
     zk=regionEnv.getRegionServerServices().getZooKeeper();
+    compatibleEarlyTermination=conf.getBoolean(AccessControlConstants.CF_ATTRIBUTE_EARLY_OUT,AccessControlConstants.DEFAULT_ATTRIBUTE_EARLY_OUT);
   }
   this.userProvider=UserProvider.instantiate(env.getConfiguration());
   if (zk != null) {
