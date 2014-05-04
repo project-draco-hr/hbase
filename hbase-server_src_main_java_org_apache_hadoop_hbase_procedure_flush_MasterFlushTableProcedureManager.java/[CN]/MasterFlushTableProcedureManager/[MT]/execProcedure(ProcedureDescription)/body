@@ -1,0 +1,48 @@
+{
+  TableName tableName=TableName.valueOf(desc.getInstance());
+  MasterCoprocessorHost cpHost=master.getMasterCoprocessorHost();
+  if (cpHost != null) {
+    cpHost.preTableFlush(tableName);
+  }
+  List<Pair<HRegionInfo,ServerName>> regionsAndLocations=null;
+  try {
+    regionsAndLocations=MetaReader.getTableRegionsAndLocations(this.master.getCatalogTracker(),TableName.valueOf(desc.getInstance()),false);
+  }
+ catch (  InterruptedException e1) {
+    String msg="Failed to get regions for '" + desc.getInstance() + "'";
+    LOG.error(msg);
+    throw new IOException(msg,e1);
+  }
+  Set<String> regionServers=new HashSet<String>(regionsAndLocations.size());
+  for (  Pair<HRegionInfo,ServerName> region : regionsAndLocations) {
+    if (region != null && region.getFirst() != null && region.getSecond() != null) {
+      HRegionInfo hri=region.getFirst();
+      if (hri.isOffline() && (hri.isSplit() || hri.isSplitParent()))       continue;
+      regionServers.add(region.getSecond().toString());
+    }
+  }
+  ForeignExceptionDispatcher monitor=new ForeignExceptionDispatcher(desc.getInstance());
+  Procedure proc=coordinator.startProcedure(monitor,desc.getInstance(),new byte[0],Lists.newArrayList(regionServers));
+  monitor.rethrowException();
+  if (proc == null) {
+    String msg="Failed to submit distributed procedure " + desc.getSignature() + " for '"+ desc.getInstance()+ "'. "+ "Another flush procedure is running?";
+    LOG.error(msg);
+    throw new IOException(msg);
+  }
+  procMap.put(tableName,proc);
+  try {
+    proc.waitForCompleted();
+    LOG.info("Done waiting - exec procedure " + desc.getSignature() + " for '"+ desc.getInstance()+ "'");
+    LOG.info("Master flush table procedure is successful!");
+  }
+ catch (  InterruptedException e) {
+    ForeignException ee=new ForeignException("Interrupted while waiting for flush table procdure to finish",e);
+    monitor.receive(ee);
+    Thread.currentThread().interrupt();
+  }
+catch (  ForeignException e) {
+    ForeignException ee=new ForeignException("Exception while waiting for flush table procdure to finish",e);
+    monitor.receive(ee);
+  }
+  monitor.rethrowException();
+}

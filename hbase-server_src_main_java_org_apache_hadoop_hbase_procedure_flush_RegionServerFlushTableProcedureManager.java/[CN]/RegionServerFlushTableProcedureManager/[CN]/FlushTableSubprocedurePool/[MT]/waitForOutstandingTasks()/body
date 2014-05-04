@@ -1,0 +1,35 @@
+{
+  LOG.debug("Waiting for local region flush to finish.");
+  int sz=futures.size();
+  try {
+    for (int i=0; i < sz; i++) {
+      Future<Void> f=taskPool.take();
+      f.get();
+      if (!futures.remove(f)) {
+        LOG.warn("unexpected future" + f);
+      }
+      LOG.debug("Completed " + (i + 1) + "/"+ sz+ " local region flush tasks.");
+    }
+    LOG.debug("Completed " + sz + " local region flush tasks.");
+    return true;
+  }
+ catch (  InterruptedException e) {
+    LOG.warn("Got InterruptedException in FlushSubprocedurePool",e);
+    if (!stopped) {
+      Thread.currentThread().interrupt();
+      throw new ForeignException("FlushSubprocedurePool",e);
+    }
+  }
+catch (  ExecutionException e) {
+    if (e.getCause() instanceof ForeignException) {
+      LOG.warn("Rethrowing ForeignException from FlushSubprocedurePool",e);
+      throw (ForeignException)e.getCause();
+    }
+    LOG.warn("Got Exception in FlushSubprocedurePool",e);
+    throw new ForeignException(name,e.getCause());
+  }
+ finally {
+    cancelTasks();
+  }
+  return false;
+}
