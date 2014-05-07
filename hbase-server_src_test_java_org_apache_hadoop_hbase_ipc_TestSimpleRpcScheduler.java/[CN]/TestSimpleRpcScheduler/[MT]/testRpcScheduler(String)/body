@@ -1,0 +1,87 @@
+{
+  Configuration schedConf=HBaseConfiguration.create();
+  schedConf.set(SimpleRpcScheduler.CALL_QUEUE_TYPE_CONF_KEY,queueType);
+  PriorityFunction priority=mock(PriorityFunction.class);
+  when(priority.getPriority(any(RequestHeader.class),any(Message.class))).thenReturn(HConstants.NORMAL_QOS);
+  RpcScheduler scheduler=new SimpleRpcScheduler(schedConf,1,1,1,priority,HConstants.QOS_THRESHOLD);
+  try {
+    scheduler.start();
+    CallRunner smallCallTask=mock(CallRunner.class);
+    RpcServer.Call smallCall=mock(RpcServer.Call.class);
+    RequestHeader smallHead=RequestHeader.newBuilder().setCallId(1).build();
+    when(smallCallTask.getCall()).thenReturn(smallCall);
+    when(smallCall.getHeader()).thenReturn(smallHead);
+    CallRunner largeCallTask=mock(CallRunner.class);
+    RpcServer.Call largeCall=mock(RpcServer.Call.class);
+    RequestHeader largeHead=RequestHeader.newBuilder().setCallId(50).build();
+    when(largeCallTask.getCall()).thenReturn(largeCall);
+    when(largeCall.getHeader()).thenReturn(largeHead);
+    CallRunner hugeCallTask=mock(CallRunner.class);
+    RpcServer.Call hugeCall=mock(RpcServer.Call.class);
+    RequestHeader hugeHead=RequestHeader.newBuilder().setCallId(100).build();
+    when(hugeCallTask.getCall()).thenReturn(hugeCall);
+    when(hugeCall.getHeader()).thenReturn(hugeHead);
+    when(priority.getDeadline(eq(smallHead),any(Message.class))).thenReturn(0L);
+    when(priority.getDeadline(eq(largeHead),any(Message.class))).thenReturn(50L);
+    when(priority.getDeadline(eq(hugeHead),any(Message.class))).thenReturn(100L);
+    final ArrayList<Integer> work=new ArrayList<Integer>();
+    doAnswer(new Answer<Object>(){
+      @Override public Object answer(      InvocationOnMock invocation){
+synchronized (work) {
+          work.add(10);
+        }
+        Threads.sleepWithoutInterrupt(100);
+        return null;
+      }
+    }
+).when(smallCallTask).run();
+    doAnswer(new Answer<Object>(){
+      @Override public Object answer(      InvocationOnMock invocation){
+synchronized (work) {
+          work.add(50);
+        }
+        Threads.sleepWithoutInterrupt(100);
+        return null;
+      }
+    }
+).when(largeCallTask).run();
+    doAnswer(new Answer<Object>(){
+      @Override public Object answer(      InvocationOnMock invocation){
+synchronized (work) {
+          work.add(100);
+        }
+        Threads.sleepWithoutInterrupt(100);
+        return null;
+      }
+    }
+).when(hugeCallTask).run();
+    scheduler.dispatch(smallCallTask);
+    scheduler.dispatch(smallCallTask);
+    scheduler.dispatch(smallCallTask);
+    scheduler.dispatch(hugeCallTask);
+    scheduler.dispatch(smallCallTask);
+    scheduler.dispatch(largeCallTask);
+    scheduler.dispatch(smallCallTask);
+    scheduler.dispatch(smallCallTask);
+    while (work.size() < 8) {
+      Threads.sleepWithoutInterrupt(100);
+    }
+    int seqSum=0;
+    int totalTime=0;
+    for (int i=0; i < work.size(); ++i) {
+      LOG.debug("Request i=" + i + " value="+ work.get(i));
+      seqSum+=work.get(i);
+      totalTime+=seqSum;
+    }
+    LOG.debug("Total Time: " + totalTime);
+    if (queueType.equals(SimpleRpcScheduler.CALL_QUEUE_TYPE_DEADLINE_CONF_VALUE)) {
+      assertEquals(530,totalTime);
+    }
+ else {
+      assertEquals(930,totalTime);
+    }
+  }
+  finally {
+    scheduler.stop();
+  }
+}
