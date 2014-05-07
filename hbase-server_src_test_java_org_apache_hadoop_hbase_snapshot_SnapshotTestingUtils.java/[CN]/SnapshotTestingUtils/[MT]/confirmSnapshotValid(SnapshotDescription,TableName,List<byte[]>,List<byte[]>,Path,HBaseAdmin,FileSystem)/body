@@ -1,0 +1,33 @@
+{
+  final Configuration conf=admin.getConfiguration();
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotDescriptor,rootDir);
+  assertTrue(fs.exists(snapshotDir));
+  SnapshotDescription desc=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+  final Set<byte[]> snapshotFamilies=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+  SnapshotManifest manifest=SnapshotManifest.open(conf,fs,snapshotDir,desc);
+  Map<String,SnapshotRegionManifest> regionManifests=manifest.getRegionManifestsMap();
+  for (  SnapshotRegionManifest regionManifest : regionManifests.values()) {
+    SnapshotReferenceUtil.visitRegionStoreFiles(regionManifest,new SnapshotReferenceUtil.StoreFileVisitor(){
+      @Override public void storeFile(      final HRegionInfo regionInfo,      final String family,      final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
+        snapshotFamilies.add(Bytes.toBytes(family));
+      }
+    }
+);
+  }
+  if (nonEmptyTestFamilies != null) {
+    for (    final byte[] familyName : nonEmptyTestFamilies) {
+      assertTrue(snapshotFamilies.contains(familyName));
+    }
+  }
+  if (emptyTestFamilies != null) {
+    for (    final byte[] familyName : emptyTestFamilies) {
+      assertFalse(snapshotFamilies.contains(familyName));
+    }
+  }
+  List<HRegionInfo> regions=admin.getTableRegions(tableName);
+  assertEquals(regions.size(),regionManifests.size());
+  for (  HRegionInfo info : regions) {
+    String regionName=info.getEncodedName();
+    assertTrue(regionManifests.containsKey(regionName));
+  }
+}

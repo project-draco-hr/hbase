@@ -1,0 +1,32 @@
+{
+  FileStatus[] regions=FSUtils.listStatus(fs,snapshotDir,new FSUtils.RegionDirFilter(fs));
+  if (regions == null) {
+    LOG.info("No regions under directory:" + snapshotDir);
+    return null;
+  }
+  final ExecutorCompletionService<SnapshotRegionManifest> completionService=new ExecutorCompletionService<SnapshotRegionManifest>(executor);
+  for (  final FileStatus region : regions) {
+    completionService.submit(new Callable<SnapshotRegionManifest>(){
+      @Override public SnapshotRegionManifest call() throws IOException {
+        HRegionInfo hri=HRegionFileSystem.loadRegionInfoFileContent(fs,region.getPath());
+        return buildManifestFromDisk(conf,fs,snapshotDir,hri);
+      }
+    }
+);
+  }
+  ArrayList<SnapshotRegionManifest> regionsManifest=new ArrayList<SnapshotRegionManifest>(regions.length);
+  try {
+    for (int i=0; i < regions.length; ++i) {
+      regionsManifest.add(completionService.take().get());
+    }
+  }
+ catch (  InterruptedException e) {
+    throw new InterruptedIOException(e.getMessage());
+  }
+catch (  ExecutionException e) {
+    IOException ex=new IOException();
+    ex.initCause(e.getCause());
+    throw ex;
+  }
+  return regionsManifest;
+}

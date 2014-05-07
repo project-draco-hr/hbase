@@ -1,0 +1,32 @@
+{
+  HRegionFileSystem regionFs=HRegionFileSystem.openRegionFromFileSystem(conf,fs,tableDir,regionInfo,true);
+  SnapshotRegionManifest.Builder manifest=SnapshotRegionManifest.newBuilder();
+  LOG.debug("Storing region-info for snapshot.");
+  manifest.setRegionInfo(HRegionInfo.convert(regionInfo));
+  LOG.debug("Creating references for hfiles");
+  Collection<String> familyNames=regionFs.getFamilies();
+  if (familyNames != null) {
+    for (    String familyName : familyNames) {
+      Collection<StoreFileInfo> storeFiles=regionFs.getStoreFiles(familyName,false);
+      if (storeFiles == null) {
+        LOG.debug("No files under family: " + familyName);
+        continue;
+      }
+      SnapshotRegionManifest.FamilyFiles.Builder family=SnapshotRegionManifest.FamilyFiles.newBuilder();
+      family.setFamilyName(HBaseZeroCopyByteString.wrap(Bytes.toBytes(familyName)));
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Adding snapshot references for " + storeFiles + " hfiles");
+      }
+      int i=0;
+      int sz=storeFiles.size();
+      for (      StoreFileInfo storeFile : storeFiles) {
+        LOG.debug("Adding reference for file (" + (++i) + "/"+ sz+ "): "+ storeFile.getPath());
+        SnapshotRegionManifest.StoreFile.Builder sfManifest=SnapshotRegionManifest.StoreFile.newBuilder();
+        sfManifest.setName(storeFile.getPath().getName());
+        family.addStoreFiles(sfManifest.build());
+      }
+      manifest.addFamilyFiles(family.build());
+    }
+  }
+  return manifest.build();
+}

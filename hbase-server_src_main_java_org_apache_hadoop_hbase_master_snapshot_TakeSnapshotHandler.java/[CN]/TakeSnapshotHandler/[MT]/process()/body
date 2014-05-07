@@ -3,8 +3,8 @@
   LOG.info(msg);
   status.setStatus(msg);
   try {
-    SnapshotDescriptionUtils.writeSnapshotInfo(snapshot,workingDir,this.fs);
-    new TableInfoCopyTask(monitor,snapshot,fs,rootDir).call();
+    SnapshotDescriptionUtils.writeSnapshotInfo(snapshot,workingDir,fs);
+    snapshotManifest.addTableDescriptor(this.htd);
     monitor.rethrowException();
     List<Pair<HRegionInfo,ServerName>> regionsAndLocations=MetaReader.getTableRegionsAndLocations(this.server.getCatalogTracker(),snapshotTable,false);
     snapshotRegions(regionsAndLocations);
@@ -17,11 +17,14 @@
         serverNames.add(p.getSecond().toString());
       }
     }
+    status.setStatus("Consolidate snapshot: " + snapshot.getName());
+    snapshotManifest.consolidate();
     status.setStatus("Verifying snapshot: " + snapshot.getName());
     verifier.verifySnapshot(this.workingDir,serverNames);
     completeSnapshot(this.snapshotDir,this.workingDir,this.fs);
-    status.markComplete("Snapshot " + snapshot.getName() + " of table "+ snapshotTable+ " completed");
-    LOG.info("Snapshot " + snapshot.getName() + " of table "+ snapshotTable+ " completed");
+    msg="Snapshot " + snapshot.getName() + " of table "+ snapshotTable+ " completed";
+    status.markComplete(msg);
+    LOG.info(msg);
     metricsSnapshot.addSnapshot(status.getCompletionTimestamp() - status.getStartTime());
   }
  catch (  Exception e) {
@@ -30,7 +33,7 @@
     LOG.error(reason,e);
     ForeignException ee=new ForeignException(reason,e);
     monitor.receive(ee);
-    cancel("Failed to take snapshot '" + ClientSnapshotDescriptionUtils.toString(snapshot) + "' due to exception");
+    cancel(reason);
   }
  finally {
     LOG.debug("Launching cleanup of working dir:" + workingDir);

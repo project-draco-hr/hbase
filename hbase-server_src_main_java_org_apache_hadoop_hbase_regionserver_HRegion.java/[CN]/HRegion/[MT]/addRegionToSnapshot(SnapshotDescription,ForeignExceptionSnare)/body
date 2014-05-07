@@ -1,34 +1,6 @@
 {
-  Path rootDir=FSUtils.getRootDir(this.rsServices.getConfiguration());
+  Path rootDir=FSUtils.getRootDir(conf);
   Path snapshotDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(desc,rootDir);
-  LOG.debug("Storing region-info for snapshot.");
-  HRegionFileSystem snapshotRegionFs=HRegionFileSystem.createRegionOnFileSystem(conf,this.fs.getFileSystem(),snapshotDir,getRegionInfo());
-  LOG.debug("Creating references for hfiles");
-  for (  Store store : stores.values()) {
-    Path dstStoreDir=snapshotRegionFs.getStoreDir(store.getFamily().getNameAsString());
-    List<StoreFile> storeFiles=new ArrayList<StoreFile>(store.getStorefiles());
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Adding snapshot references for " + storeFiles + " hfiles");
-    }
-    int sz=storeFiles.size();
-    for (int i=0; i < sz; i++) {
-      if (exnSnare != null) {
-        exnSnare.rethrowException();
-      }
-      StoreFile storeFile=storeFiles.get(i);
-      Path file=storeFile.getPath();
-      LOG.debug("Creating reference for file (" + (i + 1) + "/"+ sz+ ") : "+ file);
-      Path referenceFile=new Path(dstStoreDir,file.getName());
-      boolean success=true;
-      if (storeFile.isReference()) {
-        storeFile.getFileInfo().getReference().write(fs.getFileSystem(),referenceFile);
-      }
- else {
-        success=fs.getFileSystem().createNewFile(referenceFile);
-      }
-      if (!success) {
-        throw new IOException("Failed to create reference file:" + referenceFile);
-      }
-    }
-  }
+  SnapshotManifest manifest=SnapshotManifest.create(conf,getFilesystem(),snapshotDir,desc,exnSnare);
+  manifest.addRegion(this);
 }

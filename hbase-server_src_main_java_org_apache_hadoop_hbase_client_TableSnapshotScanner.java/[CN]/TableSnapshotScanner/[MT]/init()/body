@@ -1,14 +1,15 @@
 {
   Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,rootDir);
-  htd=FSTableDescriptors.getTableDescriptorFromFs(fs,snapshotDir);
-  Set<String> snapshotRegionNames=SnapshotReferenceUtil.getSnapshotRegionNames(fs,snapshotDir);
-  if (snapshotRegionNames == null) {
+  SnapshotDescription snapshotDesc=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+  SnapshotManifest manifest=SnapshotManifest.open(conf,fs,snapshotDir,snapshotDesc);
+  htd=manifest.getTableDescriptor();
+  List<SnapshotRegionManifest> regionManifests=manifest.getRegionManifests();
+  if (regionManifests == null) {
     throw new IllegalArgumentException("Snapshot seems empty");
   }
-  regions=new ArrayList<HRegionInfo>(snapshotRegionNames.size());
-  for (  String regionName : snapshotRegionNames) {
-    Path regionDir=new Path(snapshotDir,regionName);
-    HRegionInfo hri=HRegionFileSystem.loadRegionInfoFileContent(fs,regionDir);
+  regions=new ArrayList<HRegionInfo>(regionManifests.size());
+  for (  SnapshotRegionManifest regionManifest : regionManifests) {
+    HRegionInfo hri=HRegionInfo.convert(regionManifest.getRegionInfo());
     if (CellUtil.overlappingKeys(scan.getStartRow(),scan.getStopRow(),hri.getStartKey(),hri.getEndKey())) {
       regions.add(hri);
     }

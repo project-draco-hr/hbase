@@ -1,19 +1,25 @@
 {
   SnapshotDescription snapshotDesc=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
-  final List<Pair<Path,Long>> files=new ArrayList<Pair<Path,Long>>();
+  final List<Pair<SnapshotFileInfo,Long>> files=new ArrayList<Pair<SnapshotFileInfo,Long>>();
   final TableName table=TableName.valueOf(snapshotDesc.getTable());
   final Configuration conf=getConf();
-  SnapshotReferenceUtil.visitReferencedFiles(fs,snapshotDir,new SnapshotReferenceUtil.FileVisitor(){
-    public void storeFile(    final String region,    final String family,    final String hfile) throws IOException {
-      Path path=HFileLink.createPath(table,region,family,hfile);
-      long size=new HFileLink(conf,path).getFileStatus(fs).getLen();
-      files.add(new Pair<Path,Long>(path,size));
+  SnapshotReferenceUtil.visitReferencedFiles(conf,fs,snapshotDir,snapshotDesc,new SnapshotReferenceUtil.SnapshotVisitor(){
+    @Override public void storeFile(    final HRegionInfo regionInfo,    final String family,    final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
+      if (storeFile.hasReference()) {
+      }
+ else {
+        String region=regionInfo.getEncodedName();
+        String hfile=storeFile.getName();
+        Path path=HFileLink.createPath(table,region,family,hfile);
+        SnapshotFileInfo fileInfo=SnapshotFileInfo.newBuilder().setType(SnapshotFileInfo.Type.HFILE).setHfile(path.toString()).build();
+        long size=new HFileLink(conf,path).getFileStatus(fs).getLen();
+        files.add(new Pair<SnapshotFileInfo,Long>(fileInfo,size));
+      }
     }
-    public void recoveredEdits(    final String region,    final String logfile) throws IOException {
-    }
-    public void logFile(    final String server,    final String logfile) throws IOException {
+    @Override public void logFile(    final String server,    final String logfile) throws IOException {
+      SnapshotFileInfo fileInfo=SnapshotFileInfo.newBuilder().setType(SnapshotFileInfo.Type.WAL).setWalServer(server).setWalName(logfile).build();
       long size=new HLogLink(conf,server,logfile).getFileStatus(fs).getLen();
-      files.add(new Pair<Path,Long>(new Path(server,logfile),size));
+      files.add(new Pair<SnapshotFileInfo,Long>(fileInfo,size));
     }
   }
 );

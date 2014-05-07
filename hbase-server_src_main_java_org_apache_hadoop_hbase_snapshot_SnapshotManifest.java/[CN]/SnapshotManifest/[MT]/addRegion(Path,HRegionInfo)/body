@@ -1,0 +1,33 @@
+{
+  RegionVisitor visitor=createRegionVisitor(desc);
+  HRegionFileSystem regionFs=HRegionFileSystem.openRegionFromFileSystem(conf,fs,tableDir,regionInfo,true);
+  monitor.rethrowException();
+  LOG.debug("Storing region-info for snapshot.");
+  Object regionData=visitor.regionOpen(regionInfo);
+  monitor.rethrowException();
+  LOG.debug("Creating references for hfiles");
+  Collection<String> familyNames=regionFs.getFamilies();
+  if (familyNames != null) {
+    for (    String familyName : familyNames) {
+      Object familyData=visitor.familyOpen(regionData,Bytes.toBytes(familyName));
+      monitor.rethrowException();
+      Collection<StoreFileInfo> storeFiles=regionFs.getStoreFiles(familyName);
+      if (storeFiles == null) {
+        LOG.debug("No files under family: " + familyName);
+        continue;
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Adding snapshot references for " + storeFiles + " hfiles");
+      }
+      int i=0;
+      int sz=storeFiles.size();
+      for (      StoreFileInfo storeFile : storeFiles) {
+        monitor.rethrowException();
+        LOG.debug("Adding reference for file (" + (++i) + "/"+ sz+ "): "+ storeFile.getPath());
+        visitor.storeFile(regionData,familyData,storeFile);
+      }
+      visitor.familyClose(regionData,familyData);
+    }
+  }
+  visitor.regionClose(regionData);
+}

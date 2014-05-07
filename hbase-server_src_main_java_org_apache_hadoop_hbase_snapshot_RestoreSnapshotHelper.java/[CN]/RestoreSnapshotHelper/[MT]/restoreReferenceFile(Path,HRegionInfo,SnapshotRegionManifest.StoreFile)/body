@@ -1,0 +1,43 @@
+{
+  String hfileName=storeFile.getName();
+  Path refPath=StoreFileInfo.getReferredToFile(new Path(new Path(new Path(snapshotTable.getNameAsString(),regionInfo.getEncodedName()),familyDir.getName()),hfileName));
+  String snapshotRegionName=refPath.getParent().getParent().getName();
+  String fileName=refPath.getName();
+  String clonedRegionName=Bytes.toString(regionsMap.get(Bytes.toBytes(snapshotRegionName)));
+  if (clonedRegionName == null)   clonedRegionName=snapshotRegionName;
+  Path linkPath=null;
+  String refLink=fileName;
+  if (!HFileLink.isHFileLink(fileName)) {
+    refLink=HFileLink.createHFileLinkName(snapshotTable,snapshotRegionName,fileName);
+    linkPath=new Path(familyDir,HFileLink.createHFileLinkName(snapshotTable,regionInfo.getEncodedName(),hfileName));
+  }
+  Path outPath=new Path(familyDir,refLink + '.' + clonedRegionName);
+  if (storeFile.hasReference()) {
+    Reference reference=Reference.convert(storeFile.getReference());
+    reference.write(fs,outPath);
+  }
+ else {
+    InputStream in;
+    if (linkPath != null) {
+      in=new HFileLink(conf,linkPath).open(fs);
+    }
+ else {
+      linkPath=new Path(new Path(HRegion.getRegionDir(snapshotManifest.getSnapshotDir(),regionInfo.getEncodedName()),familyDir.getName()),hfileName);
+      in=fs.open(linkPath);
+    }
+    OutputStream out=fs.create(outPath);
+    IOUtils.copyBytes(in,out,conf);
+  }
+  String regionName=Bytes.toString(regionsMap.get(regionInfo.getEncodedNameAsBytes()));
+  LOG.debug("Restore reference " + regionName + " to "+ clonedRegionName);
+synchronized (parentsMap) {
+    Pair<String,String> daughters=parentsMap.get(clonedRegionName);
+    if (daughters == null) {
+      daughters=new Pair<String,String>(regionName,null);
+      parentsMap.put(clonedRegionName,daughters);
+    }
+ else     if (!regionName.equals(daughters.getFirst())) {
+      daughters.setSecond(regionName);
+    }
+  }
+}

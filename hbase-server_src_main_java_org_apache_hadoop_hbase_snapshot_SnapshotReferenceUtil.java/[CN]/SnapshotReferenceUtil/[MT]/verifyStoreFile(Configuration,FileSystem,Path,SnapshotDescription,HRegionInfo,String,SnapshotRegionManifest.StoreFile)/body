@@ -1,0 +1,25 @@
+{
+  String fileName=storeFile.getName();
+  Path refPath=null;
+  if (StoreFileInfo.isReference(fileName)) {
+    Path snapshotHFilePath=new Path(new Path(new Path(snapshotDir,regionInfo.getEncodedName()),family),fileName);
+    refPath=StoreFileInfo.getReferredToFile(snapshotHFilePath);
+    if (!fs.exists(refPath)) {
+      throw new CorruptedSnapshotException("Missing parent hfile for: " + fileName,snapshot);
+    }
+  }
+  Path linkPath;
+  if (refPath != null && HFileLink.isHFileLink(refPath)) {
+    linkPath=new Path(family,refPath.getName());
+  }
+ else   if (HFileLink.isHFileLink(fileName)) {
+    linkPath=new Path(family,fileName);
+  }
+ else {
+    linkPath=new Path(family,HFileLink.createHFileLinkName(TableName.valueOf(snapshot.getTable()),regionInfo.getEncodedName(),fileName));
+  }
+  HFileLink link=new HFileLink(conf,linkPath);
+  if (!link.exists(fs)) {
+    throw new CorruptedSnapshotException("Can't find hfile: " + fileName + " in the real ("+ link.getOriginPath()+ ") or archive ("+ link.getArchivePath()+ ") directory for the primary table.",snapshot);
+  }
+}

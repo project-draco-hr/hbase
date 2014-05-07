@@ -3,22 +3,18 @@
     System.out.println("Snapshot Files");
     System.out.println("----------------------------------------");
   }
-  final String table=snapshotTableDesc.getTableName().getNameAsString();
-  final SnapshotStats stats=new SnapshotStats(this.getConf(),this.fs,this.snapshotDesc);
-  SnapshotReferenceUtil.visitReferencedFiles(fs,snapshotDir,new SnapshotReferenceUtil.FileVisitor(){
-    public void storeFile(    final String region,    final String family,    final String hfile) throws IOException {
-      SnapshotStats.FileInfo info=stats.addStoreFile(region,family,hfile);
+  final SnapshotDescription snapshotDesc=snapshotManifest.getSnapshotDescription();
+  final String table=snapshotDesc.getTable();
+  final SnapshotStats stats=new SnapshotStats(this.getConf(),this.fs,snapshotDesc);
+  SnapshotReferenceUtil.visitReferencedFiles(getConf(),fs,snapshotManifest.getSnapshotDir(),snapshotDesc,new SnapshotReferenceUtil.SnapshotVisitor(){
+    @Override public void storeFile(    final HRegionInfo regionInfo,    final String family,    final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
+      if (storeFile.hasReference())       return;
+      SnapshotStats.FileInfo info=stats.addStoreFile(regionInfo,family,storeFile);
       if (showFiles) {
-        System.out.printf("%8s %s/%s/%s/%s %s%n",(info.isMissing() ? "-" : StringUtils.humanReadableInt(info.getSize())),table,region,family,hfile,(info.inArchive() ? "(archive)" : info.isMissing() ? "(NOT FOUND)" : ""));
+        System.out.printf("%8s %s/%s/%s/%s %s%n",(info.isMissing() ? "-" : StringUtils.humanReadableInt(info.getSize())),table,regionInfo.getEncodedName(),family,storeFile.getName(),(info.inArchive() ? "(archive)" : info.isMissing() ? "(NOT FOUND)" : ""));
       }
     }
-    public void recoveredEdits(    final String region,    final String logfile) throws IOException {
-      SnapshotStats.FileInfo info=stats.addRecoveredEdits(region,logfile);
-      if (showFiles) {
-        System.out.printf("%8s recovered.edits %s on region %s%n",StringUtils.humanReadableInt(info.getSize()),logfile,region);
-      }
-    }
-    public void logFile(    final String server,    final String logfile) throws IOException {
+    @Override public void logFile(    final String server,    final String logfile) throws IOException {
       SnapshotStats.FileInfo info=stats.addLogFile(server,logfile);
       if (showFiles) {
         System.out.printf("%8s log %s on server %s %s%n",(info.isMissing() ? "-" : StringUtils.humanReadableInt(info.getSize())),logfile,server,(info.isMissing() ? "(NOT FOUND)" : ""));

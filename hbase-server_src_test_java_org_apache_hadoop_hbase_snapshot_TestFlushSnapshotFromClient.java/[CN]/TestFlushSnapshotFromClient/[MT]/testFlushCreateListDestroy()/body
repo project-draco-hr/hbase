@@ -4,28 +4,7 @@
   SnapshotTestingUtils.assertNoSnapshots(admin);
   SnapshotTestingUtils.loadData(UTIL,TABLE_NAME,DEFAULT_NUM_ROWS,TEST_FAM);
   String snapshotName="flushSnapshotCreateListDestroy";
-  admin.snapshot(snapshotName,STRING_TABLE_NAME,SnapshotDescription.Type.FLUSH);
-  logFSTree(FSUtils.getRootDir(UTIL.getConfiguration()));
-  List<SnapshotDescription> snapshots=SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,snapshotName,TABLE_NAME);
   FileSystem fs=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
   Path rootDir=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
-  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshots.get(0),rootDir);
-  assertTrue(fs.exists(snapshotDir));
-  FSUtils.logFileSystemState(UTIL.getTestFileSystem(),snapshotDir,LOG);
-  Path snapshotinfo=new Path(snapshotDir,SnapshotDescriptionUtils.SNAPSHOTINFO_FILE);
-  assertTrue(fs.exists(snapshotinfo));
-  HTableDescriptor desc=FSTableDescriptors.getTableDescriptorFromFs(fs,rootDir,TABLE_NAME);
-  HTableDescriptor snapshotDesc=FSTableDescriptors.getTableDescriptorFromFs(fs,new Path(SnapshotDescriptionUtils.getSnapshotsDir(rootDir),snapshotName));
-  assertEquals(desc,snapshotDesc);
-  List<HRegionInfo> regions=admin.getTableRegions(TABLE_NAME);
-  assertTrue(regions.size() > 1);
-  for (  HRegionInfo info : regions) {
-    String regionName=info.getEncodedName();
-    Path regionDir=new Path(snapshotDir,regionName);
-    HRegionInfo snapshotRegionInfo=HRegionFileSystem.loadRegionInfoFileContent(fs,regionDir);
-    assertEquals(info,snapshotRegionInfo);
-    Path familyDir=new Path(regionDir,Bytes.toString(TEST_FAM));
-    assertTrue("Missing region " + Bytes.toString(snapshotRegionInfo.getStartKey()),fs.exists(familyDir));
-    assertTrue(fs.listStatus(familyDir).length > 0);
-  }
+  SnapshotTestingUtils.createSnapshotAndValidate(admin,TableName.valueOf(STRING_TABLE_NAME),Bytes.toString(TEST_FAM),snapshotName,rootDir,fs,true);
 }

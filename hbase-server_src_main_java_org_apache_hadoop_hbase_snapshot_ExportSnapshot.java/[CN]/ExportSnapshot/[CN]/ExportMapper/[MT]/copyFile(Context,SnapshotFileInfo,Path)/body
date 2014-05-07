@@ -1,0 +1,33 @@
+{
+  injectTestFailure(context,inputInfo);
+  FileStatus inputStat=getSourceFileStatus(context,inputInfo);
+  if (outputFs.exists(outputPath)) {
+    FileStatus outputStat=outputFs.getFileStatus(outputPath);
+    if (outputStat != null && sameFile(inputStat,outputStat)) {
+      LOG.info("Skip copy " + inputStat.getPath() + " to "+ outputPath+ ", same file.");
+      return;
+    }
+  }
+  InputStream in=openSourceFile(context,inputInfo);
+  int bandwidthMB=context.getConfiguration().getInt(CONF_BANDWIDTH_MB,100);
+  if (Integer.MAX_VALUE != bandwidthMB) {
+    in=new ThrottledInputStream(new BufferedInputStream(in),bandwidthMB * 1024 * 1024);
+  }
+  try {
+    context.getCounter(Counter.BYTES_EXPECTED).increment(inputStat.getLen());
+    outputFs.mkdirs(outputPath.getParent());
+    FSDataOutputStream out=outputFs.create(outputPath,true);
+    try {
+      copyData(context,inputStat.getPath(),in,outputPath,out,inputStat.getLen());
+    }
+  finally {
+      out.close();
+    }
+    if (!preserveAttributes(outputPath,inputStat)) {
+      LOG.warn("You may have to run manually chown on: " + outputPath);
+    }
+  }
+  finally {
+    in.close();
+  }
+}

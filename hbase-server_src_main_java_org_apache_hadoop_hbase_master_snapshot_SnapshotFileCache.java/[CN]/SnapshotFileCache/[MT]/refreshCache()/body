@@ -1,7 +1,10 @@
 {
-  FileStatus dirStatus, tempStatus;
+  long lastTimestamp=Long.MAX_VALUE;
+  boolean hasChanges=false;
   try {
-    dirStatus=fs.getFileStatus(snapshotDir);
+    FileStatus dirStatus=fs.getFileStatus(snapshotDir);
+    lastTimestamp=dirStatus.getModificationTime();
+    hasChanges|=(lastTimestamp >= lastModifiedTime);
   }
  catch (  FileNotFoundException e) {
     if (this.cache.size() > 0) {
@@ -11,15 +14,25 @@
   }
   try {
     Path snapshotTmpDir=new Path(snapshotDir,SnapshotDescriptionUtils.SNAPSHOT_TMP_DIR_NAME);
-    tempStatus=fs.getFileStatus(snapshotTmpDir);
+    FileStatus tempDirStatus=fs.getFileStatus(snapshotTmpDir);
+    lastTimestamp=Math.min(lastTimestamp,tempDirStatus.getModificationTime());
+    hasChanges|=(lastTimestamp >= lastModifiedTime);
+    if (!hasChanges) {
+      FileStatus[] tmpSnapshots=FSUtils.listStatus(fs,snapshotDir);
+      if (tmpSnapshots != null) {
+        for (        FileStatus dirStatus : tmpSnapshots) {
+          lastTimestamp=Math.min(lastTimestamp,dirStatus.getModificationTime());
+        }
+        hasChanges|=(lastTimestamp >= lastModifiedTime);
+      }
+    }
   }
  catch (  FileNotFoundException e) {
-    tempStatus=dirStatus;
   }
-  if (dirStatus.getModificationTime() <= lastModifiedTime && tempStatus.getModificationTime() <= lastModifiedTime) {
+  if (!hasChanges) {
     return;
   }
-  this.lastModifiedTime=Math.min(dirStatus.getModificationTime(),tempStatus.getModificationTime());
+  this.lastModifiedTime=lastTimestamp;
   this.cache.clear();
   Map<String,SnapshotDirectoryInfo> known=new HashMap<String,SnapshotDirectoryInfo>();
   FileStatus[] snapshots=FSUtils.listStatus(fs,snapshotDir);

@@ -1,0 +1,49 @@
+{
+switch (getSnapshotFormat(desc)) {
+case SnapshotManifestV1.DESCRIPTOR_VERSION:
+{
+      this.htd=FSTableDescriptors.getTableDescriptorFromFs(fs,workingDir);
+      ThreadPoolExecutor tpool=createExecutor("SnapshotManifestLoader");
+      try {
+        this.regionManifests=SnapshotManifestV1.loadRegionManifests(conf,tpool,fs,workingDir,desc);
+      }
+  finally {
+        tpool.shutdown();
+      }
+      break;
+    }
+case SnapshotManifestV2.DESCRIPTOR_VERSION:
+{
+    SnapshotDataManifest dataManifest=readDataManifest();
+    if (dataManifest != null) {
+      htd=HTableDescriptor.convert(dataManifest.getTableSchema());
+      regionManifests=dataManifest.getRegionManifestsList();
+    }
+ else {
+      List<SnapshotRegionManifest> v1Regions, v2Regions;
+      ThreadPoolExecutor tpool=createExecutor("SnapshotManifestLoader");
+      try {
+        v1Regions=SnapshotManifestV1.loadRegionManifests(conf,tpool,fs,workingDir,desc);
+        v2Regions=SnapshotManifestV2.loadRegionManifests(conf,tpool,fs,workingDir,desc);
+      }
+  finally {
+        tpool.shutdown();
+      }
+      if (v1Regions != null && v2Regions != null) {
+        regionManifests=new ArrayList<SnapshotRegionManifest>(v1Regions.size() + v2Regions.size());
+        regionManifests.addAll(v1Regions);
+        regionManifests.addAll(v2Regions);
+      }
+ else       if (v1Regions != null) {
+        regionManifests=v1Regions;
+      }
+ else {
+        regionManifests=v2Regions;
+      }
+    }
+    break;
+  }
+default :
+throw new CorruptedSnapshotException("Invalid Snapshot version: " + desc.getVersion(),desc);
+}
+}

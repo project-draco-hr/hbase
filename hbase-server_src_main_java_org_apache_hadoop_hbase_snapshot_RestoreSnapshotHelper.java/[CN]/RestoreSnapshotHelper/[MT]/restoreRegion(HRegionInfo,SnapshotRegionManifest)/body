@@ -1,0 +1,45 @@
+{
+  Map<String,List<SnapshotRegionManifest.StoreFile>> snapshotFiles=getRegionHFileReferences(regionManifest);
+  Path regionDir=new Path(tableDir,regionInfo.getEncodedName());
+  String tableName=tableDesc.getTableName().getNameAsString();
+  for (  Path familyDir : FSUtils.getFamilyDirs(fs,regionDir)) {
+    byte[] family=Bytes.toBytes(familyDir.getName());
+    Set<String> familyFiles=getTableRegionFamilyFiles(familyDir);
+    List<SnapshotRegionManifest.StoreFile> snapshotFamilyFiles=snapshotFiles.remove(familyDir.getName());
+    if (snapshotFamilyFiles != null) {
+      List<SnapshotRegionManifest.StoreFile> hfilesToAdd=new ArrayList<SnapshotRegionManifest.StoreFile>();
+      for (      SnapshotRegionManifest.StoreFile storeFile : snapshotFamilyFiles) {
+        if (familyFiles.contains(storeFile.getName())) {
+          familyFiles.remove(storeFile.getName());
+        }
+ else {
+          hfilesToAdd.add(storeFile);
+        }
+      }
+      for (      String hfileName : familyFiles) {
+        Path hfile=new Path(familyDir,hfileName);
+        LOG.trace("Removing hfile=" + hfileName + " from region="+ regionInfo.getEncodedName()+ " table="+ tableName);
+        HFileArchiver.archiveStoreFile(conf,fs,regionInfo,tableDir,family,hfile);
+      }
+      for (      SnapshotRegionManifest.StoreFile storeFile : hfilesToAdd) {
+        LOG.debug("Adding HFileLink " + storeFile.getName() + " to region="+ regionInfo.getEncodedName()+ " table="+ tableName);
+        restoreStoreFile(familyDir,regionInfo,storeFile);
+      }
+    }
+ else {
+      LOG.trace("Removing family=" + Bytes.toString(family) + " from region="+ regionInfo.getEncodedName()+ " table="+ tableName);
+      HFileArchiver.archiveFamily(fs,conf,regionInfo,tableDir,family);
+      fs.delete(familyDir,true);
+    }
+  }
+  for (  Map.Entry<String,List<SnapshotRegionManifest.StoreFile>> familyEntry : snapshotFiles.entrySet()) {
+    Path familyDir=new Path(regionDir,familyEntry.getKey());
+    if (!fs.mkdirs(familyDir)) {
+      throw new IOException("Unable to create familyDir=" + familyDir);
+    }
+    for (    SnapshotRegionManifest.StoreFile storeFile : familyEntry.getValue()) {
+      LOG.trace("Adding HFileLink " + storeFile.getName() + " to table="+ tableName);
+      restoreStoreFile(familyDir,regionInfo,storeFile);
+    }
+  }
+}
