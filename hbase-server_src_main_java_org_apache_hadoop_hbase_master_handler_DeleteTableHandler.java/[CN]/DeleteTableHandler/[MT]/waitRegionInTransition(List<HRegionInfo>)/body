@@ -1,0 +1,25 @@
+{
+  AssignmentManager am=this.masterServices.getAssignmentManager();
+  RegionStates states=am.getRegionStates();
+  long waitTime=server.getConfiguration().getLong("hbase.master.wait.on.region",5 * 60 * 1000);
+  for (  HRegionInfo region : regions) {
+    long done=System.currentTimeMillis() + waitTime;
+    while (System.currentTimeMillis() < done) {
+      if (states.isRegionInState(region,State.FAILED_OPEN)) {
+        am.regionOffline(region);
+      }
+      if (!states.isRegionInTransition(region))       break;
+      try {
+        Thread.sleep(waitingTimeForEvents);
+      }
+ catch (      InterruptedException e) {
+        LOG.warn("Interrupted while sleeping");
+        throw (InterruptedIOException)new InterruptedIOException().initCause(e);
+      }
+      LOG.debug("Waiting on region to clear regions in transition; " + am.getRegionStates().getRegionTransitionState(region));
+    }
+    if (states.isRegionInTransition(region)) {
+      throw new IOException("Waited hbase.master.wait.on.region (" + waitTime + "ms) for region to leave region "+ region.getRegionNameAsString()+ " in transitions");
+    }
+  }
+}
