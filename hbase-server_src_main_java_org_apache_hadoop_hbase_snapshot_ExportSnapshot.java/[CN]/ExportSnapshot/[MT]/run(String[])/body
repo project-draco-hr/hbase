@@ -70,9 +70,11 @@
   LOG.debug("inputFs=" + inputFs.getUri().toString() + " inputRoot="+ inputRoot);
   FileSystem outputFs=FileSystem.get(outputRoot.toUri(),conf);
   LOG.debug("outputFs=" + outputFs.getUri().toString() + " outputRoot="+ outputRoot.toString());
+  boolean skipTmp=conf.getBoolean(CONF_SKIP_TMP,false);
   Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,inputRoot);
   Path snapshotTmpDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshotName,outputRoot);
   Path outputSnapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,outputRoot);
+  Path initialOutputSnapshotDir=skipTmp ? outputSnapshotDir : snapshotTmpDir;
   if (outputFs.exists(outputSnapshotDir)) {
     if (overwrite) {
       if (!outputFs.delete(outputSnapshotDir,true)) {
@@ -85,18 +87,20 @@
       return 1;
     }
   }
-  if (outputFs.exists(snapshotTmpDir)) {
-    if (overwrite) {
-      if (!outputFs.delete(snapshotTmpDir,true)) {
-        System.err.println("Unable to remove existing snapshot tmp directory: " + snapshotTmpDir);
+  if (!skipTmp) {
+    if (outputFs.exists(snapshotTmpDir)) {
+      if (overwrite) {
+        if (!outputFs.delete(snapshotTmpDir,true)) {
+          System.err.println("Unable to remove existing snapshot tmp directory: " + snapshotTmpDir);
+          return 1;
+        }
+      }
+ else {
+        System.err.println("A snapshot with the same name '" + snapshotName + "' may be in-progress");
+        System.err.println("Please check " + snapshotTmpDir + ". If the snapshot has completed, ");
+        System.err.println("consider removing " + snapshotTmpDir + " by using the -overwrite option");
         return 1;
       }
-    }
- else {
-      System.err.println("A snapshot with the same name '" + snapshotName + "' may be in-progress");
-      System.err.println("Please check " + snapshotTmpDir + ". If the snapshot has completed, ");
-      System.err.println("consider removing " + snapshotTmpDir + " by using the -overwrite option");
-      return 1;
     }
   }
   LOG.info("Loading Snapshot hfile list");
@@ -107,10 +111,10 @@
   }
   try {
     LOG.info("Copy Snapshot Manifest");
-    FileUtil.copy(inputFs,snapshotDir,outputFs,snapshotTmpDir,false,false,conf);
+    FileUtil.copy(inputFs,snapshotDir,outputFs,initialOutputSnapshotDir,false,false,conf);
   }
  catch (  IOException e) {
-    throw new ExportSnapshotException("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ snapshotTmpDir,e);
+    throw new ExportSnapshotException("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ initialOutputSnapshotDir,e);
   }
   try {
     if (files.size() == 0) {
@@ -120,8 +124,10 @@
       runCopyJob(inputRoot,outputRoot,files,verifyChecksum,filesUser,filesGroup,filesMode,mappers,bandwidthMB);
     }
     LOG.info("Finalize the Snapshot Export");
-    if (!outputFs.rename(snapshotTmpDir,outputSnapshotDir)) {
-      throw new ExportSnapshotException("Unable to rename snapshot directory from=" + snapshotTmpDir + " to="+ outputSnapshotDir);
+    if (!skipTmp) {
+      if (!outputFs.rename(snapshotTmpDir,outputSnapshotDir)) {
+        throw new ExportSnapshotException("Unable to rename snapshot directory from=" + snapshotTmpDir + " to="+ outputSnapshotDir);
+      }
     }
     LOG.info("Verify snapshot validity");
     verifySnapshot(conf,outputFs,outputRoot,outputSnapshotDir);
@@ -130,7 +136,9 @@
   }
  catch (  Exception e) {
     LOG.error("Snapshot export failed",e);
-    outputFs.delete(snapshotTmpDir,true);
+    if (!skipTmp) {
+      outputFs.delete(snapshotTmpDir,true);
+    }
     outputFs.delete(outputSnapshotDir,true);
     return 1;
   }
