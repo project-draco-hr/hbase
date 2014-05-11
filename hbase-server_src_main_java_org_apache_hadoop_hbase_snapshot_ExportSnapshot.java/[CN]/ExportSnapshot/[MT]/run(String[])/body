@@ -2,6 +2,7 @@
   boolean verifyTarget=true;
   boolean verifyChecksum=true;
   String snapshotName=null;
+  String targetName=null;
   boolean overwrite=false;
   String filesGroup=null;
   String filesUser=null;
@@ -15,6 +16,9 @@
     try {
       if (cmd.equals("-snapshot")) {
         snapshotName=args[++i];
+      }
+ else       if (cmd.equals("-target")) {
+        targetName=args[++i];
       }
  else       if (cmd.equals("-copy-to")) {
         outputRoot=new Path(args[++i]);
@@ -69,6 +73,9 @@
     System.err.println("Destination file-system not provided.");
     printUsageAndExit();
   }
+  if (targetName == null) {
+    targetName=snapshotName;
+  }
   Path inputRoot=FSUtils.getRootDir(conf);
   FileSystem inputFs=FileSystem.get(inputRoot.toUri(),conf);
   LOG.debug("inputFs=" + inputFs.getUri().toString() + " inputRoot="+ inputRoot);
@@ -76,8 +83,8 @@
   LOG.debug("outputFs=" + outputFs.getUri().toString() + " outputRoot="+ outputRoot.toString());
   boolean skipTmp=conf.getBoolean(CONF_SKIP_TMP,false);
   Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,inputRoot);
-  Path snapshotTmpDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(snapshotName,outputRoot);
-  Path outputSnapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,outputRoot);
+  Path snapshotTmpDir=SnapshotDescriptionUtils.getWorkingSnapshotDir(targetName,outputRoot);
+  Path outputSnapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(targetName,outputRoot);
   Path initialOutputSnapshotDir=skipTmp ? outputSnapshotDir : snapshotTmpDir;
   if (outputFs.exists(outputSnapshotDir)) {
     if (overwrite) {
@@ -87,7 +94,7 @@
       }
     }
  else {
-      System.err.println("The snapshot '" + snapshotName + "' already exists in the destination: "+ outputSnapshotDir);
+      System.err.println("The snapshot '" + targetName + "' already exists in the destination: "+ outputSnapshotDir);
       return 1;
     }
   }
@@ -100,7 +107,7 @@
         }
       }
  else {
-        System.err.println("A snapshot with the same name '" + snapshotName + "' may be in-progress");
+        System.err.println("A snapshot with the same name '" + targetName + "' may be in-progress");
         System.err.println("Please check " + snapshotTmpDir + ". If the snapshot has completed, ");
         System.err.println("consider removing " + snapshotTmpDir + " by using the -overwrite option");
         return 1;
@@ -120,6 +127,10 @@
  catch (  IOException e) {
     throw new ExportSnapshotException("Failed to copy the snapshot directory: from=" + snapshotDir + " to="+ initialOutputSnapshotDir,e);
   }
+  if (!targetName.equals(snapshotName)) {
+    SnapshotDescription snapshotDesc=SnapshotDescriptionUtils.readSnapshotInfo(inputFs,snapshotDir).toBuilder().setName(targetName).build();
+    SnapshotDescriptionUtils.writeSnapshotInfo(snapshotDesc,snapshotTmpDir,outputFs);
+  }
   try {
     if (files.size() == 0) {
       LOG.warn("There are 0 store file to be copied. There may be no data in the table.");
@@ -137,7 +148,7 @@
       LOG.info("Verify snapshot integrity");
       verifySnapshot(conf,outputFs,outputRoot,outputSnapshotDir);
     }
-    LOG.info("Export Completed: " + snapshotName);
+    LOG.info("Export Completed: " + targetName);
     return 0;
   }
  catch (  Exception e) {
