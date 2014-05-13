@@ -1,0 +1,57 @@
+{
+  String testName="testFlushSequenceIdIsGreaterThanAllEditsInHFile";
+  final TableName tableName=TableName.valueOf(testName);
+  final HRegionInfo hri=new HRegionInfo(tableName);
+  final byte[] rowName=tableName.getName();
+  final HTableDescriptor htd=new HTableDescriptor(tableName);
+  htd.addFamily(new HColumnDescriptor("f"));
+  HRegion r=HRegion.createHRegion(hri,TEST_UTIL.getDefaultRootDirPath(),TEST_UTIL.getConfiguration(),htd);
+  HRegion.closeHRegion(r);
+  final int countPerFamily=10;
+  final MutableBoolean goslow=new MutableBoolean(false);
+  FSHLog wal=new FSHLog(FileSystem.get(conf),TEST_UTIL.getDefaultRootDirPath(),testName,conf){
+    @Override void atHeadOfRingBufferEventHandlerAppend(){
+      if (goslow.isTrue()) {
+        Threads.sleep(100);
+        LOG.debug("Sleeping before appending 100ms");
+      }
+      super.atHeadOfRingBufferEventHandlerAppend();
+    }
+  }
+;
+  HRegion region=HRegion.openHRegion(TEST_UTIL.getConfiguration(),TEST_UTIL.getTestFileSystem(),TEST_UTIL.getDefaultRootDirPath(),hri,htd,wal);
+  EnvironmentEdge ee=EnvironmentEdgeManager.getDelegate();
+  try {
+    List<Put> puts=null;
+    for (    HColumnDescriptor hcd : htd.getFamilies()) {
+      puts=TestWALReplay.addRegionEdits(rowName,hcd.getName(),countPerFamily,ee,region,"x");
+    }
+    final Get g=new Get(rowName);
+    Result result=region.get(g);
+    assertEquals(countPerFamily * htd.getFamilies().size(),result.size());
+    WALEdit edits=new WALEdit();
+    for (    Put p : puts) {
+      CellScanner cs=p.cellScanner();
+      while (cs.advance()) {
+        edits.add(KeyValueUtil.ensureKeyValue(cs.current()));
+      }
+    }
+    List<UUID> clusterIds=new ArrayList<UUID>();
+    clusterIds.add(UUID.randomUUID());
+    goslow.setValue(true);
+    for (int i=0; i < countPerFamily; i++) {
+      wal.appendNoSync(region.getRegionInfo(),tableName,edits,clusterIds,System.currentTimeMillis(),htd,region.getSequenceId(),true,-1,-1);
+    }
+    region.flushcache();
+    long currentSequenceId=region.getSequenceId().get();
+    goslow.setValue(false);
+synchronized (goslow) {
+      goslow.notifyAll();
+    }
+    assertTrue(currentSequenceId >= region.getSequenceId().get());
+  }
+  finally {
+    region.close(true);
+    wal.close();
+  }
+}

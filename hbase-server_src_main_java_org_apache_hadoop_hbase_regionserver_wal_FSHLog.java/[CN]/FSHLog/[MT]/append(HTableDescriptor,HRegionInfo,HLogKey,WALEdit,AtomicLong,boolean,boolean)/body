@@ -1,17 +1,23 @@
 {
-  if (!this.enabled || edits.isEmpty())   return this.highestUnsyncedSequence;
+  if (!this.enabled)   return this.highestUnsyncedSequence;
   if (this.closed)   throw new IOException("Cannot append; log is closed");
   TraceScope scope=Trace.startSpan("FSHLog.append");
-  HLogKey logKey=makeKey(info.getEncodedNameAsBytes(),tableName,-1,now,clusterIds,nonceGroup,nonce);
+  FSWALEntry entry=null;
   long sequence=this.disruptor.getRingBuffer().next();
   try {
     RingBufferTruck truck=this.disruptor.getRingBuffer().get(sequence);
-    FSWALEntry entry=new FSWALEntry(sequence,logKey,edits,sequenceId,inMemstore,htd,info);
+    entry=new FSWALEntry(sequence,key,edits,sequenceId,inMemstore,htd,hri);
     truck.loadPayload(entry,scope.detach());
   }
   finally {
     this.disruptor.getRingBuffer().publish(sequence);
+    try {
+      entry.getRegionSequenceId();
+    }
+ catch (    InterruptedException e) {
+      throw convertInterruptedExceptionToIOException(e);
+    }
   }
-  if (doSync)   sync();
+  if (sync)   sync(sequence);
   return sequence;
 }

@@ -4,16 +4,24 @@
   }
   final long startTime=EnvironmentEdgeManager.currentTimeMillis();
   if (this.memstoreSize.get() <= 0) {
-    return new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush");
+    this.updatesLock.writeLock().lock();
+    try {
+      if (this.memstoreSize.get() <= 0) {
+        return wal != null ? new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,getNextSequenceId(wal,startTime),"Nothing to flush") : new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush");
+      }
+    }
+  finally {
+      this.updatesLock.writeLock().unlock();
+    }
   }
   if (LOG.isDebugEnabled()) {
-    LOG.debug("Started memstore flush for " + this + ", current region memstore size "+ StringUtils.humanReadableInt(this.memstoreSize.get())+ ((wal != null) ? "" : "; wal is null, using passed sequenceid=" + myseqid));
+    LOG.debug("Started memstore flush for " + this + ", current region memstore size "+ StringUtils.byteDesc(this.memstoreSize.get())+ ((wal != null) ? "" : "; wal is null, using passed sequenceid=" + myseqid));
   }
   MultiVersionConsistencyControl.WriteEntry w=null;
   status.setStatus("Obtaining lock to block concurrent updates");
   this.updatesLock.writeLock().lock();
   long totalFlushableSize=0;
-  status.setStatus("Preparing to flush by snapshotting stores");
+  status.setStatus("Preparing to flush by snapshotting stores in " + getRegionInfo().getEncodedName());
   List<StoreFlushContext> storeFlushCtxs=new ArrayList<StoreFlushContext>(stores.size());
   long flushSeqId=-1L;
   try {
@@ -25,7 +33,7 @@
         status.setStatus(msg);
         return new FlushResult(FlushResult.Result.CANNOT_FLUSH,msg);
       }
-      flushSeqId=this.sequenceId.incrementAndGet();
+      flushSeqId=getNextSequenceId(wal,startTime);
     }
  else {
       flushSeqId=myseqid;
@@ -44,9 +52,7 @@
   String s="Finished memstore snapshotting " + this + ", syncing WAL and waiting on mvcc, flushsize="+ totalFlushableSize;
   status.setStatus(s);
   if (LOG.isTraceEnabled())   LOG.trace(s);
-  if (wal != null && !shouldSyncLog()) {
-    wal.sync();
-  }
+  if (wal != null && !shouldSyncLog())   wal.sync();
   mvcc.waitForRead(w);
   s="Flushing stores of " + this;
   status.setStatus(s);
@@ -78,13 +84,13 @@
     wal.completeCacheFlush(this.getRegionInfo().getEncodedNameAsBytes());
   }
   this.lastFlushTime=EnvironmentEdgeManager.currentTimeMillis();
-  completeSequenceId=flushSeqId;
+  this.lastFlushSeqId=flushSeqId;
 synchronized (this) {
     notifyAll();
   }
   long time=EnvironmentEdgeManager.currentTimeMillis() - startTime;
   long memstoresize=this.memstoreSize.get();
-  String msg="Finished memstore flush of ~" + StringUtils.humanReadableInt(totalFlushableSize) + "/"+ totalFlushableSize+ ", currentsize="+ StringUtils.humanReadableInt(memstoresize)+ "/"+ memstoresize+ " for region "+ this+ " in "+ time+ "ms, sequenceid="+ flushSeqId+ ", compaction requested="+ compactionRequested+ ((wal == null) ? "; wal=null" : "");
+  String msg="Finished memstore flush of ~" + StringUtils.byteDesc(totalFlushableSize) + "/"+ totalFlushableSize+ ", currentsize="+ StringUtils.byteDesc(memstoresize)+ "/"+ memstoresize+ " for region "+ this+ " in "+ time+ "ms, sequenceid="+ flushSeqId+ ", compaction requested="+ compactionRequested+ ((wal == null) ? "; wal=null" : "");
   LOG.info(msg);
   status.setStatus(msg);
   this.recentFlushes.add(new Pair<Long,Long>(time / 1000,totalFlushableSize));

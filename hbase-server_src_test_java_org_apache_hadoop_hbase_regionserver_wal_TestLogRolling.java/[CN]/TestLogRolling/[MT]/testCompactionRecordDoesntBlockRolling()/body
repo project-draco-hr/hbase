@@ -1,38 +1,45 @@
 {
-  new HTable(TEST_UTIL.getConfiguration(),TableName.META_TABLE_NAME);
-  String tableName=getName();
-  HTable table=createTestTable(tableName);
-  String tableName2=tableName + "1";
-  HTable table2=createTestTable(tableName2);
-  server=TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
-  this.log=server.getWAL();
-  FSHLog fshLog=(FSHLog)log;
-  HRegion region=server.getOnlineRegions(table2.getName()).get(0);
-  Store s=region.getStore(HConstants.CATALOG_FAMILY);
-  admin.flush(TableName.NAMESPACE_TABLE_NAME.getName());
-  for (int i=1; i <= 2; ++i) {
-    doPut(table2,i);
+  HTable table=null;
+  HTable table2=null;
+  HTable t=new HTable(TEST_UTIL.getConfiguration(),TableName.META_TABLE_NAME);
+  try {
+    String tableName=getName();
+    table=createTestTable(tableName);
+    String tableName2=tableName + "1";
+    table2=createTestTable(tableName2);
+    server=TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
+    this.log=server.getWAL();
+    FSHLog fshLog=(FSHLog)log;
+    HRegion region=server.getOnlineRegions(table2.getName()).get(0);
+    Store s=region.getStore(HConstants.CATALOG_FAMILY);
+    admin.flush(TableName.NAMESPACE_TABLE_NAME.getName());
+    for (int i=1; i <= 2; ++i) {
+      doPut(table2,i);
+      admin.flush(table2.getTableName());
+    }
+    doPut(table2,3);
+    assertEquals("Should have no WAL after initial writes",0,fshLog.getNumRolledLogFiles());
+    assertEquals(2,s.getStorefilesCount());
+    fshLog.rollWriter();
+    assertEquals("Should have WAL; one table is not flushed",1,fshLog.getNumRolledLogFiles());
     admin.flush(table2.getTableName());
+    region.compactStores();
+    Assert.assertNotNull(s);
+    for (int waitTime=3000; s.getStorefilesCount() > 1 && waitTime > 0; waitTime-=200) {
+      Threads.sleepWithoutInterrupt(200);
+    }
+    assertEquals("Compaction didn't happen",1,s.getStorefilesCount());
+    doPut(table,0);
+    fshLog.rollWriter();
+    assertEquals("Should have WAL; one table is not flushed",1,fshLog.getNumRolledLogFiles());
+    admin.flush(table.getTableName());
+    doPut(table,1);
+    fshLog.rollWriter();
+    assertEquals("Should have 1 WALs at the end",1,fshLog.getNumRolledLogFiles());
   }
-  doPut(table2,3);
-  assertEquals("Should have no WAL after initial writes",0,fshLog.getNumRolledLogFiles());
-  assertEquals(2,s.getStorefilesCount());
-  fshLog.rollWriter();
-  assertEquals("Should have WAL; one table is not flushed",1,fshLog.getNumRolledLogFiles());
-  admin.flush(table2.getTableName());
-  region.compactStores();
-  Assert.assertNotNull(s);
-  for (int waitTime=3000; s.getStorefilesCount() > 1 && waitTime > 0; waitTime-=200) {
-    Threads.sleepWithoutInterrupt(200);
+  finally {
+    if (t != null)     t.close();
+    if (table != null)     table.close();
+    if (table2 != null)     table2.close();
   }
-  assertEquals("Compaction didn't happen",1,s.getStorefilesCount());
-  doPut(table,0);
-  fshLog.rollWriter();
-  assertEquals("Should have WAL; one table is not flushed",1,fshLog.getNumRolledLogFiles());
-  admin.flush(table.getTableName());
-  doPut(table,1);
-  fshLog.rollWriter();
-  assertEquals("Should have 1 WALs at the end",1,fshLog.getNumRolledLogFiles());
-  table.close();
-  table2.close();
 }

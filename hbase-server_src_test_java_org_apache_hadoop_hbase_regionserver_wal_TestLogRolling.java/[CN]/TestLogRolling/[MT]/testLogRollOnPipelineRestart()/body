@@ -2,112 +2,117 @@
   LOG.info("Starting testLogRollOnPipelineRestart");
   assertTrue("This test requires HLog file replication.",fs.getDefaultReplication(TEST_UTIL.getDataTestDirOnTestFS()) > 1);
   LOG.info("Replication=" + fs.getDefaultReplication(TEST_UTIL.getDataTestDirOnTestFS()));
-  new HTable(TEST_UTIL.getConfiguration(),TableName.META_TABLE_NAME);
-  this.server=cluster.getRegionServer(0);
-  this.log=server.getWAL();
-  String tableName=getName();
-  HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(tableName));
-  desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
-  admin.createTable(desc);
-  HTable table=new HTable(TEST_UTIL.getConfiguration(),tableName);
-  server=TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
-  this.log=server.getWAL();
-  final List<Path> paths=new ArrayList<Path>();
-  final List<Integer> preLogRolledCalled=new ArrayList<Integer>();
-  paths.add(((FSHLog)log).computeFilename());
-  log.registerWALActionsListener(new WALActionsListener(){
-    @Override public void preLogRoll(    Path oldFile,    Path newFile){
-      LOG.debug("preLogRoll: oldFile=" + oldFile + " newFile="+ newFile);
-      preLogRolledCalled.add(new Integer(1));
-    }
-    @Override public void postLogRoll(    Path oldFile,    Path newFile){
-      paths.add(newFile);
-    }
-    @Override public void preLogArchive(    Path oldFile,    Path newFile){
-    }
-    @Override public void postLogArchive(    Path oldFile,    Path newFile){
-    }
-    @Override public void logRollRequested(){
-    }
-    @Override public void logCloseRequested(){
-    }
-    @Override public void visitLogEntryBeforeWrite(    HRegionInfo info,    HLogKey logKey,    WALEdit logEdit){
-    }
-    @Override public void visitLogEntryBeforeWrite(    HTableDescriptor htd,    HLogKey logKey,    WALEdit logEdit){
-    }
-  }
-);
-  assertTrue("Need HDFS-826 for this test",((FSHLog)log).canGetCurReplicas());
-  assertTrue("Need append support for this test",FSUtils.isAppendSupported(TEST_UTIL.getConfiguration()));
-  writeData(table,1002);
-  table.setAutoFlush(true,true);
-  long curTime=System.currentTimeMillis();
-  long oldFilenum=log.getFilenum();
-  assertTrue("Log should have a timestamp older than now",curTime > oldFilenum && oldFilenum != -1);
-  assertTrue("The log shouldn't have rolled yet",oldFilenum == log.getFilenum());
-  dfsCluster.restartDataNodes();
-  Thread.sleep(1000);
-  dfsCluster.waitActive();
-  LOG.info("Data Nodes restarted");
-  validateData(table,1002);
-  writeData(table,1003);
-  long newFilenum=log.getFilenum();
-  assertTrue("Missing datanode should've triggered a log roll",newFilenum > oldFilenum && newFilenum > curTime);
-  validateData(table,1003);
-  writeData(table,1004);
-  dfsCluster.restartDataNodes();
-  Thread.sleep(1000);
-  dfsCluster.waitActive();
-  LOG.info("Data Nodes restarted");
-  validateData(table,1004);
-  writeData(table,1005);
-  log.rollWriter(true);
-  assertTrue("preLogRolledCalled has size of " + preLogRolledCalled.size(),preLogRolledCalled.size() >= 1);
-  Set<String> loggedRows=new HashSet<String>();
-  FSUtils fsUtils=FSUtils.getInstance(fs,TEST_UTIL.getConfiguration());
-  for (  Path p : paths) {
-    LOG.debug("recovering lease for " + p);
-    fsUtils.recoverFileLease(((HFileSystem)fs).getBackingFs(),p,TEST_UTIL.getConfiguration(),null);
-    LOG.debug("Reading HLog " + FSUtils.getPath(p));
-    HLog.Reader reader=null;
-    try {
-      reader=HLogFactory.createReader(fs,p,TEST_UTIL.getConfiguration());
-      HLog.Entry entry;
-      while ((entry=reader.next()) != null) {
-        LOG.debug("#" + entry.getKey().getLogSeqNum() + ": "+ entry.getEdit().getKeyValues());
-        for (        KeyValue kv : entry.getEdit().getKeyValues()) {
-          loggedRows.add(Bytes.toStringBinary(kv.getRow()));
-        }
+  HTable t=new HTable(TEST_UTIL.getConfiguration(),TableName.META_TABLE_NAME);
+  try {
+    this.server=cluster.getRegionServer(0);
+    this.log=server.getWAL();
+    String tableName=getName();
+    HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(tableName));
+    desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
+    admin.createTable(desc);
+    HTable table=new HTable(TEST_UTIL.getConfiguration(),tableName);
+    server=TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
+    this.log=server.getWAL();
+    final List<Path> paths=new ArrayList<Path>();
+    final List<Integer> preLogRolledCalled=new ArrayList<Integer>();
+    paths.add(((FSHLog)log).computeFilename());
+    log.registerWALActionsListener(new WALActionsListener(){
+      @Override public void preLogRoll(      Path oldFile,      Path newFile){
+        LOG.debug("preLogRoll: oldFile=" + oldFile + " newFile="+ newFile);
+        preLogRolledCalled.add(new Integer(1));
+      }
+      @Override public void postLogRoll(      Path oldFile,      Path newFile){
+        paths.add(newFile);
+      }
+      @Override public void preLogArchive(      Path oldFile,      Path newFile){
+      }
+      @Override public void postLogArchive(      Path oldFile,      Path newFile){
+      }
+      @Override public void logRollRequested(){
+      }
+      @Override public void logCloseRequested(){
+      }
+      @Override public void visitLogEntryBeforeWrite(      HRegionInfo info,      HLogKey logKey,      WALEdit logEdit){
+      }
+      @Override public void visitLogEntryBeforeWrite(      HTableDescriptor htd,      HLogKey logKey,      WALEdit logEdit){
       }
     }
- catch (    EOFException e) {
-      LOG.debug("EOF reading file " + FSUtils.getPath(p));
-    }
+);
+    assertTrue("Need HDFS-826 for this test",((FSHLog)log).canGetCurReplicas());
+    assertTrue("Need append support for this test",FSUtils.isAppendSupported(TEST_UTIL.getConfiguration()));
+    writeData(table,1002);
+    table.setAutoFlush(true,true);
+    long curTime=System.currentTimeMillis();
+    long oldFilenum=log.getFilenum();
+    assertTrue("Log should have a timestamp older than now",curTime > oldFilenum && oldFilenum != -1);
+    assertTrue("The log shouldn't have rolled yet",oldFilenum == log.getFilenum());
+    dfsCluster.restartDataNodes();
+    Thread.sleep(1000);
+    dfsCluster.waitActive();
+    LOG.info("Data Nodes restarted");
+    validateData(table,1002);
+    writeData(table,1003);
+    long newFilenum=log.getFilenum();
+    assertTrue("Missing datanode should've triggered a log roll",newFilenum > oldFilenum && newFilenum > curTime);
+    validateData(table,1003);
+    writeData(table,1004);
+    dfsCluster.restartDataNodes();
+    Thread.sleep(1000);
+    dfsCluster.waitActive();
+    LOG.info("Data Nodes restarted");
+    validateData(table,1004);
+    writeData(table,1005);
+    log.rollWriter(true);
+    assertTrue("preLogRolledCalled has size of " + preLogRolledCalled.size(),preLogRolledCalled.size() >= 1);
+    Set<String> loggedRows=new HashSet<String>();
+    FSUtils fsUtils=FSUtils.getInstance(fs,TEST_UTIL.getConfiguration());
+    for (    Path p : paths) {
+      LOG.debug("recovering lease for " + p);
+      fsUtils.recoverFileLease(((HFileSystem)fs).getBackingFs(),p,TEST_UTIL.getConfiguration(),null);
+      LOG.debug("Reading HLog " + FSUtils.getPath(p));
+      HLog.Reader reader=null;
+      try {
+        reader=HLogFactory.createReader(fs,p,TEST_UTIL.getConfiguration());
+        HLog.Entry entry;
+        while ((entry=reader.next()) != null) {
+          LOG.debug("#" + entry.getKey().getLogSeqNum() + ": "+ entry.getEdit().getKeyValues());
+          for (          KeyValue kv : entry.getEdit().getKeyValues()) {
+            loggedRows.add(Bytes.toStringBinary(kv.getRow()));
+          }
+        }
+      }
+ catch (      EOFException e) {
+        LOG.debug("EOF reading file " + FSUtils.getPath(p));
+      }
  finally {
-      if (reader != null)       reader.close();
+        if (reader != null)         reader.close();
+      }
     }
-  }
-  assertTrue(loggedRows.contains("row1002"));
-  assertTrue(loggedRows.contains("row1003"));
-  assertTrue(loggedRows.contains("row1004"));
-  assertTrue(loggedRows.contains("row1005"));
-  List<HRegion> regions=new ArrayList<HRegion>(server.getOnlineRegionsLocalContext());
-  for (  HRegion r : regions) {
-    r.flushcache();
-  }
-  ResultScanner scanner=table.getScanner(new Scan());
-  try {
-    for (int i=2; i <= 5; i++) {
-      Result r=scanner.next();
-      assertNotNull(r);
-      assertFalse(r.isEmpty());
-      assertEquals("row100" + i,Bytes.toString(r.getRow()));
+    assertTrue(loggedRows.contains("row1002"));
+    assertTrue(loggedRows.contains("row1003"));
+    assertTrue(loggedRows.contains("row1004"));
+    assertTrue(loggedRows.contains("row1005"));
+    List<HRegion> regions=new ArrayList<HRegion>(server.getOnlineRegionsLocalContext());
+    for (    HRegion r : regions) {
+      r.flushcache();
+    }
+    ResultScanner scanner=table.getScanner(new Scan());
+    try {
+      for (int i=2; i <= 5; i++) {
+        Result r=scanner.next();
+        assertNotNull(r);
+        assertFalse(r.isEmpty());
+        assertEquals("row100" + i,Bytes.toString(r.getRow()));
+      }
+    }
+  finally {
+      scanner.close();
+    }
+    for (    JVMClusterUtil.RegionServerThread rsThread : TEST_UTIL.getHBaseCluster().getRegionServerThreads()) {
+      assertFalse(rsThread.getRegionServer().isAborted());
     }
   }
   finally {
-    scanner.close();
-  }
-  for (  JVMClusterUtil.RegionServerThread rsThread : TEST_UTIL.getHBaseCluster().getRegionServerThreads()) {
-    assertFalse(rsThread.getRegionServer().isAborted());
+    if (t != null)     t.close();
   }
 }
