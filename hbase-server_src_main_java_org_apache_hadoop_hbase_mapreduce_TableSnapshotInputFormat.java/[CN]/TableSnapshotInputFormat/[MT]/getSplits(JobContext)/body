@@ -1,27 +1,7 @@
 {
-  Configuration conf=job.getConfiguration();
-  String snapshotName=getSnapshotName(conf);
-  Path rootDir=FSUtils.getRootDir(conf);
-  FileSystem fs=rootDir.getFileSystem(conf);
-  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,rootDir);
-  SnapshotDescription snapshotDesc=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
-  SnapshotManifest manifest=SnapshotManifest.open(conf,fs,snapshotDir,snapshotDesc);
-  List<SnapshotRegionManifest> regionManifests=manifest.getRegionManifests();
-  if (regionManifests == null) {
-    throw new IllegalArgumentException("Snapshot seems empty");
+  List<InputSplit> results=new ArrayList<InputSplit>();
+  for (  TableSnapshotInputFormatImpl.InputSplit split : TableSnapshotInputFormatImpl.getSplits(job.getConfiguration())) {
+    results.add(new TableSnapshotRegionSplit(split));
   }
-  HTableDescriptor htd=manifest.getTableDescriptor();
-  Scan scan=TableMapReduceUtil.convertStringToScan(conf.get(TableInputFormat.SCAN));
-  Path tableDir=new Path(conf.get(TABLE_DIR_KEY));
-  List<InputSplit> splits=new ArrayList<InputSplit>();
-  for (  SnapshotRegionManifest regionManifest : regionManifests) {
-    HRegionInfo hri=HRegionInfo.convert(regionManifest.getRegionInfo());
-    if (CellUtil.overlappingKeys(scan.getStartRow(),scan.getStopRow(),hri.getStartKey(),hri.getEndKey())) {
-      List<String> hosts=getBestLocations(conf,HRegion.computeHDFSBlocksDistribution(conf,htd,hri,tableDir));
-      int len=Math.min(3,hosts.size());
-      hosts=hosts.subList(0,len);
-      splits.add(new TableSnapshotRegionSplit(htd,hri,hosts));
-    }
-  }
-  return splits;
+  return results;
 }
