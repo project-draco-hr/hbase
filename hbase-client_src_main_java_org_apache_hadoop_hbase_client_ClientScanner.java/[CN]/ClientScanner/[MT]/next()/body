@@ -13,14 +13,28 @@
       try {
         if (skipFirst) {
           callable.setCaching(1);
-          values=this.caller.callWithRetries(callable,scannerTimeout);
+          values=call(scan,callable,caller,scannerTimeout);
+          if (values == null && callable.switchedToADifferentReplica()) {
+            if (this.lastResult != null) {
+              skipFirst=true;
+            }
+            this.currentRegion=callable.getHRegionInfo();
+            continue;
+          }
           callable.setCaching(this.caching);
           skipFirst=false;
         }
-        values=this.caller.callWithRetries(callable,scannerTimeout);
+        values=call(scan,callable,caller,scannerTimeout);
         if (skipFirst && values != null && values.length == 1) {
           skipFirst=false;
-          values=this.caller.callWithRetries(callable,scannerTimeout);
+          values=call(scan,callable,caller,scannerTimeout);
+        }
+        if (values == null && callable.switchedToADifferentReplica()) {
+          if (this.lastResult != null) {
+            skipFirst=true;
+          }
+          this.currentRegion=callable.getHRegionInfo();
+          continue;
         }
         retryAfterOutOfOrderException=true;
       }
@@ -74,7 +88,7 @@
         }
       }
     }
- while (remainingResultSize > 0 && countdown > 0 && nextScanner(countdown,values == null));
+ while (remainingResultSize > 0 && countdown > 0 && possiblyNextScanner(countdown,values == null));
   }
   if (cache.size() > 0) {
     return cache.poll();

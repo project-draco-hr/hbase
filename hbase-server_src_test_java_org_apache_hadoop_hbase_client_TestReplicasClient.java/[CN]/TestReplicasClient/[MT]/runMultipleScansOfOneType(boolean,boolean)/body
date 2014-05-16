@@ -1,0 +1,44 @@
+{
+  openRegion(hriSecondary);
+  int NUMROWS=100;
+  try {
+    for (int i=0; i < NUMROWS; i++) {
+      byte[] b1=Bytes.toBytes("testUseRegionWithReplica" + i);
+      Put p=new Put(b1);
+      p.add(f,b1,b1);
+      table.put(p);
+    }
+    LOG.debug("PUT done");
+    int caching=20;
+    byte[] start;
+    if (reversed)     start=Bytes.toBytes("testUseRegionWithReplica" + (NUMROWS - 1));
+ else     start=Bytes.toBytes("testUseRegionWithReplica" + 0);
+    scanWithReplicas(reversed,small,Consistency.TIMELINE,caching,start,NUMROWS,false,false);
+    SlowMeCopro.sleepTime.set(5000);
+    scanWithReplicas(reversed,small,Consistency.STRONG,caching,start,NUMROWS,false,false);
+    SlowMeCopro.sleepTime.set(0);
+    HTU.getHBaseAdmin().flush(table.getTableName());
+    LOG.info("flush done");
+    Thread.sleep(1000 + REFRESH_PERIOD * 2);
+    SlowMeCopro.sleepTime.set(5000);
+    scanWithReplicas(reversed,small,Consistency.TIMELINE,caching,start,NUMROWS,true,false);
+    SlowMeCopro.sleepTime.set(0);
+    SlowMeCopro.slowDownNext.set(true);
+    SlowMeCopro.countOfNext.set(0);
+    scanWithReplicas(reversed,small,Consistency.TIMELINE,caching,start,NUMROWS,true,true);
+    SlowMeCopro.slowDownNext.set(false);
+    SlowMeCopro.countOfNext.set(0);
+  }
+  finally {
+    SlowMeCopro.cdl.get().countDown();
+    SlowMeCopro.sleepTime.set(0);
+    SlowMeCopro.slowDownNext.set(false);
+    SlowMeCopro.countOfNext.set(0);
+    for (int i=0; i < NUMROWS; i++) {
+      byte[] b1=Bytes.toBytes("testUseRegionWithReplica" + i);
+      Delete d=new Delete(b1);
+      table.delete(d);
+    }
+    closeRegion(hriSecondary);
+  }
+}

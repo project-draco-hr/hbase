@@ -1,0 +1,20 @@
+{
+  if (done.compareAndSet(false,true)) {
+    if (currentScannerCallable != scanner)     replicaSwitched.set(true);
+    currentScannerCallable=scanner;
+    if (result != null && result.length != 0)     this.lastResult=result[result.length - 1];
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Setting current scanner as " + currentScannerCallable.scannerId + " associated with "+ currentScannerCallable.getHRegionInfo().getReplicaId());
+    }
+    outstandingCallables.remove(scanner);
+    for (    ScannerCallable s : outstandingCallables) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Closing scanner " + s.scannerId + " because this was slow and another replica succeeded");
+      }
+      s.setClose();
+      RetryingRPC r=new RetryingRPC(s);
+      cs.submit(r);
+    }
+    outstandingCallables.clear();
+  }
+}

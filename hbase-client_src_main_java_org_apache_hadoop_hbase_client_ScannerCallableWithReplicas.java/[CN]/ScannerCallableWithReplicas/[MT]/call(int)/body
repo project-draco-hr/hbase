@@ -1,0 +1,69 @@
+{
+  if (currentScannerCallable != null && currentScannerCallable.closed) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Closing scanner " + currentScannerCallable.scannerId);
+    }
+    Result[] r=currentScannerCallable.call(timeout);
+    currentScannerCallable=null;
+    return r;
+  }
+  RegionLocations rl=RpcRetryingCallerWithReadReplicas.getRegionLocations(true,RegionReplicaUtil.DEFAULT_REPLICA_ID,cConnection,tableName,currentScannerCallable.getRow());
+  BoundedCompletionService<Pair<Result[],ScannerCallable>> cs=new BoundedCompletionService<Pair<Result[],ScannerCallable>>(pool,rl.size() * 5);
+  List<ExecutionException> exceptions=null;
+  int submitted=0, completed=0;
+  AtomicBoolean done=new AtomicBoolean(false);
+  replicaSwitched.set(false);
+  submitted+=addCallsForCurrentReplica(cs,rl);
+  try {
+    Future<Pair<Result[],ScannerCallable>> f=cs.poll(timeBeforeReplicas,TimeUnit.MICROSECONDS);
+    if (f != null) {
+      Pair<Result[],ScannerCallable> r=f.get();
+      if (r != null && r.getSecond() != null) {
+        updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,cs);
+      }
+      return r == null ? null : r.getFirst();
+    }
+  }
+ catch (  ExecutionException e) {
+    exceptions=new ArrayList<ExecutionException>(rl.size());
+    exceptions.add(e);
+    completed++;
+  }
+catch (  CancellationException e) {
+    throw new InterruptedIOException(e.getMessage());
+  }
+catch (  InterruptedException e) {
+    throw new InterruptedIOException(e.getMessage());
+  }
+  submitted+=addCallsForOtherReplicas(cs,rl,0,rl.size() - 1);
+  try {
+    while (completed < submitted) {
+      try {
+        Future<Pair<Result[],ScannerCallable>> f=cs.take();
+        Pair<Result[],ScannerCallable> r=f.get();
+        if (r != null && r.getSecond() != null) {
+          updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,cs);
+        }
+        return r == null ? null : r.getFirst();
+      }
+ catch (      ExecutionException e) {
+        if (exceptions == null)         exceptions=new ArrayList<ExecutionException>(rl.size());
+        exceptions.add(e);
+        completed++;
+      }
+    }
+  }
+ catch (  CancellationException e) {
+    throw new InterruptedIOException(e.getMessage());
+  }
+catch (  InterruptedException e) {
+    throw new InterruptedIOException(e.getMessage());
+  }
+ finally {
+    cs.cancelAll(true);
+  }
+  if (exceptions != null && !exceptions.isEmpty()) {
+    RpcRetryingCallerWithReadReplicas.throwEnrichedException(exceptions.get(0),retries,toString());
+  }
+  return null;
+}
