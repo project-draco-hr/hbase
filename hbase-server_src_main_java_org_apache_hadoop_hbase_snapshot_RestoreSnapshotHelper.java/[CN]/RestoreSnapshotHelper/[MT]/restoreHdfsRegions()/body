@@ -1,48 +1,9 @@
 {
-  LOG.debug("starting restore");
-  Map<String,SnapshotRegionManifest> regionManifests=snapshotManifest.getRegionManifestsMap();
-  if (regionManifests == null) {
-    LOG.warn("Nothing to restore. Snapshot " + snapshotDesc + " looks empty");
-    return null;
+  ThreadPoolExecutor exec=SnapshotManifest.createExecutor(conf,"RestoreSnapshot");
+  try {
+    return restoreHdfsRegions(exec);
   }
-  RestoreMetaChanges metaChanges=new RestoreMetaChanges(parentsMap);
-  Set<String> regionNames=new HashSet<String>(regionManifests.keySet());
-  List<HRegionInfo> tableRegions=getTableRegions();
-  if (tableRegions != null) {
-    monitor.rethrowException();
-    for (    HRegionInfo regionInfo : tableRegions) {
-      String regionName=regionInfo.getEncodedName();
-      if (regionNames.contains(regionName)) {
-        LOG.info("region to restore: " + regionName);
-        regionNames.remove(regionName);
-        metaChanges.addRegionToRestore(regionInfo);
-      }
- else {
-        LOG.info("region to remove: " + regionName);
-        metaChanges.addRegionToRemove(regionInfo);
-      }
-    }
-    monitor.rethrowException();
-    status.setStatus("Restoring table regions...");
-    restoreHdfsRegions(regionManifests,metaChanges.getRegionsToRestore());
-    status.setStatus("Finished restoring all table regions.");
-    monitor.rethrowException();
-    status.setStatus("Starting to delete excess regions from table");
-    removeHdfsRegions(metaChanges.getRegionsToRemove());
-    status.setStatus("Finished deleting excess regions from table.");
+  finally {
+    exec.shutdown();
   }
-  if (regionNames.size() > 0) {
-    List<HRegionInfo> regionsToAdd=new ArrayList<HRegionInfo>(regionNames.size());
-    monitor.rethrowException();
-    for (    String regionName : regionNames) {
-      LOG.info("region to add: " + regionName);
-      regionsToAdd.add(HRegionInfo.convert(regionManifests.get(regionName).getRegionInfo()));
-    }
-    monitor.rethrowException();
-    status.setStatus("Cloning regions...");
-    HRegionInfo[] clonedRegions=cloneHdfsRegions(regionManifests,regionsToAdd);
-    metaChanges.setNewRegions(clonedRegions);
-    status.setStatus("Finished cloning regions.");
-  }
-  return metaChanges;
 }

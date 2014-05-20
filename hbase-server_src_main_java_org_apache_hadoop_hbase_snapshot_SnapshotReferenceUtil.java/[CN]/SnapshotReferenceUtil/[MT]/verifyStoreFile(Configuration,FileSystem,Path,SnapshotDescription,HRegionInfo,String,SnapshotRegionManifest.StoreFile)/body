@@ -1,11 +1,17 @@
 {
+  TableName table=TableName.valueOf(snapshot.getTable());
   String fileName=storeFile.getName();
   Path refPath=null;
   if (StoreFileInfo.isReference(fileName)) {
-    Path snapshotHFilePath=new Path(new Path(new Path(snapshotDir,regionInfo.getEncodedName()),family),fileName);
-    refPath=StoreFileInfo.getReferredToFile(snapshotHFilePath);
-    if (!fs.exists(refPath)) {
-      throw new CorruptedSnapshotException("Missing parent hfile for: " + fileName,snapshot);
+    refPath=new Path(new Path(regionInfo.getEncodedName(),family),fileName);
+    refPath=StoreFileInfo.getReferredToFile(refPath);
+    String refRegion=refPath.getParent().getParent().getName();
+    refPath=HFileLink.createPath(table,refRegion,family,refPath.getName());
+    if (!new HFileLink(conf,refPath).exists(fs)) {
+      throw new CorruptedSnapshotException("Missing parent hfile for: " + fileName + " path="+ refPath,snapshot);
+    }
+    if (storeFile.hasReference()) {
+      return;
     }
   }
   Path linkPath;
@@ -16,10 +22,20 @@
     linkPath=new Path(family,fileName);
   }
  else {
-    linkPath=new Path(family,HFileLink.createHFileLinkName(TableName.valueOf(snapshot.getTable()),regionInfo.getEncodedName(),fileName));
+    linkPath=new Path(family,HFileLink.createHFileLinkName(table,regionInfo.getEncodedName(),fileName));
   }
   HFileLink link=new HFileLink(conf,linkPath);
-  if (!link.exists(fs)) {
-    throw new CorruptedSnapshotException("Can't find hfile: " + fileName + " in the real ("+ link.getOriginPath()+ ") or archive ("+ link.getArchivePath()+ ") directory for the primary table.",snapshot);
+  try {
+    FileStatus fstat=link.getFileStatus(fs);
+    if (storeFile.hasFileSize() && storeFile.getFileSize() != fstat.getLen()) {
+      String msg="hfile: " + fileName + " size does not match with the expected one. "+ " found="+ fstat.getLen()+ " expected="+ storeFile.getFileSize();
+      LOG.error(msg);
+      throw new CorruptedSnapshotException(msg,snapshot);
+    }
+  }
+ catch (  FileNotFoundException e) {
+    String msg="Can't find hfile: " + fileName + " in the real ("+ link.getOriginPath()+ ") or archive ("+ link.getArchivePath()+ ") directory for the primary table.";
+    LOG.error(msg);
+    throw new CorruptedSnapshotException(msg,snapshot);
   }
 }

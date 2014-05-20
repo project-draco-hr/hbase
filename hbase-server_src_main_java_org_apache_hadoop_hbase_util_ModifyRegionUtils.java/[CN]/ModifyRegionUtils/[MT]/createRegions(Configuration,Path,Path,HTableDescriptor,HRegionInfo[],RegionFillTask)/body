@@ -1,33 +1,11 @@
 {
   if (newRegions == null)   return null;
   int regionNumber=newRegions.length;
-  ThreadPoolExecutor regionOpenAndInitThreadPool=getRegionOpenAndInitThreadPool(conf,"RegionOpenAndInitThread-" + hTableDescriptor.getTableName(),regionNumber);
-  CompletionService<HRegionInfo> completionService=new ExecutorCompletionService<HRegionInfo>(regionOpenAndInitThreadPool);
-  List<HRegionInfo> regionInfos=new ArrayList<HRegionInfo>();
-  for (  final HRegionInfo newRegion : newRegions) {
-    completionService.submit(new Callable<HRegionInfo>(){
-      @Override public HRegionInfo call() throws IOException {
-        return createRegion(conf,rootDir,tableDir,hTableDescriptor,newRegion,task);
-      }
-    }
-);
-  }
+  ThreadPoolExecutor exec=getRegionOpenAndInitThreadPool(conf,"RegionOpenAndInitThread-" + hTableDescriptor.getTableName(),regionNumber);
   try {
-    for (int i=0; i < regionNumber; i++) {
-      Future<HRegionInfo> future=completionService.take();
-      HRegionInfo regionInfo=future.get();
-      regionInfos.add(regionInfo);
-    }
+    return createRegions(exec,conf,rootDir,tableDir,hTableDescriptor,newRegions,task);
   }
- catch (  InterruptedException e) {
-    LOG.error("Caught " + e + " during region creation");
-    throw new InterruptedIOException(e.getMessage());
+  finally {
+    exec.shutdownNow();
   }
-catch (  ExecutionException e) {
-    throw new IOException(e);
-  }
- finally {
-    regionOpenAndInitThreadPool.shutdownNow();
-  }
-  return regionInfos;
 }

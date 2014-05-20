@@ -1,0 +1,43 @@
+{
+  final SnapshotDescription snapshotDesc=manifest.getSnapshotDescription();
+  final Path snapshotDir=manifest.getSnapshotDir();
+  List<SnapshotRegionManifest> regionManifests=manifest.getRegionManifests();
+  if (regionManifests == null || regionManifests.size() == 0) {
+    LOG.debug("No manifest files present: " + snapshotDir);
+    return;
+  }
+  ExecutorService exec=SnapshotManifest.createExecutor(conf,"VerifySnapshot");
+  final ExecutorCompletionService<Void> completionService=new ExecutorCompletionService<Void>(exec);
+  try {
+    for (    final SnapshotRegionManifest regionManifest : regionManifests) {
+      completionService.submit(new Callable<Void>(){
+        @Override public Void call() throws IOException {
+          visitRegionStoreFiles(regionManifest,visitor);
+          return null;
+        }
+      }
+);
+    }
+    try {
+      for (int i=0; i < regionManifests.size(); ++i) {
+        completionService.take().get();
+      }
+    }
+ catch (    InterruptedException e) {
+      throw new InterruptedIOException(e.getMessage());
+    }
+catch (    ExecutionException e) {
+      if (e.getCause() instanceof CorruptedSnapshotException) {
+        throw new CorruptedSnapshotException(e.getCause().getMessage(),snapshotDesc);
+      }
+ else {
+        IOException ex=new IOException();
+        ex.initCause(e.getCause());
+        throw ex;
+      }
+    }
+  }
+  finally {
+    exec.shutdown();
+  }
+}
