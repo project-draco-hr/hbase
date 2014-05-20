@@ -1,16 +1,19 @@
 {
   final Path exportedSnapshot=new Path(rootDir,new Path(HConstants.SNAPSHOT_DIR_NAME,snapshotName));
+  final Set<String> snapshotFiles=new HashSet<String>();
   final Path exportedArchive=new Path(rootDir,HConstants.HFILE_ARCHIVE_DIRECTORY);
-  LOG.debug(listFiles(fs,exportedArchive,exportedArchive));
   SnapshotReferenceUtil.visitReferencedFiles(TEST_UTIL.getConfiguration(),fs,exportedSnapshot,new SnapshotReferenceUtil.SnapshotVisitor(){
-    public void storeFile(    final HRegionInfo regionInfo,    final String family,    final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
+    @Override public void storeFile(    final HRegionInfo regionInfo,    final String family,    final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
       String hfile=storeFile.getName();
-      verifyNonEmptyFile(new Path(exportedArchive,new Path(FSUtils.getTableDir(new Path("./"),tableName),new Path(regionInfo.getEncodedName(),new Path(family,hfile)))));
+      snapshotFiles.add(hfile);
+      if (storeFile.hasReference()) {
+      }
+ else {
+        verifyNonEmptyFile(new Path(exportedArchive,new Path(FSUtils.getTableDir(new Path("./"),tableName),new Path(regionInfo.getEncodedName(),new Path(family,hfile)))));
+      }
     }
-    public void recoveredEdits(    final String region,    final String logfile) throws IOException {
-      verifyNonEmptyFile(new Path(exportedSnapshot,new Path(tableName.getNameAsString(),new Path(region,logfile))));
-    }
-    public void logFile(    final String server,    final String logfile) throws IOException {
+    @Override public void logFile(    final String server,    final String logfile) throws IOException {
+      snapshotFiles.add(logfile);
       verifyNonEmptyFile(new Path(exportedSnapshot,new Path(server,logfile)));
     }
     private void verifyNonEmptyFile(    final Path path) throws IOException {
@@ -22,4 +25,5 @@
   SnapshotDescription desc=SnapshotDescriptionUtils.readSnapshotInfo(fs,exportedSnapshot);
   assertTrue(desc.getName().equals(snapshotName));
   assertTrue(desc.getTable().equals(tableName.getNameAsString()));
+  return snapshotFiles;
 }
