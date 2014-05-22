@@ -5,22 +5,22 @@
   destServers.add(SERVERNAME_A);
   Mockito.when(this.serverManager.createDestinationServersList()).thenReturn(destServers);
   HTU.getConfiguration().setInt(HConstants.MASTER_PORT,0);
-  ConsensusProvider cp=ConsensusProviderFactory.getConsensusProvider(HTU.getConfiguration());
-  Server server=new HMaster(HTU.getConfiguration(),cp);
+  CoordinatedStateManager csm=CoordinatedStateManagerFactory.getCoordinatedStateManager(HTU.getConfiguration());
+  Server server=new HMaster(HTU.getConfiguration(),csm);
   AssignmentManagerWithExtrasForTesting am=setUpMockedAssignmentManager(server,this.serverManager);
   AtomicBoolean gate=new AtomicBoolean(false);
   if (balancer instanceof MockedLoadBalancer) {
     ((MockedLoadBalancer)balancer).setGateVariable(gate);
   }
   try {
-    am.getZKTable().setDisablingTable(REGIONINFO.getTable());
+    am.getTableStateManager().setTableState(REGIONINFO.getTable(),Table.State.DISABLING);
     am.joinCluster();
     assertFalse("Assign should not be invoked for disabling table regions during clean cluster startup.",gate.get());
-    assertTrue("Table should be disabled.",am.getZKTable().isDisabledTable(REGIONINFO.getTable()));
+    assertTrue("Table should be disabled.",am.getTableStateManager().isTableState(REGIONINFO.getTable(),Table.State.DISABLED));
   }
   finally {
     this.server.getConfiguration().setClass(HConstants.HBASE_MASTER_LOADBALANCER_CLASS,SimpleLoadBalancer.class,LoadBalancer.class);
-    am.getZKTable().setEnabledTable(REGIONINFO.getTable());
+    am.getTableStateManager().setTableState(REGIONINFO.getTable(),Table.State.ENABLED);
     am.shutdown();
   }
 }
