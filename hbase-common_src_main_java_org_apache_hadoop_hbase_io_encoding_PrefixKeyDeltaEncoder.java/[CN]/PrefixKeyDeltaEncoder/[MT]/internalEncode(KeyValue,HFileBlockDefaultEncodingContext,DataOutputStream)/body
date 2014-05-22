@@ -1,0 +1,23 @@
+{
+  byte[] kvBuf=kv.getBuffer();
+  int klength=kv.getKeyLength();
+  int vlength=kv.getValueLength();
+  EncodingState state=encodingContext.getEncodingState();
+  if (state.prevKv == null) {
+    ByteBufferUtils.putCompressedInt(out,klength);
+    ByteBufferUtils.putCompressedInt(out,vlength);
+    ByteBufferUtils.putCompressedInt(out,0);
+    out.write(kvBuf,kv.getKeyOffset(),klength + vlength);
+  }
+ else {
+    int common=ByteBufferUtils.findCommonPrefix(state.prevKv.getBuffer(),state.prevKv.getKeyOffset(),state.prevKv.getKeyLength(),kvBuf,kv.getKeyOffset(),kv.getKeyLength());
+    ByteBufferUtils.putCompressedInt(out,klength - common);
+    ByteBufferUtils.putCompressedInt(out,vlength);
+    ByteBufferUtils.putCompressedInt(out,common);
+    out.write(kvBuf,kv.getKeyOffset() + common,klength - common + vlength);
+  }
+  int size=klength + vlength + KeyValue.KEYVALUE_INFRASTRUCTURE_SIZE;
+  size+=afterEncodingKeyValue(kv,out,encodingContext);
+  state.prevKv=kv;
+  return size;
+}

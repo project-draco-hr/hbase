@@ -1,14 +1,19 @@
 {
+  if (blockType == BlockType.DATA) {
+    BufferGrabbingByteArrayOutputStream baosInMemoryCopy=new BufferGrabbingByteArrayOutputStream();
+    baosInMemory.writeTo(baosInMemoryCopy);
+    this.dataBlockEncoder.endBlockEncoding(dataBlockEncodingCtx,userDataStream,baosInMemoryCopy.buf,blockType);
+    blockType=dataBlockEncodingCtx.getBlockType();
+  }
   userDataStream.flush();
   uncompressedBytesWithHeader=baosInMemory.toByteArray();
   prevOffset=prevOffsetByType[blockType.getId()];
   state=State.BLOCK_READY;
-  if (blockType == BlockType.DATA) {
-    encodeDataBlockForDisk();
+  if (blockType == BlockType.DATA || blockType == BlockType.ENCODED_DATA) {
+    onDiskBytesWithHeader=dataBlockEncodingCtx.compressAndEncrypt(uncompressedBytesWithHeader);
   }
  else {
-    defaultBlockEncodingCtx.compressAfterEncodingWithBlockType(uncompressedBytesWithHeader,blockType);
-    onDiskBytesWithHeader=defaultBlockEncodingCtx.getOnDiskBytesWithHeader();
+    onDiskBytesWithHeader=defaultBlockEncodingCtx.compressAndEncrypt(uncompressedBytesWithHeader);
   }
   int numBytes=(int)ChecksumUtil.numBytes(onDiskBytesWithHeader.length,fileContext.getBytesPerChecksum());
   putHeader(onDiskBytesWithHeader,0,onDiskBytesWithHeader.length + numBytes,uncompressedBytesWithHeader.length,onDiskBytesWithHeader.length);

@@ -1,0 +1,23 @@
+{
+  ByteBuffer unencodedDataBuf=RedundantKVGenerator.convertKvToByteBuffer(kvList,includesMemstoreTS);
+  HFileContext fileContext=new HFileContextBuilder().withIncludesMvcc(includesMemstoreTS).withIncludesTags(includesTags).build();
+  for (  DataBlockEncoding encoding : DataBlockEncoding.values()) {
+    DataBlockEncoder encoder=encoding.getEncoder();
+    if (encoder == null) {
+      continue;
+    }
+    HFileBlockEncodingContext encodingContext=new HFileBlockDefaultEncodingContext(encoding,HConstants.HFILEBLOCK_DUMMY_HEADER,fileContext);
+    ByteArrayOutputStream baos=new ByteArrayOutputStream();
+    baos.write(HConstants.HFILEBLOCK_DUMMY_HEADER);
+    DataOutputStream dos=new DataOutputStream(baos);
+    encoder.startBlockEncoding(encodingContext,dos);
+    for (    KeyValue kv : kvList) {
+      encoder.encode(kv,encodingContext,dos);
+    }
+    BufferGrabbingByteArrayOutputStream stream=new BufferGrabbingByteArrayOutputStream();
+    baos.writeTo(stream);
+    encoder.endBlockEncoding(encodingContext,dos,stream.getBuffer());
+    byte[] encodedData=baos.toByteArray();
+    testAlgorithm(encodedData,unencodedDataBuf,encoder);
+  }
+}

@@ -8,16 +8,27 @@
       for (      DataBlockEncoding encoding : DataBlockEncoding.values()) {
         Path path=new Path(TEST_UTIL.getDataTestDir(),"blocks_v2_" + algo + "_"+ encoding.toString());
         FSDataOutputStream os=fs.create(path);
-        HFileDataBlockEncoder dataBlockEncoder=new HFileDataBlockEncoderImpl(encoding);
+        HFileDataBlockEncoder dataBlockEncoder=(encoding != DataBlockEncoding.NONE) ? new HFileDataBlockEncoderImpl(encoding) : NoOpDataBlockEncoder.INSTANCE;
         HFileContext meta=new HFileContextBuilder().withCompression(algo).withIncludesMvcc(includesMemstoreTS).withIncludesTags(includesTag).withBytesPerCheckSum(HFile.DEFAULT_BYTES_PER_CHECKSUM).withChecksumType(HFile.DEFAULT_CHECKSUM_TYPE).build();
         HFileBlock.Writer hbw=new HFileBlock.Writer(dataBlockEncoder,meta);
         long totalSize=0;
         final List<Integer> encodedSizes=new ArrayList<Integer>();
         final List<ByteBuffer> encodedBlocks=new ArrayList<ByteBuffer>();
         for (int blockId=0; blockId < numBlocks; ++blockId) {
-          DataOutputStream dos=hbw.startWriting(BlockType.DATA);
-          writeEncodedBlock(algo,encoding,dos,encodedSizes,encodedBlocks,blockId,includesMemstoreTS,HConstants.HFILEBLOCK_DUMMY_HEADER,includesTag);
+          hbw.startWriting(BlockType.DATA);
+          writeTestKeyValues(hbw,blockId,includesMemstoreTS,includesTag);
           hbw.writeHeaderAndData(os);
+          int headerLen=HConstants.HFILEBLOCK_HEADER_SIZE;
+          byte[] encodedResultWithHeader=hbw.getUncompressedBufferWithHeader().array();
+          final int encodedSize=encodedResultWithHeader.length - headerLen;
+          if (encoding != DataBlockEncoding.NONE) {
+            headerLen+=DataBlockEncoding.ID_SIZE;
+          }
+          byte[] encodedDataSection=new byte[encodedResultWithHeader.length - headerLen];
+          System.arraycopy(encodedResultWithHeader,headerLen,encodedDataSection,0,encodedDataSection.length);
+          final ByteBuffer encodedBuf=ByteBuffer.wrap(encodedDataSection);
+          encodedSizes.add(encodedSize);
+          encodedBlocks.add(encodedBuf);
           totalSize+=hbw.getOnDiskSizeWithHeader();
         }
         os.close();
