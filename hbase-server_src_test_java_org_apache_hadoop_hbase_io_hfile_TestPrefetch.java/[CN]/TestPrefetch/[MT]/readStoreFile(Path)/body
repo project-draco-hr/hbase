@@ -1,0 +1,23 @@
+{
+  HFileReaderV2 reader=(HFileReaderV2)HFile.createReader(fs,storeFilePath,cacheConf,conf);
+  while (!((HFileReaderV3)reader).prefetchComplete()) {
+    Thread.sleep(1000);
+  }
+  BlockCache blockCache=cacheConf.getBlockCache();
+  long offset=0;
+  HFileBlock prevBlock=null;
+  while (offset < reader.getTrailer().getLoadOnOpenDataOffset()) {
+    long onDiskSize=-1;
+    if (prevBlock != null) {
+      onDiskSize=prevBlock.getNextBlockOnDiskSizeWithHeader();
+    }
+    HFileBlock block=reader.readBlock(offset,onDiskSize,false,true,false,true,null,null);
+    BlockCacheKey blockCacheKey=new BlockCacheKey(reader.getName(),offset);
+    boolean isCached=blockCache.getBlock(blockCacheKey,true,false,true) != null;
+    if (block.getBlockType() == BlockType.DATA || block.getBlockType() == BlockType.ROOT_INDEX || block.getBlockType() == BlockType.INTERMEDIATE_INDEX) {
+      assertTrue(isCached);
+    }
+    prevBlock=block;
+    offset+=block.getOnDiskSizeWithHeader();
+  }
+}

@@ -1,0 +1,47 @@
+{
+  if (!cacheEnabled)   return null;
+  RAMQueueEntry re=ramCache.get(key);
+  if (re != null) {
+    if (updateCacheMetrics)     cacheStats.hit(caching);
+    re.access(accessCount.incrementAndGet());
+    return re.getData();
+  }
+  BucketEntry bucketEntry=backingMap.get(key);
+  if (bucketEntry != null) {
+    long start=System.nanoTime();
+    IdLock.Entry lockEntry=null;
+    try {
+      lockEntry=offsetLock.getLockEntry(bucketEntry.offset());
+      if (bucketEntry.equals(backingMap.get(key))) {
+        int len=bucketEntry.getLength();
+        ByteBuffer bb=ByteBuffer.allocate(len);
+        int lenRead=ioEngine.read(bb,bucketEntry.offset());
+        if (lenRead != len) {
+          throw new RuntimeException("Only " + lenRead + " bytes read, "+ len+ " expected");
+        }
+        Cacheable cachedBlock=bucketEntry.deserializerReference(deserialiserMap).deserialize(bb,true);
+        long timeTaken=System.nanoTime() - start;
+        if (updateCacheMetrics) {
+          cacheStats.hit(caching);
+          cacheStats.ioHit(timeTaken);
+        }
+        bucketEntry.access(accessCount.incrementAndGet());
+        if (this.ioErrorStartTime > 0) {
+          ioErrorStartTime=-1;
+        }
+        return cachedBlock;
+      }
+    }
+ catch (    IOException ioex) {
+      LOG.error("Failed reading block " + key + " from bucket cache",ioex);
+      checkIOErrorIsTolerated();
+    }
+ finally {
+      if (lockEntry != null) {
+        offsetLock.releaseLockEntry(lockEntry);
+      }
+    }
+  }
+  if (!repeat && updateCacheMetrics)   cacheStats.miss(caching);
+  return null;
+}

@@ -29,4 +29,39 @@
   while ((b=blockIter.nextBlock()) != null) {
     loadOnOpenBlocks.add(b);
   }
+  if (cacheConf.shouldPrefetchOnOpen()) {
+    PrefetchExecutor.request(path,new Runnable(){
+      public void run(){
+        try {
+          long offset=0;
+          long end=fileSize - getTrailer().getTrailerSize();
+          HFileBlock prevBlock=null;
+          while (offset < end) {
+            if (Thread.interrupted()) {
+              break;
+            }
+            long onDiskSize=-1;
+            if (prevBlock != null) {
+              onDiskSize=prevBlock.getNextBlockOnDiskSizeWithHeader();
+            }
+            HFileBlock block=readBlock(offset,onDiskSize,true,false,false,false,null,null);
+            prevBlock=block;
+            offset+=block.getOnDiskSizeWithHeader();
+          }
+        }
+ catch (        IOException e) {
+          if (LOG.isTraceEnabled()) {
+            LOG.trace("Exception encountered while prefetching " + path + ":",e);
+          }
+        }
+catch (        Exception e) {
+          LOG.warn("Exception encountered while prefetching " + path + ":",e);
+        }
+ finally {
+          PrefetchExecutor.complete(path);
+        }
+      }
+    }
+);
+  }
 }
