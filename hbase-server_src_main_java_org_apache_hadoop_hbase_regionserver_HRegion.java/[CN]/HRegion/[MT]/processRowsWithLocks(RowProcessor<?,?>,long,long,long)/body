@@ -24,9 +24,9 @@
     return;
   }
   MultiVersionConsistencyControl.WriteEntry writeEntry=null;
-  boolean locked=false;
+  boolean locked;
   boolean walSyncSuccessful=false;
-  List<RowLock> acquiredRowLocks=null;
+  List<RowLock> acquiredRowLocks;
   long addedSize=0;
   List<KeyValue> mutations=new ArrayList<KeyValue>();
   Collection<byte[]> rowsToLock=processor.getRowsToLock();
@@ -44,9 +44,11 @@
         writeEntry=mvcc.beginMemstoreInsert();
         for (        KeyValue kv : mutations) {
           kv.setMvccVersion(writeEntry.getWriteNumber());
-          byte[] family=kv.getFamily();
-          checkFamily(family);
-          addedSize+=stores.get(family).add(kv);
+          Store store=getStore(kv);
+          if (store == null) {
+            checkFamily(CellUtil.cloneFamily(kv));
+          }
+          addedSize+=store.add(kv);
         }
         long txid=0;
         if (!walEdit.isEmpty()) {
@@ -66,18 +68,16 @@
     }
   finally {
       if (!mutations.isEmpty() && !walSyncSuccessful) {
-        LOG.warn("Wal sync failed. Roll back " + mutations.size() + " memstore keyvalues for row(s):"+ processor.getRowsToLock().iterator().next()+ "...");
+        LOG.warn("Wal sync failed. Roll back " + mutations.size() + " memstore keyvalues for row(s):"+ StringUtils.byteToHexString(processor.getRowsToLock().iterator().next())+ "...");
         for (        KeyValue kv : mutations) {
-          stores.get(kv.getFamily()).rollback(kv);
+          getStore(kv).rollback(kv);
         }
       }
       if (writeEntry != null) {
         mvcc.completeMemstoreInsert(writeEntry);
-        writeEntry=null;
       }
       if (locked) {
         this.updatesLock.readLock().unlock();
-        locked=false;
       }
       releaseRowLocks(acquiredRowLocks);
     }
