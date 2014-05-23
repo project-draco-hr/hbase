@@ -1,0 +1,24 @@
+{
+  super(conf,csm);
+  this.rsFatals=new MemoryBoundedLogMessageBuffer(conf.getLong("hbase.master.buffer.for.rs.fatals",1 * 1024 * 1024));
+  LOG.info("hbase.rootdir=" + FSUtils.getRootDir(this.conf) + ", hbase.cluster.distributed="+ this.conf.getBoolean("hbase.cluster.distributed",false));
+  Replication.decorateMasterConfiguration(this.conf);
+  if (this.conf.get("mapreduce.task.attempt.id") == null) {
+    this.conf.set("mapreduce.task.attempt.id","hb_m_" + this.serverName.toString());
+  }
+  this.masterCheckCompression=conf.getBoolean("hbase.master.check.compression",true);
+  this.metricsMaster=new MetricsMaster(new MetricsMasterWrapperImpl(this));
+  boolean shouldPublish=conf.getBoolean(HConstants.STATUS_PUBLISHED,HConstants.STATUS_PUBLISHED_DEFAULT);
+  Class<? extends ClusterStatusPublisher.Publisher> publisherClass=conf.getClass(ClusterStatusPublisher.STATUS_PUBLISHER_CLASS,ClusterStatusPublisher.DEFAULT_STATUS_PUBLISHER_CLASS,ClusterStatusPublisher.Publisher.class);
+  if (shouldPublish) {
+    if (publisherClass == null) {
+      LOG.warn(HConstants.STATUS_PUBLISHED + " is true, but " + ClusterStatusPublisher.DEFAULT_STATUS_PUBLISHER_CLASS+ " is not set - not publishing status");
+    }
+ else {
+      clusterStatusPublisherChore=new ClusterStatusPublisher(this,conf,publisherClass);
+      Threads.setDaemonThreadRunning(clusterStatusPublisherChore.getThread());
+    }
+  }
+  startActiveMasterManager();
+  putUpJettyServer();
+}
