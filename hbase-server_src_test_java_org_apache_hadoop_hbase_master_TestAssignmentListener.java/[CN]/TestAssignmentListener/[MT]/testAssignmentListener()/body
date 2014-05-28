@@ -1,0 +1,64 @@
+{
+  AssignmentManager am=TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager();
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  DummyAssignmentListener listener=new DummyAssignmentListener();
+  am.registerListener(listener);
+  try {
+    final String TABLE_NAME_STR="testtb";
+    final TableName TABLE_NAME=TableName.valueOf(TABLE_NAME_STR);
+    final byte[] FAMILY=Bytes.toBytes("cf");
+    LOG.info("Create Table");
+    TEST_UTIL.createTable(TABLE_NAME,FAMILY);
+    listener.awaitModifications(1);
+    assertEquals(1,listener.getLoadCount());
+    assertEquals(0,listener.getCloseCount());
+    HTable table=new HTable(TEST_UTIL.getConfiguration(),TABLE_NAME);
+    try {
+      for (int i=0; i < 10; ++i) {
+        byte[] key=Bytes.toBytes("row-" + i);
+        Put put=new Put(key);
+        put.add(FAMILY,null,key);
+        table.put(put);
+      }
+    }
+  finally {
+      table.close();
+    }
+    LOG.info("Split Table");
+    listener.reset();
+    admin.split(TABLE_NAME_STR,"row-3");
+    listener.awaitModifications(3);
+    assertEquals(2,listener.getLoadCount());
+    assertEquals(1,listener.getCloseCount());
+    MiniHBaseCluster miniCluster=TEST_UTIL.getMiniHBaseCluster();
+    int mergeable=0;
+    while (mergeable < 2) {
+      Thread.sleep(100);
+      admin.majorCompact(TABLE_NAME_STR);
+      mergeable=0;
+      for (      JVMClusterUtil.RegionServerThread regionThread : miniCluster.getRegionServerThreads()) {
+        for (        HRegion region : regionThread.getRegionServer().getOnlineRegions(TABLE_NAME)) {
+          mergeable+=region.isMergeable() ? 1 : 0;
+        }
+      }
+    }
+    LOG.info("Merge Regions");
+    listener.reset();
+    List<HRegionInfo> regions=admin.getTableRegions(TABLE_NAME);
+    assertEquals(2,regions.size());
+    admin.mergeRegions(regions.get(0).getEncodedNameAsBytes(),regions.get(1).getEncodedNameAsBytes(),true);
+    listener.awaitModifications(3);
+    assertEquals(1,admin.getTableRegions(TABLE_NAME).size());
+    assertEquals(1,listener.getLoadCount());
+    assertEquals(2,listener.getCloseCount());
+    LOG.info("Drop Table");
+    listener.reset();
+    TEST_UTIL.deleteTable(TABLE_NAME);
+    listener.awaitModifications(1);
+    assertEquals(0,listener.getLoadCount());
+    assertEquals(1,listener.getCloseCount());
+  }
+  finally {
+    am.unregisterListener(listener);
+  }
+}
