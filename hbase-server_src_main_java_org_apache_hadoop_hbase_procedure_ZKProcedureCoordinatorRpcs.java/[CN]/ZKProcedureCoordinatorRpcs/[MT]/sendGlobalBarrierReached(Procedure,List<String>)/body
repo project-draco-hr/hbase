@@ -7,11 +7,21 @@
     for (    String node : nodeNames) {
       String znode=ZKUtil.joinZNode(reachedNode,node);
       if (ZKUtil.watchAndCheckExists(zkProc.getWatcher(),znode)) {
-        coordinator.memberFinishedBarrier(procName,node);
+        byte[] dataFromMember=ZKUtil.getData(zkProc.getWatcher(),znode);
+        if (!ProtobufUtil.isPBMagicPrefix(dataFromMember)) {
+          throw new IOException("Failed to get data from finished node or data is illegally formatted: " + znode);
+        }
+ else {
+          dataFromMember=Arrays.copyOfRange(dataFromMember,ProtobufUtil.lengthOfPBMagic(),dataFromMember.length);
+          coordinator.memberFinishedBarrier(procName,node,dataFromMember);
+        }
       }
     }
   }
  catch (  KeeperException e) {
     throw new IOException("Failed while creating reached node:" + reachedNode,e);
+  }
+catch (  InterruptedException e) {
+    throw new InterruptedIOException("Interrupted while creating reached node:" + reachedNode);
   }
 }
