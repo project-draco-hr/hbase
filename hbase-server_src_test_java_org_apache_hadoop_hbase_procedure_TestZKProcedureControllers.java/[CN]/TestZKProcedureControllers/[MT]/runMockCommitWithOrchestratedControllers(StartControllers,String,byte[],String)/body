@@ -5,7 +5,8 @@
   Mockito.when(sub.getName()).thenReturn(operationName);
   CountDownLatch prepared=new CountDownLatch(expected.size());
   CountDownLatch committed=new CountDownLatch(expected.size());
-  ProcedureCoordinator coordinator=setupMockCoordinator(operationName,prepared,committed);
+  ArrayList<byte[]> dataFromMembers=new ArrayList<byte[]>();
+  ProcedureCoordinator coordinator=setupMockCoordinator(operationName,prepared,committed,dataFromMembers);
   ProcedureMember member=Mockito.mock(ProcedureMember.class);
   Pair<ZKProcedureCoordinatorRpcs,List<ZKProcedureMemberRpcs>> pair=controllers.start(watcher,operationName,coordinator,CONTROLLER_NODE_NAME,member,expected);
   ZKProcedureCoordinatorRpcs controller=pair.getFirst();
@@ -20,10 +21,14 @@
   Mockito.verify(coordinator,times(expected.size())).memberAcquiredBarrier(Mockito.eq(operationName),Mockito.anyString());
   controller.sendGlobalBarrierReached(p,expected);
   for (  ZKProcedureMemberRpcs cc : cohortControllers) {
-    cc.sendMemberCompleted(sub);
+    cc.sendMemberCompleted(sub,memberData);
   }
   committed.await();
-  Mockito.verify(coordinator,times(expected.size())).memberFinishedBarrier(Mockito.eq(operationName),Mockito.anyString());
+  Mockito.verify(coordinator,times(expected.size())).memberFinishedBarrier(Mockito.eq(operationName),Mockito.anyString(),Mockito.eq(memberData));
+  assertEquals("Incorrect number of members returnd data",expected.size(),dataFromMembers.size());
+  for (  byte[] result : dataFromMembers) {
+    assertArrayEquals("Incorrect data from member",memberData,result);
+  }
   controller.resetMembers(p);
   verifyZooKeeperClean(operationName,watcher,controller.getZkProcedureUtil());
   verifyCohort(member,cohortControllers.size(),operationName,data);

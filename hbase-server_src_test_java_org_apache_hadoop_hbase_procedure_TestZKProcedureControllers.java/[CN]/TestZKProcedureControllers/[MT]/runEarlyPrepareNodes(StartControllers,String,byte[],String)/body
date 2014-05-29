@@ -5,7 +5,8 @@
   Mockito.when(sub.getName()).thenReturn(operationName);
   final CountDownLatch prepared=new CountDownLatch(expected.size());
   final CountDownLatch committed=new CountDownLatch(expected.size());
-  ProcedureCoordinator coordinator=setupMockCoordinator(operationName,prepared,committed);
+  ArrayList<byte[]> dataFromMembers=new ArrayList<byte[]>();
+  ProcedureCoordinator coordinator=setupMockCoordinator(operationName,prepared,committed,dataFromMembers);
   ProcedureMember member=Mockito.mock(ProcedureMember.class);
   Procedure p=Mockito.mock(Procedure.class);
   Mockito.when(p.getName()).thenReturn(operationName);
@@ -23,10 +24,10 @@
   Mockito.verify(coordinator,times(expected.size())).memberAcquiredBarrier(Mockito.eq(operationName),Mockito.anyString());
   controller.sendGlobalBarrierReached(p,expected);
   for (  ZKProcedureMemberRpcs cc : cohortControllers) {
-    cc.sendMemberCompleted(sub);
+    cc.sendMemberCompleted(sub,memberData);
   }
   committed.await();
-  Mockito.verify(coordinator,times(expected.size())).memberFinishedBarrier(Mockito.eq(operationName),Mockito.anyString());
+  Mockito.verify(coordinator,times(expected.size())).memberFinishedBarrier(Mockito.eq(operationName),Mockito.anyString(),Mockito.eq(memberData));
   controller.resetMembers(p);
   verifyZooKeeperClean(operationName,watcher,controller.getZkProcedureUtil());
   verifyCohort(member,cohortControllers.size(),operationName,data);
