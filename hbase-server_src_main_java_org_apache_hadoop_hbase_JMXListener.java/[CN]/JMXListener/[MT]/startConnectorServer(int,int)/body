@@ -1,0 +1,45 @@
+{
+  boolean rmiSSL=false;
+  boolean authenticate=true;
+  String passwordFile=null;
+  String accessFile=null;
+  System.setProperty("java.rmi.server.randomIDs","true");
+  String rmiSSLValue=System.getProperty("com.sun.management.jmxremote.ssl","false");
+  rmiSSL=Boolean.parseBoolean(rmiSSLValue);
+  String authenticateValue=System.getProperty("com.sun.management.jmxremote.authenticate","false");
+  authenticate=Boolean.parseBoolean(authenticateValue);
+  passwordFile=System.getProperty("com.sun.management.jmxremote.password.file");
+  accessFile=System.getProperty("com.sun.management.jmxremote.access.file");
+  LOG.info("rmiSSL:" + rmiSSLValue + ",authenticate:"+ authenticateValue+ ",passwordFile:"+ passwordFile+ ",accessFile:"+ accessFile);
+  HashMap<String,Object> jmxEnv=new HashMap<String,Object>();
+  RMIClientSocketFactory csf=null;
+  RMIServerSocketFactory ssf=null;
+  if (rmiSSL) {
+    if (rmiRegistryPort == rmiConnectorPort) {
+      throw new IOException("SSL is enabled. " + "rmiConnectorPort cannot share with the rmiRegistryPort!");
+    }
+    csf=new SslRMIClientSocketFactory();
+    ssf=new SslRMIServerSocketFactory();
+  }
+  if (csf != null) {
+    jmxEnv.put(RMIConnectorServer.RMI_CLIENT_SOCKET_FACTORY_ATTRIBUTE,csf);
+  }
+  if (ssf != null) {
+    jmxEnv.put(RMIConnectorServer.RMI_SERVER_SOCKET_FACTORY_ATTRIBUTE,ssf);
+  }
+  if (authenticate) {
+    jmxEnv.put("jmx.remote.x.password.file",passwordFile);
+    jmxEnv.put("jmx.remote.x.access.file",accessFile);
+  }
+  LocateRegistry.createRegistry(rmiRegistryPort);
+  MBeanServer mbs=ManagementFactory.getPlatformMBeanServer();
+  JMXServiceURL serviceUrl=buildJMXServiceURL(rmiRegistryPort,rmiConnectorPort);
+  try {
+    jmxCS=JMXConnectorServerFactory.newJMXConnectorServer(serviceUrl,jmxEnv,mbs);
+    jmxCS.start();
+    LOG.info("ConnectorServer started!");
+  }
+ catch (  IOException e) {
+    LOG.error("fail to start connector server!",e);
+  }
+}
