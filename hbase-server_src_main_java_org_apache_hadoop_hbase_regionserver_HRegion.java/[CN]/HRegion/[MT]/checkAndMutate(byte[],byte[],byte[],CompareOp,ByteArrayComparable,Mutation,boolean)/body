@@ -13,9 +13,20 @@
     get.addColumn(family,qualifier);
     RowLock rowLock=getRowLock(get.getRow());
     mvcc.completeMemstoreInsert(mvcc.beginMemstoreInsert());
-    List<Cell> result;
     try {
-      result=get(get,false);
+      if (this.getCoprocessorHost() != null) {
+        Boolean processed=null;
+        if (w instanceof Put) {
+          processed=this.getCoprocessorHost().preCheckAndPutAfterRowLock(row,family,qualifier,compareOp,comparator,(Put)w);
+        }
+ else         if (w instanceof Delete) {
+          processed=this.getCoprocessorHost().preCheckAndDeleteAfterRowLock(row,family,qualifier,compareOp,comparator,(Delete)w);
+        }
+        if (processed != null) {
+          return processed;
+        }
+      }
+      List<Cell> result=get(get,false);
       boolean valueIsNull=comparator.getValue() == null || comparator.getValue().length == 0;
       boolean matches=false;
       if (result.size() == 0 && valueIsNull) {

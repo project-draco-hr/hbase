@@ -19,9 +19,15 @@
     RowLock rowLock=getRowLock(row);
     try {
       lock(this.updatesLock.readLock());
-      mvcc.completeMemstoreInsert(mvcc.beginMemstoreInsert());
-      w=mvcc.beginMemstoreInsert();
       try {
+        mvcc.completeMemstoreInsert(mvcc.beginMemstoreInsert());
+        if (this.coprocessorHost != null) {
+          Result r=this.coprocessorHost.preIncrementAfterRowLock(increment);
+          if (r != null) {
+            return r;
+          }
+        }
+        w=mvcc.beginMemstoreInsert();
         long now=EnvironmentEdgeManager.currentTimeMillis();
         for (        Map.Entry<byte[],List<Cell>> family : increment.getFamilyCellMap().entrySet()) {
           Store store=stores.get(family.getKey());
