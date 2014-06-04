@@ -6,13 +6,10 @@
     HRegion region=this.rsServices.getFromOnlineRegions(encodedRegionName);
     if (region == null) {
       LOG.warn("Received CLOSE for region " + name + " but currently not serving - ignoring");
-      if (zk) {
-        LOG.error("The znode is not modified as we are not serving " + name);
-      }
       return;
     }
     try {
-      if (zk && !ZKAssign.checkClosingState(server.getZooKeeper(),regionInfo,expectedVersion)) {
+      if (closeRegionCoordination.checkClosingState(regionInfo,closeRegionDetails)) {
         return;
       }
       if (region.close(abort) == null) {
@@ -20,23 +17,12 @@
         return;
       }
     }
- catch (    KeeperException ke) {
-      server.abort("Unrecoverable exception while checking state with zk " + regionInfo.getRegionNameAsString() + ", still finishing close",ke);
-      throw new RuntimeException(ke);
-    }
-catch (    IOException ioe) {
+ catch (    IOException ioe) {
       server.abort("Unrecoverable exception while closing region " + regionInfo.getRegionNameAsString() + ", still finishing close",ioe);
       throw new RuntimeException(ioe);
     }
     this.rsServices.removeFromOnlineRegions(region,destination);
-    if (this.zk) {
-      if (setClosedState(this.expectedVersion,region)) {
-        LOG.debug("Set closed state in zk for " + name + " on "+ this.server.getServerName());
-      }
- else {
-        LOG.debug("Set closed state in zk UNSUCCESSFUL for " + name + " on "+ this.server.getServerName());
-      }
-    }
+    closeRegionCoordination.setClosedState(region,this.server.getServerName(),closeRegionDetails);
     LOG.debug("Closed " + region.getRegionNameAsString());
   }
   finally {
