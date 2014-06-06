@@ -18,10 +18,8 @@
   final boolean isBulkAssign=regionCount > 1;
   for (  RegionOpenInfo regionOpenInfo : request.getOpenInfoList()) {
     final HRegionInfo region=HRegionInfo.convert(regionOpenInfo.getRegion());
-    int versionOfOfflineNode=-1;
-    if (regionOpenInfo.hasVersionOfOfflineNode()) {
-      versionOfOfflineNode=regionOpenInfo.getVersionOfOfflineNode();
-    }
+    OpenRegionCoordination coordination=regionServer.getCoordinatedStateManager().getOpenRegionCoordination();
+    OpenRegionCoordination.OpenRegionDetails ord=coordination.parseFromProtoRequest(regionOpenInfo);
     HTableDescriptor htd;
     try {
       final HRegion onlineRegion=regionServer.getFromOnlineRegions(region.getEncodedName());
@@ -51,7 +49,7 @@
       }
       final Boolean previous=regionServer.regionsInTransitionInRS.putIfAbsent(region.getEncodedNameAsBytes(),Boolean.TRUE);
       if (Boolean.FALSE.equals(previous)) {
-        OpenRegionHandler.tryTransitionFromOfflineToFailedOpen(regionServer,region,versionOfOfflineNode);
+        coordination.tryTransitionFromOfflineToFailedOpen(regionServer,region,ord);
         throw new RegionAlreadyInTransitionException("Received OPEN for the region:" + region.getRegionNameAsString() + " , which we are already trying to CLOSE ");
       }
       if (Boolean.TRUE.equals(previous)) {
@@ -63,11 +61,11 @@
           regionServer.recoveringRegions.put(region.getEncodedName(),null);
         }
         if (region.isMetaRegion()) {
-          regionServer.service.submit(new OpenMetaHandler(regionServer,regionServer,region,htd,versionOfOfflineNode));
+          regionServer.service.submit(new OpenMetaHandler(regionServer,regionServer,region,htd,coordination,ord));
         }
  else {
           regionServer.updateRegionFavoredNodesMapping(region.getEncodedName(),regionOpenInfo.getFavoredNodesList());
-          regionServer.service.submit(new OpenRegionHandler(regionServer,regionServer,region,htd,versionOfOfflineNode));
+          regionServer.service.submit(new OpenRegionHandler(regionServer,regionServer,region,htd,coordination,ord));
         }
       }
       builder.addOpeningState(RegionOpeningState.OPENED);

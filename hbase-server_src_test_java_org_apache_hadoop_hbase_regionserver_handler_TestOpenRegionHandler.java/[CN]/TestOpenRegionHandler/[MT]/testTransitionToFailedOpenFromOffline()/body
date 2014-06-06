@@ -2,12 +2,18 @@
   Server server=new MockServer(HTU);
   RegionServerServices rsServices=HTU.createMockRegionServerService(server.getServerName());
   ZKAssign.createNodeOffline(server.getZooKeeper(),TEST_HRI,server.getServerName());
-  OpenRegionHandler handler=new OpenRegionHandler(server,rsServices,TEST_HRI,TEST_HTD){
-    @Override boolean transitionZookeeperOfflineToOpening(    String encodedName,    int versionOfOfflineNode){
+  ZkCoordinatedStateManager csm=new ZkCoordinatedStateManager();
+  csm.initialize(server);
+  csm.start();
+  ZkOpenRegionCoordination.ZkOpenRegionDetails zkCrd=new ZkOpenRegionCoordination.ZkOpenRegionDetails();
+  zkCrd.setServerName(server.getServerName());
+  ZkOpenRegionCoordination openRegionCoordination=new ZkOpenRegionCoordination(csm,server.getZooKeeper()){
+    @Override public boolean transitionFromOfflineToOpening(    HRegionInfo regionInfo,    OpenRegionDetails ord){
       return false;
     }
   }
 ;
+  OpenRegionHandler handler=new OpenRegionHandler(server,rsServices,TEST_HRI,TEST_HTD,openRegionCoordination,zkCrd);
   rsServices.getRegionsInTransitionInRS().put(TEST_HRI.getEncodedNameAsBytes(),Boolean.TRUE);
   handler.process();
   RegionTransition rt=RegionTransition.parseFrom(ZKAssign.getData(server.getZooKeeper(),TEST_HRI.getEncodedName()));
