@@ -7,7 +7,7 @@
     this.updatesLock.writeLock().lock();
     try {
       if (this.memstoreSize.get() <= 0) {
-        return wal != null ? new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,getNextSequenceId(wal,startTime),"Nothing to flush") : new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush");
+        return wal != null ? new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,getNextSequenceId(wal),"Nothing to flush") : new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush");
       }
     }
   finally {
@@ -25,38 +25,45 @@
   List<StoreFlushContext> storeFlushCtxs=new ArrayList<StoreFlushContext>(stores.size());
   long flushSeqId=-1L;
   try {
-    w=mvcc.beginMemstoreInsert();
-    mvcc.advanceMemstore(w);
-    if (wal != null) {
-      if (!wal.startCacheFlush(this.getRegionInfo().getEncodedNameAsBytes())) {
-        String msg="Flush will not be started for [" + this.getRegionInfo().getEncodedName() + "] - because the WAL is closing.";
-        status.setStatus(msg);
-        return new FlushResult(FlushResult.Result.CANNOT_FLUSH,msg);
+    try {
+      w=mvcc.beginMemstoreInsert();
+      if (wal != null) {
+        if (!wal.startCacheFlush(this.getRegionInfo().getEncodedNameAsBytes())) {
+          String msg="Flush will not be started for [" + this.getRegionInfo().getEncodedName() + "] - because the WAL is closing.";
+          status.setStatus(msg);
+          return new FlushResult(FlushResult.Result.CANNOT_FLUSH,msg);
+        }
+        flushSeqId=getNextSequenceId(wal);
       }
-      flushSeqId=getNextSequenceId(wal,startTime);
-    }
  else {
-      flushSeqId=myseqid;
+        flushSeqId=myseqid;
+      }
+      for (      Store s : stores.values()) {
+        totalFlushableSize+=s.getFlushableSize();
+        storeFlushCtxs.add(s.createFlushContext(flushSeqId));
+      }
+      for (      StoreFlushContext flush : storeFlushCtxs) {
+        flush.prepare();
+      }
     }
-    for (    Store s : stores.values()) {
-      totalFlushableSize+=s.getFlushableSize();
-      storeFlushCtxs.add(s.createFlushContext(flushSeqId));
+  finally {
+      this.updatesLock.writeLock().unlock();
     }
-    for (    StoreFlushContext flush : storeFlushCtxs) {
-      flush.prepare();
-    }
+    String s="Finished memstore snapshotting " + this + ", syncing WAL and waiting on mvcc, flushsize="+ totalFlushableSize;
+    status.setStatus(s);
+    if (LOG.isTraceEnabled())     LOG.trace(s);
+    if (wal != null && !shouldSyncLog())     wal.sync();
+    mvcc.waitForPreviousTransactionsComplete(w);
+    w=null;
+    s="Flushing stores of " + this;
+    status.setStatus(s);
+    if (LOG.isTraceEnabled())     LOG.trace(s);
   }
   finally {
-    this.updatesLock.writeLock().unlock();
+    if (w != null) {
+      mvcc.advanceMemstore(w);
+    }
   }
-  String s="Finished memstore snapshotting " + this + ", syncing WAL and waiting on mvcc, flushSize="+ totalFlushableSize;
-  status.setStatus(s);
-  if (LOG.isTraceEnabled())   LOG.trace(s);
-  if (wal != null && !shouldSyncLog())   wal.sync();
-  mvcc.waitForRead(w);
-  s="Flushing stores of " + this;
-  status.setStatus(s);
-  if (LOG.isTraceEnabled())   LOG.trace(s);
   boolean compactionRequested=false;
   try {
     for (    StoreFlushContext flush : storeFlushCtxs) {

@@ -1,36 +1,29 @@
 {
+  long nextReadValue=-1;
 synchronized (writeQueue) {
     e.markCompleted();
-    long nextReadValue=-1;
-    boolean ranOnce=false;
     while (!writeQueue.isEmpty()) {
-      ranOnce=true;
       WriteEntry queueFirst=writeQueue.getFirst();
-      if (nextReadValue > 0) {
-        if (nextReadValue + 1 != queueFirst.getWriteNumber()) {
-          throw new RuntimeException("invariant in completeMemstoreInsert violated, prev: " + nextReadValue + " next: "+ queueFirst.getWriteNumber());
-        }
-      }
       if (queueFirst.isCompleted()) {
-        nextReadValue=queueFirst.getWriteNumber();
+        nextReadValue=Math.max(nextReadValue,queueFirst.getWriteNumber());
         writeQueue.removeFirst();
       }
  else {
         break;
       }
     }
-    if (!ranOnce) {
-      throw new RuntimeException("never was a first");
+    if (nextReadValue > memstoreRead) {
+      memstoreRead=nextReadValue;
     }
-    if (nextReadValue > 0) {
-synchronized (readWaiters) {
-        memstoreRead=nextReadValue;
-        readWaiters.notifyAll();
-      }
-    }
-    if (memstoreRead >= e.getWriteNumber()) {
-      return true;
-    }
-    return false;
+    writeQueue.notifyAll();
   }
+  if (nextReadValue > 0) {
+synchronized (readWaiters) {
+      readWaiters.notifyAll();
+    }
+  }
+  if (memstoreRead >= e.getWriteNumber()) {
+    return true;
+  }
+  return false;
 }

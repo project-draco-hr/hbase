@@ -13,21 +13,26 @@
   checkResources();
   startRegionOperation(Operation.APPEND);
   this.writeRequestsCount.increment();
+  long mvccNum=0;
   WriteEntry w=null;
-  RowLock rowLock;
+  HLogKey walKey=null;
+  RowLock rowLock=null;
+  List<KeyValue> memstoreCells=new ArrayList<KeyValue>();
+  boolean doRollBackMemstore=false;
   try {
     rowLock=getRowLock(row);
     try {
       lock(this.updatesLock.readLock());
       try {
-        mvcc.completeMemstoreInsert(mvcc.beginMemstoreInsert());
+        mvcc.waitForPreviousTransactionsComplete();
         if (this.coprocessorHost != null) {
           Result r=this.coprocessorHost.preAppendAfterRowLock(append);
           if (r != null) {
             return r;
           }
         }
-        w=mvcc.beginMemstoreInsert();
+        mvccNum=MultiVersionConsistencyControl.getPreAssignedWriteNumber(this.sequenceId);
+        w=mvcc.beginMemstoreInsertWithSeqNum(mvccNum);
         long now=EnvironmentEdgeManager.currentTimeMillis();
         for (        Map.Entry<byte[],List<Cell>> family : append.getFamilyCellMap().entrySet()) {
           Store store=stores.get(family.getKey());
@@ -59,7 +64,7 @@
               newKV=kv;
               newKV.updateLatestStamp(Bytes.toBytes(now));
             }
-            newKV.setMvccVersion(w.getWriteNumber());
+            newKV.setMvccVersion(mvccNum);
             if (coprocessorHost != null) {
               newKV=KeyValueUtil.ensureKeyValue(coprocessorHost.postMutationBeforeWAL(RegionObserver.MutationType.APPEND,append,oldKv,newKV));
             }
@@ -73,25 +78,32 @@
           }
           tempMemstore.put(store,kvs);
         }
-        if (writeToWAL) {
-          HLogKey key=new HLogKey(getRegionInfo().getEncodedNameAsBytes(),this.htableDescriptor.getTableName(),nonceGroup,nonce);
-          txid=this.log.appendNoSync(this.htableDescriptor,getRegionInfo(),key,walEdits,this.sequenceId,true);
-        }
- else {
-          recordMutationWithoutWal(append.getFamilyCellMap());
-        }
         for (        Map.Entry<Store,List<Cell>> entry : tempMemstore.entrySet()) {
           Store store=entry.getKey();
           if (store.getFamily().getMaxVersions() == 1) {
             size+=store.upsert(entry.getValue(),getSmallestReadPoint());
+            memstoreCells.addAll(KeyValueUtil.ensureKeyValues(entry.getValue()));
           }
  else {
             for (            Cell cell : entry.getValue()) {
               KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
-              size+=store.add(kv);
+              Pair<Long,Cell> ret=store.add(kv);
+              size+=ret.getFirst();
+              memstoreCells.add(KeyValueUtil.ensureKeyValue(ret.getSecond()));
+              doRollBackMemstore=true;
             }
           }
           allKVs.addAll(entry.getValue());
+        }
+        if (writeToWAL) {
+          walKey=new HLogKey(getRegionInfo().getEncodedNameAsBytes(),this.htableDescriptor.getTableName(),HLog.NO_SEQUENCE_ID,nonceGroup,nonce);
+          txid=this.log.appendNoSync(this.htableDescriptor,getRegionInfo(),walKey,walEdits,this.sequenceId,true,memstoreCells);
+        }
+ else {
+          recordMutationWithoutWal(append.getFamilyCellMap());
+        }
+        if (walKey == null) {
+          walKey=this.appendNoSyncNoAppend(this.log,memstoreCells);
         }
         size=this.addAndGetGlobalMemstoreSize(size);
         flush=isFlushSize(size);
@@ -102,14 +114,22 @@
     }
   finally {
       rowLock.release();
+      rowLock=null;
     }
-    if (writeToWAL) {
+    if (txid != 0) {
       syncOrDefer(txid,durability);
     }
+    doRollBackMemstore=false;
   }
   finally {
+    if (rowLock != null) {
+      rowLock.release();
+    }
+    if (doRollBackMemstore) {
+      rollbackMemstore(memstoreCells);
+    }
     if (w != null) {
-      mvcc.completeMemstoreInsert(w);
+      mvcc.completeMemstoreInsertWithSeqNum(w,walKey);
     }
     closeRegionOperation(Operation.APPEND);
   }

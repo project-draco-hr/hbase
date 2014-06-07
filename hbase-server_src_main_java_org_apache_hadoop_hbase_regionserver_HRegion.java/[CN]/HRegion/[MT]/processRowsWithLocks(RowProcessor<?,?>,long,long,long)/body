@@ -29,7 +29,10 @@
   List<RowLock> acquiredRowLocks;
   long addedSize=0;
   List<KeyValue> mutations=new ArrayList<KeyValue>();
+  List<KeyValue> memstoreCells=new ArrayList<KeyValue>();
   Collection<byte[]> rowsToLock=processor.getRowsToLock();
+  long mvccNum=0;
+  HLogKey walKey=null;
   try {
     acquiredRowLocks=new ArrayList<RowLock>(rowsToLock.size());
     for (    byte[] row : rowsToLock) {
@@ -37,23 +40,29 @@
     }
     lock(this.updatesLock.readLock(),acquiredRowLocks.size());
     locked=true;
+    mvccNum=MultiVersionConsistencyControl.getPreAssignedWriteNumber(this.sequenceId);
     long now=EnvironmentEdgeManager.currentTimeMillis();
     try {
       doProcessRowWithTimeout(processor,now,this,mutations,walEdit,timeout);
       if (!mutations.isEmpty()) {
-        writeEntry=mvcc.beginMemstoreInsert();
+        writeEntry=mvcc.beginMemstoreInsertWithSeqNum(mvccNum);
         for (        KeyValue kv : mutations) {
-          kv.setMvccVersion(writeEntry.getWriteNumber());
+          kv.setMvccVersion(mvccNum);
           Store store=getStore(kv);
           if (store == null) {
             checkFamily(CellUtil.cloneFamily(kv));
           }
-          addedSize+=store.add(kv);
+          Pair<Long,Cell> ret=store.add(kv);
+          addedSize+=ret.getFirst();
+          memstoreCells.add(KeyValueUtil.ensureKeyValue(ret.getSecond()));
         }
         long txid=0;
         if (!walEdit.isEmpty()) {
-          HLogKey key=new HLogKey(this.getRegionInfo().getEncodedNameAsBytes(),this.htableDescriptor.getTableName(),now,processor.getClusterIds(),nonceGroup,nonce);
-          txid=this.log.appendNoSync(this.htableDescriptor,this.getRegionInfo(),key,walEdit,getSequenceId(),true);
+          walKey=new HLogKey(this.getRegionInfo().getEncodedNameAsBytes(),this.htableDescriptor.getTableName(),HLog.NO_SEQUENCE_ID,now,processor.getClusterIds(),nonceGroup,nonce);
+          txid=this.log.appendNoSync(this.htableDescriptor,this.getRegionInfo(),walKey,walEdit,getSequenceId(),true,memstoreCells);
+        }
+        if (walKey == null) {
+          walKey=this.appendNoSyncNoAppend(this.log,memstoreCells);
         }
         if (locked) {
           this.updatesLock.readLock().unlock();
@@ -74,7 +83,7 @@
         }
       }
       if (writeEntry != null) {
-        mvcc.completeMemstoreInsert(writeEntry);
+        mvcc.completeMemstoreInsertWithSeqNum(writeEntry,walKey);
       }
       if (locked) {
         this.updatesLock.readLock().unlock();
