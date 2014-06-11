@@ -1,0 +1,38 @@
+{
+  Preconditions.checkNotNull(webAppContext);
+  int maxThreads=conf.getInt(HTTP_MAX_THREADS,-1);
+  QueuedThreadPool threadPool=maxThreads == -1 ? new QueuedThreadPool() : new QueuedThreadPool(maxThreads);
+  threadPool.setDaemon(true);
+  webServer.setThreadPool(threadPool);
+  ContextHandlerCollection contexts=new ContextHandlerCollection();
+  RequestLog requestLog=HttpRequestLog.getRequestLog(name);
+  if (requestLog != null) {
+    RequestLogHandler requestLogHandler=new RequestLogHandler();
+    requestLogHandler.setRequestLog(requestLog);
+    HandlerCollection handlers=new HandlerCollection();
+    handlers.setHandlers(new Handler[]{requestLogHandler,contexts});
+    webServer.setHandler(handlers);
+  }
+ else {
+    webServer.setHandler(contexts);
+  }
+  final String appDir=getWebAppsPath(name);
+  webServer.addHandler(webAppContext);
+  addDefaultApps(contexts,appDir,conf);
+  addGlobalFilter("safety",QuotingInputFilter.class.getName(),null);
+  final FilterInitializer[] initializers=getFilterInitializers(conf);
+  if (initializers != null) {
+    conf=new Configuration(conf);
+    conf.set(BIND_ADDRESS,hostName);
+    for (    FilterInitializer c : initializers) {
+      c.initFilter(this,conf);
+    }
+  }
+  addDefaultServlets();
+  if (pathSpecs != null) {
+    for (    String path : pathSpecs) {
+      LOG.info("adding path spec: " + path);
+      addFilterPathMapping(path,webAppContext);
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  if (this.name == null) {
+    throw new HadoopIllegalArgumentException("name is not set");
+  }
+  if (bindAddress != null && port != -1) {
+    try {
+      endpoints.add(0,new URI("http","",bindAddress,port,"","",""));
+    }
+ catch (    URISyntaxException e) {
+      throw new HadoopIllegalArgumentException("Invalid endpoint: " + e);
+    }
+  }
+  if (endpoints.size() == 0 && connector == null) {
+    throw new HadoopIllegalArgumentException("No endpoints specified");
+  }
+  if (hostName == null) {
+    hostName=endpoints.size() == 0 ? connector.getHost() : endpoints.get(0).getHost();
+  }
+  if (this.conf == null) {
+    conf=new Configuration();
+  }
+  HttpServer server=new HttpServer(this);
+  if (this.securityEnabled) {
+    server.initSpnego(conf,hostName,usernameConfKey,keytabConfKey);
+  }
+  if (connector != null) {
+    server.addUnmanagedListener(connector);
+  }
+  for (  URI ep : endpoints) {
+    Connector listener=null;
+    String scheme=ep.getScheme();
+    if ("http".equals(scheme)) {
+      listener=HttpServer.createDefaultChannelConnector();
+    }
+ else     if ("https".equals(scheme)) {
+      SslSocketConnector c=new SslSocketConnector();
+      c.setNeedClientAuth(needsClientAuth);
+      c.setKeyPassword(keyPassword);
+      if (keyStore != null) {
+        c.setKeystore(keyStore);
+        c.setKeystoreType(keyStoreType);
+        c.setPassword(keyStorePassword);
+      }
+      if (trustStore != null) {
+        c.setTruststore(trustStore);
+        c.setTruststoreType(trustStoreType);
+        c.setTrustPassword(trustStorePassword);
+      }
+      listener=c;
+    }
+ else {
+      throw new HadoopIllegalArgumentException("unknown scheme for endpoint:" + ep);
+    }
+    listener.setHost(ep.getHost());
+    listener.setPort(ep.getPort() == -1 ? 0 : ep.getPort());
+    server.addManagedListener(listener);
+  }
+  server.loadListeners();
+  return server;
+}
