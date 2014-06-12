@@ -11,57 +11,50 @@
   int filesMode=0;
   int mappers=0;
   Configuration conf=getConf();
+  Path inputRoot=FSUtils.getRootDir(conf);
   for (int i=0; i < args.length; i++) {
     String cmd=args[i];
-    try {
-      if (cmd.equals("-snapshot")) {
-        snapshotName=args[++i];
-      }
- else       if (cmd.equals("-target")) {
-        targetName=args[++i];
-      }
- else       if (cmd.equals("-copy-to")) {
-        outputRoot=new Path(args[++i]);
-      }
- else       if (cmd.equals("-copy-from")) {
-        Path sourceDir=new Path(args[++i]);
-        URI defaultFs=sourceDir.getFileSystem(conf).getUri();
-        FSUtils.setFsDefault(conf,new Path(defaultFs));
-        FSUtils.setRootDir(conf,sourceDir);
-      }
- else       if (cmd.equals("-no-checksum-verify")) {
-        verifyChecksum=false;
-      }
- else       if (cmd.equals("-no-target-verify")) {
-        verifyTarget=false;
-      }
- else       if (cmd.equals("-mappers")) {
-        mappers=Integer.parseInt(args[++i]);
-      }
- else       if (cmd.equals("-chuser")) {
-        filesUser=args[++i];
-      }
- else       if (cmd.equals("-chgroup")) {
-        filesGroup=args[++i];
-      }
- else       if (cmd.equals("-bandwidth")) {
-        bandwidthMB=Integer.parseInt(args[++i]);
-      }
- else       if (cmd.equals("-chmod")) {
-        filesMode=Integer.parseInt(args[++i],8);
-      }
- else       if (cmd.equals("-overwrite")) {
-        overwrite=true;
-      }
- else       if (cmd.equals("-h") || cmd.equals("--help")) {
-        printUsageAndExit();
-      }
- else {
-        System.err.println("UNEXPECTED: " + cmd);
-        printUsageAndExit();
-      }
+    if (cmd.equals("-snapshot")) {
+      snapshotName=args[++i];
     }
- catch (    IOException e) {
+ else     if (cmd.equals("-target")) {
+      targetName=args[++i];
+    }
+ else     if (cmd.equals("-copy-to")) {
+      outputRoot=new Path(args[++i]);
+    }
+ else     if (cmd.equals("-copy-from")) {
+      inputRoot=new Path(args[++i]);
+    }
+ else     if (cmd.equals("-no-checksum-verify")) {
+      verifyChecksum=false;
+    }
+ else     if (cmd.equals("-no-target-verify")) {
+      verifyTarget=false;
+    }
+ else     if (cmd.equals("-mappers")) {
+      mappers=Integer.parseInt(args[++i]);
+    }
+ else     if (cmd.equals("-chuser")) {
+      filesUser=args[++i];
+    }
+ else     if (cmd.equals("-chgroup")) {
+      filesGroup=args[++i];
+    }
+ else     if (cmd.equals("-bandwidth")) {
+      bandwidthMB=Integer.parseInt(args[++i]);
+    }
+ else     if (cmd.equals("-chmod")) {
+      filesMode=Integer.parseInt(args[++i],8);
+    }
+ else     if (cmd.equals("-overwrite")) {
+      overwrite=true;
+    }
+ else     if (cmd.equals("-h") || cmd.equals("--help")) {
+      printUsageAndExit();
+    }
+ else {
+      System.err.println("UNEXPECTED: " + cmd);
       printUsageAndExit();
     }
   }
@@ -76,7 +69,6 @@
   if (targetName == null) {
     targetName=snapshotName;
   }
-  Path inputRoot=FSUtils.getRootDir(conf);
   FileSystem inputFs=FileSystem.get(inputRoot.toUri(),conf);
   LOG.debug("inputFs=" + inputFs.getUri().toString() + " inputRoot="+ inputRoot);
   FileSystem outputFs=FileSystem.get(outputRoot.toUri(),conf);
@@ -114,12 +106,6 @@
       }
     }
   }
-  LOG.info("Loading Snapshot hfile list");
-  final List<Pair<SnapshotFileInfo,Long>> files=getSnapshotFiles(inputFs,snapshotDir);
-  if (mappers == 0 && files.size() > 0) {
-    mappers=1 + (files.size() / conf.getInt(CONF_MAP_GROUP,10));
-    mappers=Math.min(mappers,files.size());
-  }
   try {
     LOG.info("Copy Snapshot Manifest");
     FileUtil.copy(inputFs,snapshotDir,outputFs,initialOutputSnapshotDir,false,false,conf);
@@ -132,12 +118,7 @@
     SnapshotDescriptionUtils.writeSnapshotInfo(snapshotDesc,snapshotTmpDir,outputFs);
   }
   try {
-    if (files.size() == 0) {
-      LOG.warn("There are 0 store file to be copied. There may be no data in the table.");
-    }
- else {
-      runCopyJob(inputRoot,outputRoot,files,verifyChecksum,filesUser,filesGroup,filesMode,mappers,bandwidthMB);
-    }
+    runCopyJob(inputRoot,outputRoot,snapshotName,snapshotDir,verifyChecksum,filesUser,filesGroup,filesMode,mappers,bandwidthMB);
     LOG.info("Finalize the Snapshot Export");
     if (!skipTmp) {
       if (!outputFs.rename(snapshotTmpDir,outputSnapshotDir)) {

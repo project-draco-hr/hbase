@@ -1,0 +1,20 @@
+{
+  Configuration conf=context.getConfiguration();
+  String snapshotName=conf.get(CONF_SNAPSHOT_NAME);
+  Path snapshotDir=new Path(conf.get(CONF_SNAPSHOT_DIR));
+  FileSystem fs=FileSystem.get(snapshotDir.toUri(),conf);
+  List<Pair<SnapshotFileInfo,Long>> snapshotFiles=getSnapshotFiles(conf,fs,snapshotDir);
+  int mappers=conf.getInt(CONF_NUM_SPLITS,0);
+  if (mappers == 0 && snapshotFiles.size() > 0) {
+    mappers=1 + (snapshotFiles.size() / conf.getInt(CONF_MAP_GROUP,10));
+    mappers=Math.min(mappers,snapshotFiles.size());
+    conf.setInt(CONF_NUM_SPLITS,mappers);
+    conf.setInt(MR_NUM_MAPS,mappers);
+  }
+  List<List<Pair<SnapshotFileInfo,Long>>> groups=getBalancedSplits(snapshotFiles,mappers);
+  List<InputSplit> splits=new ArrayList(groups.size());
+  for (  List<Pair<SnapshotFileInfo,Long>> files : groups) {
+    splits.add(new ExportSnapshotInputSplit(files));
+  }
+  return splits;
+}
