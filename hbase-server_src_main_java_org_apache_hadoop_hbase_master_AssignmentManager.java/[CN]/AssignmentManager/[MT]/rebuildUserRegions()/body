@@ -3,25 +3,23 @@
   Set<TableName> disabledOrDisablingOrEnabling=tableStateManager.getTablesInStates(ZooKeeperProtos.Table.State.DISABLED,ZooKeeperProtos.Table.State.DISABLING,ZooKeeperProtos.Table.State.ENABLING);
   List<Result> results=MetaReader.fullScan(this.catalogTracker);
   Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
-  Map<ServerName,List<HRegionInfo>> offlineServers=new TreeMap<ServerName,List<HRegionInfo>>();
+  Set<ServerName> offlineServers=new HashSet<ServerName>();
   for (  Result result : results) {
     HRegionInfo regionInfo=HRegionInfo.getHRegionInfo(result);
     if (regionInfo == null)     continue;
     State state=RegionStateStore.getRegionState(result);
+    ServerName lastHost=HRegionInfo.getServerName(result);
     ServerName regionLocation=RegionStateStore.getRegionServer(result);
-    regionStates.createRegionState(regionInfo,state,regionLocation);
+    regionStates.createRegionState(regionInfo,state,regionLocation,lastHost);
     if (!regionStates.isRegionInState(regionInfo,State.OPEN)) {
       continue;
     }
     TableName tableName=regionInfo.getTable();
     if (!onlineServers.contains(regionLocation)) {
-      List<HRegionInfo> offlineRegions=offlineServers.get(regionLocation);
-      if (offlineRegions == null) {
-        offlineRegions=new ArrayList<HRegionInfo>(1);
-        offlineServers.put(regionLocation,offlineRegions);
+      offlineServers.add(regionLocation);
+      if (useZKForAssignment) {
+        regionStates.regionOffline(regionInfo);
       }
-      regionStates.regionOffline(regionInfo);
-      offlineRegions.add(regionInfo);
     }
  else     if (!disabledOrEnablingTables.contains(tableName)) {
       regionStates.regionOnline(regionInfo,regionLocation);
