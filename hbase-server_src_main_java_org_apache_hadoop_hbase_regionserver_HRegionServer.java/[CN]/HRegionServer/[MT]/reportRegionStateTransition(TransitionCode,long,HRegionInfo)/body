@@ -1,0 +1,36 @@
+{
+  ReportRegionStateTransitionRequest.Builder builder=ReportRegionStateTransitionRequest.newBuilder();
+  builder.setServer(ProtobufUtil.toServerName(serverName));
+  RegionStateTransition.Builder transition=builder.addTransitionBuilder();
+  transition.setTransitionCode(code);
+  if (code == TransitionCode.OPENED && openSeqNum >= 0) {
+    transition.setOpenSeqNum(openSeqNum);
+  }
+  for (  HRegionInfo hri : hris) {
+    transition.addRegionInfo(HRegionInfo.convert(hri));
+  }
+  ReportRegionStateTransitionRequest request=builder.build();
+  while (keepLooping()) {
+    RegionServerStatusService.BlockingInterface rss=rssStub;
+    try {
+      if (rss == null) {
+        createRegionServerStatusStub();
+        continue;
+      }
+      ReportRegionStateTransitionResponse response=rss.reportRegionStateTransition(null,request);
+      if (response.hasErrorMessage()) {
+        LOG.info("Failed to transition " + hris[0] + " to "+ code+ ": "+ response.getErrorMessage());
+        return false;
+      }
+      return true;
+    }
+ catch (    ServiceException se) {
+      IOException ioe=ProtobufUtil.getRemoteException(se);
+      LOG.info("Failed to report region transition, will retry",ioe);
+      if (rssStub == rss) {
+        rssStub=null;
+      }
+    }
+  }
+  return false;
+}
