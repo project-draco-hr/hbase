@@ -8,15 +8,63 @@
     LOG.debug("Using binary protocol");
     protocolFactory=new TBinaryProtocol.Factory();
   }
-  Hbase.Processor<Hbase.Iface> processor=new Hbase.Processor<Hbase.Iface>(handler);
+  final TProcessor p=new Hbase.Processor<Hbase.Iface>(handler);
   ImplType implType=ImplType.getServerImpl(conf);
+  TProcessor processor=p;
   TTransportFactory transportFactory;
   if (conf.getBoolean(FRAMED_CONF_KEY,false) || implType.isAlwaysFramed) {
+    if (qop != null) {
+      throw new RuntimeException("Thrift server authentication" + " doesn't work with framed transport yet");
+    }
     transportFactory=new TFramedTransport.Factory(conf.getInt(MAX_FRAME_SIZE_CONF_KEY,2) * 1024 * 1024);
     LOG.debug("Using framed transport");
   }
- else {
+ else   if (qop == null) {
     transportFactory=new TTransportFactory();
+  }
+ else {
+    String name=SecurityUtil.getUserFromPrincipal(conf.get("hbase.thrift.kerberos.principal"));
+    Map<String,String> saslProperties=new HashMap<String,String>();
+    saslProperties.put(Sasl.QOP,qop);
+    TSaslServerTransport.Factory saslFactory=new TSaslServerTransport.Factory();
+    saslFactory.addServerDefinition("GSSAPI",name,host,saslProperties,new SaslGssCallbackHandler(){
+      @Override public void handle(      Callback[] callbacks) throws UnsupportedCallbackException {
+        AuthorizeCallback ac=null;
+        for (        Callback callback : callbacks) {
+          if (callback instanceof AuthorizeCallback) {
+            ac=(AuthorizeCallback)callback;
+          }
+ else {
+            throw new UnsupportedCallbackException(callback,"Unrecognized SASL GSSAPI Callback");
+          }
+        }
+        if (ac != null) {
+          String authid=ac.getAuthenticationID();
+          String authzid=ac.getAuthorizationID();
+          if (!authid.equals(authzid)) {
+            ac.setAuthorized(false);
+          }
+ else {
+            ac.setAuthorized(true);
+            String userName=SecurityUtil.getUserFromPrincipal(authzid);
+            LOG.info("Effective user: " + userName);
+            ac.setAuthorizedID(userName);
+          }
+        }
+      }
+    }
+);
+    transportFactory=saslFactory;
+    processor=new TProcessor(){
+      @Override public boolean process(      TProtocol inProt,      TProtocol outProt) throws TException {
+        TSaslServerTransport saslServerTransport=(TSaslServerTransport)inProt.getTransport();
+        SaslServer saslServer=saslServerTransport.getSaslServer();
+        String principal=saslServer.getAuthorizationID();
+        hbaseHandler.setEffectiveUser(principal);
+        return p.process(inProt,outProt);
+      }
+    }
+;
   }
   if (conf.get(BIND_CONF_KEY) != null && !implType.canSpecifyBindIP) {
     LOG.error("Server types " + Joiner.on(", ").join(ImplType.serversThatCannotSpecifyBindIP()) + " don't support IP "+ "address binding at the moment. See "+ "https://issues.apache.org/jira/browse/HBASE-2155 for details.");
