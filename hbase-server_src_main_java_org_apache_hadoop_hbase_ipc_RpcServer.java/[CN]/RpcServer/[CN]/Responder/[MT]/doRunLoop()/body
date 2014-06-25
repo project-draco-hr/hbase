@@ -2,9 +2,13 @@
   long lastPurgeTime=0;
   while (running) {
     try {
-      waitPending();
-      writeSelector.select(purgeTimeout);
-      Iterator<SelectionKey> iter=writeSelector.selectedKeys().iterator();
+      registerWrites();
+      int keyCt=writeSelector.select(purgeTimeout);
+      if (keyCt == 0) {
+        continue;
+      }
+      Set<SelectionKey> keys=writeSelector.selectedKeys();
+      Iterator<SelectionKey> iter=keys.iterator();
       while (iter.hasNext()) {
         SelectionKey key=iter.next();
         iter.remove();
@@ -14,35 +18,10 @@
           }
         }
  catch (        IOException e) {
-          LOG.info(getName() + ": asyncWrite",e);
+          LOG.debug(getName() + ": asyncWrite",e);
         }
       }
-      long now=System.currentTimeMillis();
-      if (now < lastPurgeTime + purgeTimeout) {
-        continue;
-      }
-      lastPurgeTime=now;
-      if (LOG.isDebugEnabled())       LOG.debug(getName() + ": checking for old call responses.");
-      ArrayList<Call> calls;
-synchronized (writeSelector.keys()) {
-        calls=new ArrayList<Call>(writeSelector.keys().size());
-        iter=writeSelector.keys().iterator();
-        while (iter.hasNext()) {
-          SelectionKey key=iter.next();
-          Call call=(Call)key.attachment();
-          if (call != null && key.channel() == call.connection.channel) {
-            calls.add(call);
-          }
-        }
-      }
-      for (      Call call : calls) {
-        try {
-          doPurge(call,now);
-        }
- catch (        IOException e) {
-          LOG.warn(getName() + ": error in purging old calls " + e);
-        }
-      }
+      lastPurgeTime=purge(lastPurgeTime);
     }
  catch (    OutOfMemoryError e) {
       if (errorHandler != null) {
@@ -63,7 +42,7 @@ synchronized (writeSelector.keys()) {
       }
     }
 catch (    Exception e) {
-      LOG.warn(getName() + ": exception in Responder " + StringUtils.stringifyException(e));
+      LOG.warn(getName() + ": exception in Responder " + StringUtils.stringifyException(e),e);
     }
   }
   LOG.info(getName() + ": stopped");

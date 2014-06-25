@@ -1,0 +1,40 @@
+{
+  int count;
+  this.dataLengthBuffer.flip();
+  if (!HConstants.RPC_HEADER.equals(dataLengthBuffer)) {
+    return doBadPreambleHandling("Expected HEADER=" + Bytes.toStringBinary(HConstants.RPC_HEADER.array()) + " but received HEADER="+ Bytes.toStringBinary(dataLengthBuffer.array())+ " from "+ toString());
+  }
+  ByteBuffer versionAndAuthBytes=ByteBuffer.allocate(2);
+  count=channelRead(channel,versionAndAuthBytes);
+  if (count < 0 || versionAndAuthBytes.remaining() > 0) {
+    return count;
+  }
+  int version=versionAndAuthBytes.get(0);
+  byte authbyte=versionAndAuthBytes.get(1);
+  this.authMethod=AuthMethod.valueOf(authbyte);
+  if (version != CURRENT_VERSION) {
+    String msg=getFatalConnectionString(version,authbyte);
+    return doBadPreambleHandling(msg,new WrongVersionException(msg));
+  }
+  if (authMethod == null) {
+    String msg=getFatalConnectionString(version,authbyte);
+    return doBadPreambleHandling(msg,new BadAuthException(msg));
+  }
+  if (isSecurityEnabled && authMethod == AuthMethod.SIMPLE) {
+    AccessControlException ae=new AccessControlException("Authentication is required");
+    setupResponse(authFailedResponse,authFailedCall,ae,ae.getMessage());
+    responder.doRespond(authFailedCall);
+    throw ae;
+  }
+  if (!isSecurityEnabled && authMethod != AuthMethod.SIMPLE) {
+    doRawSaslReply(SaslStatus.SUCCESS,new IntWritable(SaslUtil.SWITCH_TO_SIMPLE_AUTH),null,null);
+    authMethod=AuthMethod.SIMPLE;
+    skipInitialSaslHandshake=true;
+  }
+  if (authMethod != AuthMethod.SIMPLE) {
+    useSasl=true;
+  }
+  dataLengthBuffer.clear();
+  connectionPreambleRead=true;
+  return count;
+}

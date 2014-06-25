@@ -1,13 +1,22 @@
 {
-  call.timestamp=System.currentTimeMillis();
-  boolean doRegister=false;
-synchronized (call.connection.responseQueue) {
-    call.connection.responseQueue.addLast(call);
-    if (call.connection.responseQueue.size() == 1) {
-      doRegister=!processResponse(call.connection.responseQueue,false);
+  boolean added=false;
+  if (call.connection.responseQueue.isEmpty() && call.connection.responseWriteLock.tryLock()) {
+    try {
+      if (call.connection.responseQueue.isEmpty()) {
+        if (processResponse(call)) {
+          return;
+        }
+        call.connection.responseQueue.addFirst(call);
+        added=true;
+      }
+    }
+  finally {
+      call.connection.responseWriteLock.unlock();
     }
   }
-  if (doRegister) {
-    enqueueInSelector(call);
+  if (!added) {
+    call.connection.responseQueue.addLast(call);
   }
+  call.responder.registerForWrite(call.connection);
+  call.timestamp=System.currentTimeMillis();
 }
