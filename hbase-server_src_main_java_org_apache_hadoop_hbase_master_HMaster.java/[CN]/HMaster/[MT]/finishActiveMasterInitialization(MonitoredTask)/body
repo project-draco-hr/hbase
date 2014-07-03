@@ -6,7 +6,8 @@
   status.setStatus("Publishing Cluster ID in ZooKeeper");
   ZKClusterId.setClusterId(this.zooKeeper,fileSystemManager.getClusterId());
   this.serverManager=createServerManager(this,this);
-  startCatalogTracker();
+  metaTableLocator=new MetaTableLocator();
+  shortCircuitConnection=createShortCircuitConnection();
   this.tableLockManager.reapWriteLocks();
   status.setStatus("Initializing ZK system trackers");
   initializeZKBasedSystemTrackers();
@@ -23,7 +24,7 @@
   }
   Set<ServerName> previouslyFailedServers=this.fileSystemManager.getFailedServersFromLogFolders();
   this.fileSystemManager.removeStaleRecoveringRegionsFromZK(previouslyFailedServers);
-  ServerName oldMetaServerLocation=this.catalogTracker.getMetaLocation();
+  ServerName oldMetaServerLocation=metaTableLocator.getMetaRegionLocation(this.getZooKeeper());
   if (oldMetaServerLocation != null && previouslyFailedServers.contains(oldMetaServerLocation)) {
     splitMetaLogBeforeAssignment(oldMetaServerLocation);
   }
@@ -46,7 +47,7 @@ synchronized (online) {
   for (  ServerName tmpServer : previouslyFailedServers) {
     this.serverManager.processDeadServer(tmpServer,true);
   }
-  org.apache.hadoop.hbase.catalog.MetaMigrationConvertingToPB.updateMetaIfNecessary(this);
+  MetaMigrationConvertingToPB.updateMetaIfNecessary(this);
   status.setStatus("Starting assignment manager");
   this.assignmentManager.joinCluster();
   this.balancer.setClusterStatus(getClusterStatus());
