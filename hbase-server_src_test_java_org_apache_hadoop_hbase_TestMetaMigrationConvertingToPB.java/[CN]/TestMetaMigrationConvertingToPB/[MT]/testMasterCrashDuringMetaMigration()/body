@@ -1,0 +1,19 @@
+{
+  final byte[] FAMILY=Bytes.toBytes("family");
+  HTableDescriptor htd=new HTableDescriptor(TableName.valueOf("testMasterCrashDuringMetaMigration"));
+  HColumnDescriptor hcd=new HColumnDescriptor(FAMILY);
+  htd.addFamily(hcd);
+  Configuration conf=TEST_UTIL.getConfiguration();
+  createMultiRegionsWithPBSerialization(conf,htd.getTableName().getName(),10);
+  createMultiRegionsWithWritableSerialization(conf,htd.getTableName().getName(),10);
+  HConnection masterHConnection=TEST_UTIL.getMiniHBaseCluster().getMaster().getShortCircuitConnection();
+  undoVersionInRoot();
+  MetaTableAccessor.fullScanMetaAndPrint(masterHConnection);
+  LOG.info("Meta Print completed.testUpdatesOnMetaWithLegacyHRI");
+  long numMigratedRows=MetaMigrationConvertingToPB.updateMetaIfNecessary(TEST_UTIL.getHBaseCluster().getMaster());
+  assertEquals(numMigratedRows,10);
+  boolean metaUpdated=MetaMigrationConvertingToPB.isMetaTableUpdated(masterHConnection);
+  assertEquals(true,metaUpdated);
+  verifyMetaRowsAreUpdated(masterHConnection);
+  LOG.info("END testMasterCrashDuringMetaMigration");
+}

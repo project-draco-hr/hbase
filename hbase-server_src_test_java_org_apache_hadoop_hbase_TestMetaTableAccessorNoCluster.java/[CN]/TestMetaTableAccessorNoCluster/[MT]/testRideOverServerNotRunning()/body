@@ -1,0 +1,41 @@
+{
+  ZooKeeperWatcher zkw=new ZooKeeperWatcher(UTIL.getConfiguration(),this.getClass().getSimpleName(),ABORTABLE,true);
+  ServerName sn=ServerName.valueOf("example.com",1234,System.currentTimeMillis());
+  HConnection connection;
+  try {
+    final ClientProtos.ClientService.BlockingInterface implementation=Mockito.mock(ClientProtos.ClientService.BlockingInterface.class);
+    List<Cell> kvs=new ArrayList<Cell>();
+    final byte[] rowToVerify=Bytes.toBytes("rowToVerify");
+    kvs.add(new KeyValue(rowToVerify,HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER,HRegionInfo.FIRST_META_REGIONINFO.toByteArray()));
+    kvs.add(new KeyValue(rowToVerify,HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(sn.getHostAndPort())));
+    kvs.add(new KeyValue(rowToVerify,HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER,Bytes.toBytes(sn.getStartcode())));
+    final List<CellScannable> cellScannables=new ArrayList<CellScannable>(1);
+    cellScannables.add(Result.create(kvs));
+    final ScanResponse.Builder builder=ScanResponse.newBuilder();
+    for (    CellScannable result : cellScannables) {
+      builder.addCellsPerResult(((Result)result).size());
+    }
+    Mockito.when(implementation.scan((RpcController)Mockito.any(),(ScanRequest)Mockito.any())).thenThrow(new ServiceException("Server not running (1 of 3)")).thenThrow(new ServiceException("Server not running (2 of 3)")).thenThrow(new ServiceException("Server not running (3 of 3)")).thenReturn(ScanResponse.newBuilder().setScannerId(1234567890L).build()).thenAnswer(new Answer<ScanResponse>(){
+      public ScanResponse answer(      InvocationOnMock invocation) throws Throwable {
+        ((PayloadCarryingRpcController)invocation.getArguments()[0]).setCellScanner(CellUtil.createCellScanner(cellScannables));
+        return builder.build();
+      }
+    }
+).thenReturn(ScanResponse.newBuilder().setMoreResults(false).build());
+    connection=HConnectionTestingUtility.getSpiedConnection(UTIL.getConfiguration());
+    final HRegionLocation anyLocation=new HRegionLocation(HRegionInfo.FIRST_META_REGIONINFO,sn);
+    final RegionLocations rl=new RegionLocations(anyLocation);
+    ClusterConnection cConnection=HConnectionTestingUtility.getSpiedClusterConnection(UTIL.getConfiguration());
+    Mockito.doReturn(rl).when(cConnection).locateRegion((TableName)Mockito.any(),(byte[])Mockito.any(),Mockito.anyBoolean(),Mockito.anyBoolean(),Mockito.anyInt());
+    Mockito.doReturn(implementation).when(connection).getClient(Mockito.any(ServerName.class));
+    NavigableMap<HRegionInfo,Result> hris=MetaTableAccessor.getServerUserRegions(connection,sn);
+    assertEquals(1,hris.size());
+    assertTrue(hris.firstEntry().getKey().equals(HRegionInfo.FIRST_META_REGIONINFO));
+    assertTrue(Bytes.equals(rowToVerify,hris.firstEntry().getValue().getRow()));
+    Mockito.verify(implementation,Mockito.times(6)).scan((RpcController)Mockito.any(),(ScanRequest)Mockito.any());
+  }
+  finally {
+    HConnectionManager.deleteConnection(UTIL.getConfiguration());
+    zkw.close();
+  }
+}
