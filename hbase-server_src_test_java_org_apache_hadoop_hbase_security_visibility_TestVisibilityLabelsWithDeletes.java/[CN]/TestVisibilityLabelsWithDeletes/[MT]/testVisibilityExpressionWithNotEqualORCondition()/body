@@ -1,0 +1,61 @@
+{
+  setAuths();
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  HTable table=null;
+  try {
+    HBaseAdmin hBaseAdmin=TEST_UTIL.getHBaseAdmin();
+    HColumnDescriptor colDesc=new HColumnDescriptor(fam);
+    colDesc.setMaxVersions(5);
+    HTableDescriptor desc=new HTableDescriptor(tableName);
+    desc.addFamily(colDesc);
+    hBaseAdmin.createTable(desc);
+    table=new HTable(conf,tableName);
+    Put put=new Put(Bytes.toBytes("row1"));
+    put.add(fam,qual,123l,value);
+    put.setCellVisibility(new CellVisibility(CONFIDENTIAL));
+    table.put(put);
+    put=new Put(Bytes.toBytes("row1"));
+    put.add(fam,qual,124l,value);
+    put.setCellVisibility(new CellVisibility(CONFIDENTIAL + "|" + PRIVATE));
+    table.put(put);
+    TEST_UTIL.getHBaseAdmin().flush(tableName.getNameAsString());
+    PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        try {
+          HTable table=new HTable(conf,TEST_NAME.getMethodName());
+          Delete d=new Delete(row1);
+          d.deleteColumn(fam,qual,124l);
+          d.setCellVisibility(new CellVisibility(PRIVATE));
+          table.delete(d);
+        }
+ catch (        Throwable t) {
+          throw new IOException(t);
+        }
+        return null;
+      }
+    }
+;
+    SUPERUSER.runAs(actiona);
+    TEST_UTIL.getHBaseAdmin().flush(tableName.getNameAsString());
+    Scan s=new Scan();
+    s.setMaxVersions(5);
+    s.setAuthorizations(new Authorizations(SECRET,PRIVATE,CONFIDENTIAL,TOPSECRET));
+    ResultScanner scanner=table.getScanner(s);
+    Result[] next=scanner.next(3);
+    assertTrue(next.length == 1);
+    CellScanner cellScanner=next[0].cellScanner();
+    cellScanner.advance();
+    Cell current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+    assertEquals(current.getTimestamp(),124l);
+    cellScanner.advance();
+    current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+    assertEquals(current.getTimestamp(),123l);
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+}

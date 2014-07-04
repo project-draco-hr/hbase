@@ -13,51 +13,52 @@
       miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,de.getMessage()));
       continue;
     }
-    if (m instanceof Put) {
-      Put p=(Put)m;
-      boolean sanityFailure=false;
-      for (CellScanner cellScanner=p.cellScanner(); cellScanner.advance(); ) {
-        if (!checkForReservedVisibilityTagPresence(cellScanner.current())) {
-          miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,"Mutation contains cell with reserved type tag"));
-          sanityFailure=true;
-          break;
-        }
-      }
-      if (!sanityFailure) {
-        if (cellVisibility != null) {
-          String labelsExp=cellVisibility.getExpression();
-          List<Tag> visibilityTags=labelCache.get(labelsExp);
-          if (visibilityTags == null) {
-            try {
-              visibilityTags=createVisibilityTags(labelsExp);
-            }
- catch (            ParseException e) {
-              miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,e.getMessage()));
-            }
-catch (            InvalidLabelException e) {
-              miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,e.getMessage()));
-            }
-          }
-          if (visibilityTags != null) {
-            labelCache.put(labelsExp,visibilityTags);
-            List<Cell> updatedCells=new ArrayList<Cell>();
-            for (CellScanner cellScanner=p.cellScanner(); cellScanner.advance(); ) {
-              Cell cell=cellScanner.current();
-              List<Tag> tags=Tag.asList(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
-              tags.addAll(visibilityTags);
-              Cell updatedCell=new KeyValue(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength(),cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTimestamp(),Type.codeToType(cell.getTypeByte()),cell.getValueArray(),cell.getValueOffset(),cell.getValueLength(),tags);
-              updatedCells.add(updatedCell);
-            }
-            p.getFamilyCellMap().clear();
-            for (            Cell cell : updatedCells) {
-              p.add(cell);
-            }
-          }
-        }
+    boolean sanityFailure=false;
+    for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
+      if (!checkForReservedVisibilityTagPresence(cellScanner.current())) {
+        miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,"Mutation contains cell with reserved type tag"));
+        sanityFailure=true;
+        break;
       }
     }
- else     if (cellVisibility != null) {
-      miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,"CellVisibility cannot be set on Delete mutation"));
+    if (!sanityFailure) {
+      if (cellVisibility != null) {
+        String labelsExp=cellVisibility.getExpression();
+        List<Tag> visibilityTags=labelCache.get(labelsExp);
+        if (visibilityTags == null) {
+          try {
+            visibilityTags=createVisibilityTags(labelsExp,true);
+          }
+ catch (          ParseException e) {
+            miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,e.getMessage()));
+          }
+catch (          InvalidLabelException e) {
+            miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,e.getMessage()));
+          }
+        }
+        if (visibilityTags != null) {
+          labelCache.put(labelsExp,visibilityTags);
+          List<Cell> updatedCells=new ArrayList<Cell>();
+          for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
+            Cell cell=cellScanner.current();
+            List<Tag> tags=Tag.asList(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
+            tags.addAll(visibilityTags);
+            Cell updatedCell=new KeyValue(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength(),cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTimestamp(),Type.codeToType(cell.getTypeByte()),cell.getValueArray(),cell.getValueOffset(),cell.getValueLength(),tags);
+            updatedCells.add(updatedCell);
+          }
+          m.getFamilyCellMap().clear();
+          for (          Cell cell : updatedCells) {
+            if (m instanceof Put) {
+              Put p=(Put)m;
+              p.add(cell);
+            }
+ else             if (m instanceof Delete) {
+              Delete d=(Delete)m;
+              d.addDeleteMarker(cell);
+            }
+          }
+        }
+      }
     }
   }
 }

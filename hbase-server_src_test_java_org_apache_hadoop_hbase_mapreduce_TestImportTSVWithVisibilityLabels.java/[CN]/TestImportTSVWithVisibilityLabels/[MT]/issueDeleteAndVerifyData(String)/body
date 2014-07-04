@@ -1,0 +1,32 @@
+{
+  LOG.debug("Validating table after delete.");
+  HTable table=new HTable(conf,tableName);
+  boolean verified=false;
+  long pause=conf.getLong("hbase.client.pause",5 * 1000);
+  int numRetries=conf.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,5);
+  for (int i=0; i < numRetries; i++) {
+    try {
+      Delete d=new Delete(Bytes.toBytes("KEY"));
+      d.deleteFamily(Bytes.toBytes(FAMILY));
+      d.setCellVisibility(new CellVisibility("private&secret"));
+      table.delete(d);
+      Scan scan=new Scan();
+      scan.addFamily(Bytes.toBytes(FAMILY));
+      scan.setAuthorizations(new Authorizations("secret","private"));
+      ResultScanner resScanner=table.getScanner(scan);
+      Result[] next=resScanner.next(5);
+      assertEquals(0,next.length);
+      verified=true;
+      break;
+    }
+ catch (    NullPointerException e) {
+    }
+    try {
+      Thread.sleep(pause);
+    }
+ catch (    InterruptedException e) {
+    }
+  }
+  table.close();
+  assertTrue(verified);
+}

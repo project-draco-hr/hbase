@@ -1,0 +1,51 @@
+{
+  setAuths();
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  HTable table=null;
+  try {
+    table=doPuts(tableName);
+    TEST_UTIL.getHBaseAdmin().flush(tableName.getNameAsString());
+    PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        try {
+          HTable table=new HTable(conf,TEST_NAME.getMethodName());
+          Delete d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility(CONFIDENTIAL));
+          d.deleteColumns(fam,qual);
+          table.delete(d);
+          d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility(SECRET + "&" + TOPSECRET));
+          d.deleteColumns(fam,qual);
+          table.delete(d);
+          table.flushCommits();
+          d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility("(" + PRIVATE + "&"+ CONFIDENTIAL+ ")|("+ SECRET+ "&"+ TOPSECRET+ ")"));
+          d.deleteColumns(fam,qual);
+          table.delete(d);
+          table.flushCommits();
+        }
+ catch (        Throwable t) {
+          throw new IOException(t);
+        }
+        return null;
+      }
+    }
+;
+    SUPERUSER.runAs(actiona);
+    Scan s=new Scan();
+    s.setMaxVersions(5);
+    s.setAuthorizations(new Authorizations(SECRET,PRIVATE,CONFIDENTIAL,TOPSECRET));
+    ResultScanner scanner=table.getScanner(s);
+    Result[] next=scanner.next(3);
+    assertTrue(next.length == 1);
+    CellScanner cellScanner=next[0].cellScanner();
+    cellScanner.advance();
+    Cell current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row2,0,row2.length));
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+}

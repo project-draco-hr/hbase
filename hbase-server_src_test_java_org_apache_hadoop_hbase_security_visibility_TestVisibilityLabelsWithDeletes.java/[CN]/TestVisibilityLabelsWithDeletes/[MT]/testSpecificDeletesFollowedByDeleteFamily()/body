@@ -1,0 +1,85 @@
+{
+  setAuths();
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  HTable table=doPuts(tableName);
+  try {
+    PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        try {
+          HTable table=new HTable(conf,TEST_NAME.getMethodName());
+          Delete d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility("(" + CONFIDENTIAL + "&"+ PRIVATE+ ")|("+ TOPSECRET+ "&"+ SECRET+ ")"));
+          d.deleteColumn(fam,qual,126l);
+          table.delete(d);
+          d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility(SECRET + "&" + TOPSECRET));
+          d.deleteFamilyVersion(fam,125l);
+          table.delete(d);
+        }
+ catch (        Throwable t) {
+          throw new IOException(t);
+        }
+        return null;
+      }
+    }
+;
+    SUPERUSER.runAs(actiona);
+    TEST_UTIL.getHBaseAdmin().flush(tableName.getNameAsString());
+    Scan s=new Scan();
+    s.setMaxVersions(5);
+    s.setAuthorizations(new Authorizations(SECRET,PRIVATE,CONFIDENTIAL,TOPSECRET));
+    ResultScanner scanner=table.getScanner(s);
+    Result[] next=scanner.next(5);
+    assertTrue(next.length == 2);
+    CellScanner cellScanner=next[0].cellScanner();
+    cellScanner.advance();
+    Cell current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+    assertEquals(current.getTimestamp(),127l);
+    cellScanner.advance();
+    current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+    assertEquals(current.getTimestamp(),124l);
+    cellScanner.advance();
+    current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+    assertEquals(current.getTimestamp(),123l);
+    actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        try {
+          HTable table=new HTable(conf,TEST_NAME.getMethodName());
+          Delete d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility(CONFIDENTIAL));
+          d.deleteFamily(fam);
+          table.delete(d);
+        }
+ catch (        Throwable t) {
+          throw new IOException(t);
+        }
+        return null;
+      }
+    }
+;
+    SUPERUSER.runAs(actiona);
+    s=new Scan();
+    s.setMaxVersions(5);
+    s.setAuthorizations(new Authorizations(SECRET,PRIVATE,CONFIDENTIAL,TOPSECRET));
+    scanner=table.getScanner(s);
+    next=scanner.next(5);
+    assertTrue(next.length == 2);
+    cellScanner=next[0].cellScanner();
+    cellScanner.advance();
+    current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+    assertEquals(current.getTimestamp(),127l);
+    cellScanner.advance();
+    current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+    assertEquals(current.getTimestamp(),124l);
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  HTable table=null;
+  try {
+    HBaseAdmin hBaseAdmin=TEST_UTIL.getHBaseAdmin();
+    HColumnDescriptor colDesc=new HColumnDescriptor(fam);
+    colDesc.setMaxVersions(5);
+    HTableDescriptor desc=new HTableDescriptor(tableName);
+    desc.addFamily(colDesc);
+    hBaseAdmin.createTable(desc);
+    table=new HTable(conf,tableName);
+    Put put=new Put(Bytes.toBytes("row1"));
+    put.add(fam,qual1,125l,value);
+    put.setCellVisibility(new CellVisibility(CONFIDENTIAL));
+    table.put(put);
+    put=new Put(Bytes.toBytes("row1"));
+    put.add(fam,qual1,126l,value);
+    put.setCellVisibility(new CellVisibility(SECRET));
+    table.put(put);
+    TEST_UTIL.getHBaseAdmin().flush(tableName.getNameAsString());
+    PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        try {
+          HTable table=new HTable(conf,TEST_NAME.getMethodName());
+          Delete d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility(SECRET));
+          d.deleteColumns(fam,qual,126l);
+          table.delete(d);
+          d=new Delete(row1);
+          d.setCellVisibility(new CellVisibility(CONFIDENTIAL));
+          d.deleteColumns(fam,qual1,126l);
+          table.delete(d);
+          table.flushCommits();
+        }
+ catch (        Throwable t) {
+          throw new IOException(t);
+        }
+        return null;
+      }
+    }
+;
+    SUPERUSER.runAs(actiona);
+    Scan s=new Scan();
+    s.setMaxVersions(5);
+    s.setAuthorizations(new Authorizations(SECRET,CONFIDENTIAL));
+    ResultScanner scanner=table.getScanner(s);
+    Result[] next=scanner.next(3);
+    assertEquals(next.length,1);
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+}

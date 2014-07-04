@@ -1,0 +1,39 @@
+{
+  setAuths();
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  final HTable table=createTableAndWriteDataWithLabels(tableName,SECRET,CONFIDENTIAL + "|" + TOPSECRET);
+  try {
+    PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        try {
+          HTable table=new HTable(conf,TEST_NAME.getMethodName());
+          Delete d=new Delete(row2);
+          d.setCellVisibility(new CellVisibility(TOPSECRET + "|" + CONFIDENTIAL));
+          d.deleteFamily(fam);
+          table.delete(d);
+        }
+ catch (        Throwable t) {
+          throw new IOException(t);
+        }
+        return null;
+      }
+    }
+;
+    SUPERUSER.runAs(actiona);
+    TEST_UTIL.getHBaseAdmin().flush(tableName.getNameAsString());
+    Scan s=new Scan();
+    s.setAuthorizations(new Authorizations(SECRET,PRIVATE,CONFIDENTIAL));
+    ResultScanner scanner=table.getScanner(s);
+    Result[] next=scanner.next(3);
+    assertTrue(next.length == 1);
+    CellScanner cellScanner=next[0].cellScanner();
+    cellScanner.advance();
+    Cell current=cellScanner.current();
+    assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row1,0,row1.length));
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+}
