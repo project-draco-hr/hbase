@@ -10,7 +10,6 @@
     HRegion region=regionServer.getRegionByEncodedName(entries.get(0).getKey().getEncodedRegionName().toStringUtf8());
     RegionCoprocessorHost coprocessorHost=region.getCoprocessorHost();
     List<Pair<HLogKey,WALEdit>> walEntries=new ArrayList<Pair<HLogKey,WALEdit>>();
-    List<HLogSplitter.MutationReplay> mutations=new ArrayList<HLogSplitter.MutationReplay>();
     boolean needAddReplayTag=(HFile.getFormatVersion(regionServer.conf) >= 3);
     for (    WALEntry entry : entries) {
       if (regionServer.nonceManager != null) {
@@ -26,16 +25,17 @@
         }
         walEntries.add(walEntry);
       }
-      mutations.addAll(edits);
-    }
-    if (!mutations.isEmpty()) {
-      OperationStatus[] result=doReplayBatchOp(region,mutations);
-      for (int i=0; result != null && i < result.length; i++) {
-        if (result[i] != OperationStatus.SUCCESS) {
-          throw new IOException(result[i].getExceptionMsg());
+      if (edits != null && !edits.isEmpty()) {
+        long replaySeqId=(entry.getKey().hasOrigSequenceNumber()) ? entry.getKey().getOrigSequenceNumber() : entry.getKey().getLogSequenceNumber();
+        OperationStatus[] result=doReplayBatchOp(region,edits,replaySeqId);
+        for (int i=0; result != null && i < result.length; i++) {
+          if (result[i] != OperationStatus.SUCCESS) {
+            throw new IOException(result[i].getExceptionMsg());
+          }
         }
       }
     }
+    region.syncWal();
     if (coprocessorHost != null) {
       for (      Pair<HLogKey,WALEdit> wal : walEntries) {
         coprocessorHost.postWALRestore(region.getRegionInfo(),wal.getFirst(),wal.getSecond());

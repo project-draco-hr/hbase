@@ -1,6 +1,12 @@
 {
   FileDetails fd=new FileDetails();
+  long oldestHFileTimeStampToKeepMVCC=System.currentTimeMillis() - (1000L * 60 * 60* 24* this.keepSeqIdPeriod);
   for (  StoreFile file : filesToCompact) {
+    if (allFiles && (file.getModificationTimeStamp() < oldestHFileTimeStampToKeepMVCC)) {
+      if (fd.minSeqIdToKeep < file.getMaxMemstoreTS()) {
+        fd.minSeqIdToKeep=file.getMaxMemstoreTS();
+      }
+    }
     long seqNum=file.getMaxSequenceId();
     fd.maxSeqId=Math.max(fd.maxSeqId,seqNum);
     StoreFile.Reader r=file.getReader();
@@ -20,7 +26,7 @@
       fd.maxTagsLength=Math.max(fd.maxTagsLength,Bytes.toInt(tmp));
     }
     long earliestPutTs=0;
-    if (calculatePutTs) {
+    if (allFiles) {
       tmp=fileInfo.get(StoreFile.EARLIEST_PUT_TS);
       if (tmp == null) {
         fd.earliestPutTs=earliestPutTs=HConstants.OLDEST_TIMESTAMP;
@@ -31,7 +37,7 @@
       }
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getDataBlockEncoding()+ ", seqNum="+ seqNum+ (calculatePutTs ? ", earliestPutTs=" + earliestPutTs : ""));
+      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getDataBlockEncoding()+ ", seqNum="+ seqNum+ (allFiles ? ", earliestPutTs=" + earliestPutTs : ""));
     }
   }
   return fd;

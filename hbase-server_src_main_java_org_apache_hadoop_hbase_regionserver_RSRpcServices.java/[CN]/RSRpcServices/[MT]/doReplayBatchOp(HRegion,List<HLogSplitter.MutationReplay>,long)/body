@@ -1,0 +1,33 @@
+{
+  HLogSplitter.MutationReplay[] mArray=new HLogSplitter.MutationReplay[mutations.size()];
+  long before=EnvironmentEdgeManager.currentTimeMillis();
+  boolean batchContainsPuts=false, batchContainsDelete=false;
+  try {
+    int i=0;
+    for (    HLogSplitter.MutationReplay m : mutations) {
+      if (m.type == MutationType.PUT) {
+        batchContainsPuts=true;
+      }
+ else {
+        batchContainsDelete=true;
+      }
+      mArray[i++]=m;
+    }
+    requestCount.add(mutations.size());
+    if (!region.getRegionInfo().isMetaTable()) {
+      regionServer.cacheFlusher.reclaimMemStoreMemory();
+    }
+    return region.batchReplay(mArray,replaySeqId);
+  }
+  finally {
+    if (regionServer.metricsRegionServer != null) {
+      long after=EnvironmentEdgeManager.currentTimeMillis();
+      if (batchContainsPuts) {
+        regionServer.metricsRegionServer.updatePut(after - before);
+      }
+      if (batchContainsDelete) {
+        regionServer.metricsRegionServer.updateDelete(after - before);
+      }
+    }
+  }
+}
