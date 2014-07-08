@@ -1,0 +1,24 @@
+{
+  int cleanInterval=conf.getInt(CLEANUP_INTERVAL,10 * 1000);
+  int maxIdleTime=conf.getInt(MAX_IDLETIME,10 * 60 * 1000);
+  connectionCache=new ConnectionCache(conf,userProvider,cleanInterval,maxIdleTime);
+  tableFactory=new HTableFactory(){
+    @Override public HTableInterface createHTableInterface(    Configuration config,    byte[] tableName){
+      try {
+        return connectionCache.getTable(Bytes.toString(tableName));
+      }
+ catch (      IOException ioe) {
+        throw new RuntimeException(ioe);
+      }
+    }
+  }
+;
+  htablePools=CacheBuilder.newBuilder().expireAfterAccess(maxIdleTime,TimeUnit.MILLISECONDS).softValues().concurrencyLevel(4).build();
+  maxPoolSize=conf.getInt("hbase.thrift.htablepool.size.max",1000);
+  htablePoolCreater=new Callable<HTablePool>(){
+    public HTablePool call(){
+      return new HTablePool(conf,maxPoolSize,tableFactory);
+    }
+  }
+;
+}

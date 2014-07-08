@@ -10,10 +10,34 @@
   }
   int listenPort=0;
   try {
-    listenPort=Integer.parseInt(cmd.getOptionValue("port",DEFAULT_LISTEN_PORT));
+    if (cmd.hasOption("port")) {
+      listenPort=Integer.parseInt(cmd.getOptionValue("port"));
+    }
+ else {
+      listenPort=conf.getInt("hbase.regionserver.thrift.port",DEFAULT_LISTEN_PORT);
+    }
   }
  catch (  NumberFormatException e) {
     throw new RuntimeException("Could not parse the value provided for the port option",e);
+  }
+  String host=null;
+  String name=null;
+  UserProvider userProvider=UserProvider.instantiate(conf);
+  boolean securityEnabled=userProvider.isHadoopSecurityEnabled() && userProvider.isHBaseSecurityEnabled();
+  if (securityEnabled) {
+    host=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.thrift.dns.interface","default"),conf.get("hbase.thrift.dns.nameserver","default")));
+    userProvider.login("hbase.thrift.keytab.file","hbase.thrift.kerberos.principal",host);
+  }
+  UserGroupInformation realUser=userProvider.getCurrent().getUGI();
+  String qop=conf.get(THRIFT_QOP_KEY);
+  if (qop != null) {
+    if (!qop.equals("auth") && !qop.equals("auth-int") && !qop.equals("auth-conf")) {
+      throw new IOException("Invalid " + THRIFT_QOP_KEY + ": "+ qop+ ", it must be 'auth', 'auth-int', or 'auth-conf'");
+    }
+    if (!securityEnabled) {
+      throw new IOException("Thrift server must" + " run in secure mode to support authentication");
+    }
+    name=SecurityUtil.getUserFromPrincipal(conf.get("hbase.thrift.kerberos.principal"));
   }
   boolean nonblocking=cmd.hasOption("nonblocking");
   boolean hsha=cmd.hasOption("hsha");
@@ -30,13 +54,27 @@
   registerFilters(conf);
   boolean compact=cmd.hasOption("compact") || conf.getBoolean("hbase.regionserver.thrift.compact",false);
   TProtocolFactory protocolFactory=getTProtocolFactory(compact);
-  THBaseService.Iface handler=ThriftHBaseServiceHandler.newInstance(conf,metrics);
-  THBaseService.Processor processor=new THBaseService.Processor(handler);
+  final ThriftHBaseServiceHandler hbaseHandler=new ThriftHBaseServiceHandler(conf,userProvider);
+  THBaseService.Iface handler=ThriftHBaseServiceHandler.newInstance(hbaseHandler,metrics);
+  final THBaseService.Processor p=new THBaseService.Processor(handler);
   conf.setBoolean("hbase.regionserver.thrift.compact",compact);
+  TProcessor processor=p;
   boolean framed=cmd.hasOption("framed") || conf.getBoolean("hbase.regionserver.thrift.framed",false) || nonblocking|| hsha;
-  TTransportFactory transportFactory=getTTransportFactory(framed,conf.getInt("hbase.regionserver.thrift.framed.max_frame_size_in_mb",2) * 1024 * 1024);
+  TTransportFactory transportFactory=getTTransportFactory(qop,name,host,framed,conf.getInt("hbase.regionserver.thrift.framed.max_frame_size_in_mb",2) * 1024 * 1024);
   InetSocketAddress inetSocketAddress=bindToPort(cmd.getOptionValue("bind"),listenPort);
   conf.setBoolean("hbase.regionserver.thrift.framed",framed);
+  if (qop != null) {
+    processor=new TProcessor(){
+      @Override public boolean process(      TProtocol inProt,      TProtocol outProt) throws TException {
+        TSaslServerTransport saslServerTransport=(TSaslServerTransport)inProt.getTransport();
+        SaslServer saslServer=saslServerTransport.getSaslServer();
+        String principal=saslServer.getAuthorizationID();
+        hbaseHandler.setEffectiveUser(principal);
+        return p.process(inProt,outProt);
+      }
+    }
+;
+  }
   try {
     if (cmd.hasOption("infoport")) {
       String val=cmd.getOptionValue("infoport");
@@ -66,5 +104,12 @@
  else {
     server=getTThreadPoolServer(protocolFactory,processor,transportFactory,inetSocketAddress);
   }
-  server.serve();
+  final TServer tserver=server;
+  realUser.doAs(new PrivilegedAction<Object>(){
+    @Override public Object run(){
+      tserver.serve();
+      return null;
+    }
+  }
+);
 }

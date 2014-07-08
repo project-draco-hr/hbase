@@ -1,0 +1,45 @@
+{
+  if (framed) {
+    if (qop != null) {
+      throw new RuntimeException("Thrift server authentication" + " doesn't work with framed transport yet");
+    }
+    log.debug("Using framed transport");
+    return new TFramedTransport.Factory(frameSize);
+  }
+ else   if (qop == null) {
+    return new TTransportFactory();
+  }
+ else {
+    Map<String,String> saslProperties=new HashMap<String,String>();
+    saslProperties.put(Sasl.QOP,qop);
+    TSaslServerTransport.Factory saslFactory=new TSaslServerTransport.Factory();
+    saslFactory.addServerDefinition("GSSAPI",name,host,saslProperties,new SaslGssCallbackHandler(){
+      @Override public void handle(      Callback[] callbacks) throws UnsupportedCallbackException {
+        AuthorizeCallback ac=null;
+        for (        Callback callback : callbacks) {
+          if (callback instanceof AuthorizeCallback) {
+            ac=(AuthorizeCallback)callback;
+          }
+ else {
+            throw new UnsupportedCallbackException(callback,"Unrecognized SASL GSSAPI Callback");
+          }
+        }
+        if (ac != null) {
+          String authid=ac.getAuthenticationID();
+          String authzid=ac.getAuthorizationID();
+          if (!authid.equals(authzid)) {
+            ac.setAuthorized(false);
+          }
+ else {
+            ac.setAuthorized(true);
+            String userName=SecurityUtil.getUserFromPrincipal(authzid);
+            log.info("Effective user: " + userName);
+            ac.setAuthorizedID(userName);
+          }
+        }
+      }
+    }
+);
+    return saslFactory;
+  }
+}
