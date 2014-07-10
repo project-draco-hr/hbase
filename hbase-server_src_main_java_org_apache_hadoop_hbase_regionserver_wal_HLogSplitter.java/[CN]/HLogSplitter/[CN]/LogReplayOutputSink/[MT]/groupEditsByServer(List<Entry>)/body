@@ -18,12 +18,35 @@
     List<KeyValue> skippedKVs=new ArrayList<KeyValue>();
     HConnection hconn=this.getConnectionByTableName(table);
     for (    KeyValue kv : kvs) {
+      byte[] row=kv.getRow();
+      byte[] family=kv.getFamily();
+      boolean isCompactionEntry=false;
       if (CellUtil.matchingFamily(kv,WALEdit.METAFAMILY)) {
-        skippedKVs.add(kv);
-        continue;
+        CompactionDescriptor compaction=WALEdit.getCompaction(kv);
+        if (compaction != null && compaction.hasRegionName()) {
+          try {
+            byte[][] regionName=HRegionInfo.parseRegionName(compaction.getRegionName().toByteArray());
+            row=regionName[1];
+            family=compaction.getFamilyName().toByteArray();
+            isCompactionEntry=true;
+          }
+ catch (          Exception ex) {
+            LOG.warn("Unexpected exception received, ignoring " + ex);
+            skippedKVs.add(kv);
+            continue;
+          }
+        }
+ else {
+          skippedKVs.add(kv);
+          continue;
+        }
       }
       try {
-        loc=locateRegionAndRefreshLastFlushedSequenceId(hconn,table,kv.getRow(),encodeRegionNameStr);
+        loc=locateRegionAndRefreshLastFlushedSequenceId(hconn,table,row,encodeRegionNameStr);
+        if (isCompactionEntry && !encodeRegionNameStr.equalsIgnoreCase(loc.getRegionInfo().getEncodedName())) {
+          LOG.info("Not replaying a compaction marker for an older region: " + encodeRegionNameStr);
+          needSkip=true;
+        }
       }
  catch (      TableNotFoundException ex) {
         LOG.info("Table " + table + " doesn't exist. Skip log replay for region "+ encodeRegionNameStr);
@@ -47,7 +70,7 @@
           maxStoreSequenceIds=regionMaxSeqIdInStores.get(loc.getRegionInfo().getEncodedName());
         }
         if (maxStoreSequenceIds != null) {
-          Long maxStoreSeqId=maxStoreSequenceIds.get(kv.getFamily());
+          Long maxStoreSeqId=maxStoreSequenceIds.get(family);
           if (maxStoreSeqId == null || maxStoreSeqId >= entry.getKey().getLogSeqNum()) {
             skippedKVs.add(kv);
             continue;

@@ -1,6 +1,6 @@
 {
   Configuration c=TEST_UTIL.getConfiguration();
-  c.setBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,false);
+  c.setBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,distributedLogReplay);
   c.setClass(HConstants.REGION_IMPL,regionClass,HRegion.class);
   c.setBoolean("dfs.support.append",true);
   c.setLong("hbase.hregion.memstore.flush.size",200000);
@@ -26,6 +26,9 @@
     compactingRegion.stopCompactions();
     long lastFlushTime=compactingRegion.getLastFlushTime();
     TEST_UTIL.loadNumericRows(table,FAMILY,0,FIRST_BATCH_COUNT);
+    HRegionInfo oldHri=new HRegionInfo(table.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    CompactionDescriptor compactionDescriptor=ProtobufUtil.toCompactionDescriptor(oldHri,FAMILY,Lists.newArrayList(new Path("/a")),Lists.newArrayList(new Path("/b")),new Path("store_dir"));
+    HLogUtil.writeCompactionMarker(compactingRegion.getLog(),table.getTableDescriptor(),oldHri,compactionDescriptor,new AtomicLong(Long.MAX_VALUE - 100));
     long startWaitTime=System.currentTimeMillis();
     while (compactingRegion.getLastFlushTime() <= lastFlushTime || compactingRegion.countStoreFiles() <= 1) {
       LOG.info("Waiting for the region to flush " + compactingRegion.getRegionNameAsString());
@@ -40,17 +43,20 @@
     compactingRegion.waitForCompactionToBlock();
     LOG.info("Starting a new server");
     RegionServerThread newServerThread=TEST_UTIL.getMiniHBaseCluster().startRegionServer();
-    HRegionServer newServer=newServerThread.getRegionServer();
+    final HRegionServer newServer=newServerThread.getRegionServer();
     LOG.info("Killing region server ZK lease");
     TEST_UTIL.expireRegionServerSession(0);
     CompactionBlockerRegion newRegion=null;
     startWaitTime=System.currentTimeMillis();
-    while (newRegion == null) {
-      LOG.info("Waiting for the new server to pick up the region " + Bytes.toString(REGION_NAME));
-      Thread.sleep(1000);
-      newRegion=(CompactionBlockerRegion)newServer.getOnlineRegion(REGION_NAME);
-      assertTrue("Timed out waiting for new server to open region",System.currentTimeMillis() - startWaitTime < 300000);
+    LOG.info("Waiting for the new server to pick up the region " + Bytes.toString(REGION_NAME));
+    Waiter.waitFor(c,60000,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        HRegion newRegion=newServer.getOnlineRegion(REGION_NAME);
+        return newRegion != null && !newRegion.isRecovering();
+      }
     }
+);
+    newRegion=(CompactionBlockerRegion)newServer.getOnlineRegion(REGION_NAME);
     LOG.info("Allowing compaction to proceed");
     compactingRegion.allowCompactions();
     while (compactingRegion.compactCount == 0) {
