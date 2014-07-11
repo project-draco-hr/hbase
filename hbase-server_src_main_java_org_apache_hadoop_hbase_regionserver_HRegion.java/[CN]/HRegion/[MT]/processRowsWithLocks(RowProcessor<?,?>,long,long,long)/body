@@ -19,7 +19,7 @@
     try {
       long now=EnvironmentEdgeManager.currentTimeMillis();
       doProcessRowWithTimeout(processor,now,this,null,null,timeout);
-      processor.postProcess(this,walEdit);
+      processor.postProcess(this,walEdit,true);
     }
  catch (    IOException e) {
       throw e;
@@ -34,7 +34,7 @@
   boolean walSyncSuccessful=false;
   List<RowLock> acquiredRowLocks;
   long addedSize=0;
-  List<KeyValue> mutations=new ArrayList<KeyValue>();
+  List<Mutation> mutations=new ArrayList<Mutation>();
   List<KeyValue> memstoreCells=new ArrayList<KeyValue>();
   Collection<byte[]> rowsToLock=processor.getRowsToLock();
   long mvccNum=0;
@@ -52,15 +52,19 @@
       doProcessRowWithTimeout(processor,now,this,mutations,walEdit,timeout);
       if (!mutations.isEmpty()) {
         writeEntry=mvcc.beginMemstoreInsertWithSeqNum(mvccNum);
-        for (        KeyValue kv : mutations) {
-          kv.setSequenceId(mvccNum);
-          Store store=getStore(kv);
-          if (store == null) {
-            checkFamily(CellUtil.cloneFamily(kv));
+        processor.preBatchMutate(this,walEdit);
+        for (        Mutation m : mutations) {
+          for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
+            KeyValue kv=KeyValueUtil.ensureKeyValue(cellScanner.current());
+            kv.setSequenceId(mvccNum);
+            Store store=getStore(kv);
+            if (store == null) {
+              checkFamily(CellUtil.cloneFamily(kv));
+            }
+            Pair<Long,Cell> ret=store.add(kv);
+            addedSize+=ret.getFirst();
+            memstoreCells.add(KeyValueUtil.ensureKeyValue(ret.getSecond()));
           }
-          Pair<Long,Cell> ret=store.add(kv);
-          addedSize+=ret.getFirst();
-          memstoreCells.add(KeyValueUtil.ensureKeyValue(ret.getSecond()));
         }
         long txid=0;
         if (!walEdit.isEmpty()) {
@@ -79,13 +83,17 @@
           syncOrDefer(txid,getEffectiveDurability(processor.useDurability()));
         }
         walSyncSuccessful=true;
+        processor.postBatchMutate(this);
       }
     }
   finally {
       if (!mutations.isEmpty() && !walSyncSuccessful) {
         LOG.warn("Wal sync failed. Roll back " + mutations.size() + " memstore keyvalues for row(s):"+ StringUtils.byteToHexString(processor.getRowsToLock().iterator().next())+ "...");
-        for (        KeyValue kv : mutations) {
-          getStore(kv).rollback(kv);
+        for (        Mutation m : mutations) {
+          for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
+            KeyValue kv=KeyValueUtil.ensureKeyValue(cellScanner.current());
+            getStore(kv).rollback(kv);
+          }
         }
       }
       if (writeEntry != null) {
@@ -96,7 +104,7 @@
       }
       releaseRowLocks(acquiredRowLocks);
     }
-    processor.postProcess(this,walEdit);
+    processor.postProcess(this,walEdit,walSyncSuccessful);
   }
  catch (  IOException e) {
     throw e;
