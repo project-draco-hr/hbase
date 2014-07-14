@@ -5,13 +5,6 @@
     return;
   }
   while (this.isActive()) {
-    if (!isPeerEnabled()) {
-      if (sleepForRetries("Replication is disabled",sleepMultiplier)) {
-        sleepMultiplier++;
-      }
-      continue;
-    }
-    SinkPeer sinkPeer=null;
     try {
       if (this.throttler.isEnabled()) {
         long sleepTicks=this.throttler.getNextSleepInterval(currentSize);
@@ -30,12 +23,11 @@
           this.throttler.resetStartTick();
         }
       }
-      sinkPeer=replicationSinkMgr.getReplicationSink();
-      BlockingInterface rrs=sinkPeer.getRegionServer();
-      if (LOG.isTraceEnabled()) {
-        LOG.trace("Replicating " + entries.size() + " entries of total size "+ currentSize);
+      replicateContext.setEntries(entries).setSize(currentSize);
+      boolean replicated=replicationEndpoint.replicate(replicateContext);
+      if (!replicated) {
+        continue;
       }
-      ReplicationProtbufUtil.replicateWALEntry(rrs,entries.toArray(new HLog.Entry[entries.size()]));
       if (this.lastLoggedPosition != this.repLogReader.getPosition()) {
         this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.repLogReader.getPosition(),this.replicationQueueInfo.isQueueRecovered(),currentWALisBeingWrittenTo);
         this.lastLoggedPosition=this.repLogReader.getPosition();
@@ -52,39 +44,9 @@
       }
       break;
     }
- catch (    IOException ioe) {
-      this.metrics.refreshAgeOfLastShippedOp();
-      if (ioe instanceof RemoteException) {
-        ioe=((RemoteException)ioe).unwrapRemoteException();
-        LOG.warn("Can't replicate because of an error on the remote cluster: ",ioe);
-        if (ioe instanceof TableNotFoundException) {
-          if (sleepForRetries("A table is missing in the peer cluster. " + "Replication cannot proceed without losing data.",sleepMultiplier)) {
-            sleepMultiplier++;
-          }
-          if (isInterrupted()) {
-            continue;
-          }
-        }
-      }
- else {
-        if (ioe instanceof SocketTimeoutException) {
-          sleepForRetries("Encountered a SocketTimeoutException. Since the " + "call to the remote cluster timed out, which is usually " + "caused by a machine failure or a massive slowdown",this.socketTimeoutMultiplier);
-          if (isInterrupted()) {
-            continue;
-          }
-        }
- else         if (ioe instanceof ConnectException) {
-          LOG.warn("Peer is unavailable, rechecking all sinks: ",ioe);
-          replicationSinkMgr.chooseSinks();
-        }
- else {
-          LOG.warn("Can't replicate because of a local or network error: ",ioe);
-        }
-      }
-      if (sinkPeer != null) {
-        replicationSinkMgr.reportBadSink(sinkPeer);
-      }
-      if (sleepForRetries("Since we are unable to replicate",sleepMultiplier)) {
+ catch (    Exception ex) {
+      LOG.warn(replicationEndpoint.getClass().getName() + " threw unknown exception:" + ex);
+      if (sleepForRetries("ReplicationEndpoint threw exception",sleepMultiplier)) {
         sleepMultiplier++;
       }
     }

@@ -1,12 +1,29 @@
 {
-  connectToPeers();
   if (!this.isActive()) {
     uninitialize();
     return;
   }
+  try {
+    Service.State state=replicationEndpoint.start().get();
+    if (state != Service.State.RUNNING) {
+      LOG.warn("ReplicationEndpoint was not started. Exiting");
+      uninitialize();
+      return;
+    }
+  }
+ catch (  Exception ex) {
+    LOG.warn("Error starting ReplicationEndpoint, exiting",ex);
+    throw new RuntimeException(ex);
+  }
+  ArrayList<WALEntryFilter> filters=Lists.newArrayList((WALEntryFilter)new SystemTableWALEntryFilter());
+  WALEntryFilter filterFromEndpoint=this.replicationEndpoint.getWALEntryfilter();
+  if (filterFromEndpoint != null) {
+    filters.add(filterFromEndpoint);
+  }
+  this.walEntryFilter=new ChainWALEntryFilter(filters);
   int sleepMultiplier=1;
   while (this.isActive() && this.peerClusterId == null) {
-    this.peerClusterId=replicationPeers.getPeerUUID(this.peerId);
+    this.peerClusterId=replicationEndpoint.getPeerUUID();
     if (this.isActive() && this.peerClusterId == null) {
       if (sleepForRetries("Cannot contact the peer's zk ensemble",sleepMultiplier)) {
         sleepMultiplier++;
@@ -18,8 +35,8 @@
     return;
   }
   sleepMultiplier=1;
-  if (clusterId.equals(peerClusterId)) {
-    this.terminate("ClusterId " + clusterId + " is replicating to itself: peerClusterId "+ peerClusterId);
+  if (clusterId.equals(peerClusterId) && !replicationEndpoint.canReplicateToSameCluster()) {
+    this.terminate("ClusterId " + clusterId + " is replicating to itself: peerClusterId "+ peerClusterId+ " which is not allowed by ReplicationEndpoint:"+ replicationEndpoint.getClass().getName(),null,false);
   }
   LOG.info("Replicating " + clusterId + " -> "+ peerClusterId);
   if (this.replicationQueueInfo.isQueueRecovered()) {

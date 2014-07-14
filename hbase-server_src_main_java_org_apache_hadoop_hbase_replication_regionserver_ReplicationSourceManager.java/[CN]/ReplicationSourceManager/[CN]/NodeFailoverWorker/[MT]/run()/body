@@ -21,8 +21,22 @@
   for (  Map.Entry<String,SortedSet<String>> entry : newQueues.entrySet()) {
     String peerId=entry.getKey();
     try {
-      ReplicationSourceInterface src=getReplicationSource(conf,fs,ReplicationSourceManager.this,this.rq,this.rp,stopper,peerId,this.clusterId);
-      if (!this.rp.getConnectedPeers().contains((src.getPeerClusterId()))) {
+      ReplicationQueueInfo replicationQueueInfo=new ReplicationQueueInfo(peerId);
+      String actualPeerId=replicationQueueInfo.getPeerId();
+      ReplicationPeer peer=replicationPeers.getPeer(actualPeerId);
+      ReplicationPeerConfig peerConfig=null;
+      try {
+        peerConfig=replicationPeers.getReplicationPeerConfig(actualPeerId);
+      }
+ catch (      ReplicationException ex) {
+        LOG.warn("Received exception while getting replication peer config, skipping replay" + ex);
+      }
+      if (peer == null || peerConfig == null) {
+        LOG.warn("Skipping failover for peer:" + actualPeerId + " of node"+ rsZnode);
+        continue;
+      }
+      ReplicationSourceInterface src=getReplicationSource(conf,fs,ReplicationSourceManager.this,this.rq,this.rp,stopper,peerId,this.clusterId,peerConfig,peer);
+      if (!this.rp.getPeerIds().contains((src.getPeerClusterId()))) {
         src.terminate("Recovered queue doesn't belong to any current peer");
         break;
       }

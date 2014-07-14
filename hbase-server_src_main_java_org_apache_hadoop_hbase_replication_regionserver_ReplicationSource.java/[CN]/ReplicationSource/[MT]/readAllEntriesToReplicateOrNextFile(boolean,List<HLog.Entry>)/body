@@ -7,13 +7,17 @@
   long positionBeforeRead=this.repLogReader.getPosition();
   HLog.Entry entry=this.repLogReader.readNextAndSetPosition();
   while (entry != null) {
-    WALEdit edit=entry.getEdit();
     this.metrics.incrLogEditsRead();
     seenEntries++;
-    HLogKey logKey=entry.getKey();
-    if (!logKey.getClusterIds().contains(peerClusterId)) {
-      removeNonReplicableEdits(entry);
-      if (!logKey.getTablename().equals(TableName.META_TABLE_NAME) && edit.size() != 0) {
+    if (replicationEndpoint.canReplicateToSameCluster() || !entry.getKey().getClusterIds().contains(peerClusterId)) {
+      entry=walEntryFilter.filter(entry);
+      WALEdit edit=null;
+      HLogKey logKey=null;
+      if (entry != null) {
+        edit=entry.getEdit();
+        logKey=entry.getKey();
+      }
+      if (edit != null && edit.size() != 0) {
         logKey.addClusterId(clusterId);
         currentNbOperations+=countDistinctRowKeys(edit);
         entries.add(entry);

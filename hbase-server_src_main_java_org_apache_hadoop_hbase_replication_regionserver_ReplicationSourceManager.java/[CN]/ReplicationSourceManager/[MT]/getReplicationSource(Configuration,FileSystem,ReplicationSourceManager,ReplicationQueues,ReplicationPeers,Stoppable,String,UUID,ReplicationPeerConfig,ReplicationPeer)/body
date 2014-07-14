@@ -1,0 +1,28 @@
+{
+  ReplicationSourceInterface src;
+  try {
+    @SuppressWarnings("rawtypes") Class c=Class.forName(conf.get("replication.replicationsource.implementation",ReplicationSource.class.getCanonicalName()));
+    src=(ReplicationSourceInterface)c.newInstance();
+  }
+ catch (  Exception e) {
+    LOG.warn("Passed replication source implementation throws errors, " + "defaulting to ReplicationSource",e);
+    src=new ReplicationSource();
+  }
+  ReplicationEndpoint replicationEndpoint=null;
+  try {
+    String replicationEndpointImpl=peerConfig.getReplicationEndpointImpl();
+    if (replicationEndpointImpl == null) {
+      replicationEndpointImpl=HBaseInterClusterReplicationEndpoint.class.getName();
+    }
+    @SuppressWarnings("rawtypes") Class c=Class.forName(replicationEndpointImpl);
+    replicationEndpoint=(ReplicationEndpoint)c.newInstance();
+  }
+ catch (  Exception e) {
+    LOG.warn("Passed replication endpoint implementation throws errors",e);
+    throw new IOException(e);
+  }
+  MetricsSource metrics=new MetricsSource(peerId);
+  src.init(conf,fs,manager,replicationQueues,replicationPeers,stopper,peerId,clusterId,replicationEndpoint,metrics);
+  replicationEndpoint.init(new ReplicationEndpoint.Context(replicationPeer.getConfiguration(),fs,peerConfig,peerId,clusterId,replicationPeer,metrics));
+  return src;
+}

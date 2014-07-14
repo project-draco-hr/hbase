@@ -1,36 +1,23 @@
 {
-  String znode=ZKUtil.joinZNode(this.peersZNode,peerId);
-  byte[] data=null;
-  try {
-    data=ZKUtil.getData(this.zookeeper,znode);
-  }
- catch (  KeeperException e) {
-    throw new ReplicationException("Error getting configuration for peer with id=" + peerId,e);
-  }
-catch (  InterruptedException e) {
-    LOG.warn("Could not get configuration for peer because the thread " + "was interrupted. peerId=" + peerId);
-    Thread.currentThread().interrupt();
-    return null;
-  }
-  if (data == null) {
-    LOG.error("Could not get configuration for peer because it doesn't exist. peerId=" + peerId);
-    return null;
-  }
-  String otherClusterKey="";
-  try {
-    otherClusterKey=parsePeerFrom(data);
-  }
- catch (  DeserializationException e) {
-    LOG.warn("Failed to parse cluster key from peerId=" + peerId + ", specifically the content from the following znode: "+ znode);
+  ReplicationPeerConfig peerConfig=getReplicationPeerConfig(peerId);
+  if (peerConfig == null) {
     return null;
   }
   Configuration otherConf=new Configuration(this.conf);
   try {
-    ZKUtil.applyClusterKeyToConf(otherConf,otherClusterKey);
+    if (peerConfig.getClusterKey() != null && !peerConfig.getClusterKey().isEmpty()) {
+      ZKUtil.applyClusterKeyToConf(otherConf,peerConfig.getClusterKey());
+    }
   }
  catch (  IOException e) {
     LOG.error("Can't get peer configuration for peerId=" + peerId + " because:",e);
     return null;
   }
-  return otherConf;
+  if (!peerConfig.getConfiguration().isEmpty()) {
+    CompoundConfiguration compound=new CompoundConfiguration();
+    compound.add(otherConf);
+    compound.addStringMap(peerConfig.getConfiguration());
+    return new Pair<ReplicationPeerConfig,Configuration>(peerConfig,compound);
+  }
+  return new Pair<ReplicationPeerConfig,Configuration>(peerConfig,otherConf);
 }

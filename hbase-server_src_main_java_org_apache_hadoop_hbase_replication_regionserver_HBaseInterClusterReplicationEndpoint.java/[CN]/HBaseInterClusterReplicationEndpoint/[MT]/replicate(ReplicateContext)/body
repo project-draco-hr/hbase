@@ -1,0 +1,58 @@
+{
+  List<HLog.Entry> entries=replicateContext.getEntries();
+  int sleepMultiplier=1;
+  while (this.isRunning()) {
+    if (!peersSelected) {
+      connectToPeers();
+      peersSelected=true;
+    }
+    if (!isPeerEnabled()) {
+      if (sleepForRetries("Replication is disabled",sleepMultiplier)) {
+        sleepMultiplier++;
+      }
+      continue;
+    }
+    SinkPeer sinkPeer=null;
+    try {
+      sinkPeer=replicationSinkMgr.getReplicationSink();
+      BlockingInterface rrs=sinkPeer.getRegionServer();
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Replicating " + entries.size() + " entries of total size "+ replicateContext.getSize());
+      }
+      ReplicationProtbufUtil.replicateWALEntry(rrs,entries.toArray(new HLog.Entry[entries.size()]));
+      this.metrics.setAgeOfLastShippedOp(entries.get(entries.size() - 1).getKey().getWriteTime());
+      return true;
+    }
+ catch (    IOException ioe) {
+      this.metrics.refreshAgeOfLastShippedOp();
+      if (ioe instanceof RemoteException) {
+        ioe=((RemoteException)ioe).unwrapRemoteException();
+        LOG.warn("Can't replicate because of an error on the remote cluster: ",ioe);
+        if (ioe instanceof TableNotFoundException) {
+          if (sleepForRetries("A table is missing in the peer cluster. " + "Replication cannot proceed without losing data.",sleepMultiplier)) {
+            sleepMultiplier++;
+          }
+        }
+      }
+ else {
+        if (ioe instanceof SocketTimeoutException) {
+          sleepForRetries("Encountered a SocketTimeoutException. Since the " + "call to the remote cluster timed out, which is usually " + "caused by a machine failure or a massive slowdown",this.socketTimeoutMultiplier);
+        }
+ else         if (ioe instanceof ConnectException) {
+          LOG.warn("Peer is unavailable, rechecking all sinks: ",ioe);
+          replicationSinkMgr.chooseSinks();
+        }
+ else {
+          LOG.warn("Can't replicate because of a local or network error: ",ioe);
+        }
+      }
+      if (sinkPeer != null) {
+        replicationSinkMgr.reportBadSink(sinkPeer);
+      }
+      if (sleepForRetries("Since we are unable to replicate",sleepMultiplier)) {
+        sleepMultiplier++;
+      }
+    }
+  }
+  return false;
+}
