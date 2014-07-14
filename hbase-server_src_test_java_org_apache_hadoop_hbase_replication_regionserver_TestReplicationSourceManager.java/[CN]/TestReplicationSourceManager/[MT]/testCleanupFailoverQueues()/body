@@ -1,0 +1,24 @@
+{
+  final Server server=new DummyServer("hostname1.example.org");
+  ReplicationQueues rq=ReplicationFactory.getReplicationQueues(server.getZooKeeper(),server.getConfiguration(),server);
+  rq.init(server.getServerName().toString());
+  SortedSet<String> files=new TreeSet<String>();
+  files.add("log1");
+  files.add("log2");
+  for (  String file : files) {
+    rq.addLog("1",file);
+  }
+  Server s1=new DummyServer("dummyserver1.example.org");
+  ReplicationQueues rq1=ReplicationFactory.getReplicationQueues(s1.getZooKeeper(),s1.getConfiguration(),s1);
+  rq1.init(s1.getServerName().toString());
+  ReplicationPeers rp1=ReplicationFactory.getReplicationPeers(s1.getZooKeeper(),s1.getConfiguration(),s1);
+  rp1.init();
+  NodeFailoverWorker w1=manager.new NodeFailoverWorker(server.getServerName().getServerName(),rq1,rp1,new UUID(new Long(1),new Long(2)));
+  w1.start();
+  w1.join(5000);
+  assertEquals(1,manager.getHlogsByIdRecoveredQueues().size());
+  String id="1-" + server.getServerName().getServerName();
+  assertEquals(files,manager.getHlogsByIdRecoveredQueues().get(id));
+  manager.cleanOldLogs("log2",id,true);
+  assertEquals(Sets.newHashSet("log2"),manager.getHlogsByIdRecoveredQueues().get(id));
+}
