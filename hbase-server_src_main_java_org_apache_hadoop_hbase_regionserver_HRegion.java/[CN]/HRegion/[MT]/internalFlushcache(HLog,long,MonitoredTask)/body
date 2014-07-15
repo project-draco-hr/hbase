@@ -23,7 +23,9 @@
   long totalFlushableSize=0;
   status.setStatus("Preparing to flush by snapshotting stores in " + getRegionInfo().getEncodedName());
   List<StoreFlushContext> storeFlushCtxs=new ArrayList<StoreFlushContext>(stores.size());
+  TreeMap<byte[],List<Path>> committedFiles=new TreeMap<byte[],List<Path>>(Bytes.BYTES_COMPARATOR);
   long flushSeqId=-1L;
+  long trxId=0;
   try {
     try {
       w=mvcc.beginMemstoreInsert();
@@ -41,18 +43,45 @@
       for (      Store s : stores.values()) {
         totalFlushableSize+=s.getFlushableSize();
         storeFlushCtxs.add(s.createFlushContext(flushSeqId));
+        committedFiles.put(s.getFamily().getName(),null);
+      }
+      if (wal != null) {
+        FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.START_FLUSH,getRegionInfo(),flushSeqId,committedFiles);
+        trxId=HLogUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,false);
       }
       for (      StoreFlushContext flush : storeFlushCtxs) {
         flush.prepare();
       }
     }
-  finally {
+ catch (    IOException ex) {
+      if (wal != null) {
+        if (trxId > 0) {
+          try {
+            FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.ABORT_FLUSH,getRegionInfo(),flushSeqId,committedFiles);
+            HLogUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,false);
+          }
+ catch (          Throwable t) {
+            LOG.warn("Received unexpected exception trying to write ABORT_FLUSH marker to WAL:" + StringUtils.stringifyException(t));
+          }
+        }
+        wal.abortCacheFlush(this.getRegionInfo().getEncodedNameAsBytes());
+        throw ex;
+      }
+    }
+ finally {
       this.updatesLock.writeLock().unlock();
     }
     String s="Finished memstore snapshotting " + this + ", syncing WAL and waiting on mvcc, flushsize="+ totalFlushableSize;
     status.setStatus(s);
     if (LOG.isTraceEnabled())     LOG.trace(s);
-    if (wal != null && !shouldSyncLog())     wal.sync();
+    if (wal != null) {
+      try {
+        wal.sync();
+      }
+ catch (      IOException ioe) {
+        LOG.warn("Unexpected exception while log.sync(), ignoring. Exception: " + StringUtils.stringifyException(ioe));
+      }
+    }
     mvcc.waitForPreviousTransactionsComplete(w);
     w=null;
     s="Flushing stores of " + this;
@@ -69,17 +98,30 @@
     for (    StoreFlushContext flush : storeFlushCtxs) {
       flush.flushCache(status);
     }
+    Iterator<Store> it=stores.values().iterator();
     for (    StoreFlushContext flush : storeFlushCtxs) {
       boolean needsCompaction=flush.commit(status);
       if (needsCompaction) {
         compactionRequested=true;
       }
+      committedFiles.put(it.next().getFamily().getName(),flush.getCommittedFiles());
     }
     storeFlushCtxs.clear();
     this.addAndGetGlobalMemstoreSize(-totalFlushableSize);
+    if (wal != null) {
+      FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.COMMIT_FLUSH,getRegionInfo(),flushSeqId,committedFiles);
+      HLogUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,true);
+    }
   }
  catch (  Throwable t) {
     if (wal != null) {
+      try {
+        FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.ABORT_FLUSH,getRegionInfo(),flushSeqId,committedFiles);
+        HLogUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,false);
+      }
+ catch (      Throwable ex) {
+        LOG.warn("Received unexpected exception trying to write ABORT_FLUSH marker to WAL:" + StringUtils.stringifyException(ex));
+      }
       wal.abortCacheFlush(this.getRegionInfo().getEncodedNameAsBytes());
     }
     DroppedSnapshotException dse=new DroppedSnapshotException("region: " + Bytes.toStringBinary(getRegionName()));

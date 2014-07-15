@@ -1,0 +1,53 @@
+{
+  String method=name.getMethodName();
+  TableName tableName=TableName.valueOf(method);
+  byte[] family=Bytes.toBytes("family");
+  Path logDir=TEST_UTIL.getDataTestDirOnTestFS("testRecoveredEditsIgnoreFlushMarkers.log");
+  HLog hlog=spy(HLogFactory.createHLog(FILESYSTEM,logDir,UUID.randomUUID().toString(),TEST_UTIL.getConfiguration()));
+  this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,hlog,family);
+  try {
+    int i=0;
+    Put put=new Put(Bytes.toBytes(i));
+    put.setDurability(Durability.SKIP_WAL);
+    put.add(family,Bytes.toBytes(i),Bytes.toBytes(i));
+    region.put(put);
+    IsFlushWALMarker isFlushWALMarker=new IsFlushWALMarker(FlushAction.START_FLUSH);
+    when(hlog.appendNoSync((HTableDescriptor)any(),(HRegionInfo)any(),(HLogKey)any(),(WALEdit)argThat(isFlushWALMarker),(AtomicLong)any(),Mockito.anyBoolean(),(List<KeyValue>)any())).thenThrow(new IOException("Fail to append flush marker"));
+    try {
+      region.flushcache();
+      fail("This should have thrown exception");
+    }
+ catch (    DroppedSnapshotException unexpected) {
+      throw unexpected;
+    }
+catch (    IOException expected) {
+    }
+    isFlushWALMarker.set(FlushAction.COMMIT_FLUSH);
+    try {
+      region.flushcache();
+      fail("This should have thrown exception");
+    }
+ catch (    DroppedSnapshotException expected) {
+    }
+catch (    IOException unexpected) {
+      throw unexpected;
+    }
+    region.close();
+    this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,hlog,family);
+    region.put(put);
+    isFlushWALMarker.set(FlushAction.COMMIT_FLUSH,FlushAction.ABORT_FLUSH);
+    try {
+      region.flushcache();
+      fail("This should have thrown exception");
+    }
+ catch (    DroppedSnapshotException expected) {
+    }
+catch (    IOException unexpected) {
+      throw unexpected;
+    }
+  }
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
+}
