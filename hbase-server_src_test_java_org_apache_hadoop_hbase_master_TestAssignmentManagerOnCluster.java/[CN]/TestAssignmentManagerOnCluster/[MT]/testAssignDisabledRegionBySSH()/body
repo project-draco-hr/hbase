@@ -1,5 +1,5 @@
 {
-  String table="testAssignRacingWithSSH";
+  String table="testAssignDisabledRegionBySSH";
   MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
   MyMaster master=null;
   try {
@@ -11,17 +11,16 @@
     MetaTableAccessor.addRegionToMeta(meta,hri);
     master=(MyMaster)cluster.getMaster();
     master.assignRegion(hri);
-    master.enableSSH(false);
     AssignmentManager am=master.getAssignmentManager();
     RegionStates regionStates=am.getRegionStates();
     ServerName metaServer=regionStates.getRegionServerOfRegion(HRegionInfo.FIRST_META_REGIONINFO);
+    ServerName oldServerName=null;
     while (true) {
       assertTrue(am.waitForAssignment(hri));
       RegionState state=regionStates.getRegionState(hri);
-      ServerName oldServerName=state.getServerName();
+      oldServerName=state.getServerName();
       if (!ServerName.isSameHostnameAndPort(oldServerName,metaServer)) {
-        cluster.killRegionServer(oldServerName);
-        cluster.waitForRegionServerToStop(oldServerName,-1);
+        MyRegionServer.abortedServer=oldServerName;
         break;
       }
       int i=cluster.getServerWithMeta();
@@ -29,21 +28,23 @@
       oldServerName=rs.getServerName();
       master.move(hri.getEncodedNameAsBytes(),Bytes.toBytes(oldServerName.getServerName()));
     }
-    am.assign(hri,true,true);
+    assertTrue(regionStates.isRegionOnline(hri));
+    assertEquals(oldServerName,regionStates.getRegionServerOfRegion(hri));
+    am.unassign(hri,false);
     RegionState state=regionStates.getRegionState(hri);
-    assertTrue(state.isFailedClose());
-    am.unassign(hri,true);
-    assertTrue(state.isFailedClose());
-    master.enableSSH(true);
-    am.waitOnRegionToClearRegionsInTransition(hri);
-    assertTrue(am.waitForAssignment(hri));
-    ServerName serverName=master.getAssignmentManager().getRegionStates().getRegionServerOfRegion(hri);
-    TEST_UTIL.assertRegionOnlyOnServer(hri,serverName,200);
+    assertTrue(state.isOffline());
+    master.disableTable(hri.getTable());
+    cluster.killRegionServer(oldServerName);
+    cluster.waitForRegionServerToStop(oldServerName,-1);
+    ServerManager serverManager=master.getServerManager();
+    while (!serverManager.isServerDead(oldServerName) || serverManager.getDeadServers().areDeadServersInProgress()) {
+      Thread.sleep(100);
+    }
+    am.waitUntilNoRegionsInTransition(60000);
+    assertTrue(regionStates.isRegionOffline(hri));
   }
   finally {
-    if (master != null) {
-      master.enableSSH(true);
-    }
+    MyRegionServer.abortedServer=null;
     TEST_UTIL.deleteTable(Bytes.toBytes(table));
     cluster.startRegionServer();
   }
