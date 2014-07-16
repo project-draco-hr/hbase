@@ -10,73 +10,60 @@
   conf2.set(HConstants.HBASE_CLIENT_INSTANCE_ID,String.valueOf(-1));
   conf2.set(HConstants.ZOOKEEPER_ZNODE_PARENT,"/2");
   MiniZooKeeperCluster miniZK=HTU.getZkCluster();
-  HBaseTestingUtility HTU2=new HBaseTestingUtility(conf2);
+  HTU2=new HBaseTestingUtility(conf2);
   HTU2.setZkCluster(miniZK);
   HTU2.startMiniCluster(NB_SERVERS);
   LOG.info("Setup second Zk");
   HTU2.getHBaseAdmin().createTable(hdt,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
   ReplicationAdmin admin=new ReplicationAdmin(HTU.getConfiguration());
-  try {
-    admin.addPeer("2",HTU2.getClusterKey());
-  }
-  finally {
-    if (admin != null)     admin.close();
-  }
+  admin.addPeer("2",HTU2.getClusterKey());
+  admin.close();
   Put p=new Put(row);
   p.add(row,row,row);
   final HTable table=new HTable(HTU.getConfiguration(),hdt.getTableName());
-  try {
-    table.put(p);
-    HTU.getHBaseAdmin().flush(table.getTableName());
-    LOG.info("Put & flush done on the first cluster. Now doing a get on the same cluster.");
-    Waiter.waitFor(HTU.getConfiguration(),1000,new Waiter.Predicate<Exception>(){
-      @Override public boolean evaluate() throws Exception {
-        try {
-          SlowMeCopro.cdl.set(new CountDownLatch(1));
-          Get g=new Get(row);
-          g.setConsistency(Consistency.TIMELINE);
-          Result r=table.get(g);
-          Assert.assertTrue(r.isStale());
-          return !r.isEmpty();
-        }
+  table.put(p);
+  HTU.getHBaseAdmin().flush(table.getTableName());
+  LOG.info("Put & flush done on the first cluster. Now doing a get on the same cluster.");
+  Waiter.waitFor(HTU.getConfiguration(),1000,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      try {
+        SlowMeCopro.cdl.set(new CountDownLatch(1));
+        Get g=new Get(row);
+        g.setConsistency(Consistency.TIMELINE);
+        Result r=table.get(g);
+        Assert.assertTrue(r.isStale());
+        return !r.isEmpty();
+      }
   finally {
-          SlowMeCopro.cdl.get().countDown();
-          SlowMeCopro.sleepTime.set(0);
-        }
+        SlowMeCopro.cdl.get().countDown();
+        SlowMeCopro.sleepTime.set(0);
       }
     }
+  }
 );
-  }
-  finally {
-    if (table != null)     table.close();
-  }
+  table.close();
   LOG.info("stale get on the first cluster done. Now for the second.");
   final HTable table2=new HTable(HTU.getConfiguration(),hdt.getTableName());
-  try {
-    Waiter.waitFor(HTU.getConfiguration(),1000,new Waiter.Predicate<Exception>(){
-      @Override public boolean evaluate() throws Exception {
-        try {
-          SlowMeCopro.cdl.set(new CountDownLatch(1));
-          Get g=new Get(row);
-          g.setConsistency(Consistency.TIMELINE);
-          Result r=table2.get(g);
-          Assert.assertTrue(r.isStale());
-          return !r.isEmpty();
-        }
+  Waiter.waitFor(HTU.getConfiguration(),1000,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      try {
+        SlowMeCopro.cdl.set(new CountDownLatch(1));
+        Get g=new Get(row);
+        g.setConsistency(Consistency.TIMELINE);
+        Result r=table2.get(g);
+        Assert.assertTrue(r.isStale());
+        return !r.isEmpty();
+      }
   finally {
-          SlowMeCopro.cdl.get().countDown();
-          SlowMeCopro.sleepTime.set(0);
-        }
+        SlowMeCopro.cdl.get().countDown();
+        SlowMeCopro.sleepTime.set(0);
       }
     }
+  }
 );
-  }
-  finally {
-    if (table2 != null)     table2.close();
-  }
+  table2.close();
   HTU.getHBaseAdmin().disableTable(hdt.getTableName());
   HTU.deleteTable(hdt.getTableName());
   HTU2.getHBaseAdmin().disableTable(hdt.getTableName());
   HTU2.deleteTable(hdt.getTableName());
-  HTU2.shutdownMiniCluster();
 }
