@@ -1,0 +1,31 @@
+{
+  String bucketCacheIOEngineName=c.get(BUCKET_CACHE_IOENGINE_KEY,null);
+  if (bucketCacheIOEngineName == null || bucketCacheIOEngineName.length() <= 0)   return null;
+  int blockSize=c.getInt("hbase.offheapcache.minblocksize",HConstants.DEFAULT_BLOCKSIZE);
+  float bucketCachePercentage=c.getFloat(BUCKET_CACHE_SIZE_KEY,0F);
+  long bucketCacheSize=(long)(bucketCachePercentage < 1 ? mu.getMax() * bucketCachePercentage : bucketCachePercentage * 1024 * 1024);
+  if (bucketCacheSize <= 0) {
+    throw new IllegalStateException("bucketCacheSize <= 0; Check " + BUCKET_CACHE_SIZE_KEY + " setting and/or server java heap size");
+  }
+  int writerThreads=c.getInt(BUCKET_CACHE_WRITER_THREADS_KEY,DEFAULT_BUCKET_CACHE_WRITER_THREADS);
+  int writerQueueLen=c.getInt(BUCKET_CACHE_WRITER_QUEUE_KEY,DEFAULT_BUCKET_CACHE_WRITER_QUEUE);
+  String persistentPath=c.get(BUCKET_CACHE_PERSISTENT_PATH_KEY);
+  String[] configuredBucketSizes=c.getStrings(BUCKET_CACHE_BUCKETS_KEY);
+  int[] bucketSizes=null;
+  if (configuredBucketSizes != null) {
+    bucketSizes=new int[configuredBucketSizes.length];
+    for (int i=0; i < configuredBucketSizes.length; i++) {
+      bucketSizes[i]=Integer.parseInt(configuredBucketSizes[i]);
+    }
+  }
+  BucketCache bucketCache=null;
+  try {
+    int ioErrorsTolerationDuration=c.getInt("hbase.bucketcache.ioengine.errors.tolerated.duration",BucketCache.DEFAULT_ERROR_TOLERATION_DURATION);
+    bucketCache=new BucketCache(bucketCacheIOEngineName,bucketCacheSize,blockSize,bucketSizes,writerThreads,writerQueueLen,persistentPath,ioErrorsTolerationDuration);
+  }
+ catch (  IOException ioex) {
+    LOG.error("Can't instantiate bucket cache",ioex);
+    throw new RuntimeException(ioex);
+  }
+  return bucketCache;
+}

@@ -2,56 +2,20 @@
   if (GLOBAL_BLOCK_CACHE_INSTANCE != null)   return GLOBAL_BLOCK_CACHE_INSTANCE;
   if (blockCacheDisabled)   return null;
   MemoryUsage mu=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
-  long lruCacheSize=getLruCacheSize(conf,mu);
-  int blockSize=conf.getInt("hbase.offheapcache.minblocksize",HConstants.DEFAULT_BLOCKSIZE);
-  String bucketCacheIOEngineName=conf.get(BUCKET_CACHE_IOENGINE_KEY,null);
-  float bucketCachePercentage=conf.getFloat(BUCKET_CACHE_SIZE_KEY,0F);
-  long bucketCacheSize=(long)(bucketCachePercentage < 1 ? mu.getMax() * bucketCachePercentage : bucketCachePercentage * 1024 * 1024);
-  boolean combinedWithLru=conf.getBoolean(BUCKET_CACHE_COMBINED_KEY,DEFAULT_BUCKET_CACHE_COMBINED);
-  BucketCache bucketCache=null;
-  if (bucketCacheIOEngineName != null && bucketCacheSize > 0) {
-    int writerThreads=conf.getInt(BUCKET_CACHE_WRITER_THREADS_KEY,DEFAULT_BUCKET_CACHE_WRITER_THREADS);
-    int writerQueueLen=conf.getInt(BUCKET_CACHE_WRITER_QUEUE_KEY,DEFAULT_BUCKET_CACHE_WRITER_QUEUE);
-    String persistentPath=conf.get(BUCKET_CACHE_PERSISTENT_PATH_KEY);
-    float combinedPercentage=conf.getFloat(BUCKET_CACHE_COMBINED_PERCENTAGE_KEY,DEFAULT_BUCKET_CACHE_COMBINED_PERCENTAGE);
-    String[] configuredBucketSizes=conf.getStrings(BUCKET_CACHE_BUCKETS_KEY);
-    int[] bucketSizes=null;
-    if (configuredBucketSizes != null) {
-      bucketSizes=new int[configuredBucketSizes.length];
-      for (int i=0; i < configuredBucketSizes.length; i++) {
-        bucketSizes[i]=Integer.parseInt(configuredBucketSizes[i]);
-      }
-    }
-    if (combinedWithLru) {
-      lruCacheSize=(long)((1 - combinedPercentage) * bucketCacheSize);
-      bucketCacheSize=(long)(combinedPercentage * bucketCacheSize);
-    }
-    LOG.info("Allocating LruBlockCache size=" + StringUtils.byteDesc(lruCacheSize) + ", blockSize="+ StringUtils.byteDesc(blockSize));
-    LruBlockCache lruCache=new LruBlockCache(lruCacheSize,blockSize,true,conf);
-    try {
-      int ioErrorsTolerationDuration=conf.getInt("hbase.bucketcache.ioengine.errors.tolerated.duration",BucketCache.DEFAULT_ERROR_TOLERATION_DURATION);
-      bucketCache=new BucketCache(bucketCacheIOEngineName,bucketCacheSize,blockSize,bucketSizes,writerThreads,writerQueueLen,persistentPath,ioErrorsTolerationDuration);
-    }
- catch (    IOException ioex) {
-      LOG.error("Can't instantiate bucket cache",ioex);
-      throw new RuntimeException(ioex);
-    }
-    if (combinedWithLru) {
-      GLOBAL_BLOCK_CACHE_INSTANCE=new CombinedBlockCache(lruCache,bucketCache);
-    }
- else {
-      GLOBAL_BLOCK_CACHE_INSTANCE=lruCache;
-    }
-    lruCache.setVictimCache(bucketCache);
-  }
-  LOG.info("Allocating LruBlockCache size=" + StringUtils.byteDesc(lruCacheSize) + ", blockSize="+ StringUtils.byteDesc(blockSize));
-  LruBlockCache lruCache=new LruBlockCache(lruCacheSize,blockSize);
-  lruCache.setVictimCache(bucketCache);
-  if (bucketCache != null && combinedWithLru) {
-    GLOBAL_BLOCK_CACHE_INSTANCE=new CombinedBlockCache(lruCache,bucketCache);
+  LruBlockCache l1=getL1(conf,mu);
+  BucketCache l2=getL2(conf,mu);
+  if (l2 == null) {
+    GLOBAL_BLOCK_CACHE_INSTANCE=l1;
   }
  else {
-    GLOBAL_BLOCK_CACHE_INSTANCE=lruCache;
+    boolean combinedWithLru=conf.getBoolean(BUCKET_CACHE_COMBINED_KEY,DEFAULT_BUCKET_CACHE_COMBINED);
+    if (combinedWithLru) {
+      GLOBAL_BLOCK_CACHE_INSTANCE=new CombinedBlockCache(l1,l2);
+    }
+ else {
+      l1.setVictimCache(l2);
+      GLOBAL_BLOCK_CACHE_INSTANCE=l1;
+    }
   }
   return GLOBAL_BLOCK_CACHE_INSTANCE;
 }
