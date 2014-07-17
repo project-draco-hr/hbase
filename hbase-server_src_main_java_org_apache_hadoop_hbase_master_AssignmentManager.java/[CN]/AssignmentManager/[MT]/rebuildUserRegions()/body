@@ -9,6 +9,15 @@
       LOG.debug("null result from meta - ignoring but this is strange.");
       continue;
     }
+    PairOfSameType<HRegionInfo> p=MetaTableAccessor.getMergeRegions(result);
+    if (p.getFirst() != null && p.getSecond() != null) {
+      int numReplicas=((MasterServices)server).getTableDescriptors().get(p.getFirst().getTable()).getRegionReplication();
+      for (      HRegionInfo merge : p) {
+        for (int i=1; i < numReplicas; i++) {
+          replicasToClose.add(RegionReplicaUtil.getRegionInfoForReplica(merge,i));
+        }
+      }
+    }
     RegionLocations rl=MetaTableAccessor.getRegionLocations(result);
     if (rl == null)     continue;
     HRegionLocation[] locations=rl.getRegionLocations();
@@ -18,6 +27,11 @@
       if (regionInfo == null)       continue;
       int replicaId=regionInfo.getReplicaId();
       State state=RegionStateStore.getRegionState(result,replicaId);
+      if (replicaId == 0 && state.equals(State.SPLIT)) {
+        for (        HRegionLocation h : locations) {
+          replicasToClose.add(h.getRegionInfo());
+        }
+      }
       ServerName lastHost=hrl.getServerName();
       ServerName regionLocation=RegionStateStore.getRegionServer(result,replicaId);
       regionStates.createRegionState(regionInfo,state,regionLocation,lastHost);

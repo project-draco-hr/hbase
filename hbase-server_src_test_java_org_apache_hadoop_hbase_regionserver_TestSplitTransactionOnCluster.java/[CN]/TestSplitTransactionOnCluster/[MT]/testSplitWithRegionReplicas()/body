@@ -1,0 +1,67 @@
+{
+  ZooKeeperWatcher zkw=HBaseTestingUtility.getZooKeeperWatcher(TESTING_UTIL);
+  final TableName tableName=TableName.valueOf("foobar");
+  HTableDescriptor htd=TESTING_UTIL.createTableDescriptor("foobar");
+  htd.setRegionReplication(2);
+  htd.addCoprocessor(SlowMeCopro.class.getName());
+  HTable t=TESTING_UTIL.createTable(htd,new byte[][]{Bytes.toBytes("cf")},TESTING_UTIL.getConfiguration());
+  int count;
+  List<HRegion> oldRegions;
+  do {
+    oldRegions=cluster.getRegions(tableName);
+    Thread.sleep(10);
+  }
+ while (oldRegions.size() != 2);
+  for (  HRegion h : oldRegions)   LOG.debug("OLDREGION " + h.getRegionInfo());
+  try {
+    int regionServerIndex=cluster.getServerWith(oldRegions.get(0).getRegionName());
+    HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
+    insertData(tableName.getName(),admin,t);
+    admin.setBalancerRunning(false,true);
+    cluster.getMaster().setCatalogJanitorEnabled(false);
+    boolean tableExists=MetaTableAccessor.tableExists(regionServer.getShortCircuitConnection(),tableName);
+    assertEquals("The specified table should be present.",true,tableExists);
+    final HRegion region=findSplittableRegion(oldRegions);
+    regionServerIndex=cluster.getServerWith(region.getRegionName());
+    regionServer=cluster.getRegionServer(regionServerIndex);
+    assertTrue("not able to find a splittable region",region != null);
+    String node=ZKAssign.getNodeName(regionServer.getZooKeeper(),region.getRegionInfo().getEncodedName());
+    regionServer.getZooKeeper().sync(node);
+    SplitTransaction st=new SplitTransaction(region,Bytes.toBytes("row2"));
+    try {
+      st.prepare();
+      st.execute(regionServer,regionServer);
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+      fail("Split execution should have succeeded with no exceptions thrown " + e);
+    }
+    List<HRegion> newRegions;
+    do {
+      newRegions=cluster.getRegions(tableName);
+      for (      HRegion h : newRegions)       LOG.debug("NEWREGION " + h.getRegionInfo());
+      Thread.sleep(1000);
+    }
+ while ((newRegions.contains(oldRegions.get(0)) || newRegions.contains(oldRegions.get(1))) || newRegions.size() != 4);
+    tableExists=MetaTableAccessor.tableExists(regionServer.getShortCircuitConnection(),tableName);
+    assertEquals("The specified table should be present.",true,tableExists);
+    byte[] b1="row1".getBytes();
+    Get g=new Get(b1);
+    g.setConsistency(Consistency.STRONG);
+    Result r=t.get(g);
+    Assert.assertFalse(r.isStale());
+    LOG.info("exists stale after flush done");
+    SlowMeCopro.getCdl().set(new CountDownLatch(1));
+    g=new Get(b1);
+    g.setConsistency(Consistency.TIMELINE);
+    r=t.get(g);
+    Assert.assertTrue(r.isStale());
+    SlowMeCopro.getCdl().get().countDown();
+  }
+  finally {
+    SlowMeCopro.getCdl().get().countDown();
+    admin.setBalancerRunning(true,false);
+    cluster.getMaster().setCatalogJanitorEnabled(true);
+    t.close();
+  }
+}

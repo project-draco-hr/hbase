@@ -1,0 +1,35 @@
+{
+  int numReplicas=1;
+  try {
+    numReplicas=((MasterServices)server).getTableDescriptors().get(parentHri.getTable()).getRegionReplication();
+  }
+ catch (  IOException e) {
+    LOG.warn("Couldn't get the replication attribute of the table " + parentHri.getTable() + " due to "+ e.getMessage()+ ". The assignment of daughter replicas "+ "replicas will not be done");
+  }
+  List<HRegionInfo> parentRegion=new ArrayList<HRegionInfo>();
+  parentRegion.add(parentHri);
+  Map<ServerName,List<HRegionInfo>> currentAssign=regionStates.getRegionAssignments(parentRegion);
+  Collection<List<HRegionInfo>> c=currentAssign.values();
+  for (  List<HRegionInfo> l : c) {
+    for (    HRegionInfo h : l) {
+      if (!RegionReplicaUtil.isDefaultReplica(h)) {
+        LOG.debug("Unassigning parent's replica " + h);
+        unassign(h);
+      }
+    }
+  }
+  Map<HRegionInfo,ServerName> map=new HashMap<HRegionInfo,ServerName>();
+  for (int i=1; i < numReplicas; i++) {
+    prepareDaughterReplicaForAssignment(hri_a,parentHri,i,map);
+    prepareDaughterReplicaForAssignment(hri_b,parentHri,i,map);
+  }
+  try {
+    assign(map);
+  }
+ catch (  IOException e) {
+    LOG.warn("Caught exception " + e + " while trying to assign replica(s) of daughter(s)");
+  }
+catch (  InterruptedException e) {
+    LOG.warn("Caught exception " + e + " while trying to assign replica(s) of daughter(s)");
+  }
+}

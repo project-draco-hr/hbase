@@ -1,0 +1,35 @@
+{
+  List<HRegionInfo> unmergedRegions=new ArrayList<HRegionInfo>();
+  unmergedRegions.add(hri_a);
+  unmergedRegions.add(hri_b);
+  Map<ServerName,List<HRegionInfo>> map=regionStates.getRegionAssignments(unmergedRegions);
+  Collection<List<HRegionInfo>> c=map.values();
+  for (  List<HRegionInfo> l : c) {
+    for (    HRegionInfo h : l) {
+      if (!RegionReplicaUtil.isDefaultReplica(h)) {
+        LOG.debug("Unassigning un-merged replica " + h);
+        unassign(h);
+      }
+    }
+  }
+  int numReplicas=1;
+  try {
+    numReplicas=((MasterServices)server).getTableDescriptors().get(mergedHri.getTable()).getRegionReplication();
+  }
+ catch (  IOException e) {
+    LOG.warn("Couldn't get the replication attribute of the table " + mergedHri.getTable() + " due to "+ e.getMessage()+ ". The assignment of replicas for the merged region "+ "will not be done");
+  }
+  List<HRegionInfo> regions=new ArrayList<HRegionInfo>();
+  for (int i=1; i < numReplicas; i++) {
+    regions.add(RegionReplicaUtil.getRegionInfoForReplica(mergedHri,i));
+  }
+  try {
+    assign(regions);
+  }
+ catch (  IOException ioe) {
+    LOG.warn("Couldn't assign all replica(s) of region " + mergedHri + " because of "+ ioe.getMessage());
+  }
+catch (  InterruptedException ie) {
+    LOG.warn("Couldn't assign all replica(s) of region " + mergedHri + " because of "+ ie.getMessage());
+  }
+}
