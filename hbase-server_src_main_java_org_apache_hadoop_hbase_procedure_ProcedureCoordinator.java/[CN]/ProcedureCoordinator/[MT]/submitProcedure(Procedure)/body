@@ -3,40 +3,43 @@
     return false;
   }
   String procName=proc.getName();
-synchronized (procedures) {
-    Procedure oldProc=procedures.get(procName);
-    if (oldProc != null) {
-      try {
-        if (!oldProc.isCompleted()) {
-          LOG.warn("Procedure " + procName + " currently running.  Rejecting new request");
+  Procedure oldProc=procedures.get(procName);
+  if (oldProc != null) {
+    try {
+      if (!oldProc.isCompleted()) {
+        LOG.warn("Procedure " + procName + " currently running.  Rejecting new request");
+        return false;
+      }
+ else {
+        LOG.debug("Procedure " + procName + " was in running list but was completed.  Accepting new attempt.");
+        if (!procedures.remove(procName,oldProc)) {
+          LOG.warn("Procedure " + procName + " has been resubmitted by another thread. Rejecting this request.");
           return false;
         }
- else {
-          LOG.debug("Procedure " + procName + " was in running list but was completed.  Accepting new attempt.");
-          procedures.remove(procName);
-        }
       }
- catch (      ForeignException e) {
-        LOG.debug("Procedure " + procName + " was in running list but has exception.  Accepting new attempt.");
-        procedures.remove(procName);
+    }
+ catch (    ForeignException e) {
+      LOG.debug("Procedure " + procName + " was in running list but has exception.  Accepting new attempt.");
+      if (!procedures.remove(procName,oldProc)) {
+        LOG.warn("Procedure " + procName + " has been resubmitted by another thread. Rejecting this request.");
+        return false;
       }
     }
   }
-  Future<Void> f=null;
   try {
-synchronized (procedures) {
-      this.procedures.put(procName,proc);
-      f=this.pool.submit(proc);
+    if (this.procedures.putIfAbsent(procName,proc) == null) {
+      this.pool.submit(proc);
+      return true;
     }
-    return true;
+ else {
+      LOG.error("Another thread has submitted procedure '" + procName + "'. Ignoring this attempt.");
+      return false;
+    }
   }
  catch (  RejectedExecutionException e) {
-    LOG.warn("Procedure " + procName + " rejected by execution pool.  Propagating error and "+ "cancelling operation.",e);
-    this.procedures.remove(procName);
+    LOG.warn("Procedure " + procName + " rejected by execution pool.  Propagating error.",e);
+    this.procedures.remove(procName,proc);
     proc.receive(new ForeignException(procName,e));
-    if (f != null) {
-      f.cancel(true);
-    }
   }
   return false;
 }
