@@ -1,9 +1,7 @@
 {
   RegionLocations rl=getRegionLocations(true,RegionReplicaUtil.DEFAULT_REPLICA_ID,cConnection,tableName,get.getRow());
-  BoundedCompletionService<Result> cs=new BoundedCompletionService<Result>(pool,rl.size());
-  List<ExecutionException> exceptions=null;
-  int submitted=0, completed=0;
-  submitted+=addCallsForReplica(cs,rl,0,0);
+  ResultBoundedCompletionService cs=new ResultBoundedCompletionService(pool,rl.size());
+  addCallsForReplica(cs,rl,0,0);
   try {
     Future<Result> f=cs.poll(timeBeforeReplicas,TimeUnit.MICROSECONDS);
     if (f != null) {
@@ -11,9 +9,7 @@
     }
   }
  catch (  ExecutionException e) {
-    exceptions=new ArrayList<ExecutionException>(rl.size());
-    exceptions.add(e);
-    completed++;
+    throwEnrichedException(e,retries);
   }
 catch (  CancellationException e) {
     throw new InterruptedIOException();
@@ -21,18 +17,14 @@ catch (  CancellationException e) {
 catch (  InterruptedException e) {
     throw new InterruptedIOException();
   }
-  submitted+=addCallsForReplica(cs,rl,1,rl.size() - 1);
+  addCallsForReplica(cs,rl,1,rl.size() - 1);
   try {
-    while (completed < submitted) {
-      try {
-        Future<Result> f=cs.take();
-        return f.get();
-      }
- catch (      ExecutionException e) {
-        if (exceptions == null)         exceptions=new ArrayList<ExecutionException>(rl.size());
-        exceptions.add(e);
-        completed++;
-      }
+    try {
+      Future<Result> f=cs.take();
+      return f.get();
+    }
+ catch (    ExecutionException e) {
+      throwEnrichedException(e,retries);
     }
   }
  catch (  CancellationException e) {
@@ -42,10 +34,7 @@ catch (  InterruptedException e) {
     throw new InterruptedIOException();
   }
  finally {
-    cs.cancelAll(true);
-  }
-  if (exceptions != null && !exceptions.isEmpty()) {
-    throwEnrichedException(exceptions.get(0),retries,toString());
+    cs.cancelAll();
   }
   return null;
 }
