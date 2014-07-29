@@ -44,8 +44,6 @@ catch (      IOException e) {
   }
   for (  RegionOpenInfo regionOpenInfo : request.getOpenInfoList()) {
     final HRegionInfo region=HRegionInfo.convert(regionOpenInfo.getRegion());
-    OpenRegionCoordination coordination=regionServer.getCoordinatedStateManager().getOpenRegionCoordination();
-    OpenRegionCoordination.OpenRegionDetails ord=coordination.parseFromProtoRequest(regionOpenInfo);
     HTableDescriptor htd;
     try {
       final HRegion onlineRegion=regionServer.getFromOnlineRegions(region.getEncodedName());
@@ -75,7 +73,6 @@ catch (      IOException e) {
       }
       final Boolean previous=regionServer.regionsInTransitionInRS.putIfAbsent(region.getEncodedNameAsBytes(),Boolean.TRUE);
       if (Boolean.FALSE.equals(previous)) {
-        coordination.tryTransitionFromOfflineToFailedOpen(regionServer,region,ord);
         throw new RegionAlreadyInTransitionException("Received OPEN for the region:" + region.getRegionNameAsString() + " , which we are already trying to CLOSE ");
       }
       if (Boolean.TRUE.equals(previous)) {
@@ -94,11 +91,11 @@ catch (      IOException e) {
           }
         }
         if (region.isMetaRegion()) {
-          regionServer.service.submit(new OpenMetaHandler(regionServer,regionServer,region,htd,coordination,ord));
+          regionServer.service.submit(new OpenMetaHandler(regionServer,regionServer,region,htd));
         }
  else {
           regionServer.updateRegionFavoredNodesMapping(region.getEncodedName(),regionOpenInfo.getFavoredNodesList());
-          regionServer.service.submit(new OpenRegionHandler(regionServer,regionServer,region,htd,coordination,ord));
+          regionServer.service.submit(new OpenRegionHandler(regionServer,regionServer,region,htd));
         }
       }
       builder.addOpeningState(RegionOpeningState.OPENED);

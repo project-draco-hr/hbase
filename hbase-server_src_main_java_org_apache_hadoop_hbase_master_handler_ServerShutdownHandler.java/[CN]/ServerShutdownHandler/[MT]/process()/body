@@ -12,14 +12,9 @@
       try {
         server.getMetaTableLocator().waitMetaRegionLocation(server.getZooKeeper());
         if (!this.server.isStopped()) {
-          if (ConfigUtil.useZKForAssignment(server.getConfiguration())) {
-            hris=MetaTableAccessor.getServerUserRegions(this.server.getShortCircuitConnection(),this.serverName).keySet();
-          }
- else {
-            hris=am.getRegionStates().getServerRegions(serverName);
-            if (hris != null) {
-              hris.remove(HRegionInfo.FIRST_META_REGIONINFO);
-            }
+          hris=am.getRegionStates().getServerRegions(serverName);
+          if (hris != null) {
+            hris.remove(HRegionInfo.FIRST_META_REGIONINFO);
           }
         }
         break;
@@ -27,9 +22,6 @@
  catch (      InterruptedException e) {
         Thread.currentThread().interrupt();
         throw (InterruptedIOException)new InterruptedIOException().initCause(e);
-      }
-catch (      IOException ioe) {
-        LOG.info("Received exception accessing hbase:meta during server shutdown of " + serverName + ", retrying hbase:meta read",ioe);
       }
     }
     if (this.server.isStopped()) {
@@ -82,15 +74,8 @@ catch (      IOException ioe) {
                 LOG.info("Skip assigning region in transition on other server" + rit);
                 continue;
               }
-              try {
-                LOG.info("Reassigning region with rs = " + rit + " and deleting zk node if exists");
-                ZKAssign.deleteNodeFailSilent(services.getZooKeeper(),hri);
-                regionStates.updateRegionState(hri,State.OFFLINE);
-              }
- catch (              KeeperException ke) {
-                this.server.abort("Unexpected ZK exception deleting unassigned node " + hri,ke);
-                return;
-              }
+              LOG.info("Reassigning region with rs = " + rit);
+              regionStates.updateRegionState(hri,State.OFFLINE);
             }
  else             if (regionStates.isRegionInState(hri,State.SPLITTING_NEW,State.MERGING_NEW)) {
               regionStates.updateRegionState(hri,State.OFFLINE);
@@ -100,7 +85,6 @@ catch (      IOException ioe) {
  else           if (rit != null) {
             if (rit.isPendingCloseOrClosing() && am.getTableStateManager().isTableState(hri.getTable(),ZooKeeperProtos.Table.State.DISABLED,ZooKeeperProtos.Table.State.DISABLING) || am.getReplicasToClose().contains(hri)) {
               regionStates.updateRegionState(hri,State.OFFLINE);
-              am.deleteClosingOrClosedNode(hri,rit.getServerName());
               am.offlineDisabledRegion(hri);
             }
  else {

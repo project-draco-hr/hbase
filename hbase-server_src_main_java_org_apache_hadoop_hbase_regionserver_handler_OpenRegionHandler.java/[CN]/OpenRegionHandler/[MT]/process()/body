@@ -1,6 +1,5 @@
 {
   boolean openSuccessful=false;
-  boolean transitionedToOpening=false;
   final String regionName=regionInfo.getRegionNameAsString();
   HRegion region=null;
   try {
@@ -16,25 +15,14 @@
       LOG.error("Region " + encodedName + " opening cancelled");
       return;
     }
-    if (useZKForAssignment && !coordination.transitionFromOfflineToOpening(regionInfo,ord)) {
-      LOG.warn("Region was hijacked? Opening cancelled for encodedName=" + encodedName);
-      return;
-    }
-    transitionedToOpening=true;
     region=openRegion();
     if (region == null) {
       return;
     }
-    boolean failed=true;
-    if (!useZKForAssignment || coordination.tickleOpening(ord,regionInfo,rsServices,"post_region_open")) {
-      if (updateMeta(region)) {
-        failed=false;
-      }
-    }
-    if (failed || this.server.isStopped() || this.rsServices.isStopping()) {
+    if (!updateMeta(region) || this.server.isStopped() || this.rsServices.isStopping()) {
       return;
     }
-    if (!isRegionStillOpening() || (useZKForAssignment && !coordination.transitionToOpened(region,ord))) {
+    if (!isRegionStillOpening()) {
       return;
     }
     this.rsServices.addToOnlineRegions(region);
@@ -43,7 +31,7 @@
   }
   finally {
     if (!openSuccessful) {
-      doCleanUpOnFailedOpen(region,transitionedToOpening,ord);
+      doCleanUpOnFailedOpen(region);
     }
     final Boolean current=this.rsServices.getRegionsInTransitionInRS().remove(this.regionInfo.getEncodedNameAsBytes());
     if (openSuccessful) {

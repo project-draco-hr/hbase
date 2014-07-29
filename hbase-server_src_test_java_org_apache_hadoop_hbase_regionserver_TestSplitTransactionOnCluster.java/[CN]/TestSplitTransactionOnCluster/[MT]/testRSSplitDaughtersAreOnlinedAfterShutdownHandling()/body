@@ -1,0 +1,30 @@
+{
+  final byte[] tableName=Bytes.toBytes("testRSSplitDaughtersAreOnlinedAfterShutdownHandling");
+  HTable t=createTableAndWait(tableName,HConstants.CATALOG_FAMILY);
+  List<HRegion> regions=cluster.getRegions(tableName);
+  HRegionInfo hri=getAndCheckSingleTableRegion(regions);
+  int tableRegionIndex=ensureTableRegionNotOnSameServerAsMeta(admin,hri);
+  this.admin.setBalancerRunning(false,true);
+  cluster.getMaster().setCatalogJanitorEnabled(false);
+  try {
+    TESTING_UTIL.loadTable(t,HConstants.CATALOG_FAMILY,false);
+    HRegionServer server=cluster.getRegionServer(tableRegionIndex);
+    printOutRegions(server,"Initial regions: ");
+    int regionCount=ProtobufUtil.getOnlineRegions(server.getRSRpcServices()).size();
+    AssignmentManager.TEST_SKIP_SPLIT_HANDLING=true;
+    try {
+      split(hri,server,regionCount);
+    }
+ catch (    RegionServerStoppedException rsse) {
+    }
+    waitUntilRegionServerDead();
+    awaitDaughters(tableName,2);
+  }
+  finally {
+    AssignmentManager.TEST_SKIP_SPLIT_HANDLING=false;
+    admin.setBalancerRunning(true,false);
+    cluster.getMaster().setCatalogJanitorEnabled(true);
+    cluster.startRegionServer();
+    t.close();
+  }
+}

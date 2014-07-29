@@ -1,0 +1,37 @@
+{
+  List<HRegionInfo> rits=new ArrayList<HRegionInfo>();
+  Set<HRegionInfo> assignedRegions=serverHoldings.get(sn);
+  if (assignedRegions == null) {
+    assignedRegions=new HashSet<HRegionInfo>();
+  }
+  Set<HRegionInfo> regionsToOffline=new HashSet<HRegionInfo>();
+  for (  HRegionInfo region : assignedRegions) {
+    if (isRegionOnline(region)) {
+      regionsToOffline.add(region);
+    }
+ else     if (isRegionInState(region,State.SPLITTING,State.MERGING)) {
+      LOG.debug("Offline splitting/merging region " + getRegionState(region));
+      regionsToOffline.add(region);
+    }
+  }
+  for (  HRegionInfo hri : regionsToOffline) {
+    regionOffline(hri);
+  }
+  for (  RegionState state : regionsInTransition.values()) {
+    HRegionInfo hri=state.getRegion();
+    if (assignedRegions.contains(hri)) {
+      LOG.info("Transitioning " + state + " will be handled by SSH for "+ sn);
+    }
+ else     if (sn.equals(state.getServerName())) {
+      if (state.isPendingOpenOrOpening() || state.isFailedClose() || state.isOffline()) {
+        LOG.info("Found region in " + state + " to be reassigned by SSH for "+ sn);
+        rits.add(hri);
+      }
+ else {
+        LOG.warn("THIS SHOULD NOT HAPPEN: unexpected " + state);
+      }
+    }
+  }
+  this.notifyAll();
+  return rits;
+}

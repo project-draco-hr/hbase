@@ -1,0 +1,148 @@
+{
+  long startTime=EnvironmentEdgeManager.currentTimeMillis();
+  try {
+    Configuration conf=server.getConfiguration();
+    RegionPlan plan=null;
+    long maxWaitTime=-1;
+    HRegionInfo region=state.getRegion();
+    RegionOpeningState regionOpenState;
+    Throwable previousException=null;
+    for (int i=1; i <= maximumAttempts; i++) {
+      if (server.isStopped() || server.isAborted()) {
+        LOG.info("Skip assigning " + region.getRegionNameAsString() + ", the server is stopped/aborted");
+        return;
+      }
+      if (plan == null) {
+        try {
+          plan=getRegionPlan(region,forceNewPlan);
+        }
+ catch (        HBaseIOException e) {
+          LOG.warn("Failed to get region plan",e);
+        }
+      }
+      if (plan == null) {
+        LOG.warn("Unable to determine a plan to assign " + region);
+        if (region.isMetaRegion()) {
+          try {
+            Thread.sleep(this.sleepTimeBeforeRetryingMetaAssignment);
+            if (i == maximumAttempts)             i=1;
+            continue;
+          }
+ catch (          InterruptedException e) {
+            LOG.error("Got exception while waiting for hbase:meta assignment");
+            Thread.currentThread().interrupt();
+          }
+        }
+        regionStates.updateRegionState(region,State.FAILED_OPEN);
+        return;
+      }
+      TableName tableName=region.getTable();
+      if (!tableStateManager.isTableState(tableName,ZooKeeperProtos.Table.State.ENABLED,ZooKeeperProtos.Table.State.ENABLING)) {
+        LOG.debug("Setting table " + tableName + " to ENABLED state.");
+        setEnabledTable(tableName);
+      }
+      LOG.info("Assigning " + region.getRegionNameAsString() + " to "+ plan.getDestination().toString());
+      regionStates.updateRegionState(region,State.PENDING_OPEN,plan.getDestination());
+      boolean needNewPlan;
+      final String assignMsg="Failed assignment of " + region.getRegionNameAsString() + " to "+ plan.getDestination();
+      try {
+        List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
+        if (this.shouldAssignRegionsWithFavoredNodes) {
+          favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
+        }
+        regionOpenState=serverManager.sendRegionOpen(plan.getDestination(),region,favoredNodes);
+        if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
+          needNewPlan=true;
+          LOG.warn(assignMsg + ", regionserver says 'FAILED_OPENING', " + " trying to assign elsewhere instead; "+ "try="+ i+ " of "+ this.maximumAttempts);
+        }
+ else {
+          return;
+        }
+      }
+ catch (      Throwable t) {
+        if (t instanceof RemoteException) {
+          t=((RemoteException)t).unwrapRemoteException();
+        }
+        previousException=t;
+        boolean hold=(t instanceof RegionAlreadyInTransitionException || t instanceof ServerNotRunningYetException);
+        boolean retry=!hold && (t instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(plan.getDestination()));
+        if (hold) {
+          LOG.warn(assignMsg + ", waiting a little before trying on the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
+          if (maxWaitTime < 0) {
+            if (t instanceof RegionAlreadyInTransitionException) {
+              maxWaitTime=EnvironmentEdgeManager.currentTimeMillis() + this.server.getConfiguration().getLong(ALREADY_IN_TRANSITION_WAITTIME,DEFAULT_ALREADY_IN_TRANSITION_WAITTIME);
+            }
+ else {
+              maxWaitTime=this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
+            }
+          }
+          try {
+            needNewPlan=false;
+            long now=EnvironmentEdgeManager.currentTimeMillis();
+            if (now < maxWaitTime) {
+              LOG.debug("Server is not yet up or region is already in transition; " + "waiting up to " + (maxWaitTime - now) + "ms",t);
+              Thread.sleep(100);
+              i--;
+            }
+ else             if (!(t instanceof RegionAlreadyInTransitionException)) {
+              LOG.debug("Server is not up for a while; try a new one",t);
+              needNewPlan=true;
+            }
+          }
+ catch (          InterruptedException ie) {
+            LOG.warn("Failed to assign " + region.getRegionNameAsString() + " since interrupted",ie);
+            regionStates.updateRegionState(region,State.FAILED_OPEN);
+            Thread.currentThread().interrupt();
+            return;
+          }
+        }
+ else         if (retry) {
+          needNewPlan=false;
+          i--;
+          LOG.warn(assignMsg + ", trying to assign to the same region server due ",t);
+        }
+ else {
+          needNewPlan=true;
+          LOG.warn(assignMsg + ", trying to assign elsewhere instead;" + " try="+ i+ " of "+ this.maximumAttempts,t);
+        }
+      }
+      if (i == this.maximumAttempts) {
+        continue;
+      }
+      if (needNewPlan) {
+        RegionPlan newPlan=null;
+        try {
+          newPlan=getRegionPlan(region,true);
+        }
+ catch (        HBaseIOException e) {
+          LOG.warn("Failed to get region plan",e);
+        }
+        if (newPlan == null) {
+          regionStates.updateRegionState(region,State.FAILED_OPEN);
+          LOG.warn("Unable to find a viable location to assign region " + region.getRegionNameAsString());
+          return;
+        }
+        if (plan != newPlan && !plan.getDestination().equals(newPlan.getDestination())) {
+          regionStates.updateRegionState(region,State.OFFLINE);
+          plan=newPlan;
+        }
+ else         if (plan.getDestination().equals(newPlan.getDestination()) && previousException instanceof FailedServerException) {
+          try {
+            LOG.info("Trying to re-assign " + region.getRegionNameAsString() + " to the same failed server.");
+            Thread.sleep(1 + conf.getInt(RpcClient.FAILED_SERVER_EXPIRY_KEY,RpcClient.FAILED_SERVER_EXPIRY_DEFAULT));
+          }
+ catch (          InterruptedException ie) {
+            LOG.warn("Failed to assign " + region.getRegionNameAsString() + " since interrupted",ie);
+            regionStates.updateRegionState(region,State.FAILED_OPEN);
+            Thread.currentThread().interrupt();
+            return;
+          }
+        }
+      }
+    }
+    regionStates.updateRegionState(region,State.FAILED_OPEN);
+  }
+  finally {
+    metricsAssignmentManager.updateAssignmentTime(EnvironmentEdgeManager.currentTimeMillis() - startTime);
+  }
+}

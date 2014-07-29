@@ -1,3 +1,24 @@
 {
-  assign(region,setOfflineInZK,false);
+  if (isDisabledorDisablingRegionInRIT(region)) {
+    return;
+  }
+  if (this.serverManager.isClusterShutdown()) {
+    LOG.info("Cluster shutdown is set; skipping assign of " + region.getRegionNameAsString());
+    return;
+  }
+  String encodedName=region.getEncodedName();
+  Lock lock=locker.acquireLock(encodedName);
+  try {
+    RegionState state=forceRegionStateToOffline(region,forceNewPlan);
+    if (state != null) {
+      if (regionStates.wasRegionOnDeadServer(encodedName)) {
+        LOG.info("Skip assigning " + region.getRegionNameAsString() + ", it's host "+ regionStates.getLastRegionServerOfRegion(encodedName)+ " is dead but not processed yet");
+        return;
+      }
+      assign(state,forceNewPlan);
+    }
+  }
+  finally {
+    lock.unlock();
+  }
 }

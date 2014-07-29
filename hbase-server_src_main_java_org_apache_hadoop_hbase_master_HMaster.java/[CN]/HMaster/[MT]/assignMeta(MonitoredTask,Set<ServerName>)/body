@@ -4,22 +4,19 @@
   status.setStatus("Assigning hbase:meta region");
   RegionStates regionStates=assignmentManager.getRegionStates();
   regionStates.createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
-  boolean rit=this.assignmentManager.processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
   boolean metaRegionLocation=metaTableLocator.verifyMetaRegionLocation(this.getShortCircuitConnection(),this.getZooKeeper(),timeout);
   ServerName currentMetaServer=metaTableLocator.getMetaRegionLocation(this.getZooKeeper());
   if (!metaRegionLocation) {
-    assigned++;
-    if (!rit) {
-      if (currentMetaServer != null) {
-        if (serverManager.isServerOnline(currentMetaServer)) {
-          LOG.info("Forcing expire of " + currentMetaServer);
-          serverManager.expireServer(currentMetaServer);
-        }
-        splitMetaLogBeforeAssignment(currentMetaServer);
-        previouslyFailedMetaRSs.add(currentMetaServer);
+    if (currentMetaServer != null) {
+      if (serverManager.isServerOnline(currentMetaServer)) {
+        LOG.info("Forcing expire of " + currentMetaServer);
+        serverManager.expireServer(currentMetaServer);
       }
-      assignmentManager.assignMeta();
+      splitMetaLogBeforeAssignment(currentMetaServer);
+      previouslyFailedMetaRSs.add(currentMetaServer);
     }
+    assignmentManager.assignMeta();
+    assigned++;
   }
  else {
     regionStates.updateRegionState(HRegionInfo.FIRST_META_REGIONINFO,State.OPEN,currentMetaServer);
@@ -31,6 +28,6 @@
     this.fileSystemManager.splitMetaLog(previouslyFailedMetaRSs);
   }
   enableServerShutdownHandler(assigned != 0);
-  LOG.info("hbase:meta assigned=" + assigned + ", rit="+ rit+ ", location="+ metaTableLocator.getMetaRegionLocation(this.getZooKeeper()));
+  LOG.info("hbase:meta assigned=" + assigned + ", location="+ metaTableLocator.getMetaRegionLocation(this.getZooKeeper()));
   status.setStatus("META assigned.");
 }

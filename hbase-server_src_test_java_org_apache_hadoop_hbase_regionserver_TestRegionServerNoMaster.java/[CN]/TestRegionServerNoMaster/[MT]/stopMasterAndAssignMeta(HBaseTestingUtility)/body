@@ -1,17 +1,23 @@
 {
-  HTU.getHBaseCluster().getMaster().stopMaster();
+  HMaster master=HTU.getHBaseCluster().getMaster();
+  ServerName masterAddr=master.getServerName();
+  master.stopMaster();
   Log.info("Waiting until master thread exits");
   while (HTU.getHBaseCluster().getMasterThread() != null && HTU.getHBaseCluster().getMasterThread().isAlive()) {
     Threads.sleep(100);
   }
-  HRegionServer hrs=HTU.getHBaseCluster().getRegionServer(0);
+  HRegionServer.TEST_SKIP_REPORTING_TRANSITION=true;
+  HRegionServer hrs=HTU.getHBaseCluster().getLiveRegionServerThreads().get(0).getRegionServer();
   ZooKeeperWatcher zkw=hrs.getZooKeeper();
-  ZKAssign.createNodeOffline(zkw,HRegionInfo.FIRST_META_REGIONINFO,hrs.getServerName());
-  ProtobufUtil.openRegion(hrs.getRSRpcServices(),hrs.getServerName(),HRegionInfo.FIRST_META_REGIONINFO);
   MetaTableLocator mtl=new MetaTableLocator();
+  ServerName sn=mtl.getMetaRegionLocation(zkw);
+  if (sn != null && !masterAddr.equals(sn)) {
+    return;
+  }
+  ProtobufUtil.openRegion(hrs.getRSRpcServices(),hrs.getServerName(),HRegionInfo.FIRST_META_REGIONINFO);
   while (true) {
-    ServerName sn=mtl.getMetaRegionLocation(zkw);
-    if (sn != null && sn.equals(hrs.getServerName())) {
+    sn=mtl.getMetaRegionLocation(zkw);
+    if (sn != null && sn.equals(hrs.getServerName()) && hrs.onlineRegions.containsKey(HRegionInfo.FIRST_META_REGIONINFO.getEncodedName())) {
       break;
     }
     Thread.sleep(100);

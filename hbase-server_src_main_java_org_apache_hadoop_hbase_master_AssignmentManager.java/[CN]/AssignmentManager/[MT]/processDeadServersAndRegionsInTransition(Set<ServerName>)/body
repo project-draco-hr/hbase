@@ -1,10 +1,4 @@
 {
-  List<String> nodes=ZKUtil.listChildrenNoWatch(watcher,watcher.assignmentZNode);
-  if (useZKForAssignment && nodes == null) {
-    String errorMessage="Failed to get the children from ZK";
-    server.abort(errorMessage,new IOException(errorMessage));
-    return true;
-  }
   boolean failover=!serverManager.getDeadServers().isEmpty();
   if (failover) {
     if (LOG.isDebugEnabled()) {
@@ -12,33 +6,24 @@
     }
   }
  else {
-    for (    HRegionInfo hri : regionStates.getRegionAssignments().keySet()) {
-      if (!hri.isMetaTable()) {
+    Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
+    for (    Map.Entry<HRegionInfo,ServerName> en : regionStates.getRegionAssignments().entrySet()) {
+      HRegionInfo hri=en.getKey();
+      if (!hri.isMetaTable() && onlineServers.contains(en.getValue())) {
         LOG.debug("Found " + hri + " out on cluster");
         failover=true;
         break;
       }
     }
-  }
-  if (!failover && nodes != null) {
-    for (    String encodedName : nodes) {
-      RegionState regionState=regionStates.getRegionState(encodedName);
-      if (regionState != null && !regionState.getRegion().isMetaRegion()) {
-        LOG.debug("Found " + regionState + " in RITs");
-        failover=true;
-        break;
-      }
-    }
-  }
-  if (!failover && !useZKForAssignment) {
-    Map<String,RegionState> regionsInTransition=regionStates.getRegionsInTransition();
-    if (!regionsInTransition.isEmpty()) {
-      Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
-      for (      RegionState regionState : regionsInTransition.values()) {
-        if (!regionState.getRegion().isMetaRegion() && onlineServers.contains(regionState.getServerName())) {
-          LOG.debug("Found " + regionState + " in RITs");
-          failover=true;
-          break;
+    if (!failover) {
+      Map<String,RegionState> regionsInTransition=regionStates.getRegionsInTransition();
+      if (!regionsInTransition.isEmpty()) {
+        for (        RegionState regionState : regionsInTransition.values()) {
+          if (!regionState.getRegion().isMetaRegion() && onlineServers.contains(regionState.getServerName())) {
+            LOG.debug("Found " + regionState + " in RITs");
+            failover=true;
+            break;
+          }
         }
       }
     }
@@ -72,12 +57,7 @@
   }
   regionStateStore.start();
   if (failover) {
-    LOG.info("Found regions out on cluster or in RIT; presuming failover");
-    processDeadServersAndRecoverLostRegions(deadServers);
-  }
-  if (!failover && useZKForAssignment) {
-    ZKAssign.deleteAllNodes(watcher);
-    ZKUtil.listChildrenAndWatchForNewChildren(this.watcher,this.watcher.assignmentZNode);
+    processDeadServers(deadServers);
   }
   failoverCleanupDone();
   if (!failover) {

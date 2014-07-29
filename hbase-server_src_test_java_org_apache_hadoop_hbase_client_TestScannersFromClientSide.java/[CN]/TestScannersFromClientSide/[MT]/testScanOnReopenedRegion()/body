@@ -22,7 +22,7 @@
   byte[] regionName=hri.getRegionName();
   int i=cluster.getServerWith(regionName);
   HRegionServer rs=cluster.getRegionServer(i);
-  ProtobufUtil.closeRegion(rs.getRSRpcServices(),rs.getServerName(),regionName,false);
+  ProtobufUtil.closeRegion(rs.getRSRpcServices(),rs.getServerName(),regionName);
   long startTime=EnvironmentEdgeManager.currentTimeMillis();
   long timeOut=300000;
   while (true) {
@@ -32,27 +32,18 @@
     assertTrue("Timed out in closing the testing region",EnvironmentEdgeManager.currentTimeMillis() < startTime + timeOut);
     Thread.sleep(500);
   }
-  ZooKeeperWatcher zkw=TEST_UTIL.getZooKeeperWatcher();
-  try {
-    HMaster master=cluster.getMaster();
-    RegionStates states=master.getAssignmentManager().getRegionStates();
-    states.regionOffline(hri);
-    states.updateRegionState(hri,State.OPENING);
-    if (ConfigUtil.useZKForAssignment(TEST_UTIL.getConfiguration())) {
-      ZKAssign.createNodeOffline(zkw,hri,loc.getServerName());
+  HMaster master=cluster.getMaster();
+  RegionStates states=master.getAssignmentManager().getRegionStates();
+  states.regionOffline(hri);
+  states.updateRegionState(hri,State.OPENING);
+  ProtobufUtil.openRegion(rs.getRSRpcServices(),rs.getServerName(),hri);
+  startTime=EnvironmentEdgeManager.currentTimeMillis();
+  while (true) {
+    if (rs.getOnlineRegion(regionName) != null) {
+      break;
     }
-    ProtobufUtil.openRegion(rs.getRSRpcServices(),rs.getServerName(),hri);
-    startTime=EnvironmentEdgeManager.currentTimeMillis();
-    while (true) {
-      if (rs.getOnlineRegion(regionName) != null) {
-        break;
-      }
-      assertTrue("Timed out in open the testing region",EnvironmentEdgeManager.currentTimeMillis() < startTime + timeOut);
-      Thread.sleep(500);
-    }
-  }
-  finally {
-    ZKAssign.deleteNodeFailSilent(zkw,hri);
+    assertTrue("Timed out in open the testing region",EnvironmentEdgeManager.currentTimeMillis() < startTime + timeOut);
+    Thread.sleep(500);
   }
   kvListExp=new ArrayList<Cell>();
   kvListExp.add(new KeyValue(ROW,FAMILY,QUALIFIERS[0],0,VALUE));

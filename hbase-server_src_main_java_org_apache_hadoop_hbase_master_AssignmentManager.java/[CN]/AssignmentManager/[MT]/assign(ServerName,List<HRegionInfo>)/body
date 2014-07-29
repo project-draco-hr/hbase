@@ -13,11 +13,8 @@
     List<HRegionInfo> failedToOpenRegions=new ArrayList<HRegionInfo>();
     Map<String,Lock> locks=locker.acquireLocks(encodedNames);
     try {
-      AtomicInteger counter=new AtomicInteger(0);
-      Map<String,Integer> offlineNodesVersions=new ConcurrentHashMap<String,Integer>();
-      OfflineCallback cb=new OfflineCallback(watcher,destination,counter,offlineNodesVersions);
-      Map<String,RegionPlan> plans=new HashMap<String,RegionPlan>(regions.size());
-      List<RegionState> states=new ArrayList<RegionState>(regions.size());
+      Map<String,RegionPlan> plans=new HashMap<String,RegionPlan>(regionCount);
+      List<RegionState> states=new ArrayList<RegionState>(regionCount);
       for (      HRegionInfo region : regions) {
         String encodedName=region.getEncodedName();
         if (!isDisabledorDisablingRegionInRIT(region)) {
@@ -28,7 +25,7 @@
               LOG.info("Skip assigning " + region.getRegionNameAsString() + ", it's host "+ regionStates.getLastRegionServerOfRegion(encodedName)+ " is dead but not processed yet");
               onDeadServer=true;
             }
- else             if (!useZKForAssignment || asyncSetOfflineInZooKeeper(state,cb,destination)) {
+ else {
               RegionPlan plan=new RegionPlan(region,state.getServerName(),destination);
               plans.put(encodedName,plan);
               states.add(state);
@@ -36,48 +33,26 @@
             }
           }
           if (!onDeadServer) {
-            LOG.info("failed to force region state to offline or " + "failed to set it offline in ZK, will reassign later: " + region);
+            LOG.info("failed to force region state to offline, " + "will reassign later: " + region);
             failedToOpenRegions.add(region);
           }
         }
         Lock lock=locks.remove(encodedName);
         lock.unlock();
       }
-      if (useZKForAssignment) {
-        int total=states.size();
-        for (int oldCounter=0; !server.isStopped(); ) {
-          int count=counter.get();
-          if (oldCounter != count) {
-            LOG.debug(destination.toString() + " unassigned znodes=" + count+ " of total="+ total+ "; oldCounter="+ oldCounter);
-            oldCounter=count;
-          }
-          if (count >= total)           break;
-          Thread.sleep(5);
-        }
-      }
       if (server.isStopped()) {
         return false;
       }
       this.addPlans(plans);
-      List<Triple<HRegionInfo,Integer,List<ServerName>>> regionOpenInfos=new ArrayList<Triple<HRegionInfo,Integer,List<ServerName>>>(states.size());
+      List<Pair<HRegionInfo,List<ServerName>>> regionOpenInfos=new ArrayList<Pair<HRegionInfo,List<ServerName>>>(states.size());
       for (      RegionState state : states) {
         HRegionInfo region=state.getRegion();
-        String encodedRegionName=region.getEncodedName();
-        Integer nodeVersion=offlineNodesVersions.get(encodedRegionName);
-        if (useZKForAssignment && (nodeVersion == null || nodeVersion == -1)) {
-          LOG.warn("failed to offline in zookeeper: " + region);
-          failedToOpenRegions.add(region);
-          Lock lock=locks.remove(encodedRegionName);
-          lock.unlock();
+        regionStates.updateRegionState(region,State.PENDING_OPEN,destination);
+        List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
+        if (this.shouldAssignRegionsWithFavoredNodes) {
+          favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
         }
- else {
-          regionStates.updateRegionState(region,State.PENDING_OPEN,destination);
-          List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
-          if (this.shouldAssignRegionsWithFavoredNodes) {
-            favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
-          }
-          regionOpenInfos.add(new Triple<HRegionInfo,Integer,List<ServerName>>(region,nodeVersion,favoredNodes));
-        }
+        regionOpenInfos.add(new Pair<HRegionInfo,List<ServerName>>(region,favoredNodes));
       }
       try {
         long maxWaitTime=System.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
@@ -91,15 +66,7 @@
               RegionOpeningState openingState=regionOpeningStateList.get(k);
               if (openingState != RegionOpeningState.OPENED) {
                 HRegionInfo region=regionOpenInfos.get(k).getFirst();
-                if (openingState == RegionOpeningState.ALREADY_OPENED) {
-                  processAlreadyOpenedRegion(region,destination);
-                }
- else                 if (openingState == RegionOpeningState.FAILED_OPENING) {
-                  failedToOpenRegions.add(region);
-                }
- else {
-                  LOG.warn("THIS SHOULD NOT HAPPEN: unknown opening state " + openingState + " in assigning region "+ region);
-                }
+                failedToOpenRegions.add(region);
               }
             }
             break;

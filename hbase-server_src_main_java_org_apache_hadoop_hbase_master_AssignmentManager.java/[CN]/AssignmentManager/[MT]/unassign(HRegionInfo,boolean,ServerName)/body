@@ -1,7 +1,6 @@
 {
   LOG.debug("Starting unassign of " + region.getRegionNameAsString() + " (offlining), current state: "+ regionStates.getRegionState(region));
   String encodedName=region.getEncodedName();
-  int versionOfClosingNode=-1;
   ReentrantLock lock=locker.acquireLock(encodedName);
   RegionState state=regionStates.getRegionTransitionState(encodedName);
   boolean reassign=true;
@@ -12,45 +11,9 @@
         LOG.info("Attempting to unassign " + state + ", ignored");
         return;
       }
-      try {
-        if (state == null || state.getServerName() == null) {
-          LOG.warn("Attempting to unassign a region not in RegionStates" + region.getRegionNameAsString() + ", offlined");
-          regionOffline(region);
-          return;
-        }
-        if (useZKForAssignment) {
-          versionOfClosingNode=ZKAssign.createNodeClosing(watcher,region,state.getServerName());
-          if (versionOfClosingNode == -1) {
-            LOG.info("Attempting to unassign " + region.getRegionNameAsString() + " but ZK closing node "+ "can't be created.");
-            reassign=false;
-            return;
-          }
-        }
-      }
- catch (      KeeperException e) {
-        if (e instanceof NodeExistsException) {
-          NodeExistsException nee=(NodeExistsException)e;
-          String path=nee.getPath();
-          try {
-            if (isSplitOrSplittingOrMergedOrMerging(path)) {
-              LOG.debug(path + " is SPLIT or SPLITTING or MERGED or MERGING; " + "skipping unassign because region no longer exists -- its split or merge");
-              reassign=false;
-              return;
-            }
-          }
- catch (          KeeperException.NoNodeException ke) {
-            LOG.warn("Failed getData on SPLITTING/SPLIT at " + path + "; presuming split and that the region to unassign, "+ encodedName+ ", no longer exists -- confirm",ke);
-            return;
-          }
-catch (          KeeperException ke) {
-            LOG.error("Unexpected zk state",ke);
-          }
-catch (          DeserializationException de) {
-            LOG.error("Failed parse",de);
-          }
-        }
-        server.abort("Unexpected ZK exception creating node CLOSING",e);
-        reassign=false;
+      if (state == null || state.getServerName() == null) {
+        LOG.warn("Attempting to unassign a region not in RegionStates" + region.getRegionNameAsString() + ", offlined");
+        regionOffline(region);
         return;
       }
       state=regionStates.updateRegionState(region,State.PENDING_CLOSE);
@@ -64,18 +27,17 @@ catch (          DeserializationException de) {
       if (state.isFailedClose()) {
         state=regionStates.updateRegionState(region,State.PENDING_CLOSE);
       }
-      state.updateTimestampToNow();
     }
  else {
       LOG.debug("Attempting to unassign " + region.getRegionNameAsString() + " but it is "+ "already in transition ("+ state.getState()+ ", force="+ force+ ")");
       return;
     }
-    unassign(region,state,versionOfClosingNode,dest,useZKForAssignment,null);
+    unassign(region,state,dest,null);
   }
   finally {
     lock.unlock();
     if (!replicasToClose.contains(region) && reassign && regionStates.isRegionOffline(region)) {
-      assign(region,true);
+      assign(region);
     }
   }
 }
