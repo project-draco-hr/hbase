@@ -1,4 +1,5 @@
 {
+  LOG.info("Verify wal roll after split starts will fail.");
   HLog log=null;
   String logName="testLogRollAfterSplitStart";
   Path thisTestsDir=new Path(HBASEDIR,logName);
@@ -17,16 +18,20 @@
     }
     log.sync();
     ((FSHLog)log).replaceWriter(((FSHLog)log).getOldPath(),null,null,null);
-    Path rsSplitDir=new Path(thisTestsDir.getParent(),thisTestsDir.getName() + "-splitting");
-    fs.rename(thisTestsDir,rsSplitDir);
+    Path rsSplitDir=thisTestsDir.suffix(HLog.SPLITTING_EXT);
+    if (!fs.rename(thisTestsDir,rsSplitDir)) {
+      throw new IOException("Failed fs.rename for log split: " + thisTestsDir);
+    }
     LOG.debug("Renamed region directory: " + rsSplitDir);
+    LOG.debug("Processing the old log files.");
     HLogSplitter.split(HBASEDIR,rsSplitDir,OLDLOGDIR,fs,conf);
+    LOG.debug("Trying to roll the HLog.");
     try {
       log.rollWriter();
       Assert.fail("rollWriter() did not throw any exception.");
     }
  catch (    IOException ioe) {
-      if (ioe.getCause().getMessage().contains("FileNotFound")) {
+      if (ioe.getCause() instanceof FileNotFoundException) {
         LOG.info("Got the expected exception: ",ioe.getCause());
       }
  else {
