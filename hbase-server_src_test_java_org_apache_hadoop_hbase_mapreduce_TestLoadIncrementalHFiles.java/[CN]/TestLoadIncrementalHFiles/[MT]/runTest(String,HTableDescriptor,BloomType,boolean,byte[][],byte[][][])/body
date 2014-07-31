@@ -1,0 +1,28 @@
+{
+  Path dir=util.getDataTestDirOnTestFS(testName);
+  FileSystem fs=util.getTestFileSystem();
+  dir=dir.makeQualified(fs);
+  Path familyDir=new Path(dir,Bytes.toString(FAMILY));
+  int hfileIdx=0;
+  for (  byte[][] range : hfileRanges) {
+    byte[] from=range[0];
+    byte[] to=range[1];
+    HFileTestUtil.createHFile(util.getConfiguration(),fs,new Path(familyDir,"hfile_" + hfileIdx++),FAMILY,QUALIFIER,from,to,1000);
+  }
+  int expectedRows=hfileIdx * 1000;
+  if (preCreateTable) {
+    util.getHBaseAdmin().createTable(htd,tableSplitKeys);
+  }
+  final TableName tableName=htd.getTableName();
+  LoadIncrementalHFiles loader=new LoadIncrementalHFiles(util.getConfiguration());
+  String[] args={dir.toString(),tableName.toString()};
+  loader.run(args);
+  HTable table=new HTable(util.getConfiguration(),tableName);
+  try {
+    assertEquals(expectedRows,util.countRows(table));
+  }
+  finally {
+    table.close();
+  }
+  util.deleteTable(tableName);
+}
