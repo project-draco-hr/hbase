@@ -1,10 +1,4 @@
 {
-  try {
-    checkOpen();
-  }
- catch (  IOException ie) {
-    throw new ServiceException(ie);
-  }
   requestCount.increment();
   if (request.hasServerStartCode()) {
     long serverStartCode=request.getServerStartCode();
@@ -16,6 +10,38 @@
   final int regionCount=request.getOpenInfoCount();
   final Map<TableName,HTableDescriptor> htds=new HashMap<TableName,HTableDescriptor>(regionCount);
   final boolean isBulkAssign=regionCount > 1;
+  try {
+    checkOpen();
+  }
+ catch (  IOException ie) {
+    TableName tableName=null;
+    if (regionCount == 1) {
+      RegionInfo ri=request.getOpenInfo(0).getRegion();
+      if (ri != null) {
+        tableName=ProtobufUtil.toTableName(ri.getTableName());
+      }
+    }
+    if (!TableName.META_TABLE_NAME.equals(tableName)) {
+      throw new ServiceException(ie);
+    }
+    int timeout=regionServer.conf.getInt(HConstants.HBASE_RPC_TIMEOUT_KEY,HConstants.DEFAULT_HBASE_RPC_TIMEOUT) >> 2;
+    long endTime=System.currentTimeMillis() + timeout;
+synchronized (regionServer.online) {
+      try {
+        while (System.currentTimeMillis() <= endTime && !regionServer.isStopped() && !regionServer.isOnline()) {
+          regionServer.online.wait(100);
+        }
+        checkOpen();
+      }
+ catch (      InterruptedException t) {
+        Thread.currentThread().interrupt();
+        throw new ServiceException(t);
+      }
+catch (      IOException e) {
+        throw new ServiceException(e);
+      }
+    }
+  }
   for (  RegionOpenInfo regionOpenInfo : request.getOpenInfoList()) {
     final HRegionInfo region=HRegionInfo.convert(regionOpenInfo.getRegion());
     OpenRegionCoordination coordination=regionServer.getCoordinatedStateManager().getOpenRegionCoordination();
