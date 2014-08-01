@@ -1,0 +1,50 @@
+{
+  PrivilegedExceptionAction<VisibilityLabelsResponse> action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
+    public VisibilityLabelsResponse run() throws Exception {
+      try {
+        return VisibilityClient.setAuths(conf,new String[]{TOPSECRET},USER.getShortName());
+      }
+ catch (      Throwable e) {
+      }
+      return null;
+    }
+  }
+;
+  SUPERUSER.runAs(action);
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  HBaseAdmin hBaseAdmin=TEST_UTIL.getHBaseAdmin();
+  HColumnDescriptor colDesc=new HColumnDescriptor(fam);
+  colDesc.setMaxVersions(5);
+  HTableDescriptor desc=new HTableDescriptor(tableName);
+  desc.addFamily(colDesc);
+  hBaseAdmin.createTable(desc);
+  HTable table=null;
+  try {
+    TEST_UTIL.getHBaseAdmin().flush(tableName.getNameAsString());
+    PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        HTable table=null;
+        try {
+          table=new HTable(conf,TEST_NAME.getMethodName());
+          Put p=new Put(row1);
+          p.setCellVisibility(new CellVisibility(PUBLIC + "&" + TOPSECRET));
+          p.add(fam,qual,125l,value);
+          table.put(p);
+          Assert.fail("Testcase should fail with AccesDeniedException");
+        }
+ catch (        Throwable t) {
+          assertTrue(t.getMessage().contains("AccessDeniedException"));
+        }
+ finally {
+          table.close();
+        }
+        return null;
+      }
+    }
+;
+    USER.runAs(actiona);
+  }
+ catch (  Exception e) {
+    throw new IOException(e);
+  }
+}

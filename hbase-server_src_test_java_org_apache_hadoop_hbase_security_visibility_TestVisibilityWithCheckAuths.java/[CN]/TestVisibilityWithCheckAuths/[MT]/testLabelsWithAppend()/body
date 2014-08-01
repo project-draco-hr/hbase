@@ -1,0 +1,83 @@
+{
+  PrivilegedExceptionAction<VisibilityLabelsResponse> action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
+    public VisibilityLabelsResponse run() throws Exception {
+      try {
+        return VisibilityClient.setAuths(conf,new String[]{TOPSECRET},USER.getShortName());
+      }
+ catch (      Throwable e) {
+      }
+      return null;
+    }
+  }
+;
+  SUPERUSER.runAs(action);
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  HTable table=null;
+  try {
+    table=TEST_UTIL.createTable(tableName,fam);
+    final byte[] row1=Bytes.toBytes("row1");
+    final byte[] val=Bytes.toBytes("a");
+    PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        HTable table=null;
+        try {
+          table=new HTable(conf,TEST_NAME.getMethodName());
+          Put put=new Put(row1);
+          put.add(fam,qual,HConstants.LATEST_TIMESTAMP,val);
+          put.setCellVisibility(new CellVisibility(TOPSECRET));
+          table.put(put);
+        }
+  finally {
+          table.close();
+        }
+        return null;
+      }
+    }
+;
+    USER.runAs(actiona);
+    actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        HTable table=null;
+        try {
+          table=new HTable(conf,TEST_NAME.getMethodName());
+          Append append=new Append(row1);
+          append.add(fam,qual,Bytes.toBytes("b"));
+          table.append(append);
+        }
+  finally {
+          table.close();
+        }
+        return null;
+      }
+    }
+;
+    USER.runAs(actiona);
+    actiona=new PrivilegedExceptionAction<Void>(){
+      public Void run() throws Exception {
+        HTable table=null;
+        try {
+          table=new HTable(conf,TEST_NAME.getMethodName());
+          Append append=new Append(row1);
+          append.add(fam,qual,Bytes.toBytes("c"));
+          append.setCellVisibility(new CellVisibility(PUBLIC));
+          table.append(append);
+          Assert.fail("Testcase should fail with AccesDeniedException");
+        }
+ catch (        Throwable t) {
+          assertTrue(t.getMessage().contains("AccessDeniedException"));
+        }
+ finally {
+          table.close();
+        }
+        return null;
+      }
+    }
+;
+    USER.runAs(actiona);
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+}
