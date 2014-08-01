@@ -1,0 +1,43 @@
+{
+  byte[] qualifier=Bytes.toBytes("qualifier");
+  Configuration hc=initSplit();
+  int numRows=10;
+  byte[][] families={fam1,fam3};
+  String method=this.getName();
+  this.region=initHRegion(tableName,method,hc,families);
+  int startRow=100;
+  putData(startRow,numRows,qualifier,families);
+  int splitRow=startRow + numRows;
+  byte[] splitRowBytes=Bytes.toBytes("" + splitRow);
+  putData(splitRow,numRows,qualifier,families);
+  region.flushcache();
+  HRegion[] regions=null;
+  try {
+    region.forceSplit(splitRowBytes);
+    assertTrue(region.shouldForceSplit());
+    assertTrue(Bytes.equals(splitRowBytes,region.checkSplit()));
+    HStore storeMock=Mockito.mock(HStore.class);
+    when(storeMock.hasReferences()).thenReturn(true);
+    when(storeMock.getFamily()).thenReturn(new HColumnDescriptor("cf"));
+    when(storeMock.close()).thenReturn(ImmutableList.<StoreFile>of());
+    when(storeMock.getColumnFamilyName()).thenReturn("cf");
+    region.stores.put(Bytes.toBytes(storeMock.getColumnFamilyName()),storeMock);
+    assertTrue(region.hasReferences());
+    regions=splitRegion(region,splitRowBytes);
+    assertNull(regions);
+    assertFalse(region.shouldForceSplit());
+    region.stores.remove(Bytes.toBytes(storeMock.getColumnFamilyName()));
+    assertFalse(region.hasReferences());
+    regions=splitRegion(region,splitRowBytes);
+    for (int i=0; i < regions.length; i++) {
+      regions[i]=HRegion.openHRegion(regions[i],null);
+    }
+    assertEquals(2,regions.length);
+    verifyData(regions[0],startRow,numRows,qualifier,families);
+    verifyData(regions[1],splitRow,numRows,qualifier,families);
+  }
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
+}
