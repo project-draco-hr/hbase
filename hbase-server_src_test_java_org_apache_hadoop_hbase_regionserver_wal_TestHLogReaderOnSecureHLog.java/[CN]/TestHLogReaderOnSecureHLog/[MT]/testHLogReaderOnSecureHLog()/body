@@ -1,0 +1,33 @@
+{
+  Configuration conf=TEST_UTIL.getConfiguration();
+  HLogFactory.resetLogReaderClass();
+  HLogFactory.resetLogWriterClass();
+  conf.setClass("hbase.regionserver.hlog.reader.impl",ProtobufLogReader.class,HLog.Reader.class);
+  conf.setClass("hbase.regionserver.hlog.writer.impl",SecureProtobufLogWriter.class,HLog.Writer.class);
+  FileSystem fs=TEST_UTIL.getTestFileSystem();
+  Path walPath=writeWAL("testHLogReaderOnSecureHLog");
+  long length=fs.getFileStatus(walPath).getLen();
+  FSDataInputStream in=fs.open(walPath);
+  byte[] fileData=new byte[(int)length];
+  IOUtils.readFully(in,fileData);
+  in.close();
+  assertFalse("Cells appear to be plaintext",Bytes.contains(fileData,value));
+  try {
+    HLog.Reader reader=HLogFactory.createReader(TEST_UTIL.getTestFileSystem(),walPath,conf);
+    assertFalse(true);
+  }
+ catch (  IOException ioe) {
+  }
+  FileStatus[] listStatus=fs.listStatus(walPath.getParent());
+  RecoveryMode mode=(conf.getBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,false) ? RecoveryMode.LOG_REPLAY : RecoveryMode.LOG_SPLITTING);
+  Path rootdir=FSUtils.getRootDir(conf);
+  try {
+    HLogSplitter s=new HLogSplitter(conf,rootdir,fs,null,null,null,mode);
+    s.splitLogFile(listStatus[0],null);
+    Path file=new Path(ZKSplitLog.getSplitLogDir(rootdir,listStatus[0].getPath().getName()),"corrupt");
+    assertTrue(fs.exists(file));
+  }
+ catch (  IOException ioe) {
+    assertTrue("WAL should have been sidelined",false);
+  }
+}
