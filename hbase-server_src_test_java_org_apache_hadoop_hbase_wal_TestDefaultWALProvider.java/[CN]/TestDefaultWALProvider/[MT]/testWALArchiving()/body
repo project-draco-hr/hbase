@@ -1,0 +1,47 @@
+{
+  LOG.debug("testWALArchiving");
+  TableName table1=TableName.valueOf("t1");
+  TableName table2=TableName.valueOf("t2");
+  final Configuration localConf=new Configuration(conf);
+  localConf.set(WALFactory.WAL_PROVIDER,DefaultWALProvider.class.getName());
+  final WALFactory wals=new WALFactory(localConf,null,currentTest.getMethodName());
+  try {
+    final WAL wal=wals.getWAL(UNSPECIFIED_REGION);
+    assertEquals(0,DefaultWALProvider.getNumRolledLogFiles(wal));
+    HRegionInfo hri1=new HRegionInfo(table1,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    HRegionInfo hri2=new HRegionInfo(table2,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    hri1.setSplit(false);
+    hri2.setSplit(false);
+    final AtomicLong sequenceId1=new AtomicLong(1);
+    final AtomicLong sequenceId2=new AtomicLong(1);
+    addEdits(wal,hri1,table1,1,sequenceId1);
+    wal.rollWriter();
+    assertEquals(1,DefaultWALProvider.getNumRolledLogFiles(wal));
+    addEdits(wal,hri1,table1,1,sequenceId1);
+    wal.rollWriter();
+    assertEquals(2,DefaultWALProvider.getNumRolledLogFiles(wal));
+    addEdits(wal,hri1,table1,3,sequenceId1);
+    flushRegion(wal,hri1.getEncodedNameAsBytes());
+    wal.rollWriter();
+    assertEquals(0,DefaultWALProvider.getNumRolledLogFiles(wal));
+    addEdits(wal,hri2,table2,1,sequenceId2);
+    wal.rollWriter();
+    assertEquals(1,DefaultWALProvider.getNumRolledLogFiles(wal));
+    addEdits(wal,hri1,table1,2,sequenceId1);
+    wal.rollWriter();
+    assertEquals(2,DefaultWALProvider.getNumRolledLogFiles(wal));
+    addEdits(wal,hri2,table2,2,sequenceId2);
+    flushRegion(wal,hri1.getEncodedNameAsBytes());
+    wal.rollWriter();
+    assertEquals(2,DefaultWALProvider.getNumRolledLogFiles(wal));
+    addEdits(wal,hri2,table2,2,sequenceId2);
+    flushRegion(wal,hri2.getEncodedNameAsBytes());
+    wal.rollWriter();
+    assertEquals(0,DefaultWALProvider.getNumRolledLogFiles(wal));
+  }
+  finally {
+    if (wals != null) {
+      wals.close();
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  Path rootRegionDir=null;
+  int numThreads=1;
+  long numIterations=1000000;
+  int numFamilies=1;
+  int syncInterval=0;
+  boolean noSync=false;
+  boolean verify=false;
+  boolean verbose=false;
+  boolean cleanup=true;
+  boolean noclosefs=false;
+  long roll=Long.MAX_VALUE;
+  boolean compress=false;
+  String cipher=null;
+  int numRegions=1;
+  String spanReceivers=getConf().get("hbase.trace.spanreceiver.classes");
+  boolean trace=spanReceivers != null && !spanReceivers.isEmpty();
+  double traceFreq=1.0;
+  for (int i=0; i < args.length; i++) {
+    String cmd=args[i];
+    try {
+      if (cmd.equals("-threads")) {
+        numThreads=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-iterations")) {
+        numIterations=Long.parseLong(args[++i]);
+      }
+ else       if (cmd.equals("-path")) {
+        rootRegionDir=new Path(args[++i]);
+      }
+ else       if (cmd.equals("-families")) {
+        numFamilies=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-qualifiers")) {
+        numQualifiers=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-keySize")) {
+        keySize=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-valueSize")) {
+        valueSize=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-syncInterval")) {
+        syncInterval=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-nosync")) {
+        noSync=true;
+      }
+ else       if (cmd.equals("-verify")) {
+        verify=true;
+      }
+ else       if (cmd.equals("-verbose")) {
+        verbose=true;
+      }
+ else       if (cmd.equals("-nocleanup")) {
+        cleanup=false;
+      }
+ else       if (cmd.equals("-noclosefs")) {
+        noclosefs=true;
+      }
+ else       if (cmd.equals("-roll")) {
+        roll=Long.parseLong(args[++i]);
+      }
+ else       if (cmd.equals("-compress")) {
+        compress=true;
+      }
+ else       if (cmd.equals("-encryption")) {
+        cipher=args[++i];
+      }
+ else       if (cmd.equals("-regions")) {
+        numRegions=Integer.parseInt(args[++i]);
+      }
+ else       if (cmd.equals("-traceFreq")) {
+        traceFreq=Double.parseDouble(args[++i]);
+      }
+ else       if (cmd.equals("-h")) {
+        printUsageAndExit();
+      }
+ else       if (cmd.equals("--help")) {
+        printUsageAndExit();
+      }
+ else {
+        System.err.println("UNEXPECTED: " + cmd);
+        printUsageAndExit();
+      }
+    }
+ catch (    Exception e) {
+      printUsageAndExit();
+    }
+  }
+  if (compress) {
+    Configuration conf=getConf();
+    conf.setBoolean(HConstants.ENABLE_WAL_COMPRESSION,true);
+  }
+  if (cipher != null) {
+    Configuration conf=getConf();
+    conf.set(HConstants.CRYPTO_KEYPROVIDER_CONF_KEY,KeyProviderForTesting.class.getName());
+    conf.set(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,"hbase");
+    conf.setClass("hbase.regionserver.hlog.reader.impl",SecureProtobufLogReader.class,WAL.Reader.class);
+    conf.setClass("hbase.regionserver.hlog.writer.impl",SecureProtobufLogWriter.class,Writer.class);
+    conf.setBoolean(HConstants.ENABLE_WAL_ENCRYPTION,true);
+    conf.set(HConstants.CRYPTO_WAL_ALGORITHM_CONF_KEY,cipher);
+  }
+  if (numThreads < numRegions) {
+    LOG.warn("Number of threads is less than the number of regions; some regions will sit idle.");
+  }
+  getConf().setInt(HConstants.REGION_SERVER_HANDLER_COUNT,numThreads);
+  FSUtils.setFsDefault(getConf(),FSUtils.getRootDir(getConf()));
+  FileSystem fs=FileSystem.get(getConf());
+  LOG.info("FileSystem: " + fs);
+  SpanReceiverHost receiverHost=trace ? SpanReceiverHost.getInstance(getConf()) : null;
+  TraceScope scope=Trace.startSpan("WALPerfEval",trace ? Sampler.ALWAYS : Sampler.NEVER);
+  try {
+    if (rootRegionDir == null) {
+      rootRegionDir=TEST_UTIL.getDataTestDirOnTestFS("WALPerformanceEvaluation");
+    }
+    rootRegionDir=rootRegionDir.makeQualified(fs);
+    cleanRegionRootDir(fs,rootRegionDir);
+    FSUtils.setRootDir(getConf(),rootRegionDir);
+    final WALFactory wals=new WALFactory(getConf(),null,"wals");
+    final HRegion[] regions=new HRegion[numRegions];
+    final Runnable[] benchmarks=new Runnable[numRegions];
+    try {
+      for (int i=0; i < numRegions; i++) {
+        final HTableDescriptor htd=createHTableDescriptor(i,numFamilies);
+        regions[i]=openRegion(fs,rootRegionDir,htd,wals,roll);
+        benchmarks[i]=Trace.wrap(new WALPutBenchmark(regions[i],htd,numIterations,noSync,syncInterval,traceFreq));
+      }
+      ConsoleReporter.enable(this.metrics,30,TimeUnit.SECONDS);
+      long putTime=runBenchmark(benchmarks,numThreads);
+      logBenchmarkResult("Summary: threads=" + numThreads + ", iterations="+ numIterations+ ", syncInterval="+ syncInterval,numIterations * numThreads,putTime);
+      for (int i=0; i < numRegions; i++) {
+        if (regions[i] != null) {
+          closeRegion(regions[i]);
+          regions[i]=null;
+        }
+      }
+      if (verify) {
+        Path dir=new Path(FSUtils.getRootDir(getConf()),DefaultWALProvider.getWALDirectoryName("wals"));
+        long editCount=0;
+        FileStatus[] fsss=fs.listStatus(dir);
+        if (fsss.length == 0)         throw new IllegalStateException("No WAL found");
+        for (        FileStatus fss : fsss) {
+          Path p=fss.getPath();
+          if (!fs.exists(p))           throw new IllegalStateException(p.toString());
+          editCount+=verify(wals,p,verbose);
+        }
+        long expected=numIterations * numThreads;
+        if (editCount != expected) {
+          throw new IllegalStateException("Counted=" + editCount + ", expected="+ expected);
+        }
+      }
+    }
+  finally {
+      for (int i=0; i < numRegions; i++) {
+        if (regions[i] != null) {
+          closeRegion(regions[i]);
+        }
+      }
+      wals.shutdown();
+      if (cleanup)       cleanRegionRootDir(fs,rootRegionDir);
+    }
+  }
+  finally {
+    if (!noclosefs)     fs.close();
+    scope.close();
+    if (receiverHost != null)     receiverHost.closeReceivers();
+  }
+  return (0);
+}

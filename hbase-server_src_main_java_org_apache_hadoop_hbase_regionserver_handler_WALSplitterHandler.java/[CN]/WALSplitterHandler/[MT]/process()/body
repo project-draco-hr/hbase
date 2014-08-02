@@ -1,0 +1,30 @@
+{
+  long startTime=System.currentTimeMillis();
+  try {
+    Status status=this.splitTaskExecutor.exec(splitTaskDetails.getWALFile(),mode,reporter);
+switch (status) {
+case DONE:
+      coordination.endTask(new SplitLogTask.Done(this.serverName,this.mode),SplitLogCounters.tot_wkr_task_done,splitTaskDetails);
+    break;
+case PREEMPTED:
+  SplitLogCounters.tot_wkr_preempt_task.incrementAndGet();
+LOG.warn("task execution prempted " + splitTaskDetails.getWALFile());
+break;
+case ERR:
+if (server != null && !server.isStopped()) {
+coordination.endTask(new SplitLogTask.Err(this.serverName,this.mode),SplitLogCounters.tot_wkr_task_err,splitTaskDetails);
+break;
+}
+case RESIGNED:
+if (server != null && server.isStopped()) {
+LOG.info("task execution interrupted because worker is exiting " + splitTaskDetails.toString());
+}
+coordination.endTask(new SplitLogTask.Resigned(this.serverName,this.mode),SplitLogCounters.tot_wkr_task_resigned,splitTaskDetails);
+break;
+}
+}
+  finally {
+LOG.info("worker " + serverName + " done with task "+ splitTaskDetails.toString()+ " in "+ (System.currentTimeMillis() - startTime)+ "ms");
+this.inProgressTasks.decrementAndGet();
+}
+}

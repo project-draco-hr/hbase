@@ -1,0 +1,42 @@
+{
+  final int COL_COUNT=10;
+  final TableName tableName=TableName.valueOf("tablename");
+  final byte[] row=Bytes.toBytes("row");
+  WAL.Reader reader=null;
+  try {
+    final AtomicLong sequenceId=new AtomicLong(1);
+    long timestamp=System.currentTimeMillis();
+    WALEdit cols=new WALEdit();
+    for (int i=0; i < COL_COUNT; i++) {
+      cols.add(new KeyValue(row,Bytes.toBytes("column"),Bytes.toBytes(Integer.toString(i)),timestamp,new byte[]{(byte)(i + '0')}));
+    }
+    HRegionInfo info=new HRegionInfo(tableName,row,Bytes.toBytes(Bytes.toString(row) + "1"),false);
+    HTableDescriptor htd=new HTableDescriptor();
+    htd.addFamily(new HColumnDescriptor("column"));
+    final WAL log=wals.getWAL(info.getEncodedNameAsBytes());
+    final long txid=log.append(htd,info,new WALKey(info.getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),cols,sequenceId,true,null);
+    log.sync(txid);
+    log.startCacheFlush(info.getEncodedNameAsBytes());
+    log.completeCacheFlush(info.getEncodedNameAsBytes());
+    log.shutdown();
+    Path filename=DefaultWALProvider.getCurrentFileName(log);
+    reader=wals.createReader(fs,filename);
+    for (int i=0; i < 1; i++) {
+      WAL.Entry entry=reader.next(null);
+      if (entry == null)       break;
+      WALKey key=entry.getKey();
+      WALEdit val=entry.getEdit();
+      assertTrue(Bytes.equals(info.getEncodedNameAsBytes(),key.getEncodedRegionName()));
+      assertTrue(tableName.equals(key.getTablename()));
+      Cell cell=val.getCells().get(0);
+      assertTrue(Bytes.equals(row,cell.getRow()));
+      assertEquals((byte)(i + '0'),cell.getValue()[0]);
+      System.out.println(key + " " + val);
+    }
+  }
+  finally {
+    if (reader != null) {
+      reader.close();
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  HRegionInfo regionInfo=new HRegionInfo(htd.getTableName());
+  final WAL wal=wals.getWAL(regionInfo.getEncodedNameAsBytes());
+  wal.registerWALActionsListener(new WALActionsListener.Base(){
+    private int appends=0;
+    @Override public void visitLogEntryBeforeWrite(    HTableDescriptor htd,    WALKey logKey,    WALEdit logEdit){
+      this.appends++;
+      if (this.appends % whenToRoll == 0) {
+        LOG.info("Rolling after " + appends + " edits");
+        DefaultWALProvider.requestLogRoll(wal);
+      }
+    }
+    @Override public void postSync(    final long timeInNanos,    final int handlerSyncs){
+      syncMeter.mark();
+      syncHistogram.update(timeInNanos);
+      syncCountHistogram.update(handlerSyncs);
+    }
+    @Override public void postAppend(    final long size,    final long elapsedTime){
+      appendMeter.mark(size);
+    }
+  }
+);
+  wal.rollWriter();
+  return HRegion.createHRegion(regionInfo,dir,getConf(),htd,wal);
+}

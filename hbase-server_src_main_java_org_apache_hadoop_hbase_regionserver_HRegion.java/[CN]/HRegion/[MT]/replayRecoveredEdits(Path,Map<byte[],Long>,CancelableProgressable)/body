@@ -3,17 +3,17 @@
   LOG.info(msg);
   MonitoredTask status=TaskMonitor.get().createStatus(msg);
   FileSystem fs=this.fs.getFileSystem();
-  status.setStatus("Opening logs");
-  HLog.Reader reader=null;
+  status.setStatus("Opening recovered edits");
+  WAL.Reader reader=null;
   try {
-    reader=HLogFactory.createReader(fs,edits,conf);
+    reader=WALFactory.createReader(fs,edits,conf);
     long currentEditSeqId=-1;
     long currentReplaySeqId=-1;
     long firstSeqIdInLog=-1;
     long skippedEdits=0;
     long editsCount=0;
     long intervalEdits=0;
-    HLog.Entry entry;
+    WAL.Entry entry;
     Store store=null;
     boolean reported_once=false;
     ServerNonceManager ng=this.rsServices == null ? null : this.rsServices.getNonceManager();
@@ -22,7 +22,7 @@
       int period=this.conf.getInt("hbase.hstore.report.period",300000);
       long lastReport=EnvironmentEdgeManager.currentTime();
       while ((entry=reader.next()) != null) {
-        HLogKey key=entry.getKey();
+        WALKey key=entry.getKey();
         WALEdit val=entry.getEdit();
         if (ng != null) {
           ng.reportOperationFromWal(key.getNonceGroup(),key.getNonce(),key.getWriteTime());
@@ -89,14 +89,14 @@
       }
     }
  catch (    EOFException eof) {
-      Path p=HLogUtil.moveAsideBadEditsFile(fs,edits);
-      msg="Encountered EOF. Most likely due to Master failure during " + "log splitting, so we have this data in another edit.  " + "Continuing, but renaming " + edits + " as "+ p;
+      Path p=WALSplitter.moveAsideBadEditsFile(fs,edits);
+      msg="Encountered EOF. Most likely due to Master failure during " + "wal splitting, so we have this data in another edit.  " + "Continuing, but renaming " + edits + " as "+ p;
       LOG.warn(msg,eof);
       status.abort(msg);
     }
 catch (    IOException ioe) {
       if (ioe.getCause() instanceof ParseException) {
-        Path p=HLogUtil.moveAsideBadEditsFile(fs,edits);
+        Path p=WALSplitter.moveAsideBadEditsFile(fs,edits);
         msg="File corruption encountered!  " + "Continuing, but renaming " + edits + " as "+ p;
         LOG.warn(msg,ioe);
         status.setStatus(msg);

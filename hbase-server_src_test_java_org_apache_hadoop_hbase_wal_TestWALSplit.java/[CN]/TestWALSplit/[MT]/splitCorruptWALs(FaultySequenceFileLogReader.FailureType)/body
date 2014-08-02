@@ -1,0 +1,35 @@
+{
+  Class<?> backupClass=conf.getClass("hbase.regionserver.hlog.reader.impl",Reader.class);
+  InstrumentedLogWriter.activateFailure=false;
+  try {
+    conf.setClass("hbase.regionserver.hlog.reader.impl",FaultySequenceFileLogReader.class,Reader.class);
+    conf.set("faultysequencefilelogreader.failuretype",failureType.name());
+    try {
+      wals.shutdown();
+    }
+ catch (    IOException exception) {
+      LOG.debug("Ignoring problem closing WALFactory.",exception);
+    }
+    wals.close();
+    try {
+      for (      FileStatus log : fs.listStatus(CORRUPTDIR)) {
+        fs.delete(log.getPath(),true);
+      }
+    }
+ catch (    FileNotFoundException exception) {
+      LOG.debug("no previous CORRUPTDIR to clean.");
+    }
+    wals=new WALFactory(conf,null,name.getMethodName());
+    generateWALs(-1);
+    final Set<String> walDirContents=new HashSet<String>();
+    for (    FileStatus status : fs.listStatus(WALDIR)) {
+      walDirContents.add(status.getPath().getName());
+    }
+    useDifferentDFSClient();
+    WALSplitter.split(HBASEDIR,WALDIR,OLDLOGDIR,fs,conf,wals);
+    return walDirContents;
+  }
+  finally {
+    conf.setClass("hbase.regionserver.hlog.reader.impl",backupClass,Reader.class);
+  }
+}

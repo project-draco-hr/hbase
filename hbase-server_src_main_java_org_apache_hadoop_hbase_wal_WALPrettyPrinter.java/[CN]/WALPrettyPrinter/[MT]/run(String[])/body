@@ -1,0 +1,45 @@
+{
+  Options options=new Options();
+  options.addOption("h","help",false,"Output help message");
+  options.addOption("j","json",false,"Output JSON");
+  options.addOption("p","printvals",false,"Print values");
+  options.addOption("r","region",true,"Region to filter by. Pass region name; e.g. 'hbase:meta,,1'");
+  options.addOption("s","sequence",true,"Sequence to filter by. Pass sequence number.");
+  options.addOption("w","row",true,"Row to filter by. Pass row name.");
+  WALPrettyPrinter printer=new WALPrettyPrinter();
+  CommandLineParser parser=new PosixParser();
+  List files=null;
+  try {
+    CommandLine cmd=parser.parse(options,args);
+    files=cmd.getArgList();
+    if (files.size() == 0 || cmd.hasOption("h")) {
+      HelpFormatter formatter=new HelpFormatter();
+      formatter.printHelp("WAL <filename...>",options,true);
+      System.exit(-1);
+    }
+    if (cmd.hasOption("p"))     printer.enableValues();
+    if (cmd.hasOption("j"))     printer.enableJSON();
+    if (cmd.hasOption("r"))     printer.setRegionFilter(cmd.getOptionValue("r"));
+    if (cmd.hasOption("s"))     printer.setSequenceFilter(Long.parseLong(cmd.getOptionValue("s")));
+    if (cmd.hasOption("w"))     printer.setRowFilter(cmd.getOptionValue("w"));
+  }
+ catch (  ParseException e) {
+    e.printStackTrace();
+    HelpFormatter formatter=new HelpFormatter();
+    formatter.printHelp("HFile filename(s) ",options,true);
+    System.exit(-1);
+  }
+  Configuration conf=HBaseConfiguration.create();
+  FSUtils.setFsDefault(conf,FSUtils.getRootDir(conf));
+  printer.beginPersistentOutput();
+  for (  Object f : files) {
+    Path file=new Path((String)f);
+    FileSystem fs=file.getFileSystem(conf);
+    if (!fs.exists(file)) {
+      System.err.println("ERROR, file doesnt exist: " + file);
+      return;
+    }
+    printer.processFile(conf,file);
+  }
+  printer.endPersistentOutput();
+}

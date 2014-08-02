@@ -1,0 +1,26 @@
+{
+  final int COL_COUNT=10;
+  final TableName tableName=TableName.valueOf("tablename");
+  final byte[] row=Bytes.toBytes("row");
+  final DumbWALActionsListener visitor=new DumbWALActionsListener();
+  final AtomicLong sequenceId=new AtomicLong(1);
+  long timestamp=System.currentTimeMillis();
+  HTableDescriptor htd=new HTableDescriptor();
+  htd.addFamily(new HColumnDescriptor("column"));
+  HRegionInfo hri=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+  final WAL log=wals.getWAL(hri.getEncodedNameAsBytes());
+  log.registerWALActionsListener(visitor);
+  for (int i=0; i < COL_COUNT; i++) {
+    WALEdit cols=new WALEdit();
+    cols.add(new KeyValue(row,Bytes.toBytes("column"),Bytes.toBytes(Integer.toString(i)),timestamp,new byte[]{(byte)(i + '0')}));
+    log.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),cols,sequenceId,true,null);
+  }
+  log.sync();
+  assertEquals(COL_COUNT,visitor.increments);
+  log.unregisterWALActionsListener(visitor);
+  WALEdit cols=new WALEdit();
+  cols.add(new KeyValue(row,Bytes.toBytes("column"),Bytes.toBytes(Integer.toString(11)),timestamp,new byte[]{(byte)(11 + '0')}));
+  log.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),cols,sequenceId,true,null);
+  log.sync();
+  assertEquals(COL_COUNT,visitor.increments);
+}

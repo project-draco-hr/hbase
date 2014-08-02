@@ -1,0 +1,30 @@
+{
+  Configuration conf=TEST_UTIL.getConfiguration();
+  String clsName=conf.get(WALCellCodec.WAL_CELL_CODEC_CLASS_KEY,WALCellCodec.class.getName());
+  conf.setClass(WALCellCodec.WAL_CELL_CODEC_CLASS_KEY,SecureWALCellCodec.class,WALCellCodec.class);
+  try {
+    TableName tableName=TableName.valueOf(tblName);
+    HTableDescriptor htd=new HTableDescriptor(tableName);
+    htd.addFamily(new HColumnDescriptor(tableName.getName()));
+    HRegionInfo regioninfo=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,false);
+    final int total=10;
+    final byte[] row=Bytes.toBytes("row");
+    final byte[] family=Bytes.toBytes("family");
+    FileSystem fs=TEST_UTIL.getTestFileSystem();
+    Path logDir=TEST_UTIL.getDataTestDir(tblName);
+    final AtomicLong sequenceId=new AtomicLong(1);
+    WAL wal=wals.getWAL(regioninfo.getEncodedNameAsBytes());
+    for (int i=0; i < total; i++) {
+      WALEdit kvs=new WALEdit();
+      kvs.add(new KeyValue(row,family,Bytes.toBytes(i),value));
+      wal.append(htd,regioninfo,new WALKey(regioninfo.getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),kvs,sequenceId,true,null);
+    }
+    wal.sync();
+    final Path walPath=DefaultWALProvider.getCurrentFileName(wal);
+    wal.shutdown();
+    return walPath;
+  }
+  finally {
+    conf.set(WALCellCodec.WAL_CELL_CODEC_CLASS_KEY,clsName);
+  }
+}

@@ -1,0 +1,37 @@
+{
+  HRegion region;
+  FSTableDescriptors fst=new FSTableDescriptors(c);
+  if (FSUtils.getTableName(p).equals(TableName.META_TABLE_NAME)) {
+    final WAL wal=walFactory.getMetaWAL(HRegionInfo.FIRST_META_REGIONINFO.getEncodedNameAsBytes());
+    region=HRegion.newHRegion(p,wal,fs,c,HRegionInfo.FIRST_META_REGIONINFO,fst.get(TableName.META_TABLE_NAME),null);
+  }
+ else {
+    throw new IOException("Not a known catalog table: " + p.toString());
+  }
+  try {
+    region.initialize(null);
+    if (majorCompact) {
+      region.compactStores(true);
+    }
+ else {
+      Scan scan=new Scan();
+      RegionScanner scanner=region.getScanner(scan);
+      try {
+        List<Cell> kvs=new ArrayList<Cell>();
+        boolean done;
+        do {
+          kvs.clear();
+          done=scanner.next(kvs);
+          if (kvs.size() > 0)           LOG.info(kvs);
+        }
+ while (done);
+      }
+  finally {
+        scanner.close();
+      }
+    }
+  }
+  finally {
+    region.close();
+  }
+}

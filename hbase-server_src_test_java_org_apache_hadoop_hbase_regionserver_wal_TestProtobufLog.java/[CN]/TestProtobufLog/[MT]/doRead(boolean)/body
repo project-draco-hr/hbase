@@ -1,0 +1,62 @@
+{
+  final int columnCount=5;
+  final int recordCount=5;
+  final TableName tableName=TableName.valueOf("tablename");
+  final byte[] row=Bytes.toBytes("row");
+  long timestamp=System.currentTimeMillis();
+  Path path=new Path(dir,"tempwal");
+  fs.delete(path,true);
+  WALProvider.Writer writer=null;
+  ProtobufLogReader reader=null;
+  try {
+    HRegionInfo hri=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    HTableDescriptor htd=new HTableDescriptor(tableName);
+    fs.mkdirs(dir);
+    writer=wals.createWALWriter(fs,path);
+    for (int i=0; i < recordCount; ++i) {
+      WALKey key=new WALKey(hri.getEncodedNameAsBytes(),tableName,i,timestamp,HConstants.DEFAULT_CLUSTER_ID);
+      WALEdit edit=new WALEdit();
+      for (int j=0; j < columnCount; ++j) {
+        if (i == 0) {
+          htd.addFamily(new HColumnDescriptor("column" + j));
+        }
+        String value=i + "" + j;
+        edit.add(new KeyValue(row,row,row,timestamp,Bytes.toBytes(value)));
+      }
+      writer.append(new WAL.Entry(key,edit));
+    }
+    writer.sync();
+    if (withTrailer)     writer.close();
+    reader=(ProtobufLogReader)wals.createReader(fs,path);
+    if (withTrailer) {
+      assertNotNull(reader.trailer);
+    }
+ else {
+      assertNull(reader.trailer);
+    }
+    for (int i=0; i < recordCount; ++i) {
+      WAL.Entry entry=reader.next();
+      assertNotNull(entry);
+      assertEquals(columnCount,entry.getEdit().size());
+      assertArrayEquals(hri.getEncodedNameAsBytes(),entry.getKey().getEncodedRegionName());
+      assertEquals(tableName,entry.getKey().getTablename());
+      int idx=0;
+      for (      Cell val : entry.getEdit().getCells()) {
+        assertTrue(Bytes.equals(row,val.getRow()));
+        String value=i + "" + idx;
+        assertArrayEquals(Bytes.toBytes(value),val.getValue());
+        idx++;
+      }
+    }
+    WAL.Entry entry=reader.next();
+    assertNull(entry);
+  }
+  finally {
+    if (writer != null) {
+      writer.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+  }
+}

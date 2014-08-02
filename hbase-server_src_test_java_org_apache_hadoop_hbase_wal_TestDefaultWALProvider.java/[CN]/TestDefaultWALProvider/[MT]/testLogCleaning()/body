@@ -1,0 +1,41 @@
+{
+  LOG.info("testLogCleaning");
+  final TableName tableName=TableName.valueOf("testLogCleaning");
+  final TableName tableName2=TableName.valueOf("testLogCleaning2");
+  final Configuration localConf=new Configuration(conf);
+  localConf.set(WALFactory.WAL_PROVIDER,DefaultWALProvider.class.getName());
+  final WALFactory wals=new WALFactory(localConf,null,currentTest.getMethodName());
+  final AtomicLong sequenceId=new AtomicLong(1);
+  try {
+    HRegionInfo hri=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    HRegionInfo hri2=new HRegionInfo(tableName2,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    final WAL log=wals.getWAL(UNSPECIFIED_REGION);
+    addEdits(log,hri,tableName,1,sequenceId);
+    log.rollWriter();
+    assertEquals(1,DefaultWALProvider.getNumRolledLogFiles(log));
+    addEdits(log,hri,tableName,2,sequenceId);
+    log.rollWriter();
+    assertEquals(2,DefaultWALProvider.getNumRolledLogFiles(log));
+    addEdits(log,hri,tableName,1,sequenceId);
+    addEdits(log,hri2,tableName2,1,sequenceId);
+    addEdits(log,hri,tableName,1,sequenceId);
+    addEdits(log,hri2,tableName2,1,sequenceId);
+    log.rollWriter();
+    assertEquals(3,DefaultWALProvider.getNumRolledLogFiles(log));
+    addEdits(log,hri2,tableName2,1,sequenceId);
+    log.startCacheFlush(hri.getEncodedNameAsBytes());
+    log.completeCacheFlush(hri.getEncodedNameAsBytes());
+    log.rollWriter();
+    assertEquals(2,DefaultWALProvider.getNumRolledLogFiles(log));
+    addEdits(log,hri2,tableName2,1,sequenceId);
+    log.startCacheFlush(hri2.getEncodedNameAsBytes());
+    log.completeCacheFlush(hri2.getEncodedNameAsBytes());
+    log.rollWriter();
+    assertEquals(0,DefaultWALProvider.getNumRolledLogFiles(log));
+  }
+  finally {
+    if (wals != null) {
+      wals.close();
+    }
+  }
+}

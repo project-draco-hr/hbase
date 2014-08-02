@@ -1,0 +1,54 @@
+{
+  LOG.debug("testFindMemStoresEligibleForFlush");
+  Configuration conf1=HBaseConfiguration.create(conf);
+  conf1.setInt("hbase.regionserver.maxlogs",1);
+  FSHLog wal=new FSHLog(fs,FSUtils.getRootDir(conf1),dir.toString(),HConstants.HREGION_OLDLOGDIR_NAME,conf1,null,true,null,null);
+  TableName t1=TableName.valueOf("t1");
+  TableName t2=TableName.valueOf("t2");
+  HRegionInfo hri1=new HRegionInfo(t1,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+  HRegionInfo hri2=new HRegionInfo(t2,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+  final AtomicLong sequenceId1=new AtomicLong(1);
+  final AtomicLong sequenceId2=new AtomicLong(1);
+  try {
+    addEdits(wal,hri1,t1,2,sequenceId1);
+    wal.rollWriter();
+    addEdits(wal,hri1,t1,2,sequenceId1);
+    wal.rollWriter();
+    assertTrue(wal.getNumRolledLogFiles() == 2);
+    byte[][] regionsToFlush=wal.findRegionsToForceFlush();
+    assertEquals(1,regionsToFlush.length);
+    assertEquals(hri1.getEncodedNameAsBytes(),regionsToFlush[0]);
+    addEdits(wal,hri2,t2,2,sequenceId2);
+    regionsToFlush=wal.findRegionsToForceFlush();
+    assertEquals(regionsToFlush.length,1);
+    assertEquals(hri1.getEncodedNameAsBytes(),regionsToFlush[0]);
+    flushRegion(wal,hri1.getEncodedNameAsBytes());
+    wal.rollWriter();
+    assertEquals(1,wal.getNumRolledLogFiles());
+    flushRegion(wal,hri2.getEncodedNameAsBytes());
+    wal.rollWriter(true);
+    assertEquals(0,wal.getNumRolledLogFiles());
+    addEdits(wal,hri1,t1,2,sequenceId1);
+    addEdits(wal,hri2,t2,2,sequenceId2);
+    wal.rollWriter();
+    assertEquals(1,wal.getNumRolledLogFiles());
+    addEdits(wal,hri1,t1,2,sequenceId1);
+    wal.rollWriter();
+    regionsToFlush=wal.findRegionsToForceFlush();
+    assertEquals(2,regionsToFlush.length);
+    flushRegion(wal,hri1.getEncodedNameAsBytes());
+    flushRegion(wal,hri2.getEncodedNameAsBytes());
+    wal.rollWriter(true);
+    assertEquals(0,wal.getNumRolledLogFiles());
+    addEdits(wal,hri1,t1,2,sequenceId1);
+    wal.startCacheFlush(hri1.getEncodedNameAsBytes());
+    wal.rollWriter();
+    wal.completeCacheFlush(hri1.getEncodedNameAsBytes());
+    assertEquals(1,wal.getNumRolledLogFiles());
+  }
+  finally {
+    if (wal != null) {
+      wal.close();
+    }
+  }
+}

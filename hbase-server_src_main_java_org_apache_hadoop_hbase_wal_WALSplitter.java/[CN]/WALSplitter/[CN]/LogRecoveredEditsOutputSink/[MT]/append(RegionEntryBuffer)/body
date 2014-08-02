@@ -1,0 +1,33 @@
+{
+  List<Entry> entries=buffer.entryBuffer;
+  if (entries.isEmpty()) {
+    LOG.warn("got an empty buffer, skipping");
+    return;
+  }
+  WriterAndPath wap=null;
+  long startTime=System.nanoTime();
+  try {
+    int editsCount=0;
+    for (    Entry logEntry : entries) {
+      if (wap == null) {
+        wap=getWriterAndPath(logEntry);
+        if (wap == null) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("getWriterAndPath decided we don't need to write edits for " + logEntry);
+          }
+          return;
+        }
+      }
+      wap.w.append(logEntry);
+      this.updateRegionMaximumEditLogSeqNum(logEntry);
+      editsCount++;
+    }
+    wap.incrementEdits(editsCount);
+    wap.incrementNanoTime(System.nanoTime() - startTime);
+  }
+ catch (  IOException e) {
+    e=e instanceof RemoteException ? ((RemoteException)e).unwrapRemoteException() : e;
+    LOG.fatal(" Got while writing log entry to log",e);
+    throw e;
+  }
+}

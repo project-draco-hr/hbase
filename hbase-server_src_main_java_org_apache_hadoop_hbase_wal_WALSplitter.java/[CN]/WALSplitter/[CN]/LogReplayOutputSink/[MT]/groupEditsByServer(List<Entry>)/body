@@ -1,0 +1,96 @@
+{
+  Set<TableName> nonExistentTables=null;
+  Long cachedLastFlushedSequenceId=-1l;
+  for (  Entry entry : entries) {
+    WALEdit edit=entry.getEdit();
+    TableName table=entry.getKey().getTablename();
+    entry.getKey().setScopes(null);
+    String encodeRegionNameStr=Bytes.toString(entry.getKey().getEncodedRegionName());
+    if (nonExistentTables != null && nonExistentTables.contains(table)) {
+      this.skippedEdits.incrementAndGet();
+      continue;
+    }
+    Map<byte[],Long> maxStoreSequenceIds=null;
+    boolean needSkip=false;
+    HRegionLocation loc=null;
+    String locKey=null;
+    List<Cell> cells=edit.getCells();
+    List<Cell> skippedCells=new ArrayList<Cell>();
+    HConnection hconn=this.getConnectionByTableName(table);
+    for (    Cell cell : cells) {
+      byte[] row=cell.getRow();
+      byte[] family=cell.getFamily();
+      boolean isCompactionEntry=false;
+      if (CellUtil.matchingFamily(cell,WALEdit.METAFAMILY)) {
+        CompactionDescriptor compaction=WALEdit.getCompaction(cell);
+        if (compaction != null && compaction.hasRegionName()) {
+          try {
+            byte[][] regionName=HRegionInfo.parseRegionName(compaction.getRegionName().toByteArray());
+            row=regionName[1];
+            family=compaction.getFamilyName().toByteArray();
+            isCompactionEntry=true;
+          }
+ catch (          Exception ex) {
+            LOG.warn("Unexpected exception received, ignoring " + ex);
+            skippedCells.add(cell);
+            continue;
+          }
+        }
+ else {
+          skippedCells.add(cell);
+          continue;
+        }
+      }
+      try {
+        loc=locateRegionAndRefreshLastFlushedSequenceId(hconn,table,row,encodeRegionNameStr);
+        if (isCompactionEntry && !encodeRegionNameStr.equalsIgnoreCase(loc.getRegionInfo().getEncodedName())) {
+          LOG.info("Not replaying a compaction marker for an older region: " + encodeRegionNameStr);
+          needSkip=true;
+        }
+      }
+ catch (      TableNotFoundException ex) {
+        LOG.info("Table " + table + " doesn't exist. Skip log replay for region "+ encodeRegionNameStr);
+        lastFlushedSequenceIds.put(encodeRegionNameStr,Long.MAX_VALUE);
+        if (nonExistentTables == null) {
+          nonExistentTables=new TreeSet<TableName>();
+        }
+        nonExistentTables.add(table);
+        this.skippedEdits.incrementAndGet();
+        needSkip=true;
+        break;
+      }
+      cachedLastFlushedSequenceId=lastFlushedSequenceIds.get(loc.getRegionInfo().getEncodedName());
+      if (cachedLastFlushedSequenceId != null && cachedLastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
+        this.skippedEdits.incrementAndGet();
+        needSkip=true;
+        break;
+      }
+ else {
+        if (maxStoreSequenceIds == null) {
+          maxStoreSequenceIds=regionMaxSeqIdInStores.get(loc.getRegionInfo().getEncodedName());
+        }
+        if (maxStoreSequenceIds != null) {
+          Long maxStoreSeqId=maxStoreSequenceIds.get(family);
+          if (maxStoreSeqId == null || maxStoreSeqId >= entry.getKey().getLogSeqNum()) {
+            skippedCells.add(cell);
+            continue;
+          }
+        }
+      }
+    }
+    if (loc == null || needSkip)     continue;
+    if (!skippedCells.isEmpty()) {
+      cells.removeAll(skippedCells);
+    }
+synchronized (serverToBufferQueueMap) {
+      locKey=loc.getHostnamePort() + KEY_DELIMITER + table;
+      List<Pair<HRegionLocation,Entry>> queue=serverToBufferQueueMap.get(locKey);
+      if (queue == null) {
+        queue=Collections.synchronizedList(new ArrayList<Pair<HRegionLocation,Entry>>());
+        serverToBufferQueueMap.put(locKey,queue);
+      }
+      queue.add(new Pair<HRegionLocation,Entry>(loc,entry));
+    }
+    addToRecoveredRegions(loc.getRegionInfo().getEncodedName());
+  }
+}
