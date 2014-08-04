@@ -1,13 +1,13 @@
 {
   String newNS="newNS";
   TEST_UTIL.getHBaseAdmin().createNamespace(NamespaceDescriptor.create(newNS).build());
-  for (  String table : tables) {
+  for (  TableName table : tables) {
     int count=0;
     for (    Result res : new HTable(TEST_UTIL.getConfiguration(),table).getScanner(new Scan())) {
       assertEquals(currentKeys[count++],Bytes.toString(res.getRow()));
     }
     TEST_UTIL.getHBaseAdmin().snapshot(table + "_snapshot3",table);
-    final String newTableName=newNS + TableName.NAMESPACE_DELIM + table+ "_clone3";
+    final TableName newTableName=TableName.valueOf(newNS + TableName.NAMESPACE_DELIM + table+ "_clone3");
     TEST_UTIL.getHBaseAdmin().cloneSnapshot(table + "_snapshot3",newTableName);
     Thread.sleep(1000);
     count=0;
@@ -15,13 +15,13 @@
       assertEquals(currentKeys[count++],Bytes.toString(res.getRow()));
     }
     FSUtils.logFileSystemState(TEST_UTIL.getTestFileSystem(),TEST_UTIL.getDefaultRootDirPath(),LOG);
-    Assert.assertEquals(newTableName,currentKeys.length,count);
-    TEST_UTIL.getHBaseAdmin().flush(newTableName);
-    TEST_UTIL.getHBaseAdmin().majorCompact(newTableName);
+    Assert.assertEquals(newTableName + "",currentKeys.length,count);
+    TEST_UTIL.getHBaseAdmin().flush(newTableName.toBytes());
+    TEST_UTIL.getHBaseAdmin().majorCompact(newTableName.toBytes());
     TEST_UTIL.waitFor(30000,new Waiter.Predicate<IOException>(){
       @Override public boolean evaluate() throws IOException {
         try {
-          return TEST_UTIL.getHBaseAdmin().getCompactionState(newTableName) == AdminProtos.GetRegionInfoResponse.CompactionState.NONE;
+          return TEST_UTIL.getHBaseAdmin().getCompactionState(newTableName.toBytes()) == AdminProtos.GetRegionInfoResponse.CompactionState.NONE;
         }
  catch (        InterruptedException e) {
           throw new IOException(e);
@@ -32,16 +32,16 @@
   }
   String nextNS="nextNS";
   TEST_UTIL.getHBaseAdmin().createNamespace(NamespaceDescriptor.create(nextNS).build());
-  for (  String table : tables) {
-    String srcTable=newNS + TableName.NAMESPACE_DELIM + table+ "_clone3";
+  for (  TableName table : tables) {
+    TableName srcTable=TableName.valueOf(newNS + TableName.NAMESPACE_DELIM + table+ "_clone3");
     TEST_UTIL.getHBaseAdmin().snapshot(table + "_snapshot4",srcTable);
-    String newTableName=nextNS + TableName.NAMESPACE_DELIM + table+ "_clone4";
+    TableName newTableName=TableName.valueOf(nextNS + TableName.NAMESPACE_DELIM + table+ "_clone4");
     TEST_UTIL.getHBaseAdmin().cloneSnapshot(table + "_snapshot4",newTableName);
     FSUtils.logFileSystemState(TEST_UTIL.getTestFileSystem(),TEST_UTIL.getDefaultRootDirPath(),LOG);
     int count=0;
     for (    Result res : new HTable(TEST_UTIL.getConfiguration(),newTableName).getScanner(new Scan())) {
       assertEquals(currentKeys[count++],Bytes.toString(res.getRow()));
     }
-    Assert.assertEquals(newTableName,currentKeys.length,count);
+    Assert.assertEquals(newTableName + "",currentKeys.length,count);
   }
 }
