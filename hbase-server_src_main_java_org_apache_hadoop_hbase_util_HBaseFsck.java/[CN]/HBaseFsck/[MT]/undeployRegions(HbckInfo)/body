@@ -1,12 +1,16 @@
 {
-  for (  OnlineEntry rse : hi.deployedEntries) {
-    LOG.debug("Undeploy region " + rse.hri + " from "+ rse.hsa);
-    try {
-      HBaseFsckRepair.closeRegionSilentlyAndWait(admin,rse.hsa,rse.hri);
-      offline(rse.hri.getRegionName());
-    }
- catch (    IOException ioe) {
-      LOG.warn("Got exception when attempting to offline region " + Bytes.toString(rse.hri.getRegionName()),ioe);
+  undeployRegionsForHbi(hi);
+  if (hi.getReplicaId() != HRegionInfo.DEFAULT_REPLICA_ID) {
+    return;
+  }
+  int numReplicas=admin.getTableDescriptor(hi.getTableName()).getRegionReplication();
+  for (int i=1; i < numReplicas; i++) {
+    if (hi.getPrimaryHRIForDeployedReplica() == null)     continue;
+    HRegionInfo hri=RegionReplicaUtil.getRegionInfoForReplica(hi.getPrimaryHRIForDeployedReplica(),i);
+    HbckInfo h=regionInfoMap.get(hri.getEncodedName());
+    if (h != null) {
+      undeployRegionsForHbi(h);
+      h.setSkipChecks(true);
     }
   }
 }

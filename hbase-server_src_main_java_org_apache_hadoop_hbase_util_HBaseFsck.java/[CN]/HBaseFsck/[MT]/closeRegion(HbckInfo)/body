@@ -7,16 +7,30 @@
   get.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
   get.addColumn(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
   get.addColumn(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
+  if (hi.getReplicaId() == HRegionInfo.DEFAULT_REPLICA_ID) {
+    int numReplicas=admin.getTableDescriptor(hi.getTableName()).getRegionReplication();
+    for (int i=0; i < numReplicas; i++) {
+      get.addColumn(HConstants.CATALOG_FAMILY,MetaTableAccessor.getServerColumn(i));
+      get.addColumn(HConstants.CATALOG_FAMILY,MetaTableAccessor.getStartCodeColumn(i));
+    }
+  }
   Result r=meta.get(get);
-  ServerName serverName=HRegionInfo.getServerName(r);
-  if (serverName == null) {
-    errors.reportError("Unable to close region " + hi.getRegionNameAsString() + " because meta does not "+ "have handle to reach it.");
+  RegionLocations rl=MetaTableAccessor.getRegionLocations(r);
+  if (rl == null) {
+    LOG.warn("Unable to close region " + hi.getRegionNameAsString() + " since meta does not have handle to reach it");
     return;
   }
-  HRegionInfo hri=HRegionInfo.getHRegionInfo(r);
-  if (hri == null) {
-    LOG.warn("Unable to close region " + hi.getRegionNameAsString() + " because hbase:meta had invalid or missing "+ HConstants.CATALOG_FAMILY_STR+ ":"+ Bytes.toString(HConstants.REGIONINFO_QUALIFIER)+ " qualifier value.");
-    return;
+  for (  HRegionLocation h : rl.getRegionLocations()) {
+    ServerName serverName=h.getServerName();
+    if (serverName == null) {
+      errors.reportError("Unable to close region " + hi.getRegionNameAsString() + " because meta does not "+ "have handle to reach it.");
+      continue;
+    }
+    HRegionInfo hri=h.getRegionInfo();
+    if (hri == null) {
+      LOG.warn("Unable to close region " + hi.getRegionNameAsString() + " because hbase:meta had invalid or missing "+ HConstants.CATALOG_FAMILY_STR+ ":"+ Bytes.toString(HConstants.REGIONINFO_QUALIFIER)+ " qualifier value.");
+      continue;
+    }
+    HBaseFsckRepair.closeRegionSilentlyAndWait(admin,serverName,hri);
   }
-  HBaseFsckRepair.closeRegionSilentlyAndWait(admin,serverName,hri);
 }

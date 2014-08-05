@@ -10,31 +10,46 @@
     @Override public boolean processRow(    Result result) throws IOException {
       try {
         long ts=Collections.max(result.listCells(),comp).getTimestamp();
-        Pair<HRegionInfo,ServerName> pair=HRegionInfo.getHRegionInfoAndServerName(result);
-        if (pair == null || pair.getFirst() == null) {
+        RegionLocations rl=MetaTableAccessor.getRegionLocations(result);
+        if (rl == null) {
           emptyRegionInfoQualifiers.add(result);
           errors.reportError(ERROR_CODE.EMPTY_META_CELL,"Empty REGIONINFO_QUALIFIER found in hbase:meta");
           return true;
         }
         ServerName sn=null;
-        if (pair.getSecond() != null) {
-          sn=pair.getSecond();
+        if (rl.getRegionLocation(HRegionInfo.DEFAULT_REPLICA_ID) == null || rl.getRegionLocation(HRegionInfo.DEFAULT_REPLICA_ID).getRegionInfo() == null) {
+          emptyRegionInfoQualifiers.add(result);
+          errors.reportError(ERROR_CODE.EMPTY_META_CELL,"Empty REGIONINFO_QUALIFIER found in hbase:meta");
+          return true;
         }
-        HRegionInfo hri=pair.getFirst();
+        HRegionInfo hri=rl.getRegionLocation(HRegionInfo.DEFAULT_REPLICA_ID).getRegionInfo();
         if (!(isTableIncluded(hri.getTable()) || hri.isMetaRegion())) {
           return true;
         }
         PairOfSameType<HRegionInfo> daughters=HRegionInfo.getDaughterRegions(result);
-        MetaEntry m=new MetaEntry(hri,sn,ts,daughters.getFirst(),daughters.getSecond());
-        HbckInfo previous=regionInfoMap.get(hri.getEncodedName());
-        if (previous == null) {
-          regionInfoMap.put(hri.getEncodedName(),new HbckInfo(m));
-        }
- else         if (previous.metaEntry == null) {
-          previous.metaEntry=m;
-        }
+        for (        HRegionLocation h : rl.getRegionLocations()) {
+          if (h == null || h.getRegionInfo() == null) {
+            continue;
+          }
+          sn=h.getServerName();
+          hri=h.getRegionInfo();
+          MetaEntry m=null;
+          if (hri.getReplicaId() == HRegionInfo.DEFAULT_REPLICA_ID) {
+            m=new MetaEntry(hri,sn,ts,daughters.getFirst(),daughters.getSecond());
+          }
  else {
-          throw new IOException("Two entries in hbase:meta are same " + previous);
+            m=new MetaEntry(hri,sn,ts,null,null);
+          }
+          HbckInfo previous=regionInfoMap.get(hri.getEncodedName());
+          if (previous == null) {
+            regionInfoMap.put(hri.getEncodedName(),new HbckInfo(m));
+          }
+ else           if (previous.metaEntry == null) {
+            previous.metaEntry=m;
+          }
+ else {
+            throw new IOException("Two entries in hbase:meta are same " + previous);
+          }
         }
         PairOfSameType<HRegionInfo> mergeRegions=HRegionInfo.getMergeRegions(result);
         for (        HRegionInfo mergeRegion : new HRegionInfo[]{mergeRegions.getFirst(),mergeRegions.getSecond()}) {

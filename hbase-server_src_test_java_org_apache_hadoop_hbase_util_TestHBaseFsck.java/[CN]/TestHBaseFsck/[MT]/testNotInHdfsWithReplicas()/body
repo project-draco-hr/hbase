@@ -1,0 +1,44 @@
+{
+  TableName table=TableName.valueOf("tableNotInHdfs");
+  HBaseAdmin admin=new HBaseAdmin(conf);
+  try {
+    HRegionInfo[] oldHris=new HRegionInfo[2];
+    setupTableWithRegionReplica(table,2);
+    assertEquals(ROWKEYS.length,countRows());
+    NavigableMap<HRegionInfo,ServerName> map=MetaScanner.allTableRegions(conf,null,tbl.getName(),false);
+    int i=0;
+    for (    Map.Entry<HRegionInfo,ServerName> m : map.entrySet()) {
+      if (m.getKey().getStartKey().length > 0 && m.getKey().getStartKey()[0] == Bytes.toBytes("B")[0]) {
+        LOG.debug("Initially server hosting " + m.getKey() + " is "+ m.getValue());
+        oldHris[i++]=m.getKey();
+      }
+    }
+    TEST_UTIL.getHBaseAdmin().flush(table.getName());
+    deleteRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("B"),Bytes.toBytes("C"),false,false,true);
+    HBaseFsck hbck=doFsck(conf,false);
+    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.NOT_IN_HDFS});
+    doFsck(conf,true);
+    assertNoErrors(doFsck(conf,false));
+    assertEquals(ROWKEYS.length - 2,countRows());
+    i=0;
+    HRegionInfo[] newHris=new HRegionInfo[2];
+    map=MetaScanner.allTableRegions(conf,null,tbl.getName(),false);
+    for (    Map.Entry<HRegionInfo,ServerName> m : map.entrySet()) {
+      if (m.getKey().getStartKey().length > 0 && m.getKey().getStartKey()[0] == Bytes.toBytes("B")[0]) {
+        newHris[i++]=m.getKey();
+      }
+    }
+    Collection<ServerName> servers=admin.getClusterStatus().getServers();
+    Set<HRegionInfo> onlineRegions=new HashSet<HRegionInfo>();
+    for (    ServerName s : servers) {
+      List<HRegionInfo> list=admin.getOnlineRegions(s);
+      onlineRegions.addAll(list);
+    }
+    assertTrue(onlineRegions.containsAll(Arrays.asList(newHris)));
+    assertFalse(onlineRegions.removeAll(Arrays.asList(oldHris)));
+  }
+  finally {
+    deleteTable(table);
+    admin.close();
+  }
+}
