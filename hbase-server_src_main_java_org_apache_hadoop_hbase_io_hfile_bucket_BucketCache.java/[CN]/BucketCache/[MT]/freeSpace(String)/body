@@ -3,7 +3,7 @@
   try {
     freeInProgress=true;
     long bytesToFreeWithoutExtra=0;
-    StringBuffer msgBuffer=new StringBuffer();
+    StringBuffer msgBuffer=LOG.isDebugEnabled() ? new StringBuffer() : null;
     BucketAllocator.IndexStatistics[] stats=bucketAllocator.getIndexStatistics();
     long[] bytesToFreeForBucket=new long[stats.length];
     for (int i=0; i < stats.length; i++) {
@@ -13,16 +13,22 @@
       if (stats[i].freeCount() < freeGoal) {
         bytesToFreeForBucket[i]=stats[i].itemSize() * (freeGoal - stats[i].freeCount());
         bytesToFreeWithoutExtra+=bytesToFreeForBucket[i];
-        msgBuffer.append("Free for bucketSize(" + stats[i].itemSize() + ")="+ StringUtils.byteDesc(bytesToFreeForBucket[i])+ ", ");
+        if (msgBuffer != null) {
+          msgBuffer.append("Free for bucketSize(" + stats[i].itemSize() + ")="+ StringUtils.byteDesc(bytesToFreeForBucket[i])+ ", ");
+        }
       }
     }
-    msgBuffer.append("Free for total=" + StringUtils.byteDesc(bytesToFreeWithoutExtra) + ", ");
+    if (msgBuffer != null) {
+      msgBuffer.append("Free for total=" + StringUtils.byteDesc(bytesToFreeWithoutExtra) + ", ");
+    }
     if (bytesToFreeWithoutExtra <= 0) {
       return;
     }
     long currentSize=bucketAllocator.getUsedSize();
     long totalSize=bucketAllocator.getTotalSize();
-    LOG.debug("Bucket cache free space started; Attempting to  " + msgBuffer.toString() + " of current used="+ StringUtils.byteDesc(currentSize)+ ",actual cacheSize="+ StringUtils.byteDesc(realCacheSize.get())+ ",total="+ StringUtils.byteDesc(totalSize));
+    if (LOG.isDebugEnabled() && msgBuffer != null) {
+      LOG.debug("Free started because \"" + why + "\"; "+ msgBuffer.toString()+ " of current used="+ StringUtils.byteDesc(currentSize)+ ", actual cacheSize="+ StringUtils.byteDesc(realCacheSize.get())+ ", total="+ StringUtils.byteDesc(totalSize));
+    }
     long bytesToFreeWithExtra=(long)Math.floor(bytesToFreeWithoutExtra * (1 + DEFAULT_EXTRA_FREE_FACTOR));
     BucketEntryGroup bucketSingle=new BucketEntryGroup(bytesToFreeWithExtra,blockSize,singleSize());
     BucketEntryGroup bucketMulti=new BucketEntryGroup(bytesToFreeWithExtra,blockSize,multiSize());
@@ -86,7 +92,9 @@ if (LOG.isDebugEnabled()) {
 long single=bucketSingle.totalSize();
 long multi=bucketMulti.totalSize();
 long memory=bucketMemory.totalSize();
-LOG.debug("Bucket cache free space completed; " + "freed=" + StringUtils.byteDesc(bytesFreed) + ", "+ "total="+ StringUtils.byteDesc(totalSize)+ ", "+ "single="+ StringUtils.byteDesc(single)+ ", "+ "multi="+ StringUtils.byteDesc(multi)+ ", "+ "memory="+ StringUtils.byteDesc(memory));
+if (LOG.isDebugEnabled()) {
+  LOG.debug("Bucket cache free space completed; " + "freed=" + StringUtils.byteDesc(bytesFreed) + ", "+ "total="+ StringUtils.byteDesc(totalSize)+ ", "+ "single="+ StringUtils.byteDesc(single)+ ", "+ "multi="+ StringUtils.byteDesc(multi)+ ", "+ "memory="+ StringUtils.byteDesc(memory));
+}
 }
 }
  catch (Throwable t) {

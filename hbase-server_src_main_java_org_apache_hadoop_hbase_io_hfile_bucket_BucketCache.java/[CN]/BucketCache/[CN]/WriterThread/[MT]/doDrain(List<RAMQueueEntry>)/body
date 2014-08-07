@@ -1,28 +1,32 @@
 {
-  BucketEntry[] bucketEntries=new BucketEntry[entries.size()];
-  RAMQueueEntry[] ramEntries=new RAMQueueEntry[entries.size()];
-  int done=0;
-  while (entries.size() > 0 && cacheEnabled) {
-    RAMQueueEntry ramEntry=null;
+  if (entries.isEmpty())   return;
+  final int size=entries.size();
+  BucketEntry[] bucketEntries=new BucketEntry[size];
+  int index=0;
+  while (cacheEnabled && index < size) {
+    RAMQueueEntry re=null;
     try {
-      ramEntry=entries.remove(entries.size() - 1);
-      if (ramEntry == null) {
-        LOG.warn("Couldn't get the entry from RAM queue, who steals it?");
+      re=entries.get(index);
+      if (re == null) {
+        LOG.warn("Couldn't get entry or changed on us; who else is messing with it?");
+        index++;
         continue;
       }
-      BucketEntry bucketEntry=ramEntry.writeToCache(ioEngine,bucketAllocator,deserialiserMap,realCacheSize);
-      ramEntries[done]=ramEntry;
-      bucketEntries[done++]=bucketEntry;
+      BucketEntry bucketEntry=re.writeToCache(ioEngine,bucketAllocator,deserialiserMap,realCacheSize);
+      bucketEntries[index]=bucketEntry;
       if (ioErrorStartTime > 0) {
         ioErrorStartTime=-1;
       }
+      index++;
     }
  catch (    BucketAllocatorException fle) {
-      LOG.warn("Failed allocating for block " + (ramEntry == null ? "" : ramEntry.getKey()),fle);
+      LOG.warn("Failed allocation for " + (re == null ? "" : re.getKey()) + "; "+ fle);
+      bucketEntries[index]=null;
+      index++;
     }
 catch (    CacheFullException cfe) {
       if (!freeInProgress) {
-        freeSpace();
+        freeSpace("Full!");
       }
  else {
         Thread.sleep(50);
@@ -37,25 +41,28 @@ catch (    IOException ioex) {
     ioEngine.sync();
   }
  catch (  IOException ioex) {
-    LOG.error("Faild syncing IO engine",ioex);
+    LOG.error("Failed syncing IO engine",ioex);
     checkIOErrorIsTolerated();
-    for (int i=0; i < done; ++i) {
+    for (int i=0; i < entries.size(); ++i) {
       if (bucketEntries[i] != null) {
         bucketAllocator.freeBlock(bucketEntries[i].offset());
+        bucketEntries[i]=null;
       }
     }
-    done=0;
   }
-  for (int i=0; i < done; ++i) {
+  for (int i=0; i < size; ++i) {
+    BlockCacheKey key=entries.get(i).getKey();
     if (bucketEntries[i] != null) {
-      backingMap.put(ramEntries[i].getKey(),bucketEntries[i]);
+      backingMap.put(key,bucketEntries[i]);
     }
-    RAMQueueEntry ramCacheEntry=ramCache.remove(ramEntries[i].getKey());
+    RAMQueueEntry ramCacheEntry=ramCache.remove(key);
     if (ramCacheEntry != null) {
-      heapSize.addAndGet(-1 * ramEntries[i].getData().heapSize());
+      heapSize.addAndGet(-1 * entries.get(i).getData().heapSize());
     }
   }
-  if (bucketAllocator.getUsedSize() > acceptableSize()) {
-    freeSpace();
+  long used=bucketAllocator.getUsedSize();
+  if (used > acceptableSize()) {
+    freeSpace("Used=" + used + " > acceptable="+ acceptableSize());
   }
+  return;
 }
