@@ -1,0 +1,31 @@
+{
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  boolean stoppedARegionServer=false;
+  try {
+    HMaster master=cluster.getMaster();
+    RegionStates regionStates=master.getAssignmentManager().getRegionStates();
+    ServerName metaServerName=regionStates.getRegionServerOfRegion(HRegionInfo.FIRST_META_REGIONINFO);
+    if (master.getServerName().equals(metaServerName)) {
+      metaServerName=cluster.getLiveRegionServerThreads().get(0).getRegionServer().getServerName();
+      master.move(HRegionInfo.FIRST_META_REGIONINFO.getEncodedNameAsBytes(),Bytes.toBytes(metaServerName.getServerName()));
+      TEST_UTIL.waitUntilNoRegionsInTransition(60000);
+    }
+    assertNotEquals("Meta should be moved off master",metaServerName,master.getServerName());
+    cluster.killRegionServer(metaServerName);
+    stoppedARegionServer=true;
+    cluster.waitForRegionServerToStop(metaServerName,60000);
+    final ServerManager serverManager=master.getServerManager();
+    TEST_UTIL.waitFor(120000,200,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return !serverManager.areDeadServersInProgress();
+      }
+    }
+);
+    assertTrue("Meta should be assigned",regionStates.isRegionOnline(HRegionInfo.FIRST_META_REGIONINFO));
+  }
+  finally {
+    if (stoppedARegionServer) {
+      cluster.startRegionServer();
+    }
+  }
+}
