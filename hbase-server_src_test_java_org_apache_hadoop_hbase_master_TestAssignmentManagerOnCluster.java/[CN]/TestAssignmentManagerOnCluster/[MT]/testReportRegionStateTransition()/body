@@ -1,0 +1,27 @@
+{
+  String table="testReportRegionStateTransition";
+  try {
+    MyRegionServer.simulateRetry=true;
+    HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(table));
+    desc.addFamily(new HColumnDescriptor(FAMILY));
+    admin.createTable(desc);
+    HTable meta=new HTable(conf,TableName.META_TABLE_NAME);
+    HRegionInfo hri=new HRegionInfo(desc.getTableName(),Bytes.toBytes("A"),Bytes.toBytes("Z"));
+    MetaTableAccessor.addRegionToMeta(meta,hri);
+    HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
+    master.assignRegion(hri);
+    AssignmentManager am=master.getAssignmentManager();
+    am.waitForAssignment(hri);
+    RegionStates regionStates=am.getRegionStates();
+    ServerName serverName=regionStates.getRegionServerOfRegion(hri);
+    TEST_UTIL.assertRegionOnServer(hri,serverName,200);
+    admin.disableTable(TableName.valueOf(table));
+    assertTrue(regionStates.isRegionOffline(hri));
+    List<HRegionInfo> regions=TEST_UTIL.getHBaseAdmin().getOnlineRegions(serverName);
+    assertTrue(!regions.contains(hri));
+  }
+  finally {
+    MyRegionServer.simulateRetry=false;
+    TEST_UTIL.deleteTable(Bytes.toBytes(table));
+  }
+}
