@@ -1,0 +1,38 @@
+{
+  LOG.debug("Starting unassign of " + region.getRegionNameAsString() + " (offlining), current state: "+ regionStates.getRegionState(region));
+  String encodedName=region.getEncodedName();
+  ReentrantLock lock=locker.acquireLock(encodedName);
+  RegionState state=regionStates.getRegionTransitionState(encodedName);
+  try {
+    if (state == null || state.isFailedClose()) {
+      if (state == null) {
+        state=regionStates.getRegionState(encodedName);
+        if (state != null && state.isUnassignable()) {
+          LOG.info("Attempting to unassign " + state + ", ignored");
+          return;
+        }
+        if (state == null || state.getServerName() == null) {
+          LOG.warn("Attempting to unassign a region not in RegionStates" + region.getRegionNameAsString() + ", offlined");
+          regionOffline(region);
+          return;
+        }
+      }
+      state=regionStates.updateRegionState(region,State.PENDING_CLOSE);
+    }
+ else     if (state.isFailedOpen()) {
+      regionOffline(region);
+      return;
+    }
+ else {
+      LOG.debug("Attempting to unassign " + region.getRegionNameAsString() + " but it is "+ "already in transition ("+ state.getState());
+      return;
+    }
+    unassign(region,state,dest);
+  }
+  finally {
+    lock.unlock();
+    if (!replicasToClose.contains(region) && regionStates.isRegionInState(region,State.OFFLINE)) {
+      assign(region);
+    }
+  }
+}
