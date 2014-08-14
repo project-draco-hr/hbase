@@ -1,0 +1,36 @@
+{
+  if (current == null || !current.isOnServer(serverName) || !(current.isSplitting() || current.isSplit())) {
+    return hri.getShortNameToLog() + " is not splitting on " + serverName;
+  }
+  if (current.isSplit()) {
+    return null;
+  }
+  final HRegionInfo a=HRegionInfo.convert(transition.getRegionInfo(1));
+  final HRegionInfo b=HRegionInfo.convert(transition.getRegionInfo(2));
+  RegionState rs_a=regionStates.getRegionState(a);
+  RegionState rs_b=regionStates.getRegionState(b);
+  if (rs_a == null || rs_b == null || !rs_a.isOnServer(serverName) || !rs_b.isOnServer(serverName) || !rs_a.isSplittingNew() || !rs_b.isSplittingNew()) {
+    return "Some daughter is not known to be splitting on " + serverName + ", a="+ rs_a+ ", b="+ rs_b;
+  }
+  if (TEST_SKIP_SPLIT_HANDLING) {
+    return "Skipping split message, TEST_SKIP_SPLIT_HANDLING is set";
+  }
+  regionOffline(hri,State.SPLIT);
+  regionOnline(a,serverName,1);
+  regionOnline(b,serverName,1);
+  if (getTableStateManager().isTableState(hri.getTable(),Table.State.DISABLED,Table.State.DISABLING)) {
+    invokeUnAssign(a);
+    invokeUnAssign(b);
+  }
+ else {
+    Callable<Object> splitReplicasCallable=new Callable<Object>(){
+      @Override public Object call(){
+        doSplittingOfReplicas(hri,a,b);
+        return null;
+      }
+    }
+;
+    threadPoolExecutorService.submit(splitReplicasCallable);
+  }
+  return null;
+}

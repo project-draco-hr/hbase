@@ -8,32 +8,49 @@
         if (!regionState.equals(regionStates.getRegionState(hri))) {
           return;
         }
-        while (serverManager.isServerOnline(serverName) && !server.isStopped() && !server.isAborted()) {
+        for (int i=1; i <= maximumAttempts; i++) {
+          if (!serverManager.isServerOnline(serverName) || server.isStopped() || server.isAborted()) {
+            return;
+          }
           try {
             List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
             if (shouldAssignRegionsWithFavoredNodes) {
               favoredNodes=((FavoredNodeLoadBalancer)balancer).getFavoredNodes(hri);
             }
-            RegionOpeningState regionOpenState=serverManager.sendRegionOpen(serverName,hri,favoredNodes);
-            if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
-              LOG.debug("Got failed_opening in retry sendRegionOpen for " + regionState + ", re-assign it");
-              invokeAssign(hri,true);
-            }
+            serverManager.sendRegionOpen(serverName,hri,favoredNodes);
             return;
           }
  catch (          Throwable t) {
             if (t instanceof RemoteException) {
               t=((RemoteException)t).unwrapRemoteException();
             }
-            if (t instanceof java.net.SocketTimeoutException || t instanceof FailedServerException) {
-              Threads.sleep(100);
-              continue;
+            if (t instanceof FailedServerException && i < maximumAttempts) {
+              try {
+                Configuration conf=this.server.getConfiguration();
+                long sleepTime=1 + conf.getInt(RpcClient.FAILED_SERVER_EXPIRY_KEY,RpcClient.FAILED_SERVER_EXPIRY_DEFAULT);
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug(serverName + " is on failed server list; waiting " + sleepTime+ "ms",t);
+                }
+                Thread.sleep(sleepTime);
+                continue;
+              }
+ catch (              InterruptedException ie) {
+                LOG.warn("Failed to assign " + hri.getRegionNameAsString() + " since interrupted",ie);
+                regionStates.updateRegionState(hri,State.FAILED_OPEN);
+                Thread.currentThread().interrupt();
+                return;
+              }
             }
-            LOG.debug("Got exception in retry sendRegionOpen for " + regionState + ", re-assign it",t);
-            invokeAssign(hri);
-            return;
+            if (serverManager.isServerOnline(serverName) && t instanceof java.net.SocketTimeoutException) {
+              i--;
+            }
+ else {
+              LOG.info("Got exception in retrying sendRegionOpen for " + regionState + "; try="+ i+ " of "+ maximumAttempts,t);
+            }
+            Threads.sleep(100);
           }
         }
+        regionStates.updateRegionState(hri,State.FAILED_OPEN);
       }
   finally {
         lock.unlock();

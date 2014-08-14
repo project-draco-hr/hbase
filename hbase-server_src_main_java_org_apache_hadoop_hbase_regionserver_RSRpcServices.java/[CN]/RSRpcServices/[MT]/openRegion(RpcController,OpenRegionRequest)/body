@@ -46,24 +46,13 @@ catch (      IOException e) {
     final HRegionInfo region=HRegionInfo.convert(regionOpenInfo.getRegion());
     HTableDescriptor htd;
     try {
-      final HRegion onlineRegion=regionServer.getFromOnlineRegions(region.getEncodedName());
+      String encodedName=region.getEncodedName();
+      byte[] encodedNameBytes=region.getEncodedNameAsBytes();
+      final HRegion onlineRegion=regionServer.getFromOnlineRegions(encodedName);
       if (onlineRegion != null) {
-        if (onlineRegion.getCoprocessorHost() != null) {
-          onlineRegion.getCoprocessorHost().preOpen();
-        }
-        Pair<HRegionInfo,ServerName> p=MetaTableAccessor.getRegion(regionServer.getShortCircuitConnection(),region.getRegionName());
-        if (regionServer.serverName.equals(p.getSecond())) {
-          Boolean closing=regionServer.regionsInTransitionInRS.get(region.getEncodedNameAsBytes());
-          if (!Boolean.FALSE.equals(closing) && regionServer.getFromOnlineRegions(region.getEncodedName()) != null) {
-            LOG.warn("Attempted open of " + region.getEncodedName() + " but already online on this server");
-            builder.addOpeningState(RegionOpeningState.ALREADY_OPENED);
-            continue;
-          }
-        }
- else {
-          LOG.warn("The region " + region.getEncodedName() + " is online on this server"+ " but hbase:meta does not have this server - continue opening.");
-          regionServer.removeFromOnlineRegions(onlineRegion,null);
-        }
+        String error="Received OPEN for the region:" + region.getRegionNameAsString() + ", which is already online";
+        regionServer.abort(error);
+        throw new IOException(error);
       }
       LOG.info("Open " + region.getRegionNameAsString());
       htd=htds.get(region.getTable());
@@ -71,15 +60,20 @@ catch (      IOException e) {
         htd=regionServer.tableDescriptors.get(region.getTable());
         htds.put(region.getTable(),htd);
       }
-      final Boolean previous=regionServer.regionsInTransitionInRS.putIfAbsent(region.getEncodedNameAsBytes(),Boolean.TRUE);
+      final Boolean previous=regionServer.regionsInTransitionInRS.putIfAbsent(encodedNameBytes,Boolean.TRUE);
       if (Boolean.FALSE.equals(previous)) {
-        throw new RegionAlreadyInTransitionException("Received OPEN for the region:" + region.getRegionNameAsString() + " , which we are already trying to CLOSE ");
+        if (regionServer.getFromOnlineRegions(encodedName) != null) {
+          String error="Received OPEN for the region:" + region.getRegionNameAsString() + ", which we are already trying to CLOSE";
+          regionServer.abort(error);
+          throw new IOException(error);
+        }
+        regionServer.regionsInTransitionInRS.put(encodedNameBytes,Boolean.TRUE);
       }
       if (Boolean.TRUE.equals(previous)) {
-        LOG.info("Receiving OPEN for the region:" + region.getRegionNameAsString() + " , which we are already trying to OPEN"+ " - ignoring this new request for this region.");
+        LOG.info("Receiving OPEN for the region:" + region.getRegionNameAsString() + ", which we are already trying to OPEN"+ " - ignoring this new request for this region.");
       }
       regionServer.removeFromMovedRegions(region.getEncodedName());
-      if (previous == null) {
+      if (previous == null || !previous.booleanValue()) {
         if (ZKSplitLog.isRegionMarkedRecoveringInZK(regionServer.getZooKeeper(),region.getEncodedName())) {
           if (!regionOpenInfo.hasOpenForDistributedLogReplay() || regionOpenInfo.getOpenForDistributedLogReplay()) {
             regionServer.recoveringRegions.put(region.getEncodedName(),null);

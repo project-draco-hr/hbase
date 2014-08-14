@@ -5,7 +5,6 @@
     RegionPlan plan=null;
     long maxWaitTime=-1;
     HRegionInfo region=state.getRegion();
-    RegionOpeningState regionOpenState;
     Throwable previousException=null;
     for (int i=1; i <= maximumAttempts; i++) {
       if (server.isStopped() || server.isAborted()) {
@@ -43,48 +42,38 @@
       }
       LOG.info("Assigning " + region.getRegionNameAsString() + " to "+ plan.getDestination().toString());
       regionStates.updateRegionState(region,State.PENDING_OPEN,plan.getDestination());
-      boolean needNewPlan;
+      boolean needNewPlan=false;
       final String assignMsg="Failed assignment of " + region.getRegionNameAsString() + " to "+ plan.getDestination();
       try {
         List<ServerName> favoredNodes=ServerName.EMPTY_SERVER_LIST;
         if (this.shouldAssignRegionsWithFavoredNodes) {
           favoredNodes=((FavoredNodeLoadBalancer)this.balancer).getFavoredNodes(region);
         }
-        regionOpenState=serverManager.sendRegionOpen(plan.getDestination(),region,favoredNodes);
-        if (regionOpenState == RegionOpeningState.FAILED_OPENING) {
-          needNewPlan=true;
-          LOG.warn(assignMsg + ", regionserver says 'FAILED_OPENING', " + " trying to assign elsewhere instead; "+ "try="+ i+ " of "+ this.maximumAttempts);
-        }
- else {
-          return;
-        }
+        serverManager.sendRegionOpen(plan.getDestination(),region,favoredNodes);
+        return;
       }
  catch (      Throwable t) {
         if (t instanceof RemoteException) {
           t=((RemoteException)t).unwrapRemoteException();
         }
         previousException=t;
-        boolean hold=(t instanceof RegionAlreadyInTransitionException || t instanceof ServerNotRunningYetException);
+        boolean hold=(t instanceof ServerNotRunningYetException);
         boolean retry=!hold && (t instanceof java.net.SocketTimeoutException && this.serverManager.isServerOnline(plan.getDestination()));
         if (hold) {
           LOG.warn(assignMsg + ", waiting a little before trying on the same region server " + "try="+ i+ " of "+ this.maximumAttempts,t);
           if (maxWaitTime < 0) {
-            if (t instanceof RegionAlreadyInTransitionException) {
-              maxWaitTime=EnvironmentEdgeManager.currentTime() + this.server.getConfiguration().getLong(ALREADY_IN_TRANSITION_WAITTIME,DEFAULT_ALREADY_IN_TRANSITION_WAITTIME);
-            }
- else {
-              maxWaitTime=EnvironmentEdgeManager.currentTime() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
-            }
+            maxWaitTime=EnvironmentEdgeManager.currentTime() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
           }
           try {
-            needNewPlan=false;
             long now=EnvironmentEdgeManager.currentTime();
             if (now < maxWaitTime) {
-              LOG.debug("Server is not yet up or region is already in transition; " + "waiting up to " + (maxWaitTime - now) + "ms",t);
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",t);
+              }
               Thread.sleep(100);
               i--;
             }
- else             if (!(t instanceof RegionAlreadyInTransitionException)) {
+ else {
               LOG.debug("Server is not up for a while; try a new one",t);
               needNewPlan=true;
             }
@@ -97,9 +86,10 @@
           }
         }
  else         if (retry) {
-          needNewPlan=false;
           i--;
-          LOG.warn(assignMsg + ", trying to assign to the same region server due ",t);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(assignMsg + ", trying to assign to the same region server due ",t);
+          }
         }
  else {
           needNewPlan=true;

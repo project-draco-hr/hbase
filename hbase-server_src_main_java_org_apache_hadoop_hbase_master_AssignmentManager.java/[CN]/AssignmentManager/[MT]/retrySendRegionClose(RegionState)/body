@@ -8,29 +8,45 @@
         if (!regionState.equals(regionStates.getRegionState(hri))) {
           return;
         }
-        while (serverManager.isServerOnline(serverName) && !server.isStopped() && !server.isAborted()) {
+        for (int i=1; i <= maximumAttempts; i++) {
+          if (!serverManager.isServerOnline(serverName) || server.isStopped() || server.isAborted()) {
+            return;
+          }
           try {
-            if (!serverManager.sendRegionClose(serverName,hri,null)) {
-              LOG.debug("Got false in retry sendRegionClose for " + regionState + ", re-close it");
-              invokeUnAssign(hri);
-            }
+            serverManager.sendRegionClose(serverName,hri,null);
             return;
           }
  catch (          Throwable t) {
             if (t instanceof RemoteException) {
               t=((RemoteException)t).unwrapRemoteException();
             }
-            if (t instanceof java.net.SocketTimeoutException || t instanceof FailedServerException) {
-              Threads.sleep(100);
-              continue;
+            if (t instanceof FailedServerException && i < maximumAttempts) {
+              try {
+                Configuration conf=this.server.getConfiguration();
+                long sleepTime=1 + conf.getInt(RpcClient.FAILED_SERVER_EXPIRY_KEY,RpcClient.FAILED_SERVER_EXPIRY_DEFAULT);
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug(serverName + " is on failed server list; waiting " + sleepTime+ "ms",t);
+                }
+                Thread.sleep(sleepTime);
+                continue;
+              }
+ catch (              InterruptedException ie) {
+                LOG.warn("Failed to unassign " + hri.getRegionNameAsString() + " since interrupted",ie);
+                regionStates.updateRegionState(hri,State.FAILED_CLOSE);
+                Thread.currentThread().interrupt();
+                return;
+              }
             }
-            if (!(t instanceof NotServingRegionException || t instanceof RegionAlreadyInTransitionException)) {
-              LOG.debug("Got exception in retry sendRegionClose for " + regionState + ", re-close it",t);
-              invokeUnAssign(hri);
+            if (serverManager.isServerOnline(serverName) && t instanceof java.net.SocketTimeoutException) {
+              i--;
             }
-            return;
+ else {
+              LOG.info("Got exception in retrying sendRegionClose for " + regionState + "; try="+ i+ " of "+ maximumAttempts,t);
+            }
+            Threads.sleep(100);
           }
         }
+        regionStates.updateRegionState(hri,State.FAILED_CLOSE);
       }
   finally {
         lock.unlock();

@@ -55,17 +55,17 @@
         regionOpenInfos.add(new Pair<HRegionInfo,List<ServerName>>(region,favoredNodes));
       }
       try {
-        long maxWaitTime=System.currentTimeMillis() + this.server.getConfiguration().getLong("hbase.regionserver.rpc.startup.waittime",60000);
+        Configuration conf=server.getConfiguration();
+        long maxWaitTime=System.currentTimeMillis() + conf.getLong("hbase.regionserver.rpc.startup.waittime",60000);
         for (int i=1; i <= maximumAttempts && !server.isStopped(); i++) {
           try {
             List<RegionOpeningState> regionOpeningStateList=serverManager.sendRegionOpen(destination,regionOpenInfos);
-            if (regionOpeningStateList == null) {
-              return false;
-            }
             for (int k=0, n=regionOpeningStateList.size(); k < n; k++) {
               RegionOpeningState openingState=regionOpeningStateList.get(k);
               if (openingState != RegionOpeningState.OPENED) {
                 HRegionInfo region=regionOpenInfos.get(k).getFirst();
+                LOG.info("Got opening state " + openingState + ", will reassign later: "+ region);
+                forceRegionStateToOffline(region,true);
                 failedToOpenRegions.add(region);
               }
             }
@@ -82,7 +82,9 @@
  else             if (e instanceof ServerNotRunningYetException) {
               long now=System.currentTimeMillis();
               if (now < maxWaitTime) {
-                LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",e);
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("Server is not yet up; waiting up to " + (maxWaitTime - now) + "ms",e);
+                }
                 Thread.sleep(100);
                 i--;
                 continue;
@@ -96,12 +98,24 @@
               i--;
               continue;
             }
+ else             if (e instanceof FailedServerException && i < maximumAttempts) {
+              long sleepTime=1 + conf.getInt(RpcClient.FAILED_SERVER_EXPIRY_KEY,RpcClient.FAILED_SERVER_EXPIRY_DEFAULT);
+              if (LOG.isDebugEnabled()) {
+                LOG.debug(destination + " is on failed server list; waiting " + sleepTime+ "ms",e);
+              }
+              Thread.sleep(sleepTime);
+              continue;
+            }
             throw e;
           }
         }
       }
  catch (      IOException e) {
         LOG.info("Unable to communicate with " + destination + " in order to assign regions, ",e);
+        for (        RegionState state : states) {
+          HRegionInfo region=state.getRegion();
+          forceRegionStateToOffline(region,true);
+        }
         return false;
       }
     }
