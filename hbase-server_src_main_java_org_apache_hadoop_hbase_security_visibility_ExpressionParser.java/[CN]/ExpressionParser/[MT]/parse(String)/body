@@ -2,8 +2,8 @@
   expS=expS.trim();
   Stack<ExpressionNode> expStack=new Stack<ExpressionNode>();
   int index=0;
-  int endPos=expS.length();
   byte[] exp=Bytes.toBytes(expS);
+  int endPos=exp.length;
   while (index < endPos) {
     byte b=exp[index];
 switch (b) {
@@ -23,8 +23,30 @@ break;
 case NOT:
 processNOTOp(expStack,expS,index);
 break;
+case DOUBLE_QUOTES:
+int labelOffset=++index;
+List<Byte> list=new ArrayList<Byte>();
+while (index < endPos && !endDoubleQuotesFound(exp[index])) {
+if (exp[index] == '\\') {
+index++;
+if (exp[index] != '\\' && exp[index] != '"') throw new ParseException("invalid escaping with quotes " + expS + " at column : "+ index);
+}
+list.add(exp[index]);
+index++;
+}
+if (index == endPos) {
+throw new ParseException("No terminating quotes " + expS + " at column : "+ index);
+}
+byte[] array=com.google.common.primitives.Bytes.toArray(list);
+String leafExp=new String(array).trim();
+if (leafExp.isEmpty()) {
+throw new ParseException("Error parsing expression " + expS + " at column : "+ index);
+}
+processLabelExpNode(new LeafExpressionNode(leafExp),expStack,expS,index);
+index=skipSpaces(exp,index);
+break;
 default :
-int labelOffset=index;
+labelOffset=index;
 do {
 if (!VisibilityLabelsValidator.isValidAuthChar(exp[index])) {
 throw new ParseException("Error parsing expression " + expS + " at column : "+ index);
@@ -32,7 +54,7 @@ throw new ParseException("Error parsing expression " + expS + " at column : "+ i
 index++;
 }
  while (index < endPos && !isEndOfLabel(exp[index]));
-String leafExp=new String(exp,labelOffset,index - labelOffset).trim();
+leafExp=new String(exp,labelOffset,index - labelOffset).trim();
 if (leafExp.isEmpty()) {
 throw new ParseException("Error parsing expression " + expS + " at column : "+ index);
 }
