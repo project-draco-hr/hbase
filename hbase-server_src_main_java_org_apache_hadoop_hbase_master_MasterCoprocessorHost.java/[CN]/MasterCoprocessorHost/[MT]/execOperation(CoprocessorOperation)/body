@@ -1,0 +1,27 @@
+{
+  if (ctx == null)   return false;
+  boolean bypass=false;
+  for (  MasterEnvironment env : coprocessors) {
+    if (env.getInstance() instanceof MasterObserver) {
+      ctx.prepare(env);
+      Thread currentThread=Thread.currentThread();
+      ClassLoader cl=currentThread.getContextClassLoader();
+      try {
+        currentThread.setContextClassLoader(env.getClassLoader());
+        ctx.call((MasterObserver)env.getInstance(),ctx);
+      }
+ catch (      Throwable e) {
+        handleCoprocessorThrowable(env,e);
+      }
+ finally {
+        currentThread.setContextClassLoader(cl);
+      }
+      bypass|=ctx.shouldBypass();
+      if (ctx.shouldComplete()) {
+        break;
+      }
+    }
+    ctx.postEnvCall(env);
+  }
+  return bypass;
+}

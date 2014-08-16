@@ -1,0 +1,29 @@
+{
+  boolean bypass=false;
+  for (  RegionEnvironment env : coprocessors) {
+    Coprocessor observer=env.getInstance();
+    if (ctx.hasCall(observer)) {
+      long startTime=System.nanoTime();
+      ctx.prepare(env);
+      Thread currentThread=Thread.currentThread();
+      ClassLoader cl=currentThread.getContextClassLoader();
+      try {
+        currentThread.setContextClassLoader(env.getClassLoader());
+        ctx.call(observer,ctx);
+      }
+ catch (      Throwable e) {
+        handleCoprocessorThrowable(env,e);
+      }
+ finally {
+        currentThread.setContextClassLoader(cl);
+      }
+      env.offerExecutionLatency(System.nanoTime() - startTime);
+      bypass|=ctx.shouldBypass();
+      if (earlyExit && ctx.shouldComplete()) {
+        break;
+      }
+    }
+    ctx.postEnvCall(env);
+  }
+  return bypass;
+}

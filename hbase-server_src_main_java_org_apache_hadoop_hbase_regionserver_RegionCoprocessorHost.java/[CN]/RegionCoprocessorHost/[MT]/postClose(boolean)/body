@@ -1,23 +1,16 @@
 {
-  ObserverContext<RegionCoprocessorEnvironment> ctx=null;
-  for (  RegionEnvironment env : coprocessors) {
-    if (env.getInstance() instanceof RegionObserver) {
-      long startTime=System.nanoTime();
-      ctx=ObserverContext.createAndPrepare(env,ctx);
-      Thread currentThread=Thread.currentThread();
-      ClassLoader cl=currentThread.getContextClassLoader();
-      try {
-        currentThread.setContextClassLoader(env.getClassLoader());
-        ((RegionObserver)env.getInstance()).postClose(ctx,abortRequested);
+  try {
+    execOperation(false,new RegionOperation(){
+      @Override public void call(      RegionObserver oserver,      ObserverContext<RegionCoprocessorEnvironment> ctx) throws IOException {
+        oserver.postClose(ctx,abortRequested);
       }
- catch (      Throwable e) {
-        handleCoprocessorThrowableNoRethrow(env,e);
+      public void postEnvCall(      RegionEnvironment env){
+        shutdown(env);
       }
- finally {
-        currentThread.setContextClassLoader(cl);
-      }
-      env.offerExecutionLatency(System.nanoTime() - startTime);
     }
-    shutdown(env);
+);
+  }
+ catch (  IOException e) {
+    LOG.warn(e);
   }
 }
