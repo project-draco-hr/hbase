@@ -1,0 +1,97 @@
+{
+  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  HTable table=null;
+  try {
+    Admin hBaseAdmin=TEST_UTIL.getHBaseAdmin();
+    HColumnDescriptor colDesc=new HColumnDescriptor(fam);
+    HTableDescriptor desc=new HTableDescriptor(tableName);
+    colDesc.setDataBlockEncoding(DataBlockEncoding.PREFIX_TREE);
+    colDesc.setTimeToLive(15552000);
+    desc.addFamily(colDesc);
+    hBaseAdmin.createTable(desc);
+    table=new HTable(conf,tableName);
+    Put put=new Put(Bytes.toBytes("a-b-0-0"));
+    put.add(fam,qual1,Bytes.toBytes("c1-value"));
+    table.put(put);
+    table.flushCommits();
+    put=new Put(row1_bytes);
+    put.add(fam,qual1,Bytes.toBytes("c1-value"));
+    table.put(put);
+    table.flushCommits();
+    put=new Put(row2_bytes);
+    put.add(fam,qual2,Bytes.toBytes("c2-value"));
+    table.put(put);
+    table.flushCommits();
+    put=new Put(row3_bytes);
+    put.add(fam,qual2,Bytes.toBytes("c2-value-2"));
+    table.put(put);
+    table.flushCommits();
+    put=new Put(row4_bytes);
+    put.add(fam,qual2,Bytes.toBytes("c2-value-3"));
+    table.put(put);
+    table.flushCommits();
+    hBaseAdmin.flush(tableName.getNameAsString());
+    String[] rows=new String[3];
+    rows[0]=row1;
+    rows[1]=row2;
+    rows[2]=row3;
+    Scan scan=new Scan();
+    scan.setStartRow(row1_bytes);
+    scan.setStopRow(Bytes.toBytes("a-b-A-1:"));
+    ResultScanner scanner=table.getScanner(scan);
+    Result[] next=scanner.next(10);
+    assertEquals(3,next.length);
+    int i=0;
+    for (    Result res : next) {
+      CellScanner cellScanner=res.cellScanner();
+      while (cellScanner.advance()) {
+        assertEquals(rows[i],Bytes.toString(cellScanner.current().getRowArray(),cellScanner.current().getRowOffset(),cellScanner.current().getRowLength()));
+      }
+      i++;
+    }
+    scanner.close();
+    scan=new Scan();
+    scan.addColumn(fam,qual2);
+    scan.setStartRow(row1_bytes);
+    scan.setStopRow(Bytes.toBytes("a-b-A-1:"));
+    scanner=table.getScanner(scan);
+    next=scanner.next(10);
+    assertEquals(2,next.length);
+    i=1;
+    for (    Result res : next) {
+      CellScanner cellScanner=res.cellScanner();
+      while (cellScanner.advance()) {
+        assertEquals(rows[i],Bytes.toString(cellScanner.current().getRowArray(),cellScanner.current().getRowOffset(),cellScanner.current().getRowLength()));
+      }
+      i++;
+    }
+    scanner.close();
+    i=1;
+    scan=new Scan();
+    scan.addColumn(fam,qual2);
+    scan.setStartRow(Bytes.toBytes("a-b-A-1-"));
+    scan.setStopRow(Bytes.toBytes("a-b-A-1:"));
+    scanner=table.getScanner(scan);
+    next=scanner.next(10);
+    assertEquals(2,next.length);
+    for (    Result res : next) {
+      CellScanner cellScanner=res.cellScanner();
+      while (cellScanner.advance()) {
+        assertEquals(rows[i],Bytes.toString(cellScanner.current().getRowArray(),cellScanner.current().getRowOffset(),cellScanner.current().getRowLength()));
+      }
+      i++;
+    }
+    scanner.close();
+    scan=new Scan();
+    scan.addColumn(fam,qual2);
+    scan.setStartRow(Bytes.toBytes("a-b-A-1-140239"));
+    scan.setStopRow(Bytes.toBytes("a-b-A-1:"));
+    scanner=table.getScanner(scan);
+    next=scanner.next(10);
+    assertEquals(1,next.length);
+    scanner.close();
+  }
+  finally {
+    table.close();
+  }
+}
