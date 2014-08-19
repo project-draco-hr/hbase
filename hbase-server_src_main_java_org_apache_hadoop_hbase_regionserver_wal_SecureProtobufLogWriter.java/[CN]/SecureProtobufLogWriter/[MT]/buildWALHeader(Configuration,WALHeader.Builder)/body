@@ -1,0 +1,21 @@
+{
+  builder.setWriterClsName(SecureProtobufLogWriter.class.getSimpleName());
+  if (conf.getBoolean(HConstants.ENABLE_WAL_ENCRYPTION,false)) {
+    Cipher cipher=Encryption.getCipher(conf,conf.get(HConstants.CRYPTO_WAL_ALGORITHM_CONF_KEY,DEFAULT_CIPHER));
+    if (cipher == null) {
+      throw new RuntimeException("Cipher '" + cipher + "' is not available");
+    }
+    SecureRandom rng=new SecureRandom();
+    byte[] keyBytes=new byte[cipher.getKeyLength()];
+    rng.nextBytes(keyBytes);
+    Key key=new SecretKeySpec(keyBytes,cipher.getName());
+    builder.setEncryptionKey(ByteStringer.wrap(EncryptionUtil.wrapKey(conf,conf.get(HConstants.CRYPTO_WAL_KEY_NAME_CONF_KEY,conf.get(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,User.getCurrent().getShortName())),key)));
+    encryptor=cipher.getEncryptor();
+    encryptor.setKey(key);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Initialized secure protobuf WAL: cipher=" + cipher.getName());
+    }
+  }
+  builder.setCellCodecClsName(SecureWALCellCodec.class.getName());
+  return super.buildWALHeader(conf,builder);
+}
