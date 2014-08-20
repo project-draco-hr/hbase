@@ -1,0 +1,44 @@
+{
+  TableName tableName=TableName.valueOf("testRegionReplicaReplicationIgnoresDisabledTables" + dropTable);
+  HTableDescriptor htd=HTU.createTableDescriptor(tableName.toString());
+  int regionReplication=3;
+  htd.setRegionReplication(regionReplication);
+  HTU.deleteTableIfAny(tableName);
+  HTU.getHBaseAdmin().createTable(htd);
+  TableName toBeDisabledTable=TableName.valueOf(dropTable ? "droppedTable" : "disabledTable");
+  HTU.deleteTableIfAny(toBeDisabledTable);
+  htd=HTU.createTableDescriptor(toBeDisabledTable.toString());
+  htd.setRegionReplication(regionReplication);
+  HTU.getHBaseAdmin().createTable(htd);
+  ReplicationAdmin admin=new ReplicationAdmin(HTU.getConfiguration());
+  admin.disablePeer(ServerRegionReplicaUtil.getReplicationPeerId());
+  HConnection connection=HConnectionManager.createConnection(HTU.getConfiguration());
+  HTableInterface table=connection.getTable(tableName);
+  HTableInterface tableToBeDisabled=connection.getTable(toBeDisabledTable);
+  HTU.loadNumericRows(tableToBeDisabled,HBaseTestingUtility.fam1,6000,7000);
+  AtomicLong skippedEdits=new AtomicLong();
+  RegionReplicaReplicationEndpoint.RegionReplicaOutputSink sink=mock(RegionReplicaReplicationEndpoint.RegionReplicaOutputSink.class);
+  when(sink.getSkippedEditsCounter()).thenReturn(skippedEdits);
+  RegionReplicaReplicationEndpoint.RegionReplicaSinkWriter sinkWriter=new RegionReplicaReplicationEndpoint.RegionReplicaSinkWriter(sink,(ClusterConnection)connection,Executors.newSingleThreadExecutor(),1000);
+  HRegionLocation hrl=connection.locateRegion(toBeDisabledTable,HConstants.EMPTY_BYTE_ARRAY);
+  byte[] encodedRegionName=hrl.getRegionInfo().getEncodedNameAsBytes();
+  HLog.Entry entry=new HLog.Entry(new HLogKey(encodedRegionName,toBeDisabledTable,1),new WALEdit());
+  HTU.getHBaseAdmin().disableTable(toBeDisabledTable);
+  if (dropTable) {
+    HTU.getHBaseAdmin().deleteTable(toBeDisabledTable);
+  }
+  sinkWriter.append(toBeDisabledTable,encodedRegionName,HConstants.EMPTY_BYTE_ARRAY,Lists.newArrayList(entry,entry));
+  assertEquals(2,skippedEdits.get());
+  try {
+    HTU.loadNumericRows(table,HBaseTestingUtility.fam1,0,1000);
+    admin.enablePeer(ServerRegionReplicaUtil.getReplicationPeerId());
+    verifyReplication(tableName,regionReplication,0,1000);
+  }
+  finally {
+    admin.close();
+    table.close();
+    tableToBeDisabled.close();
+    HTU.deleteTableIfAny(toBeDisabledTable);
+    connection.close();
+  }
+}

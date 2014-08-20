@@ -1,0 +1,60 @@
+{
+  if (disabledAndDroppedTables.getIfPresent(tableName) != null) {
+    sink.getSkippedEditsCounter().incrementAndGet();
+    return;
+  }
+  RegionLocations locations=null;
+  try {
+    locations=getRegionLocations(connection,tableName,row,true,0);
+    if (locations == null) {
+      throw new HBaseIOException("Cannot locate locations for " + tableName + ", row:"+ Bytes.toStringBinary(row));
+    }
+  }
+ catch (  TableNotFoundException e) {
+    disabledAndDroppedTables.put(tableName,Boolean.TRUE);
+    sink.getSkippedEditsCounter().addAndGet(entries.size());
+    return;
+  }
+  if (locations.size() == 1) {
+    return;
+  }
+  ArrayList<Future<ReplicateWALEntryResponse>> tasks=new ArrayList<Future<ReplicateWALEntryResponse>>(2);
+  HRegionLocation primaryLocation=locations.getDefaultRegionLocation();
+  if (!Bytes.equals(primaryLocation.getRegionInfo().getEncodedNameAsBytes(),encodedRegionName)) {
+    sink.getSkippedEditsCounter().addAndGet(entries.size());
+    return;
+  }
+  for (int replicaId=0; replicaId < locations.size(); replicaId++) {
+    HRegionLocation location=locations.getRegionLocation(replicaId);
+    if (!RegionReplicaUtil.isDefaultReplica(replicaId)) {
+      HRegionInfo regionInfo=location == null ? RegionReplicaUtil.getRegionInfoForReplica(locations.getDefaultRegionLocation().getRegionInfo(),replicaId) : location.getRegionInfo();
+      RegionReplicaReplayCallable callable=new RegionReplicaReplayCallable(connection,rpcControllerFactory,tableName,location,regionInfo,row,entries,sink.getSkippedEditsCounter());
+      Future<ReplicateWALEntryResponse> task=pool.submit(new RetryingRpcCallable<ReplicateWALEntryResponse>(rpcRetryingCallerFactory,callable,operationTimeout));
+      tasks.add(task);
+    }
+  }
+  boolean tasksCancelled=false;
+  for (  Future<ReplicateWALEntryResponse> task : tasks) {
+    try {
+      task.get();
+    }
+ catch (    InterruptedException e) {
+      throw new InterruptedIOException(e.getMessage());
+    }
+catch (    ExecutionException e) {
+      Throwable cause=e.getCause();
+      if (cause instanceof IOException) {
+        if (cause instanceof TableNotFoundException || connection.isTableDisabled(tableName)) {
+          disabledAndDroppedTables.put(tableName,Boolean.TRUE);
+          if (!tasksCancelled) {
+            sink.getSkippedEditsCounter().addAndGet(entries.size());
+            tasksCancelled=true;
+          }
+          continue;
+        }
+        throw (IOException)cause;
+      }
+      throw new IOException(cause);
+    }
+  }
+}
