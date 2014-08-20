@@ -1,0 +1,72 @@
+{
+  if (isReadFromSuperUser()) {
+    return new VisibilityExpEvaluator(){
+      @Override public boolean evaluate(      Cell cell) throws IOException {
+        return true;
+      }
+    }
+;
+  }
+  List<String> authLabels=null;
+  for (  ScanLabelGenerator scanLabelGenerator : scanLabelGenerators) {
+    try {
+      authLabels=scanLabelGenerator.getLabels(VisibilityUtils.getActiveUser(),authorizations);
+      authLabels=(authLabels == null) ? new ArrayList<String>() : authLabels;
+      authorizations=new Authorizations(authLabels);
+    }
+ catch (    Throwable t) {
+      LOG.error(t);
+      throw new IOException(t);
+    }
+  }
+  int labelsCount=this.labelsCache.getLabelsCount();
+  final BitSet bs=new BitSet(labelsCount + 1);
+  if (authLabels != null) {
+    for (    String authLabel : authLabels) {
+      int labelOrdinal=this.labelsCache.getLabelOrdinal(authLabel);
+      if (labelOrdinal != 0) {
+        bs.set(labelOrdinal);
+      }
+    }
+  }
+  return new VisibilityExpEvaluator(){
+    @Override public boolean evaluate(    Cell cell) throws IOException {
+      boolean visibilityTagPresent=false;
+      if (cell.getTagsLength() > 0) {
+        Iterator<Tag> tagsItr=CellUtil.tagsIterator(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
+        while (tagsItr.hasNext()) {
+          boolean includeKV=true;
+          Tag tag=tagsItr.next();
+          if (tag.getType() == VISIBILITY_TAG_TYPE) {
+            visibilityTagPresent=true;
+            int offset=tag.getTagOffset();
+            int endOffset=offset + tag.getTagLength();
+            while (offset < endOffset) {
+              Pair<Integer,Integer> result=StreamUtils.readRawVarint32(tag.getBuffer(),offset);
+              int currLabelOrdinal=result.getFirst();
+              if (currLabelOrdinal < 0) {
+                int temp=-currLabelOrdinal;
+                if (bs.get(temp)) {
+                  includeKV=false;
+                  break;
+                }
+              }
+ else {
+                if (!bs.get(currLabelOrdinal)) {
+                  includeKV=false;
+                  break;
+                }
+              }
+              offset+=result.getSecond();
+            }
+            if (includeKV) {
+              return true;
+            }
+          }
+        }
+      }
+      return !(visibilityTagPresent);
+    }
+  }
+;
+}

@@ -20,23 +20,21 @@
       List<RegionActionResult> resultList=response.getResultList();
       assertEquals(3,resultList.size());
       assertTrue(resultList.get(0).getException().getValue().isEmpty());
-      assertEquals("org.apache.hadoop.hbase.security.visibility.InvalidLabelException",resultList.get(1).getException().getName());
+      assertEquals("org.apache.hadoop.hbase.DoNotRetryIOException",resultList.get(1).getException().getName());
+      assertTrue(Bytes.toString(resultList.get(1).getException().getValue().toByteArray()).contains("org.apache.hadoop.hbase.security.visibility.InvalidLabelException: " + "Label 'public' is not set for the user testUser"));
       assertTrue(resultList.get(2).getException().getValue().isEmpty());
       HTable ht=null;
       try {
         ht=new HTable(conf,LABELS_TABLE_NAME);
         ResultScanner scanner=ht.getScanner(new Scan());
         Result result=null;
+        List<Result> results=new ArrayList<Result>();
         while ((result=scanner.next()) != null) {
-          Cell label=result.getColumnLatestCell(LABELS_TABLE_FAMILY,LABEL_QUALIFIER);
-          Cell userAuth=result.getColumnLatestCell(LABELS_TABLE_FAMILY,user.getBytes());
-          if (Bytes.equals(PRIVATE.getBytes(),0,PRIVATE.getBytes().length,label.getValueArray(),label.getValueOffset(),label.getValueLength())) {
-            assertNotNull(userAuth);
-          }
- else {
-            assertNull(userAuth);
-          }
+          results.add(result);
         }
+        List<String> curAuths=extractAuths(user,results);
+        assertTrue(curAuths.contains(PRIVATE));
+        assertEquals(1,curAuths.size());
       }
   finally {
         if (ht != null) {

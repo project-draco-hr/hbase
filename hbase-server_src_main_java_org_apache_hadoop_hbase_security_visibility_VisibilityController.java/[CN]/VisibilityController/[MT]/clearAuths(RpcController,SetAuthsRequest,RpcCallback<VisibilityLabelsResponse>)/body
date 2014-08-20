@@ -1,2 +1,37 @@
 {
+  VisibilityLabelsResponse.Builder response=VisibilityLabelsResponse.newBuilder();
+  List<ByteString> auths=request.getAuthList();
+  if (!initialized) {
+    setExceptionResults(auths.size(),new CoprocessorException("VisibilityController not yet initialized"),response);
+  }
+ else {
+    try {
+      if (this.acOn && !isSystemOrSuperUser()) {
+        User user=VisibilityUtils.getActiveUser();
+        throw new AccessDeniedException("User '" + (user != null ? user.getShortName() : "null") + " is not authorized to perform this action.");
+      }
+      checkCallingUserAuth();
+      List<byte[]> labelAuths=new ArrayList<byte[]>(auths.size());
+      for (      ByteString authBS : auths) {
+        labelAuths.add(authBS.toByteArray());
+      }
+      OperationStatus[] opStatus=this.visibilityLabelService.clearAuths(request.getUser().toByteArray(),labelAuths);
+      RegionActionResult successResult=RegionActionResult.newBuilder().build();
+      for (      OperationStatus status : opStatus) {
+        if (status.getOperationStatusCode() == SUCCESS) {
+          response.addResult(successResult);
+        }
+ else {
+          RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+          failureResultBuilder.setException(ResponseConverter.buildException(new DoNotRetryIOException(status.getExceptionMsg())));
+          response.addResult(failureResultBuilder.build());
+        }
+      }
+    }
+ catch (    IOException e) {
+      LOG.error(e);
+      setExceptionResults(auths.size(),e,response);
+    }
+  }
+  done.run(response.build());
 }

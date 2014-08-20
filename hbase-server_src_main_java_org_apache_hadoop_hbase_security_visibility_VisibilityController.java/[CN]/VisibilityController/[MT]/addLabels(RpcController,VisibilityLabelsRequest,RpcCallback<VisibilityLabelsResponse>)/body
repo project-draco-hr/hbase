@@ -1,47 +1,37 @@
 {
   VisibilityLabelsResponse.Builder response=VisibilityLabelsResponse.newBuilder();
-  List<VisibilityLabel> labels=request.getVisLabelList();
+  List<VisibilityLabel> visLabels=request.getVisLabelList();
   if (!initialized) {
-    setExceptionResults(labels.size(),new CoprocessorException("VisibilityController not yet initialized"),response);
+    setExceptionResults(visLabels.size(),new CoprocessorException("VisibilityController not yet initialized"),response);
   }
-  try {
-    checkCallingUserAuth();
-    List<Mutation> puts=new ArrayList<Mutation>(labels.size());
-    RegionActionResult successResult=RegionActionResult.newBuilder().build();
-    for (    VisibilityLabel visLabel : labels) {
-      byte[] label=visLabel.getLabel().toByteArray();
-      String labelStr=Bytes.toString(label);
-      if (this.visibilityManager.getLabelOrdinal(labelStr) > 0) {
-        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
-        failureResultBuilder.setException(ResponseConverter.buildException(new LabelAlreadyExistsException("Label '" + labelStr + "' already exists")));
-        response.addResult(failureResultBuilder.build());
-      }
  else {
-        Put p=new Put(Bytes.toBytes(ordinalCounter));
-        p.addImmutable(LABELS_TABLE_FAMILY,LABEL_QUALIFIER,label,LABELS_TABLE_TAGS);
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Adding the label " + labelStr);
-        }
-        puts.add(p);
-        ordinalCounter++;
+    try {
+      checkCallingUserAuth();
+      List<byte[]> labels=new ArrayList<byte[]>(visLabels.size());
+      RegionActionResult successResult=RegionActionResult.newBuilder().build();
+      for (      VisibilityLabel visLabel : visLabels) {
+        byte[] label=visLabel.getLabel().toByteArray();
+        labels.add(label);
         response.addResult(successResult);
       }
-    }
-    OperationStatus[] opStatus=this.regionEnv.getRegion().batchMutate(puts.toArray(new Mutation[puts.size()]));
-    int i=0;
-    for (    OperationStatus status : opStatus) {
-      if (status.getOperationStatusCode() != SUCCESS) {
-        while (response.getResult(i) != successResult)         i++;
-        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
-        failureResultBuilder.setException(ResponseConverter.buildException(new DoNotRetryIOException(status.getExceptionMsg())));
-        response.setResult(i,failureResultBuilder.build());
+      if (!labels.isEmpty()) {
+        OperationStatus[] opStatus=this.visibilityLabelService.addLabels(labels);
+        int i=0;
+        for (        OperationStatus status : opStatus) {
+          while (response.getResult(i) != successResult)           i++;
+          if (status.getOperationStatusCode() != SUCCESS) {
+            RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+            failureResultBuilder.setException(ResponseConverter.buildException(new DoNotRetryIOException(status.getExceptionMsg())));
+            response.setResult(i,failureResultBuilder.build());
+          }
+          i++;
+        }
       }
-      i++;
     }
-  }
- catch (  IOException e) {
-    LOG.error(e);
-    setExceptionResults(labels.size(),e,response);
+ catch (    IOException e) {
+      LOG.error(e);
+      setExceptionResults(visLabels.size(),e,response);
+    }
   }
   done.run(response.build());
 }

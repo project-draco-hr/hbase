@@ -3,11 +3,6 @@
     return;
   }
   Map<String,List<Tag>> labelCache=new HashMap<String,List<Tag>>();
-  Set<Integer> auths=null;
-  User user=getActiveUser();
-  if (checkAuths && user != null && user.getShortName() != null) {
-    auths=this.visibilityManager.getAuthsAsOrdinals(user.getShortName());
-  }
   for (int i=0; i < miniBatchOp.size(); i++) {
     Mutation m=miniBatchOp.getOperation(i);
     CellVisibility cellVisibility=null;
@@ -31,18 +26,18 @@
         String labelsExp=cellVisibility.getExpression();
         List<Tag> visibilityTags=labelCache.get(labelsExp);
         if (visibilityTags == null) {
+          boolean authCheck=this.checkAuths && !(isSystemOrSuperUser());
           try {
-            visibilityTags=createVisibilityTags(labelsExp,true,auths,user.getShortName());
+            visibilityTags=this.visibilityLabelService.createVisibilityExpTags(labelsExp,true,authCheck);
           }
- catch (          ParseException e) {
+ catch (          InvalidLabelException e) {
             miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,e.getMessage()));
           }
-catch (          InvalidLabelException e) {
-            miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,e.getMessage()));
+          if (visibilityTags != null) {
+            labelCache.put(labelsExp,visibilityTags);
           }
         }
         if (visibilityTags != null) {
-          labelCache.put(labelsExp,visibilityTags);
           List<Cell> updatedCells=new ArrayList<Cell>();
           for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
             Cell cell=cellScanner.current();

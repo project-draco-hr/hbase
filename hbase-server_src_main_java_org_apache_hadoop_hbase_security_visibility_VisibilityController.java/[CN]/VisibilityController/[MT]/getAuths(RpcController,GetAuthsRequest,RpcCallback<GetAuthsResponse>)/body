@@ -1,15 +1,27 @@
 {
-  byte[] user=request.getUser().toByteArray();
   GetAuthsResponse.Builder response=GetAuthsResponse.newBuilder();
-  response.setUser(request.getUser());
-  try {
-    List<String> labels=getUserAuthsFromLabelsTable(user);
-    for (    String label : labels) {
-      response.addAuth(ByteStringer.wrap(Bytes.toBytes(label)));
-    }
+  if (!initialized) {
+    controller.setFailed("VisibilityController not yet initialized");
   }
- catch (  IOException e) {
-    ResponseConverter.setControllerException(controller,e);
+ else {
+    byte[] user=request.getUser().toByteArray();
+    List<String> labels=null;
+    try {
+      if (this.acOn && !isSystemOrSuperUser()) {
+        User requestingUser=VisibilityUtils.getActiveUser();
+        throw new AccessDeniedException("User '" + (requestingUser != null ? requestingUser.getShortName() : "null") + " is not authorized to perform this action.");
+      }
+      labels=this.visibilityLabelService.getAuths(user,false);
+    }
+ catch (    IOException e) {
+      ResponseConverter.setControllerException(controller,e);
+    }
+    response.setUser(request.getUser());
+    if (labels != null) {
+      for (      String label : labels) {
+        response.addAuth(ByteStringer.wrap(Bytes.toBytes(label)));
+      }
+    }
   }
   done.run(response.build());
 }

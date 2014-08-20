@@ -1,0 +1,65 @@
+{
+  if (isReadFromSuperUser()) {
+    return new VisibilityExpEvaluator(){
+      @Override public boolean evaluate(      Cell cell) throws IOException {
+        return true;
+      }
+    }
+;
+  }
+  List<String> authLabels=null;
+  for (  ScanLabelGenerator scanLabelGenerator : scanLabelGenerators) {
+    try {
+      authLabels=scanLabelGenerator.getLabels(VisibilityUtils.getActiveUser(),authorizations);
+      authLabels=(authLabels == null) ? new ArrayList<String>() : authLabels;
+      authorizations=new Authorizations(authLabels);
+    }
+ catch (    Throwable t) {
+      LOG.error(t);
+      throw new IOException(t);
+    }
+  }
+  final List<String> authLabelsFinal=authLabels;
+  return new VisibilityExpEvaluator(){
+    @Override public boolean evaluate(    Cell cell) throws IOException {
+      boolean visibilityTagPresent=false;
+      if (cell.getTagsLength() > 0) {
+        Iterator<Tag> tagsItr=CellUtil.tagsIterator(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
+        while (tagsItr.hasNext()) {
+          boolean includeKV=true;
+          Tag tag=tagsItr.next();
+          if (tag.getType() == VISIBILITY_TAG_TYPE) {
+            visibilityTagPresent=true;
+            int offset=tag.getTagOffset();
+            int endOffset=offset + tag.getTagLength();
+            while (offset < endOffset) {
+              short len=Bytes.toShort(tag.getBuffer(),offset);
+              offset+=2;
+              if (len < 0) {
+                len=(short)(-1 * len);
+                String label=Bytes.toString(tag.getBuffer(),offset,len);
+                if (authLabelsFinal.contains(label)) {
+                  includeKV=false;
+                  break;
+                }
+              }
+ else {
+                String label=Bytes.toString(tag.getBuffer(),offset,len);
+                if (!authLabelsFinal.contains(label)) {
+                  includeKV=false;
+                  break;
+                }
+              }
+              offset+=len;
+            }
+            if (includeKV) {
+              return true;
+            }
+          }
+        }
+      }
+      return !(visibilityTagPresent);
+    }
+  }
+;
+}

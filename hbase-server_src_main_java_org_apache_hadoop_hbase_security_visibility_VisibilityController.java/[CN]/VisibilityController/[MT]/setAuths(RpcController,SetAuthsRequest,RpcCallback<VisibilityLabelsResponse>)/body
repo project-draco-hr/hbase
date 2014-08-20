@@ -4,42 +4,30 @@
   if (!initialized) {
     setExceptionResults(auths.size(),new CoprocessorException("VisibilityController not yet initialized"),response);
   }
-  byte[] user=request.getUser().toByteArray();
-  try {
-    checkCallingUserAuth();
-    List<Mutation> puts=new ArrayList<Mutation>(auths.size());
-    RegionActionResult successResult=RegionActionResult.newBuilder().build();
-    for (    ByteString authBS : auths) {
-      byte[] auth=authBS.toByteArray();
-      String authStr=Bytes.toString(auth);
-      int labelOrdinal=this.visibilityManager.getLabelOrdinal(authStr);
-      if (labelOrdinal == 0) {
-        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
-        failureResultBuilder.setException(ResponseConverter.buildException(new InvalidLabelException("Label '" + authStr + "' doesn't exist")));
-        response.addResult(failureResultBuilder.build());
-      }
  else {
-        Put p=new Put(Bytes.toBytes(labelOrdinal));
-        p.addImmutable(LABELS_TABLE_FAMILY,user,DUMMY_VALUE,LABELS_TABLE_TAGS);
-        puts.add(p);
-        response.addResult(successResult);
+    try {
+      checkCallingUserAuth();
+      List<byte[]> labelAuths=new ArrayList<byte[]>(auths.size());
+      for (      ByteString authBS : auths) {
+        labelAuths.add(authBS.toByteArray());
+      }
+      OperationStatus[] opStatus=this.visibilityLabelService.setAuths(request.getUser().toByteArray(),labelAuths);
+      RegionActionResult successResult=RegionActionResult.newBuilder().build();
+      for (      OperationStatus status : opStatus) {
+        if (status.getOperationStatusCode() == SUCCESS) {
+          response.addResult(successResult);
+        }
+ else {
+          RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
+          failureResultBuilder.setException(ResponseConverter.buildException(new DoNotRetryIOException(status.getExceptionMsg())));
+          response.addResult(failureResultBuilder.build());
+        }
       }
     }
-    OperationStatus[] opStatus=this.regionEnv.getRegion().batchMutate(puts.toArray(new Mutation[puts.size()]));
-    int i=0;
-    for (    OperationStatus status : opStatus) {
-      if (status.getOperationStatusCode() != SUCCESS) {
-        while (response.getResult(i) != successResult)         i++;
-        RegionActionResult.Builder failureResultBuilder=RegionActionResult.newBuilder();
-        failureResultBuilder.setException(ResponseConverter.buildException(new DoNotRetryIOException(status.getExceptionMsg())));
-        response.setResult(i,failureResultBuilder.build());
-      }
-      i++;
+ catch (    IOException e) {
+      LOG.error(e);
+      setExceptionResults(auths.size(),e,response);
     }
-  }
- catch (  IOException e) {
-    LOG.error(e);
-    setExceptionResults(auths.size(),e,response);
   }
   done.run(response.build());
 }
