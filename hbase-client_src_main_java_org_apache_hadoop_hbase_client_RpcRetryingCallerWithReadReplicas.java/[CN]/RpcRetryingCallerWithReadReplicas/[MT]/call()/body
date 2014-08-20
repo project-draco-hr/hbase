@@ -1,23 +1,29 @@
 {
-  RegionLocations rl=getRegionLocations(true,RegionReplicaUtil.DEFAULT_REPLICA_ID,cConnection,tableName,get.getRow());
+  boolean isTargetReplicaSpecified=(get.getReplicaId() >= 0);
+  RegionLocations rl=getRegionLocations(true,(isTargetReplicaSpecified ? get.getReplicaId() : RegionReplicaUtil.DEFAULT_REPLICA_ID),cConnection,tableName,get.getRow());
   ResultBoundedCompletionService cs=new ResultBoundedCompletionService(pool,rl.size());
-  addCallsForReplica(cs,rl,0,0);
-  try {
-    Future<Result> f=cs.poll(timeBeforeReplicas,TimeUnit.MICROSECONDS);
-    if (f != null) {
-      return f.get();
+  if (isTargetReplicaSpecified) {
+    addCallsForReplica(cs,rl,get.getReplicaId(),get.getReplicaId());
+  }
+ else {
+    addCallsForReplica(cs,rl,0,0);
+    try {
+      Future<Result> f=cs.poll(timeBeforeReplicas,TimeUnit.MICROSECONDS);
+      if (f != null) {
+        return f.get();
+      }
     }
+ catch (    ExecutionException e) {
+      throwEnrichedException(e,retries);
+    }
+catch (    CancellationException e) {
+      throw new InterruptedIOException();
+    }
+catch (    InterruptedException e) {
+      throw new InterruptedIOException();
+    }
+    addCallsForReplica(cs,rl,1,rl.size() - 1);
   }
- catch (  ExecutionException e) {
-    throwEnrichedException(e,retries);
-  }
-catch (  CancellationException e) {
-    throw new InterruptedIOException();
-  }
-catch (  InterruptedException e) {
-    throw new InterruptedIOException();
-  }
-  addCallsForReplica(cs,rl,1,rl.size() - 1);
   try {
     try {
       Future<Result> f=cs.take();
