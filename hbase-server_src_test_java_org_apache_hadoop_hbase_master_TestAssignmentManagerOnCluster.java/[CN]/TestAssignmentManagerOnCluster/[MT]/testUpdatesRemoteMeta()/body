@@ -1,0 +1,45 @@
+{
+  conf.setInt("hbase.regionstatestore.meta.connection",3);
+  final RegionStateStore rss=new RegionStateStore(new MyRegionServer(conf,new ZkCoordinatedStateManager()));
+  rss.start();
+  Thread[] th=new Thread[10];
+  List<String> nameList=new ArrayList<String>();
+  List<TableName> tableNameList=new ArrayList<TableName>();
+  for (int i=0; i < th.length; i++) {
+    th[i]=new Thread(){
+      @Override public void run(){
+        HRegionInfo[] hri=new HRegionInfo[10];
+        ServerName serverName=ServerName.valueOf("dummyhost",1000,1234);
+        for (int i=0; i < 10; i++) {
+          hri[i]=new HRegionInfo(TableName.valueOf(Thread.currentThread().getName() + "_" + i));
+          RegionState newState=new RegionState(hri[i],RegionState.State.OPEN,serverName);
+          RegionState oldState=new RegionState(hri[i],RegionState.State.PENDING_OPEN,serverName);
+          rss.updateRegionState(1,newState,oldState);
+        }
+      }
+    }
+;
+    th[i].start();
+    nameList.add(th[i].getName());
+  }
+  for (int i=0; i < th.length; i++) {
+    th[i].join();
+  }
+  for (  String name : nameList) {
+    for (int i=0; i < 10; i++) {
+      tableNameList.add(TableName.valueOf(name + "_" + i));
+    }
+  }
+  List<Result> metaRows=MetaTableAccessor.fullScanOfMeta(admin.getConnection());
+  int count=0;
+  for (  Result result : metaRows) {
+    if (tableNameList.contains(HRegionInfo.getTable(result.getRow()))) {
+      count++;
+      if (count == 100) {
+        break;
+      }
+    }
+  }
+  assertTrue(count == 100);
+  rss.stop();
+}
