@@ -4,14 +4,33 @@
   }
   final long startTime=EnvironmentEdgeManager.currentTimeMillis();
   if (this.memstoreSize.get() <= 0) {
+    MultiVersionConsistencyControl.WriteEntry w=null;
     this.updatesLock.writeLock().lock();
     try {
       if (this.memstoreSize.get() <= 0) {
-        return wal != null ? new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,getNextSequenceId(wal),"Nothing to flush") : new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush");
+        try {
+          if (wal != null) {
+            w=mvcc.beginMemstoreInsert();
+            long flushSeqId=getNextSequenceId(wal);
+            FlushResult flushResult=new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,flushSeqId,"Nothing to flush");
+            w.setWriteNumber(flushSeqId);
+            mvcc.waitForPreviousTransactionsComplete(w);
+            w=null;
+            return flushResult;
+          }
+ else {
+            return new FlushResult(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush");
+          }
+        }
+  finally {
+          this.updatesLock.writeLock().unlock();
+        }
       }
     }
   finally {
-      this.updatesLock.writeLock().unlock();
+      if (w != null) {
+        mvcc.advanceMemstore(w);
+      }
     }
   }
   LOG.info("Started memstore flush for " + this + ", current region memstore size "+ StringUtils.byteDesc(this.memstoreSize.get())+ ((wal != null) ? "" : "; wal is null, using passed sequenceid=" + myseqid));
@@ -80,6 +99,7 @@
         LOG.warn("Unexpected exception while log.sync(), ignoring. Exception: " + StringUtils.stringifyException(ioe));
       }
     }
+    w.setWriteNumber(flushSeqId);
     mvcc.waitForPreviousTransactionsComplete(w);
     w=null;
     s="Flushing stores of " + this;
