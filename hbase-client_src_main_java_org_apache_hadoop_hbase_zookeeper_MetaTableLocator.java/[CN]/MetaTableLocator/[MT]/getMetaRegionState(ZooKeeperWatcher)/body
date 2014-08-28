@@ -1,0 +1,34 @@
+{
+  RegionState.State state=RegionState.State.OPEN;
+  ServerName serverName=null;
+  try {
+    byte[] data=ZKUtil.getData(zkw,zkw.metaServerZNode);
+    if (data != null && data.length > 0 && ProtobufUtil.isPBMagicPrefix(data)) {
+      try {
+        int prefixLen=ProtobufUtil.lengthOfPBMagic();
+        ZooKeeperProtos.MetaRegionServer rl=ZooKeeperProtos.MetaRegionServer.PARSER.parseFrom(data,prefixLen,data.length - prefixLen);
+        if (rl.hasState()) {
+          state=RegionState.State.convert(rl.getState());
+        }
+        HBaseProtos.ServerName sn=rl.getServer();
+        serverName=ServerName.valueOf(sn.getHostName(),sn.getPort(),sn.getStartCode());
+      }
+ catch (      InvalidProtocolBufferException e) {
+        throw new DeserializationException("Unable to parse meta region location");
+      }
+    }
+ else {
+      serverName=ServerName.parseFrom(data);
+    }
+  }
+ catch (  DeserializationException e) {
+    throw ZKUtil.convert(e);
+  }
+catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+  }
+  if (serverName == null) {
+    state=RegionState.State.OFFLINE;
+  }
+  return new RegionState(HRegionInfo.FIRST_META_REGIONINFO,state,serverName);
+}

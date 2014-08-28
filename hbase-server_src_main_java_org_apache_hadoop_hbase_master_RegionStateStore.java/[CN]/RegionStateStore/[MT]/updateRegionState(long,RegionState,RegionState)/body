@@ -1,15 +1,21 @@
 {
-  if (!initialized) {
-    return;
-  }
-  HRegionInfo hri=newState.getRegion();
-  if (!shouldPersistStateChange(hri,newState,oldState)) {
-    return;
-  }
-  ServerName oldServer=oldState != null ? oldState.getServerName() : null;
-  ServerName serverName=newState.getServerName();
-  State state=newState.getState();
   try {
+    HRegionInfo hri=newState.getRegion();
+    if (hri.isMetaRegion()) {
+      try {
+        MetaTableLocator.setMetaLocation(server.getZooKeeper(),newState.getServerName(),newState.getState());
+        return;
+      }
+ catch (      KeeperException e) {
+        throw new IOException("Failed to update meta ZNode",e);
+      }
+    }
+    if (!initialized || !shouldPersistStateChange(hri,newState,oldState)) {
+      return;
+    }
+    ServerName oldServer=oldState != null ? oldState.getServerName() : null;
+    ServerName serverName=newState.getServerName();
+    State state=newState.getState();
     int replicaId=hri.getReplicaId();
     Put put=new Put(MetaTableAccessor.getMetaKeyForRegion(hri));
     StringBuilder info=new StringBuilder("Updating row ");

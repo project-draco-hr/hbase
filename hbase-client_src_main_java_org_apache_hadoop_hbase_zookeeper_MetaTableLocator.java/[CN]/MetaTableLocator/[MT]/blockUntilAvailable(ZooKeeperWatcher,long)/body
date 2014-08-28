@@ -1,11 +1,19 @@
 {
-  byte[] data=ZKUtil.blockUntilAvailable(zkw,zkw.metaServerZNode,timeout);
-  if (data == null)   return null;
+  if (timeout < 0)   throw new IllegalArgumentException();
+  if (zkw == null)   throw new IllegalArgumentException();
+  Stopwatch sw=new Stopwatch().start();
+  ServerName sn=null;
   try {
-    return ServerName.parseFrom(data);
+    while (true) {
+      sn=getMetaRegionLocation(zkw);
+      if (sn != null || sw.elapsedMillis() > timeout - HConstants.SOCKET_RETRY_WAIT_MS) {
+        break;
+      }
+      Thread.sleep(HConstants.SOCKET_RETRY_WAIT_MS);
+    }
   }
- catch (  DeserializationException e) {
-    LOG.warn("Failed parse",e);
-    return null;
+  finally {
+    sw.stop();
   }
+  return sn;
 }

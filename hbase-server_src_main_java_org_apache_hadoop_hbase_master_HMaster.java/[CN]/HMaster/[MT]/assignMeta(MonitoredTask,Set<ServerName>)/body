@@ -2,25 +2,25 @@
   int assigned=0;
   long timeout=this.conf.getLong("hbase.catalog.verification.timeout",1000);
   status.setStatus("Assigning hbase:meta region");
+  RegionState metaState=MetaTableLocator.getMetaRegionState(getZooKeeper());
   RegionStates regionStates=assignmentManager.getRegionStates();
-  regionStates.createRegionState(HRegionInfo.FIRST_META_REGIONINFO);
-  boolean metaRegionLocation=metaTableLocator.verifyMetaRegionLocation(this.getShortCircuitConnection(),this.getZooKeeper(),timeout);
-  ServerName currentMetaServer=metaTableLocator.getMetaRegionLocation(this.getZooKeeper());
-  if (!metaRegionLocation) {
-    if (currentMetaServer != null) {
-      if (serverManager.isServerOnline(currentMetaServer)) {
-        LOG.info("Forcing expire of " + currentMetaServer);
-        serverManager.expireServer(currentMetaServer);
-      }
-      splitMetaLogBeforeAssignment(currentMetaServer);
-      previouslyFailedMetaRSs.add(currentMetaServer);
+  regionStates.createRegionState(HRegionInfo.FIRST_META_REGIONINFO,metaState.getState(),metaState.getServerName(),null);
+  if (!metaState.isOpened() || !metaTableLocator.verifyMetaRegionLocation(this.getShortCircuitConnection(),this.getZooKeeper(),timeout)) {
+    ServerName currentMetaServer=metaState.getServerName();
+    if (serverManager.isServerOnline(currentMetaServer)) {
+      LOG.info("Meta was in transition on " + currentMetaServer);
+      assignmentManager.processRegionsInTransition(Arrays.asList(metaState));
     }
-    assignmentManager.assignMeta();
-    assigned++;
-  }
  else {
-    regionStates.updateRegionState(HRegionInfo.FIRST_META_REGIONINFO,State.OPEN,currentMetaServer);
-    this.assignmentManager.regionOnline(HRegionInfo.FIRST_META_REGIONINFO,currentMetaServer);
+      if (currentMetaServer != null) {
+        splitMetaLogBeforeAssignment(currentMetaServer);
+        regionStates.logSplit(HRegionInfo.FIRST_META_REGIONINFO);
+        previouslyFailedMetaRSs.add(currentMetaServer);
+      }
+      LOG.info("Re-assigning hbase:meta, it was on " + currentMetaServer);
+      assignmentManager.assignMeta();
+    }
+    assigned++;
   }
   enableMeta(TableName.META_TABLE_NAME);
   if ((RecoveryMode.LOG_REPLAY == this.getMasterFileSystem().getLogRecoveryMode()) && (!previouslyFailedMetaRSs.isEmpty())) {
