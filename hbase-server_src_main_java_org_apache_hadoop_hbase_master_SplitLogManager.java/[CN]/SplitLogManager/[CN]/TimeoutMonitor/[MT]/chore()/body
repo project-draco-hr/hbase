@@ -20,7 +20,7 @@ synchronized (deadWorkersLock) {
     found_assigned_task=true;
     if (localDeadWorkers != null && localDeadWorkers.contains(cur_worker)) {
       SplitLogCounters.tot_mgr_resubmit_dead_server_task.incrementAndGet();
-      if (resubmit(path,task,FORCE)) {
+      if (((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().resubmitTask(path,task,FORCE)) {
         resubmitted++;
       }
  else {
@@ -28,7 +28,7 @@ synchronized (deadWorkersLock) {
         LOG.warn("Failed to resubmit task " + path + " owned by dead "+ cur_worker+ ", will retry.");
       }
     }
- else     if (resubmit(path,task,CHECK)) {
+ else     if (((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().resubmitTask(path,task,CHECK)) {
       resubmitted++;
     }
   }
@@ -44,34 +44,35 @@ synchronized (deadWorkersLock) {
   }
   if (tot > 0 && !found_assigned_task && ((EnvironmentEdgeManager.currentTimeMillis() - lastTaskCreateTime) > unassignedTimeout)) {
     for (    Map.Entry<String,Task> e : tasks.entrySet()) {
-      String path=e.getKey();
+      String key=e.getKey();
       Task task=e.getValue();
       if (task.isUnassigned() && (task.status != FAILURE)) {
-        tryGetDataSetWatch(path);
+        ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().checkTaskStillAvailable(key);
       }
     }
-    createRescanNode(Long.MAX_VALUE);
+    ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().checkTasks();
     SplitLogCounters.tot_mgr_resubmit_unassigned.incrementAndGet();
     LOG.debug("resubmitting unassigned task(s) after timeout");
   }
+  Set<String> failedDeletions=((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().getDetails().getFailedDeletions();
   if (failedDeletions.size() > 0) {
     List<String> tmpPaths=new ArrayList<String>(failedDeletions);
     for (    String tmpPath : tmpPaths) {
-      deleteNode(tmpPath,zkretries);
+      ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().deleteTask(tmpPath);
     }
     failedDeletions.removeAll(tmpPaths);
   }
-  long timeInterval=EnvironmentEdgeManager.currentTimeMillis() - lastRecoveringNodeCreationTime;
+  long timeInterval=EnvironmentEdgeManager.currentTimeMillis() - ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().getLastRecoveryTime();
   if (!failedRecoveringRegionDeletions.isEmpty() || (tot == 0 && tasks.size() == 0 && (timeInterval > checkRecoveringTimeThreshold))) {
     if (!failedRecoveringRegionDeletions.isEmpty()) {
       List<Pair<Set<ServerName>,Boolean>> previouslyFailedDeletions=new ArrayList<Pair<Set<ServerName>,Boolean>>(failedRecoveringRegionDeletions);
       failedRecoveringRegionDeletions.removeAll(previouslyFailedDeletions);
       for (      Pair<Set<ServerName>,Boolean> failedDeletion : previouslyFailedDeletions) {
-        removeRecoveringRegionsFromZK(failedDeletion.getFirst(),failedDeletion.getSecond());
+        removeRecoveringRegions(failedDeletion.getFirst(),failedDeletion.getSecond());
       }
     }
  else {
-      removeRecoveringRegionsFromZK(null,null);
+      removeRecoveringRegions(null,null);
     }
   }
 }

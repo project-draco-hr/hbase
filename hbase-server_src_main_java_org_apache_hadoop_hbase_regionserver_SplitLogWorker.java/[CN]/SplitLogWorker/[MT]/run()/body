@@ -1,34 +1,26 @@
 {
   try {
-    LOG.info("SplitLogWorker " + this.serverName + " starting");
-    this.watcher.registerListener(this);
+    LOG.info("SplitLogWorker " + server.getServerName() + " starting");
+    coordination.registerListener();
     HConnectionManager.getConnection(conf);
-    int res=-1;
-    while (res == -1 && !exitWorker) {
-      try {
-        res=ZKUtil.checkExists(watcher,watcher.splitLogZNode);
-      }
- catch (      KeeperException e) {
-        LOG.warn("Exception when checking for " + watcher.splitLogZNode + " ... retrying",e);
-      }
-      if (res == -1) {
-        LOG.info(watcher.splitLogZNode + " znode does not exist, waiting for master to create");
-        Thread.sleep(1000);
-      }
+    boolean res=false;
+    while (!res && !coordination.isStop()) {
+      res=coordination.isReady();
     }
-    if (!exitWorker) {
-      taskLoop();
+    if (!coordination.isStop()) {
+      coordination.taskLoop();
     }
   }
  catch (  Throwable t) {
     if (ExceptionUtil.isInterrupt(t)) {
-      LOG.info("SplitLogWorker interrupted. Exiting. " + (exitWorker ? "" : " (ERROR: exitWorker is not set, exiting anyway)"));
+      LOG.info("SplitLogWorker interrupted. Exiting. " + (coordination.isStop() ? "" : " (ERROR: exitWorker is not set, exiting anyway)"));
     }
  else {
       LOG.error("unexpected error ",t);
     }
   }
  finally {
-    LOG.info("SplitLogWorker " + this.serverName + " exiting");
+    coordination.removeListener();
+    LOG.info("SplitLogWorker " + server.getServerName() + " exiting");
   }
 }
