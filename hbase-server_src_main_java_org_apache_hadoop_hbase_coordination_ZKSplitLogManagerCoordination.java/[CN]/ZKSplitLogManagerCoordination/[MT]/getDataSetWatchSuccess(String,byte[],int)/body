@@ -1,0 +1,47 @@
+{
+  if (data == null) {
+    if (version == Integer.MIN_VALUE) {
+      setDone(path,SUCCESS);
+      return;
+    }
+    SplitLogCounters.tot_mgr_null_data.incrementAndGet();
+    LOG.fatal("logic error - got null data " + path);
+    setDone(path,FAILURE);
+    return;
+  }
+  data=this.watcher.getRecoverableZooKeeper().removeMetaData(data);
+  SplitLogTask slt=SplitLogTask.parseFrom(data);
+  if (slt.isUnassigned()) {
+    LOG.debug("task not yet acquired " + path + " ver = "+ version);
+    handleUnassignedTask(path);
+  }
+ else   if (slt.isOwned()) {
+    heartbeat(path,version,slt.getServerName());
+  }
+ else   if (slt.isResigned()) {
+    LOG.info("task " + path + " entered state: "+ slt.toString());
+    resubmitOrFail(path,FORCE);
+  }
+ else   if (slt.isDone()) {
+    LOG.info("task " + path + " entered state: "+ slt.toString());
+    if (taskFinisher != null && !ZKSplitLog.isRescanNode(watcher,path)) {
+      if (taskFinisher.finish(slt.getServerName(),ZKSplitLog.getFileName(path)) == Status.DONE) {
+        setDone(path,SUCCESS);
+      }
+ else {
+        resubmitOrFail(path,CHECK);
+      }
+    }
+ else {
+      setDone(path,SUCCESS);
+    }
+  }
+ else   if (slt.isErr()) {
+    LOG.info("task " + path + " entered state: "+ slt.toString());
+    resubmitOrFail(path,CHECK);
+  }
+ else {
+    LOG.fatal("logic error - unexpected zk state for path = " + path + " data = "+ slt.toString());
+    setDone(path,FAILURE);
+  }
+}

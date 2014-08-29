@@ -1,0 +1,63 @@
+{
+  while (!shouldStop) {
+    int seq_start=taskReadySeq;
+    List<String> paths=null;
+    paths=getTaskList();
+    if (paths == null) {
+      LOG.warn("Could not get tasks, did someone remove " + watcher.splitLogZNode + " ... worker thread exiting.");
+      return;
+    }
+    int offset=(int)(Math.random() * paths.size());
+    for (int i=0; i < paths.size(); i++) {
+      if (HLogUtil.isMetaFile(paths.get(i))) {
+        offset=i;
+        break;
+      }
+    }
+    int numTasks=paths.size();
+    for (int i=0; i < numTasks; i++) {
+      int idx=(i + offset) % paths.size();
+      if (this.calculateAvailableSplitters(numTasks) > 0) {
+        grabTask(ZKUtil.joinZNode(watcher.splitLogZNode,paths.get(idx)));
+      }
+ else {
+        LOG.debug("Current region server " + server.getServerName() + " has "+ this.tasksInProgress.get()+ " tasks in progress and can't take more.");
+        break;
+      }
+      if (shouldStop) {
+        return;
+      }
+    }
+    SplitLogCounters.tot_wkr_task_grabing.incrementAndGet();
+synchronized (taskReadyLock) {
+      while (seq_start == taskReadySeq) {
+        taskReadyLock.wait(checkInterval);
+        if (server != null) {
+          Map<String,HRegion> recoveringRegions=server.getRecoveringRegions();
+          if (!recoveringRegions.isEmpty()) {
+            List<String> tmpCopy=new ArrayList<String>(recoveringRegions.keySet());
+            for (            String region : tmpCopy) {
+              String nodePath=ZKUtil.joinZNode(watcher.recoveringRegionsZNode,region);
+              try {
+                if (ZKUtil.checkExists(watcher,nodePath) == -1) {
+                  HRegion r=recoveringRegions.remove(region);
+                  if (r != null) {
+                    r.setRecovering(false);
+                  }
+                  LOG.debug("Mark recovering region:" + region + " up.");
+                }
+ else {
+                  break;
+                }
+              }
+ catch (              KeeperException e) {
+                LOG.debug("Got a zookeeper when trying to open a recovering region",e);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

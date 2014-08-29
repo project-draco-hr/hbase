@@ -1,0 +1,30 @@
+{
+  SplitLogCounters.tot_mgr_node_delete_result.incrementAndGet();
+  if (rc != 0) {
+    if (needAbandonRetries(rc,"Delete znode " + path)) {
+      details.getFailedDeletions().add(path);
+      return;
+    }
+    if (rc != KeeperException.Code.NONODE.intValue()) {
+      SplitLogCounters.tot_mgr_node_delete_err.incrementAndGet();
+      Long retry_count=(Long)ctx;
+      LOG.warn("delete rc=" + KeeperException.Code.get(rc) + " for "+ path+ " remaining retries="+ retry_count);
+      if (retry_count == 0) {
+        LOG.warn("delete failed " + path);
+        details.getFailedDeletions().add(path);
+        deleteNodeFailure(path);
+      }
+ else {
+        deleteNode(path,retry_count - 1);
+      }
+      return;
+    }
+ else {
+      LOG.info(path + " does not exist. Either was created but deleted behind our" + " back by another pending delete OR was deleted"+ " in earlier retry rounds. zkretries = "+ ctx);
+    }
+  }
+ else {
+    LOG.debug("deleted " + path);
+  }
+  deleteNodeSuccess(path);
+}

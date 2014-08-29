@@ -1,0 +1,41 @@
+{
+  if (task.status != IN_PROGRESS) {
+    return false;
+  }
+  int version;
+  if (directive != FORCE) {
+    final long time=EnvironmentEdgeManager.currentTimeMillis() - task.last_update;
+    final boolean alive=details.getMaster().getServerManager() != null ? details.getMaster().getServerManager().isServerOnline(task.cur_worker_name) : true;
+    if (alive && time < timeout) {
+      LOG.trace("Skipping the resubmit of " + task.toString() + "  because the server "+ task.cur_worker_name+ " is not marked as dead, we waited for "+ time+ " while the timeout is "+ timeout);
+      return false;
+    }
+    if (task.unforcedResubmits.get() >= resubmitThreshold) {
+      if (!task.resubmitThresholdReached) {
+        task.resubmitThresholdReached=true;
+        SplitLogCounters.tot_mgr_resubmit_threshold_reached.incrementAndGet();
+        LOG.info("Skipping resubmissions of task " + path + " because threshold "+ resubmitThreshold+ " reached");
+      }
+      return false;
+    }
+    version=task.last_version;
+  }
+ else {
+    SplitLogCounters.tot_mgr_resubmit_force.incrementAndGet();
+    version=-1;
+  }
+  LOG.info("resubmitting task " + path);
+  task.incarnation++;
+  boolean result=resubmit(this.details.getServerName(),path,version);
+  if (!result) {
+    task.heartbeatNoDetails(EnvironmentEdgeManager.currentTimeMillis());
+    return false;
+  }
+  if (directive != FORCE) {
+    task.unforcedResubmits.incrementAndGet();
+  }
+  task.setUnassigned();
+  rescan(Long.MAX_VALUE);
+  SplitLogCounters.tot_mgr_resubmit.incrementAndGet();
+  return true;
+}

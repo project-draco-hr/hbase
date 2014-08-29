@@ -1,0 +1,51 @@
+{
+  final String metaEncodeRegionName=HRegionInfo.FIRST_META_REGIONINFO.getEncodedName();
+  int count=0;
+  try {
+    List<String> tasks=ZKUtil.listChildrenNoWatch(watcher,watcher.splitLogZNode);
+    if (tasks != null) {
+      for (      String t : tasks) {
+        if (!ZKSplitLog.isRescanNode(watcher,t)) {
+          count++;
+        }
+      }
+    }
+    if (count == 0 && this.details.getMaster().isInitialized() && !this.details.getMaster().getServerManager().areDeadServersInProgress()) {
+      ZKSplitLog.deleteRecoveringRegionZNodes(watcher,null);
+      lastRecoveringNodeCreationTime=Long.MAX_VALUE;
+    }
+ else     if (!recoveredServerNameSet.isEmpty()) {
+      List<String> regions=ZKUtil.listChildrenNoWatch(watcher,watcher.recoveringRegionsZNode);
+      if (regions != null) {
+        for (        String region : regions) {
+          if (isMetaRecovery != null) {
+            if ((isMetaRecovery && !region.equalsIgnoreCase(metaEncodeRegionName)) || (!isMetaRecovery && region.equalsIgnoreCase(metaEncodeRegionName))) {
+              continue;
+            }
+          }
+          String nodePath=ZKUtil.joinZNode(watcher.recoveringRegionsZNode,region);
+          List<String> failedServers=ZKUtil.listChildrenNoWatch(watcher,nodePath);
+          if (failedServers == null || failedServers.isEmpty()) {
+            ZKUtil.deleteNode(watcher,nodePath);
+            continue;
+          }
+          if (recoveredServerNameSet.containsAll(failedServers)) {
+            ZKUtil.deleteNodeRecursively(watcher,nodePath);
+          }
+ else {
+            for (            String failedServer : failedServers) {
+              if (recoveredServerNameSet.contains(failedServer)) {
+                String tmpPath=ZKUtil.joinZNode(nodePath,failedServer);
+                ZKUtil.deleteNode(watcher,tmpPath);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  KeeperException ke) {
+    LOG.warn("removeRecoveringRegionsFromZK got zookeeper exception. Will retry",ke);
+    throw new IOException(ke);
+  }
+}

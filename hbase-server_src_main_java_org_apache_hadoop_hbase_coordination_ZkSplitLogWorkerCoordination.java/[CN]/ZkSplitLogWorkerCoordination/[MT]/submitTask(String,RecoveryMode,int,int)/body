@@ -1,0 +1,25 @@
+{
+  final MutableInt zkVersion=new MutableInt(curTaskZKVersion);
+  CancelableProgressable reporter=new CancelableProgressable(){
+    private long last_report_at=0;
+    @Override public boolean progress(){
+      long t=EnvironmentEdgeManager.currentTimeMillis();
+      if ((t - last_report_at) > reportPeriod) {
+        last_report_at=t;
+        int latestZKVersion=attemptToOwnTask(false,watcher,server.getServerName(),curTask,mode,zkVersion.intValue());
+        if (latestZKVersion < 0) {
+          LOG.warn("Failed to heartbeat the task" + curTask);
+          return false;
+        }
+        zkVersion.setValue(latestZKVersion);
+      }
+      return true;
+    }
+  }
+;
+  ZkSplitLogWorkerCoordination.ZkSplitTaskDetails splitTaskDetails=new ZkSplitLogWorkerCoordination.ZkSplitTaskDetails();
+  splitTaskDetails.setTaskNode(curTask);
+  splitTaskDetails.setCurTaskZKVersion(zkVersion);
+  HLogSplitterHandler hsh=new HLogSplitterHandler(server,this,splitTaskDetails,reporter,this.tasksInProgress,splitTaskExecutor,mode);
+  server.getExecutorService().submit(hsh);
+}
