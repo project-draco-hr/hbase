@@ -5,20 +5,36 @@
   }
   RegionServerThread rs=TEST_UTIL.getHBaseCluster().startRegionServer();
   waitForLabelsRegionAvailability(rs.getRegionServer());
-  PrivilegedExceptionAction<VisibilityLabelsResponse> action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
-    public VisibilityLabelsResponse run() throws Exception {
-      String[] labels={SECRET,CONFIDENTIAL,PRIVATE,"ABC","XYZ"};
-      try {
-        VisibilityClient.addLabels(conf,labels);
+  final AtomicBoolean vcInitialized=new AtomicBoolean(true);
+  do {
+    PrivilegedExceptionAction<VisibilityLabelsResponse> action=new PrivilegedExceptionAction<VisibilityLabelsResponse>(){
+      public VisibilityLabelsResponse run() throws Exception {
+        String[] labels={SECRET,CONFIDENTIAL,PRIVATE,"ABC","XYZ"};
+        try {
+          VisibilityLabelsResponse resp=VisibilityClient.addLabels(conf,labels);
+          List<RegionActionResult> results=resp.getResultList();
+          if (results.get(0).hasException()) {
+            NameBytesPair pair=results.get(0).getException();
+            Throwable t=ProtobufUtil.toException(pair);
+            LOG.debug("Got exception writing labels",t);
+            if (t instanceof VisibilityControllerNotReadyException) {
+              vcInitialized.set(false);
+              LOG.warn("VisibilityController was not yet initialized");
+              Threads.sleep(10);
+            }
+          }
+ else           LOG.debug("new labels added: " + resp);
+        }
+ catch (        Throwable t) {
+          throw new IOException(t);
+        }
+        return null;
       }
- catch (      Throwable t) {
-        throw new IOException(t);
-      }
-      return null;
     }
-  }
 ;
-  SUPERUSER.runAs(action);
+    SUPERUSER.runAs(action);
+  }
+ while (!vcInitialized.get());
   Scan s=new Scan();
   s.setAuthorizations(new Authorizations(VisibilityUtils.SYSTEM_LABEL));
   HTable ht=new HTable(conf,LABELS_TABLE_NAME.getName());
