@@ -1,0 +1,42 @@
+{
+  ExpressionNode node=null;
+  try {
+    node=EXP_PARSER.parse(visExpression);
+  }
+ catch (  ParseException e) {
+    throw new IOException(e);
+  }
+  node=EXP_EXPANDER.expand(node);
+  List<Tag> tags=new ArrayList<Tag>();
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  DataOutputStream dos=new DataOutputStream(baos);
+  List<Integer> labelOrdinals=new ArrayList<Integer>();
+  if (withSerializationFormat) {
+    tags.add(VisibilityUtils.SORTED_ORDINAL_SERIALIZATION_FORMAT_TAG);
+  }
+  if (node.isSingleNode()) {
+    getLabelOrdinals(node,labelOrdinals,auths,checkAuths,ordinalProvider);
+    writeLabelOrdinalsToStream(labelOrdinals,dos);
+    tags.add(new Tag(VISIBILITY_TAG_TYPE,baos.toByteArray()));
+    baos.reset();
+  }
+ else {
+    NonLeafExpressionNode nlNode=(NonLeafExpressionNode)node;
+    if (nlNode.getOperator() == Operator.OR) {
+      for (      ExpressionNode child : nlNode.getChildExps()) {
+        getLabelOrdinals(child,labelOrdinals,auths,checkAuths,ordinalProvider);
+        writeLabelOrdinalsToStream(labelOrdinals,dos);
+        tags.add(new Tag(VISIBILITY_TAG_TYPE,baos.toByteArray()));
+        baos.reset();
+        labelOrdinals.clear();
+      }
+    }
+ else {
+      getLabelOrdinals(nlNode,labelOrdinals,auths,checkAuths,ordinalProvider);
+      writeLabelOrdinalsToStream(labelOrdinals,dos);
+      tags.add(new Tag(VISIBILITY_TAG_TYPE,baos.toByteArray()));
+      baos.reset();
+    }
+  }
+  return tags;
+}
