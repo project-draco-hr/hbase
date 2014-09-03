@@ -1,0 +1,58 @@
+{
+  CompactionState state=CompactionState.NONE;
+  ZooKeeperWatcher zookeeper=new ZooKeeperWatcher(conf,ZK_IDENTIFIER_PREFIX + connection.toString(),new ThrowableAbortable());
+  try {
+    checkTableExists(tableName);
+    List<Pair<HRegionInfo,ServerName>> pairs=MetaTableAccessor.getTableRegionsAndLocations(zookeeper,connection,tableName);
+    for (    Pair<HRegionInfo,ServerName> pair : pairs) {
+      if (pair.getFirst().isOffline())       continue;
+      if (pair.getSecond() == null)       continue;
+      try {
+        ServerName sn=pair.getSecond();
+        AdminService.BlockingInterface admin=this.connection.getAdmin(sn);
+        GetRegionInfoRequest request=RequestConverter.buildGetRegionInfoRequest(pair.getFirst().getRegionName(),true);
+        GetRegionInfoResponse response=admin.getRegionInfo(null,request);
+switch (response.getCompactionState()) {
+case MAJOR_AND_MINOR:
+          return CompactionState.MAJOR_AND_MINOR;
+case MAJOR:
+        if (state == CompactionState.MINOR) {
+          return CompactionState.MAJOR_AND_MINOR;
+        }
+      state=CompactionState.MAJOR;
+    break;
+case MINOR:
+  if (state == CompactionState.MAJOR) {
+    return CompactionState.MAJOR_AND_MINOR;
+  }
+state=CompactionState.MINOR;
+break;
+case NONE:
+default :
+}
+}
+ catch (NotServingRegionException e) {
+if (LOG.isDebugEnabled()) {
+LOG.debug("Trying to get compaction state of " + pair.getFirst() + ": "+ StringUtils.stringifyException(e));
+}
+}
+catch (RemoteException e) {
+if (e.getMessage().indexOf(NotServingRegionException.class.getName()) >= 0) {
+if (LOG.isDebugEnabled()) {
+LOG.debug("Trying to get compaction state of " + pair.getFirst() + ": "+ StringUtils.stringifyException(e));
+}
+}
+ else {
+throw e;
+}
+}
+}
+}
+ catch (ServiceException se) {
+throw ProtobufUtil.getRemoteException(se);
+}
+ finally {
+zookeeper.close();
+}
+return state;
+}
