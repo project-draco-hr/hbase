@@ -1,0 +1,32 @@
+{
+  if (isCacheEnabled) {
+    if (!evictionLock.tryLock()) {
+      return;
+    }
+    printStatistics();
+    List<CachedMobFile> evictedFiles=new ArrayList<CachedMobFile>();
+    try {
+      if (map.size() <= mobFileMaxCacheSize) {
+        return;
+      }
+      List<CachedMobFile> files=new ArrayList<CachedMobFile>(map.values());
+      Collections.sort(files);
+      int start=(int)(mobFileMaxCacheSize * evictRemainRatio);
+      if (start >= 0) {
+        for (int i=start; i < files.size(); i++) {
+          String name=files.get(i).getFileName();
+          CachedMobFile evictedFile=map.remove(name);
+          if (evictedFile != null) {
+            evictedFiles.add(evictedFile);
+          }
+        }
+      }
+    }
+  finally {
+      evictionLock.unlock();
+    }
+    for (    CachedMobFile evictedFile : evictedFiles) {
+      closeFile(evictedFile);
+    }
+  }
+}

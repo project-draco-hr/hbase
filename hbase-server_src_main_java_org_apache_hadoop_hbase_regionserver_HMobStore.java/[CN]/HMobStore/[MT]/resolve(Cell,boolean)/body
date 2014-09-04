@@ -1,0 +1,31 @@
+{
+  Cell result=null;
+  if (reference.getValueLength() > Bytes.SIZEOF_LONG) {
+    String fileName=Bytes.toString(reference.getValueArray(),reference.getValueOffset() + Bytes.SIZEOF_LONG,reference.getValueLength() - Bytes.SIZEOF_LONG);
+    Path targetPath=new Path(mobFamilyPath,fileName);
+    MobFile file=null;
+    try {
+      file=mobCacheConfig.getMobFileCache().openFile(region.getFilesystem(),targetPath,mobCacheConfig);
+      result=file.readCell(reference,cacheBlocks);
+    }
+ catch (    IOException e) {
+      LOG.error("Fail to open/read the mob file " + targetPath.toString(),e);
+    }
+catch (    NullPointerException e) {
+      LOG.error("Fail to read the mob file " + targetPath.toString() + " since it's already deleted",e);
+    }
+ finally {
+      if (file != null) {
+        mobCacheConfig.getMobFileCache().closeFile(file);
+      }
+    }
+  }
+ else {
+    LOG.warn("Invalid reference to mob, " + reference.getValueLength() + " bytes is too short");
+  }
+  if (result == null) {
+    LOG.warn("The KeyValue result is null, assemble a new KeyValue with the same row,family," + "qualifier,timestamp,type and tags but with an empty value to return.");
+    result=new KeyValue(reference.getRowArray(),reference.getRowOffset(),reference.getRowLength(),reference.getFamilyArray(),reference.getFamilyOffset(),reference.getFamilyLength(),reference.getQualifierArray(),reference.getQualifierOffset(),reference.getQualifierLength(),reference.getTimestamp(),Type.codeToType(reference.getTypeByte()),HConstants.EMPTY_BYTE_ARRAY,0,0,reference.getTagsArray(),reference.getTagsOffset(),reference.getTagsLength());
+  }
+  return result;
+}

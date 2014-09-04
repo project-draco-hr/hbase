@@ -1,0 +1,45 @@
+{
+  String TN="testMobThreshold" + reversed;
+  setUp(defaultThreshold,TN);
+  byte[] valueLess=generateMobValue((int)defaultThreshold - 1);
+  byte[] valueEqual=generateMobValue((int)defaultThreshold);
+  byte[] valueGreater=generateMobValue((int)defaultThreshold + 1);
+  long ts1=System.currentTimeMillis();
+  long ts2=ts1 + 1;
+  long ts3=ts1 + 2;
+  Put put1=new Put(row1);
+  put1.add(family,qf1,ts3,valueLess);
+  put1.add(family,qf2,ts2,valueEqual);
+  put1.add(family,qf3,ts1,valueGreater);
+  table.put(put1);
+  table.flushCommits();
+  admin.flush(TN);
+  Scan scan=new Scan();
+  setScan(scan,reversed,true);
+  Cell cellLess=null;
+  Cell cellEqual=null;
+  Cell cellGreater=null;
+  ResultScanner results=table.getScanner(scan);
+  int count=0;
+  for (  Result res : results) {
+    List<Cell> cells=res.listCells();
+    for (    Cell cell : cells) {
+      String qf=Bytes.toString(CellUtil.cloneQualifier(cell));
+      if (qf.equals(Bytes.toString(qf1))) {
+        cellLess=cell;
+      }
+      if (qf.equals(Bytes.toString(qf2))) {
+        cellEqual=cell;
+      }
+      if (qf.equals(Bytes.toString(qf3))) {
+        cellGreater=cell;
+      }
+      count++;
+    }
+  }
+  Assert.assertEquals(3,count);
+  assertNotMobReference(cellLess,row1,family,valueLess);
+  assertNotMobReference(cellEqual,row1,family,valueEqual);
+  assertIsMobReference(cellGreater,row1,family,valueGreater,TN);
+  results.close();
+}

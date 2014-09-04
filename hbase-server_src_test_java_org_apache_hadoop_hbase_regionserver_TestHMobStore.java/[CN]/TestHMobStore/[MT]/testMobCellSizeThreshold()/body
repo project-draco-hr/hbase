@@ -1,0 +1,32 @@
+{
+  final Configuration conf=HBaseConfiguration.create();
+  HColumnDescriptor hcd;
+  hcd=new HColumnDescriptor(family);
+  hcd.setValue(MobConstants.IS_MOB,Bytes.toBytes(Boolean.TRUE));
+  hcd.setValue(MobConstants.MOB_THRESHOLD,Bytes.toBytes(100L));
+  hcd.setMaxVersions(4);
+  init(name.getMethodName(),conf,hcd,false);
+  this.store.add(new KeyValue(row,family,qf1,1,value));
+  this.store.add(new KeyValue(row,family,qf2,1,value));
+  flush(1);
+  this.store.add(new KeyValue(row,family,qf3,1,value));
+  this.store.add(new KeyValue(row,family,qf4,1,value));
+  flush(2);
+  this.store.add(new KeyValue(row,family,qf5,1,value));
+  this.store.add(new KeyValue(row,family,qf6,1,value));
+  flush(3);
+  Scan scan=new Scan(get);
+  scan.setAttribute(MobConstants.MOB_SCAN_RAW,Bytes.toBytes(Boolean.TRUE));
+  InternalScanner scanner=(InternalScanner)store.getScanner(scan,scan.getFamilyMap().get(store.getFamily().getName()),0);
+  List<Cell> results=new ArrayList<Cell>();
+  scanner.next(results);
+  Collections.sort(results,KeyValue.COMPARATOR);
+  scanner.close();
+  Assert.assertEquals(expected.size(),results.size());
+  for (int i=0; i < results.size(); i++) {
+    Cell cell=results.get(i);
+    Assert.assertFalse(MobUtils.isMobReferenceCell(cell));
+    Assert.assertEquals(expected.get(i),results.get(i));
+    Assert.assertEquals(100,MobUtils.getMobThreshold(store.getFamily()));
+  }
+}

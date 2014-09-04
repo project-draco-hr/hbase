@@ -1,0 +1,36 @@
+{
+  FileSystem fs=FileSystem.get(conf);
+  Path testDir=FSUtils.getRootDir(conf);
+  Path outputDir=new Path(new Path(testDir,TABLE),"familyname");
+  HFileContext meta=new HFileContextBuilder().withBlockSize(8 * 1024).build();
+  StoreFile.Writer writer=new StoreFile.WriterBuilder(conf,cacheConf,fs).withOutputDir(outputDir).withFileContext(meta).build();
+  String caseName=getName();
+  MobTestUtil.writeStoreFile(writer,caseName);
+  CachedMobFile cachedMobFile=CachedMobFile.create(fs,writer.getPath(),conf,cacheConf);
+  byte[] family=Bytes.toBytes(caseName);
+  byte[] qualify=Bytes.toBytes(caseName);
+  byte[] startKey=Bytes.toBytes("aa");
+  KeyValue expectedKey=new KeyValue(startKey,family,qualify,Long.MAX_VALUE,Type.Put,startKey);
+  KeyValue seekKey=expectedKey.createKeyOnly(false);
+  KeyValue kv=KeyValueUtil.ensureKeyValue(cachedMobFile.readCell(seekKey,false));
+  MobTestUtil.assertKeyValuesEquals(expectedKey,kv);
+  byte[] endKey=Bytes.toBytes("zz");
+  expectedKey=new KeyValue(endKey,family,qualify,Long.MAX_VALUE,Type.Put,endKey);
+  seekKey=expectedKey.createKeyOnly(false);
+  kv=KeyValueUtil.ensureKeyValue(cachedMobFile.readCell(seekKey,false));
+  MobTestUtil.assertKeyValuesEquals(expectedKey,kv);
+  byte[] randomKey=Bytes.toBytes(MobTestUtil.generateRandomString(2));
+  expectedKey=new KeyValue(randomKey,family,qualify,Long.MAX_VALUE,Type.Put,randomKey);
+  seekKey=expectedKey.createKeyOnly(false);
+  kv=KeyValueUtil.ensureKeyValue(cachedMobFile.readCell(seekKey,false));
+  MobTestUtil.assertKeyValuesEquals(expectedKey,kv);
+  byte[] lowerKey=Bytes.toBytes("a1");
+  expectedKey=new KeyValue(startKey,family,qualify,Long.MAX_VALUE,Type.Put,startKey);
+  seekKey=new KeyValue(lowerKey,family,qualify,Long.MAX_VALUE,Type.Put,lowerKey);
+  kv=KeyValueUtil.ensureKeyValue(cachedMobFile.readCell(seekKey,false));
+  MobTestUtil.assertKeyValuesEquals(expectedKey,kv);
+  byte[] upperKey=Bytes.toBytes("z{");
+  seekKey=new KeyValue(upperKey,family,qualify,Long.MAX_VALUE,Type.Put,upperKey);
+  kv=KeyValueUtil.ensureKeyValue(cachedMobFile.readCell(seekKey,false));
+  Assert.assertNull(kv);
+}

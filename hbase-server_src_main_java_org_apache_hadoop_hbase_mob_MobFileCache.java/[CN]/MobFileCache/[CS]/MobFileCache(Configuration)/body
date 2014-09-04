@@ -1,0 +1,24 @@
+{
+  this.conf=conf;
+  this.mobFileMaxCacheSize=conf.getInt(MobConstants.MOB_FILE_CACHE_SIZE_KEY,MobConstants.DEFAULT_MOB_FILE_CACHE_SIZE);
+  isCacheEnabled=(mobFileMaxCacheSize > 0);
+  map=new ConcurrentHashMap<String,CachedMobFile>(mobFileMaxCacheSize);
+  this.count=new AtomicLong(0);
+  this.miss=new AtomicLong(0);
+  this.lastAccess=0;
+  this.lastMiss=0;
+  if (isCacheEnabled) {
+    long period=conf.getLong(MobConstants.MOB_CACHE_EVICT_PERIOD,MobConstants.DEFAULT_MOB_CACHE_EVICT_PERIOD);
+    evictRemainRatio=conf.getFloat(MobConstants.MOB_CACHE_EVICT_REMAIN_RATIO,MobConstants.DEFAULT_EVICT_REMAIN_RATIO);
+    if (evictRemainRatio < 0.0) {
+      evictRemainRatio=0.0f;
+      LOG.warn(MobConstants.MOB_CACHE_EVICT_REMAIN_RATIO + " is less than 0.0, 0.0 is used.");
+    }
+ else     if (evictRemainRatio > 1.0) {
+      evictRemainRatio=1.0f;
+      LOG.warn(MobConstants.MOB_CACHE_EVICT_REMAIN_RATIO + " is larger than 1.0, 1.0 is used.");
+    }
+    this.scheduleThreadPool.scheduleAtFixedRate(new EvictionThread(this),period,period,TimeUnit.SECONDS);
+  }
+  LOG.info("MobFileCache is initialized, and the cache size is " + mobFileMaxCacheSize);
+}

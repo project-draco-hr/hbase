@@ -1,0 +1,47 @@
+{
+  String TN="testFlushNonMobFile";
+  HTable table=null;
+  HBaseAdmin admin=null;
+  try {
+    HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(TN));
+    HColumnDescriptor hcd=new HColumnDescriptor(family);
+    hcd.setMaxVersions(4);
+    desc.addFamily(hcd);
+    admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+    admin.createTable(desc);
+    table=new HTable(TEST_UTIL.getConfiguration(),TN);
+    Put put0=new Put(row1);
+    put0.add(family,qf1,1,value1);
+    table.put(put0);
+    Put put1=new Put(row2);
+    put1.add(family,qf2,1,value2);
+    table.put(put1);
+    table.flushCommits();
+    admin.flush(TN);
+    Scan scan=new Scan();
+    scan.addColumn(family,qf1);
+    scan.setMaxVersions(4);
+    ResultScanner scanner=table.getScanner(scan);
+    Result result=scanner.next();
+    int size=0;
+    while (result != null) {
+      size++;
+      List<Cell> cells=result.getColumnCells(family,qf1);
+      Assert.assertEquals(1,cells.size());
+      Assert.assertEquals(Bytes.toString(value1),Bytes.toString(CellUtil.cloneValue(cells.get(0))));
+      result=scanner.next();
+    }
+    scanner.close();
+    Assert.assertEquals(1,size);
+    admin.close();
+  }
+ catch (  MasterNotRunningException e1) {
+    e1.printStackTrace();
+  }
+catch (  ZooKeeperConnectionException e2) {
+    e2.printStackTrace();
+  }
+catch (  IOException e3) {
+    e3.printStackTrace();
+  }
+}

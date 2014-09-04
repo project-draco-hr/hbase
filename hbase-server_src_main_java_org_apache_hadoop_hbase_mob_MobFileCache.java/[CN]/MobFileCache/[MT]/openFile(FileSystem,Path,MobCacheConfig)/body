@@ -1,0 +1,30 @@
+{
+  if (!isCacheEnabled) {
+    return MobFile.create(fs,path,conf,cacheConf);
+  }
+ else {
+    String fileName=path.getName();
+    CachedMobFile cached=map.get(fileName);
+    IdLock.Entry lockEntry=keyLock.getLockEntry(fileName.hashCode());
+    try {
+      if (cached == null) {
+        cached=map.get(fileName);
+        if (cached == null) {
+          if (map.size() > mobFileMaxCacheSize) {
+            evict();
+          }
+          cached=CachedMobFile.create(fs,path,conf,cacheConf);
+          cached.open();
+          map.put(fileName,cached);
+          miss.incrementAndGet();
+        }
+      }
+      cached.open();
+      cached.access(count.incrementAndGet());
+    }
+  finally {
+      keyLock.releaseLockEntry(lockEntry);
+    }
+    return cached;
+  }
+}

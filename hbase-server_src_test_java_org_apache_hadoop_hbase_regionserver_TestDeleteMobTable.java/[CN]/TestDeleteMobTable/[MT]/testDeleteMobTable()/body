@@ -1,0 +1,41 @@
+{
+  byte[] tableName=Bytes.toBytes("testDeleteMobTable");
+  TableName tn=TableName.valueOf(tableName);
+  HTableDescriptor htd=new HTableDescriptor(tn);
+  HColumnDescriptor hcd=new HColumnDescriptor(FAMILY);
+  hcd.setValue(MobConstants.IS_MOB,Bytes.toBytes(Boolean.TRUE));
+  hcd.setValue(MobConstants.MOB_THRESHOLD,Bytes.toBytes(0L));
+  htd.addFamily(hcd);
+  HBaseAdmin admin=null;
+  HTable table=null;
+  try {
+    admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+    admin.createTable(htd);
+    table=new HTable(TEST_UTIL.getConfiguration(),tableName);
+    byte[] value=generateMobValue(10);
+    byte[] row=Bytes.toBytes("row");
+    Put put=new Put(row);
+    put.add(FAMILY,QF,EnvironmentEdgeManager.currentTime(),value);
+    table.put(put);
+    table.flushCommits();
+    admin.flush(tableName);
+    Assert.assertEquals(1,countMobFiles(tn,hcd.getNameAsString()));
+    Assert.assertEquals(0,countArchiveMobFiles(tn,hcd.getNameAsString()));
+    String fileName=assertHasOneMobRow(table,tn,hcd.getNameAsString());
+    Assert.assertFalse(mobArchiveExist(tn,hcd.getNameAsString(),fileName));
+    Assert.assertTrue(mobTableDirExist(tn));
+    table.close();
+    admin.disableTable(tn);
+    admin.deleteTable(tn);
+    Assert.assertFalse(admin.tableExists(tn));
+    Assert.assertEquals(0,countMobFiles(tn,hcd.getNameAsString()));
+    Assert.assertEquals(1,countArchiveMobFiles(tn,hcd.getNameAsString()));
+    Assert.assertTrue(mobArchiveExist(tn,hcd.getNameAsString(),fileName));
+    Assert.assertFalse(mobTableDirExist(tn));
+  }
+  finally {
+    if (admin != null) {
+      admin.close();
+    }
+  }
+}
