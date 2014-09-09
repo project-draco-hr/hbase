@@ -37,24 +37,42 @@
         HFileBlock.FSReaderV2 hbr=new HFileBlock.FSReaderV2(is,totalSize,meta);
         hbr.setDataBlockEncoder(dataBlockEncoder);
         hbr.setIncludesMemstoreTS(includesMemstoreTS);
-        HFileBlock b;
+        HFileBlock blockFromHFile, blockUnpacked;
         int pos=0;
         for (int blockId=0; blockId < numBlocks; ++blockId) {
-          b=hbr.readBlockData(pos,-1,-1,pread);
+          blockFromHFile=hbr.readBlockData(pos,-1,-1,pread);
           assertEquals(0,HFile.getChecksumFailuresCount());
-          b.sanityCheck();
-          pos+=b.getOnDiskSizeWithHeader();
-          assertEquals((int)encodedSizes.get(blockId),b.getUncompressedSizeWithoutHeader());
-          ByteBuffer actualBuffer=b.getBufferWithoutHeader();
+          blockFromHFile.sanityCheck();
+          pos+=blockFromHFile.getOnDiskSizeWithHeader();
+          assertEquals((int)encodedSizes.get(blockId),blockFromHFile.getUncompressedSizeWithoutHeader());
+          assertEquals(meta.isCompressedOrEncrypted(),!blockFromHFile.isUnpacked());
+          long packedHeapsize=blockFromHFile.heapSize();
+          blockUnpacked=blockFromHFile.unpack(meta,hbr);
+          assertTrue(blockUnpacked.isUnpacked());
+          if (meta.isCompressedOrEncrypted()) {
+            LOG.info("packedHeapsize=" + packedHeapsize + ", unpackedHeadsize="+ blockUnpacked.heapSize());
+            assertFalse(packedHeapsize == blockUnpacked.heapSize());
+            assertTrue("Packed heapSize should be < unpacked heapSize",packedHeapsize < blockUnpacked.heapSize());
+          }
+          ByteBuffer actualBuffer=blockUnpacked.getBufferWithoutHeader();
           if (encoding != DataBlockEncoding.NONE) {
-            assertEquals(0,actualBuffer.get(0));
-            assertEquals(encoding.getId(),actualBuffer.get(1));
+            assertEquals("Unexpected first byte with " + buildMessageDetails(algo,encoding,pread),Long.toHexString(0),Long.toHexString(actualBuffer.get(0)));
+            assertEquals("Unexpected second byte with " + buildMessageDetails(algo,encoding,pread),Long.toHexString(encoding.getId()),Long.toHexString(actualBuffer.get(1)));
             actualBuffer.position(2);
             actualBuffer=actualBuffer.slice();
           }
           ByteBuffer expectedBuffer=encodedBlocks.get(blockId);
           expectedBuffer.rewind();
           assertBuffersEqual(expectedBuffer,actualBuffer,algo,encoding,pread);
+          for (          boolean reuseBuffer : new boolean[]{false,true}) {
+            ByteBuffer serialized=ByteBuffer.allocate(blockFromHFile.getSerializedLength());
+            blockFromHFile.serialize(serialized);
+            HFileBlock deserialized=(HFileBlock)blockFromHFile.getDeserializer().deserialize(serialized,reuseBuffer);
+            assertEquals("Serialization did not preserve block state. reuseBuffer=" + reuseBuffer,blockFromHFile,deserialized);
+            if (blockFromHFile != blockUnpacked) {
+              assertEquals("Deserializaed block cannot be unpacked correctly.",blockUnpacked,deserialized.unpack(meta,hbr));
+            }
+          }
         }
         is.close();
       }
