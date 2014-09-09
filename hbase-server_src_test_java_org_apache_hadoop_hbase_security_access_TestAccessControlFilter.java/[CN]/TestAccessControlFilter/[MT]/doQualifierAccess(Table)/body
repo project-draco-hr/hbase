@@ -1,0 +1,85 @@
+{
+  SecureTestUtil.grantOnTable(TEST_UTIL,READER.getShortName(),TABLE,null,null,Permission.Action.READ);
+  SecureTestUtil.grantOnTable(TEST_UTIL,LIMITED.getShortName(),TABLE,FAMILY,PUBLIC_COL,Permission.Action.READ);
+  List<Put> puts=new ArrayList<Put>(100);
+  for (int i=0; i < 100; i++) {
+    Put p=new Put(Bytes.toBytes(i));
+    p.add(FAMILY,PRIVATE_COL,Bytes.toBytes("secret " + i));
+    p.add(FAMILY,PUBLIC_COL,Bytes.toBytes("info " + i));
+    puts.add(p);
+  }
+  table.put(puts);
+  READER.runAs(new PrivilegedExceptionAction<Object>(){
+    public Object run() throws Exception {
+      Configuration conf=new Configuration(TEST_UTIL.getConfiguration());
+      conf.set("testkey",UUID.randomUUID().toString());
+      Table t=new HTable(conf,TABLE);
+      try {
+        ResultScanner rs=t.getScanner(new Scan());
+        int rowcnt=0;
+        for (        Result r : rs) {
+          rowcnt++;
+          int rownum=Bytes.toInt(r.getRow());
+          assertTrue(r.containsColumn(FAMILY,PRIVATE_COL));
+          assertEquals("secret " + rownum,Bytes.toString(r.getValue(FAMILY,PRIVATE_COL)));
+          assertTrue(r.containsColumn(FAMILY,PUBLIC_COL));
+          assertEquals("info " + rownum,Bytes.toString(r.getValue(FAMILY,PUBLIC_COL)));
+        }
+        assertEquals("Expected 100 rows returned",100,rowcnt);
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+);
+  LIMITED.runAs(new PrivilegedExceptionAction<Object>(){
+    public Object run() throws Exception {
+      Configuration conf=new Configuration(TEST_UTIL.getConfiguration());
+      conf.set("testkey",UUID.randomUUID().toString());
+      Table t=new HTable(conf,TABLE);
+      try {
+        ResultScanner rs=t.getScanner(new Scan());
+        int rowcnt=0;
+        for (        Result r : rs) {
+          rowcnt++;
+          int rownum=Bytes.toInt(r.getRow());
+          assertFalse(r.containsColumn(FAMILY,PRIVATE_COL));
+          assertTrue(r.containsColumn(FAMILY,PUBLIC_COL));
+          assertEquals("info " + rownum,Bytes.toString(r.getValue(FAMILY,PUBLIC_COL)));
+        }
+        assertEquals("Expected 100 rows returned",100,rowcnt);
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+);
+  DENIED.runAs(new PrivilegedExceptionAction<Object>(){
+    public Object run() throws Exception {
+      Configuration conf=new Configuration(TEST_UTIL.getConfiguration());
+      conf.set("testkey",UUID.randomUUID().toString());
+      Table t=new HTable(conf,TABLE);
+      try {
+        ResultScanner rs=t.getScanner(new Scan());
+        int rowcnt=0;
+        for (        Result r : rs) {
+          rowcnt++;
+          int rownum=Bytes.toInt(r.getRow());
+          assertFalse(r.containsColumn(FAMILY,PRIVATE_COL));
+          assertTrue(r.containsColumn(FAMILY,PUBLIC_COL));
+          assertEquals("info " + rownum,Bytes.toString(r.getValue(FAMILY,PUBLIC_COL)));
+        }
+        assertEquals("Expected 0 rows returned",0,rowcnt);
+        return null;
+      }
+  finally {
+        t.close();
+      }
+    }
+  }
+);
+}
