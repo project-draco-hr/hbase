@@ -1,0 +1,38 @@
+{
+  int timeout=10000;
+  boolean framed=false;
+  TTransport transport=new TSocket(host,port,timeout);
+  if (framed) {
+    transport=new TFramedTransport(transport);
+  }
+ else   if (secure) {
+    Map<String,String> saslProperties=new HashMap<String,String>();
+    saslProperties.put(Sasl.QOP,"auth-conf,auth-int,auth");
+    transport=new TSaslClientTransport("GSSAPI",null,"hbase",host,saslProperties,null,transport);
+  }
+  TProtocol protocol=new TBinaryProtocol(transport);
+  THBaseService.Iface client=new THBaseService.Client(protocol);
+  transport.open();
+  ByteBuffer table=ByteBuffer.wrap("example".getBytes());
+  TPut put=new TPut();
+  put.setRow("row1".getBytes());
+  TColumnValue columnValue=new TColumnValue();
+  columnValue.setFamily("family1".getBytes());
+  columnValue.setQualifier("qualifier1".getBytes());
+  columnValue.setValue("value1".getBytes());
+  List<TColumnValue> columnValues=new ArrayList<TColumnValue>();
+  columnValues.add(columnValue);
+  put.setColumnValues(columnValues);
+  client.put(table,put);
+  TGet get=new TGet();
+  get.setRow("row1".getBytes());
+  TResult result=client.get(table,get);
+  System.out.print("row = " + new String(result.getRow()));
+  for (  TColumnValue resultColumnValue : result.getColumnValues()) {
+    System.out.print("family = " + new String(resultColumnValue.getFamily()));
+    System.out.print("qualifier = " + new String(resultColumnValue.getFamily()));
+    System.out.print("value = " + new String(resultColumnValue.getValue()));
+    System.out.print("timestamp = " + resultColumnValue.getTimestamp());
+  }
+  transport.close();
+}
