@@ -1,0 +1,31 @@
+{
+  invocations++;
+  if (HTableDescriptor.META_TABLEDESC.getTableName().equals(tablename)) {
+    cachehits++;
+    return new TableDescriptor(HTableDescriptor.META_TABLEDESC,TableState.State.ENABLED);
+  }
+  if (HConstants.HBASE_NON_USER_TABLE_DIRS.contains(tablename.getNameAsString())) {
+    throw new IOException("No descriptor found for non table = " + tablename);
+  }
+  TableDescriptorAndModtime cachedtdm=this.cache.get(tablename);
+  if (cachedtdm != null) {
+    if (getTableInfoModtime(tablename) <= cachedtdm.getModtime()) {
+      cachehits++;
+      return cachedtdm.getTableDescriptor();
+    }
+  }
+  TableDescriptorAndModtime tdmt=null;
+  try {
+    tdmt=getTableDescriptorAndModtime(tablename);
+  }
+ catch (  NullPointerException e) {
+    LOG.debug("Exception during readTableDecriptor. Current table name = " + tablename,e);
+  }
+catch (  IOException ioe) {
+    LOG.debug("Exception during readTableDecriptor. Current table name = " + tablename,ioe);
+  }
+  if (tdmt != null) {
+    this.cache.put(tablename,tdmt);
+  }
+  return tdmt == null ? null : tdmt.getTableDescriptor();
+}
