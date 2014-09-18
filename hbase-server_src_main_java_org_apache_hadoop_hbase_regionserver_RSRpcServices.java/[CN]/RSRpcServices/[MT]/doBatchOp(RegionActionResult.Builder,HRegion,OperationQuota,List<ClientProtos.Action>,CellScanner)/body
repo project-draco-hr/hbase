@@ -1,0 +1,61 @@
+{
+  Mutation[] mArray=new Mutation[mutations.size()];
+  long before=EnvironmentEdgeManager.currentTime();
+  boolean batchContainsPuts=false, batchContainsDelete=false;
+  try {
+    int i=0;
+    for (    ClientProtos.Action action : mutations) {
+      MutationProto m=action.getMutation();
+      Mutation mutation;
+      if (m.getMutateType() == MutationType.PUT) {
+        mutation=ProtobufUtil.toPut(m,cells);
+        batchContainsPuts=true;
+      }
+ else {
+        mutation=ProtobufUtil.toDelete(m,cells);
+        batchContainsDelete=true;
+      }
+      mArray[i++]=mutation;
+      quota.addMutation(mutation);
+    }
+    if (!region.getRegionInfo().isMetaTable()) {
+      regionServer.cacheFlusher.reclaimMemStoreMemory();
+    }
+    OperationStatus codes[]=region.batchMutate(mArray);
+    for (i=0; i < codes.length; i++) {
+      int index=mutations.get(i).getIndex();
+      Exception e=null;
+switch (codes[i].getOperationStatusCode()) {
+case BAD_FAMILY:
+        e=new NoSuchColumnFamilyException(codes[i].getExceptionMsg());
+      builder.addResultOrException(getResultOrException(e,index));
+    break;
+case SANITY_CHECK_FAILURE:
+  e=new FailedSanityCheckException(codes[i].getExceptionMsg());
+builder.addResultOrException(getResultOrException(e,index));
+break;
+default :
+e=new DoNotRetryIOException(codes[i].getExceptionMsg());
+builder.addResultOrException(getResultOrException(e,index));
+break;
+case SUCCESS:
+builder.addResultOrException(getResultOrException(ClientProtos.Result.getDefaultInstance(),index));
+break;
+}
+}
+}
+ catch (IOException ie) {
+for (int i=0; i < mutations.size(); i++) {
+builder.addResultOrException(getResultOrException(ie,mutations.get(i).getIndex()));
+}
+}
+if (regionServer.metricsRegionServer != null) {
+long after=EnvironmentEdgeManager.currentTime();
+if (batchContainsPuts) {
+regionServer.metricsRegionServer.updatePut(after - before);
+}
+if (batchContainsDelete) {
+regionServer.metricsRegionServer.updateDelete(after - before);
+}
+}
+}

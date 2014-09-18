@@ -1,5 +1,6 @@
 {
   long before=EnvironmentEdgeManager.currentTime();
+  OperationQuota quota=null;
   try {
     checkOpen();
     requestCount.increment();
@@ -8,6 +9,7 @@
     ClientProtos.Get get=request.getGet();
     Boolean existence=null;
     Result r=null;
+    quota=getQuotaManager().checkQuota(region,OperationQuota.OperationType.GET);
     if (get.hasClosestRowBefore() && get.getClosestRowBefore()) {
       if (get.getColumnCount() != 1) {
         throw new DoNotRetryIOException("get ClosestRowBefore supports one and only one family now, not " + get.getColumnCount() + " families");
@@ -40,6 +42,9 @@
       ClientProtos.Result pbr=ProtobufUtil.toResult(r);
       builder.setResult(pbr);
     }
+    if (r != null) {
+      quota.addGetResult(r);
+    }
     return builder.build();
   }
  catch (  IOException ie) {
@@ -48,6 +53,9 @@
  finally {
     if (regionServer.metricsRegionServer != null) {
       regionServer.metricsRegionServer.updateGet(EnvironmentEdgeManager.currentTime() - before);
+    }
+    if (quota != null) {
+      quota.close();
     }
   }
 }

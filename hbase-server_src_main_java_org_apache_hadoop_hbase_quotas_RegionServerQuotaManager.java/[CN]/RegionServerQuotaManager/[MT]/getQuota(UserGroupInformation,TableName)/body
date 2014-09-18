@@ -1,0 +1,27 @@
+{
+  if (isQuotaEnabled() && !table.isSystemTable()) {
+    UserQuotaState userQuotaState=quotaCache.getUserQuotaState(ugi);
+    QuotaLimiter userLimiter=userQuotaState.getTableLimiter(table);
+    boolean useNoop=userLimiter.isBypass();
+    if (userQuotaState.hasBypassGlobals()) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("get quota for ugi=" + ugi + " table="+ table+ " userLimiter="+ userLimiter);
+      }
+      if (!useNoop) {
+        return new DefaultOperationQuota(userLimiter);
+      }
+    }
+ else {
+      QuotaLimiter nsLimiter=quotaCache.getNamespaceLimiter(table.getNamespaceAsString());
+      QuotaLimiter tableLimiter=quotaCache.getTableLimiter(table);
+      useNoop&=tableLimiter.isBypass() && nsLimiter.isBypass();
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("get quota for ugi=" + ugi + " table="+ table+ " userLimiter="+ userLimiter+ " tableLimiter="+ tableLimiter+ " nsLimiter="+ nsLimiter);
+      }
+      if (!useNoop) {
+        return new DefaultOperationQuota(userLimiter,tableLimiter,nsLimiter);
+      }
+    }
+  }
+  return NoopOperationQuota.get();
+}

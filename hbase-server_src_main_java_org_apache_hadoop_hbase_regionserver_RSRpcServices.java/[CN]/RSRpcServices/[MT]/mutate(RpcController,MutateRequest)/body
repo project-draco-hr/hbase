@@ -1,6 +1,7 @@
 {
   PayloadCarryingRpcController controller=(PayloadCarryingRpcController)rpcc;
   CellScanner cellScanner=controller != null ? controller.cellScanner() : null;
+  OperationQuota quota=null;
   if (controller != null)   controller.setCellScanner(null);
   try {
     checkOpen();
@@ -15,15 +16,18 @@
     Result r=null;
     Boolean processed=null;
     MutationType type=mutation.getMutateType();
+    long mutationSize=0;
+    quota=getQuotaManager().checkQuota(region,OperationQuota.OperationType.MUTATE);
 switch (type) {
 case APPEND:
-      r=append(region,mutation,cellScanner,nonceGroup);
+      r=append(region,quota,mutation,cellScanner,nonceGroup);
     break;
 case INCREMENT:
-  r=increment(region,mutation,cellScanner,nonceGroup);
+  r=increment(region,quota,mutation,cellScanner,nonceGroup);
 break;
 case PUT:
 Put put=ProtobufUtil.toPut(mutation,cellScanner);
+quota.addMutation(put);
 if (request.hasCondition()) {
 Condition condition=request.getCondition();
 byte[] row=condition.getRow().toByteArray();
@@ -37,7 +41,7 @@ processed=region.getCoprocessorHost().preCheckAndPut(row,family,qualifier,compar
 if (processed == null) {
 boolean result=region.checkAndMutate(row,family,qualifier,compareOp,comparator,put,true);
 if (region.getCoprocessorHost() != null) {
-  result=region.getCoprocessorHost().postCheckAndPut(row,family,qualifier,compareOp,comparator,put,result);
+result=region.getCoprocessorHost().postCheckAndPut(row,family,qualifier,compareOp,comparator,put,result);
 }
 processed=result;
 }
@@ -49,6 +53,7 @@ processed=Boolean.TRUE;
 break;
 case DELETE:
 Delete delete=ProtobufUtil.toDelete(mutation,cellScanner);
+quota.addMutation(delete);
 if (request.hasCondition()) {
 Condition condition=request.getCondition();
 byte[] row=condition.getRow().toByteArray();
@@ -75,12 +80,19 @@ break;
 default :
 throw new DoNotRetryIOException("Unsupported mutate type: " + type.name());
 }
-if (processed != null) builder.setProcessed(processed.booleanValue());
+if (processed != null) {
+builder.setProcessed(processed.booleanValue());
+}
 addResult(builder,r,controller);
 return builder.build();
 }
  catch (IOException ie) {
 regionServer.checkFileSystem();
 throw new ServiceException(ie);
+}
+ finally {
+if (quota != null) {
+quota.close();
+}
 }
 }

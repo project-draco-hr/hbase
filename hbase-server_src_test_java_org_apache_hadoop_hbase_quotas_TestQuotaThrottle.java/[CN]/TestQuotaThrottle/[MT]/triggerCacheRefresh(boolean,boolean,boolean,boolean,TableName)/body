@@ -1,0 +1,36 @@
+{
+  for (  RegionServerThread rst : TEST_UTIL.getMiniHBaseCluster().getRegionServerThreads()) {
+    RegionServerQuotaManager quotaManager=rst.getRegionServer().getRegionServerQuotaManager();
+    QuotaCache quotaCache=quotaManager.getQuotaCache();
+    quotaCache.triggerCacheRefresh();
+    Thread.sleep(250);
+    for (    TableName table : tables) {
+      quotaCache.getTableLimiter(table);
+    }
+    boolean isUpdated=false;
+    while (!isUpdated) {
+      isUpdated=true;
+      for (      TableName table : tables) {
+        boolean isBypass=true;
+        if (userLimiter) {
+          isBypass&=quotaCache.getUserLimiter(User.getCurrent().getUGI(),table).isBypass();
+        }
+        if (tableLimiter) {
+          isBypass&=quotaCache.getTableLimiter(table).isBypass();
+        }
+        if (nsLimiter) {
+          isBypass&=quotaCache.getNamespaceLimiter(table.getNamespaceAsString()).isBypass();
+        }
+        if (isBypass != bypass) {
+          isUpdated=false;
+          Thread.sleep(250);
+          break;
+        }
+      }
+    }
+    LOG.debug("QuotaCache");
+    LOG.debug(quotaCache.getNamespaceQuotaCache());
+    LOG.debug(quotaCache.getTableQuotaCache());
+    LOG.debug(quotaCache.getUserQuotaCache());
+  }
+}

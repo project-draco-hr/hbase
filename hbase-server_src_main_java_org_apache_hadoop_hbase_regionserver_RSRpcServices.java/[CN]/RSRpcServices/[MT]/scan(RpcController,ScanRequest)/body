@@ -1,4 +1,5 @@
 {
+  OperationQuota quota=null;
   Leases.Lease lease=null;
   String scannerName=null;
   try {
@@ -75,6 +76,8 @@
       scannerName=String.valueOf(scannerId);
       ttl=this.scannerLeaseTimeoutPeriod;
     }
+    quota=getQuotaManager().checkQuota(region,OperationQuota.OperationType.SCAN);
+    long maxQuotaResultSize=Math.min(maxScannerResultSize,quota.getReadAvailable());
     if (rows > 0) {
       if (request.hasNextCallSeq()) {
         if (rsh == null) {
@@ -109,9 +112,9 @@
           }
         }
         if (!done) {
-          long maxResultSize=scanner.getMaxResultSize();
+          long maxResultSize=Math.min(scanner.getMaxResultSize(),maxQuotaResultSize);
           if (maxResultSize <= 0) {
-            maxResultSize=maxScannerResultSize;
+            maxResultSize=maxQuotaResultSize;
           }
           List<Cell> values=new ArrayList<Cell>();
           region.startRegionOperation(Operation.SCAN);
@@ -149,6 +152,7 @@ synchronized (scanner) {
             region.getCoprocessorHost().postScannerNext(scanner,results,rows,true);
           }
         }
+        quota.addScanResult(results);
         if (scanner.isFilterDone() && results.isEmpty()) {
           moreResults=false;
           results=null;
@@ -203,5 +207,10 @@ synchronized (scanner) {
       }
     }
     throw new ServiceException(ie);
+  }
+ finally {
+    if (quota != null) {
+      quota.close();
+    }
   }
 }

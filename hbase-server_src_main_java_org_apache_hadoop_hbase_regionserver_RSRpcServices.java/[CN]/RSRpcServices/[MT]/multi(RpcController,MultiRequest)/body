@@ -14,10 +14,12 @@
   RegionActionResult.Builder regionActionResultBuilder=RegionActionResult.newBuilder();
   for (  RegionAction regionAction : request.getRegionActionList()) {
     this.requestCount.add(regionAction.getActionCount());
+    OperationQuota quota;
     HRegion region;
     regionActionResultBuilder.clear();
     try {
       region=getRegion(regionAction.getRegion());
+      quota=getQuotaManager().checkQuota(region,regionAction.getActionList());
     }
  catch (    IOException e) {
       regionActionResultBuilder.setException(ResponseConverter.buildException(e));
@@ -33,9 +35,10 @@
       }
     }
  else {
-      cellsToReturn=doNonAtomicRegionMutation(region,regionAction,cellScanner,regionActionResultBuilder,cellsToReturn,nonceGroup);
+      cellsToReturn=doNonAtomicRegionMutation(region,quota,regionAction,cellScanner,regionActionResultBuilder,cellsToReturn,nonceGroup);
     }
     responseBuilder.addRegionActionResult(regionActionResultBuilder.build());
+    quota.close();
   }
   if (cellsToReturn != null && !cellsToReturn.isEmpty() && controller != null) {
     controller.setCellScanner(CellUtil.createCellScanner(cellsToReturn));
