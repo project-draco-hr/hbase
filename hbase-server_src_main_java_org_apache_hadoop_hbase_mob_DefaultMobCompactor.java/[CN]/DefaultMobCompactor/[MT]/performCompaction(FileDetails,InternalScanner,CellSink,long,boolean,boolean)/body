@@ -1,0 +1,95 @@
+{
+  int bytesWritten=0;
+  List<Cell> cells=new ArrayList<Cell>();
+  int closeCheckInterval=HStore.getCloseCheckInterval();
+  boolean hasMore;
+  Path path=MobUtils.getMobFamilyPath(conf,store.getTableName(),store.getColumnFamilyName());
+  byte[] fileName=null;
+  StoreFile.Writer mobFileWriter=null;
+  long mobCells=0;
+  Tag tableNameTag=new Tag(TagType.MOB_TABLE_NAME_TAG_TYPE,store.getTableName().getName());
+  try {
+    try {
+      mobFileWriter=mobStore.createWriterInTmp(new Date(fd.latestPutTs),fd.maxKeyCount,store.getFamily().getCompression(),store.getRegionInfo().getStartKey());
+      fileName=Bytes.toBytes(mobFileWriter.getPath().getName());
+    }
+ catch (    IOException e) {
+      LOG.error("Fail to create mob writer, " + "we will continue the compaction by writing MOB cells directly in store files",e);
+    }
+    do {
+      hasMore=scanner.next(cells,compactionKVMax);
+      for (      Cell c : cells) {
+        KeyValue kv=KeyValueUtil.ensureKeyValue(c);
+        resetSeqId(smallestReadPoint,cleanSeqId,kv);
+        if (mobFileWriter == null || kv.getTypeByte() != KeyValue.Type.Put.getCode()) {
+          writer.append(kv);
+        }
+ else         if (MobUtils.isMobReferenceCell(kv)) {
+          if (MobUtils.isValidMobRefCellValue(kv)) {
+            int size=MobUtils.getMobValueLength(kv);
+            if (size > mobSizeThreshold) {
+              writer.append(kv);
+            }
+ else {
+              Cell cell=mobStore.resolve(kv,false);
+              if (cell.getValueLength() != 0) {
+                KeyValue mobKv=KeyValueUtil.ensureKeyValue(cell);
+                mobKv.setSequenceId(kv.getSequenceId());
+                writer.append(mobKv);
+              }
+ else {
+                writer.append(kv);
+              }
+            }
+          }
+ else {
+            LOG.warn("The value format of the KeyValue " + kv + " is wrong, its length is less than "+ Bytes.SIZEOF_INT);
+            writer.append(kv);
+          }
+        }
+ else         if (kv.getValueLength() <= mobSizeThreshold) {
+          writer.append(kv);
+        }
+ else {
+          mobCells++;
+          mobFileWriter.append(kv);
+          KeyValue reference=MobUtils.createMobRefKeyValue(kv,fileName,tableNameTag);
+          writer.append(reference);
+        }
+        ++progress.currentCompactedKVs;
+        if (closeCheckInterval > 0) {
+          bytesWritten+=kv.getLength();
+          if (bytesWritten > closeCheckInterval) {
+            bytesWritten=0;
+            if (!store.areWritesEnabled()) {
+              progress.cancel();
+              return false;
+            }
+          }
+        }
+      }
+      cells.clear();
+    }
+ while (hasMore);
+  }
+  finally {
+    if (mobFileWriter != null) {
+      appendMetadataAndCloseWriter(mobFileWriter,fd,major);
+    }
+  }
+  if (mobFileWriter != null) {
+    if (mobCells > 0) {
+      mobStore.commitFile(mobFileWriter.getPath(),path);
+    }
+ else {
+      try {
+        store.getFileSystem().delete(mobFileWriter.getPath(),true);
+      }
+ catch (      IOException e) {
+        LOG.error("Fail to delete the temp mob file",e);
+      }
+    }
+  }
+  progress.complete();
+  return true;
+}
