@@ -1,0 +1,29 @@
+{
+  String prefix="0000";
+  final String fileName="19691231f2cd014ea28f42788214560a21a44cef";
+  final String mobFilePath=prefix + fileName;
+  ImmutableBytesWritable r=new ImmutableBytesWritable(Bytes.toBytes("r"));
+  final KeyValue[] kvList=new KeyValue[1];
+  kvList[0]=new KeyValue(Bytes.toBytes("row"),Bytes.toBytes("family"),Bytes.toBytes("column"),Bytes.toBytes(mobFilePath));
+  Result columns=mock(Result.class);
+  when(columns.raw()).thenReturn(kvList);
+  Configuration configuration=new Configuration(TEST_UTIL.getConfiguration());
+  configuration.set(SweepJob.SWEEP_JOB_ID,"1");
+  configuration.set(SweepJob.SWEEPER_NODE,"/hbase/MOB/testSweepMapper:family-sweeper");
+  MobZookeeper zk=MobZookeeper.newInstance(configuration,"1");
+  zk.addSweeperZNode("testSweepMapper","family",Bytes.toBytes("1"));
+  Mapper<ImmutableBytesWritable,Result,Text,KeyValue>.Context ctx=mock(Mapper.Context.class);
+  when(ctx.getConfiguration()).thenReturn(configuration);
+  SweepMapper map=new SweepMapper();
+  doAnswer(new Answer<Void>(){
+    @Override public Void answer(    InvocationOnMock invocation) throws Throwable {
+      Text text=(Text)invocation.getArguments()[0];
+      KeyValue kv=(KeyValue)invocation.getArguments()[1];
+      assertEquals(Bytes.toString(text.getBytes(),0,text.getLength()),fileName);
+      assertEquals(0,Bytes.compareTo(kv.getKey(),kvList[0].getKey()));
+      return null;
+    }
+  }
+).when(ctx).write(any(Text.class),any(KeyValue.class));
+  map.map(r,columns,ctx);
+}

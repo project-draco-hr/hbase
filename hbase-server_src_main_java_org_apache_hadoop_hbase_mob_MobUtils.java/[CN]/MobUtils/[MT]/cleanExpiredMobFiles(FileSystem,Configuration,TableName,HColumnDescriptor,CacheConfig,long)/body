@@ -1,0 +1,59 @@
+{
+  long timeToLive=columnDescriptor.getTimeToLive();
+  if (Integer.MAX_VALUE == timeToLive) {
+    return;
+  }
+  Date expireDate=new Date(current - timeToLive * 1000);
+  expireDate=new Date(expireDate.getYear(),expireDate.getMonth(),expireDate.getDate());
+  LOG.info("MOB HFiles older than " + expireDate.toGMTString() + " will be deleted!");
+  FileStatus[] stats=null;
+  Path mobTableDir=FSUtils.getTableDir(getMobHome(conf),tableName);
+  Path path=getMobFamilyPath(conf,tableName,columnDescriptor.getNameAsString());
+  try {
+    stats=fs.listStatus(path);
+  }
+ catch (  FileNotFoundException e) {
+    LOG.warn("Fail to find the mob file " + path,e);
+  }
+  if (null == stats) {
+    return;
+  }
+  List<StoreFile> filesToClean=new ArrayList<StoreFile>();
+  int deletedFileCount=0;
+  for (  FileStatus file : stats) {
+    String fileName=file.getPath().getName();
+    try {
+      MobFileName mobFileName=null;
+      if (!HFileLink.isHFileLink(file.getPath())) {
+        mobFileName=MobFileName.create(fileName);
+      }
+ else {
+        HFileLink hfileLink=new HFileLink(conf,file.getPath());
+        mobFileName=MobFileName.create(hfileLink.getOriginPath().getName());
+      }
+      Date fileDate=parseDate(mobFileName.getDate());
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Checking file " + fileName);
+      }
+      if (fileDate.getTime() < expireDate.getTime()) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(fileName + " is an expired file");
+        }
+        filesToClean.add(new StoreFile(fs,file.getPath(),conf,cacheConfig,BloomType.NONE));
+      }
+    }
+ catch (    Exception e) {
+      LOG.error("Cannot parse the fileName " + fileName,e);
+    }
+  }
+  if (!filesToClean.isEmpty()) {
+    try {
+      removeMobFiles(conf,fs,tableName,mobTableDir,columnDescriptor.getName(),filesToClean);
+      deletedFileCount=filesToClean.size();
+    }
+ catch (    IOException e) {
+      LOG.error("Fail to delete the mob files " + filesToClean,e);
+    }
+  }
+  LOG.info(deletedFileCount + " expired mob files are deleted");
+}

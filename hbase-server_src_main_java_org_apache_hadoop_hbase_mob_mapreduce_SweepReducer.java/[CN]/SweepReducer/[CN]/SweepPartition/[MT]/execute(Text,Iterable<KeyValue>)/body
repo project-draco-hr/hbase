@@ -1,0 +1,47 @@
+{
+  if (null == values) {
+    return;
+  }
+  MobFileName mobFileName=MobFileName.create(fileName.toString());
+  LOG.info("[In reducer] The file name: " + fileName.toString());
+  MobFileStatus mobFileStat=fileStatusMap.get(mobFileName.getFileName());
+  if (null == mobFileStat) {
+    LOG.info("[In reducer] Cannot find the file, probably this record is obsolete");
+    return;
+  }
+  if (compactionBegin - mobFileStat.getFileStatus().getModificationTime() <= mobCompactionDelay) {
+    return;
+  }
+  writer.append(mobFileName.getFileName(),MobConstants.EMPTY_STRING);
+  Set<KeyValue> kvs=new HashSet<KeyValue>();
+  for (  KeyValue kv : values) {
+    if (kv.getValueLength() > Bytes.SIZEOF_INT) {
+      mobFileStat.addValidSize(Bytes.toInt(kv.getValueArray(),kv.getValueOffset(),Bytes.SIZEOF_INT));
+    }
+    kvs.add(kv.createKeyOnly(false));
+  }
+  if (mobFileStat.needClean() || (mergeSmall && mobFileStat.needMerge())) {
+    context.getCounter(SweepCounter.INPUT_FILE_COUNT).increment(1);
+    MobFile file=MobFile.create(fs,new Path(familyDir,mobFileName.getFileName()),conf,cacheConfig);
+    StoreFileScanner scanner=null;
+    try {
+      scanner=file.getScanner();
+      scanner.seek(KeyValueUtil.createFirstOnRow(HConstants.EMPTY_BYTE_ARRAY));
+      Cell cell;
+      while (null != (cell=scanner.next())) {
+        KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+        KeyValue keyOnly=kv.createKeyOnly(false);
+        if (kvs.contains(keyOnly)) {
+          memstore.addToMemstore(kv);
+          memstoreUpdated=true;
+        }
+      }
+    }
+  finally {
+      if (scanner != null) {
+        scanner.close();
+      }
+    }
+    toBeDeleted.add(mobFileStat.getFileStatus().getPath());
+  }
+}

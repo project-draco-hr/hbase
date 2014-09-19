@@ -1,0 +1,51 @@
+{
+  int count=10;
+  generateMobTable(count,1);
+  Path mobFamilyPath=getMobFamilyPath(TEST_UTIL.getConfiguration(),tableName,family);
+  FileStatus[] fileStatuses=TEST_UTIL.getTestFileSystem().listStatus(mobFamilyPath);
+  TreeSet<String> mobFilesSet=new TreeSet<String>();
+  for (  FileStatus status : fileStatuses) {
+    mobFilesSet.add(status.getPath().getName());
+  }
+  Scan scan=new Scan();
+  scan.setAttribute(MobConstants.MOB_SCAN_RAW,Bytes.toBytes(Boolean.TRUE));
+  scan.setAttribute(MobConstants.MOB_SCAN_REF_ONLY,Bytes.toBytes(Boolean.TRUE));
+  ResultScanner rs=table.getScanner(scan);
+  TreeSet<String> mobFilesScanned=new TreeSet<String>();
+  for (  Result res : rs) {
+    byte[] valueBytes=res.getValue(Bytes.toBytes(family),Bytes.toBytes(column));
+    mobFilesScanned.add(Bytes.toString(valueBytes,Bytes.SIZEOF_INT,valueBytes.length - Bytes.SIZEOF_INT));
+  }
+  assertEquals(10,mobFilesScanned.size());
+  assertEquals(mergeString(mobFilesSet),mergeString(mobFilesScanned));
+  Configuration conf=TEST_UTIL.getConfiguration();
+  conf.setLong(SweepJob.MOB_COMPACTION_DELAY,24 * 60 * 60* 1000);
+  String[] args=new String[2];
+  args[0]=tableName;
+  args[1]=family;
+  ToolRunner.run(conf,new Sweeper(),args);
+  mobFamilyPath=getMobFamilyPath(TEST_UTIL.getConfiguration(),tableName,family);
+  fileStatuses=TEST_UTIL.getTestFileSystem().listStatus(mobFamilyPath);
+  mobFilesSet=new TreeSet<String>();
+  for (  FileStatus status : fileStatuses) {
+    mobFilesSet.add(status.getPath().getName());
+  }
+  assertEquals(10,mobFilesSet.size());
+  scan=new Scan();
+  scan.setAttribute(MobConstants.MOB_SCAN_RAW,Bytes.toBytes(Boolean.TRUE));
+  scan.setAttribute(MobConstants.MOB_SCAN_REF_ONLY,Bytes.toBytes(Boolean.TRUE));
+  rs=table.getScanner(scan);
+  TreeSet<String> mobFilesScannedAfterJob=new TreeSet<String>();
+  for (  Result res : rs) {
+    byte[] valueBytes=res.getValue(Bytes.toBytes(family),Bytes.toBytes(column));
+    mobFilesScannedAfterJob.add(Bytes.toString(valueBytes,Bytes.SIZEOF_INT,valueBytes.length - Bytes.SIZEOF_INT));
+  }
+  assertEquals(10,mobFilesScannedAfterJob.size());
+  fileStatuses=TEST_UTIL.getTestFileSystem().listStatus(mobFamilyPath);
+  mobFilesSet=new TreeSet<String>();
+  for (  FileStatus status : fileStatuses) {
+    mobFilesSet.add(status.getPath().getName());
+  }
+  assertEquals(10,mobFilesSet.size());
+  assertEquals(true,mobFilesScannedAfterJob.iterator().next().equalsIgnoreCase(mobFilesSet.iterator().next()));
+}

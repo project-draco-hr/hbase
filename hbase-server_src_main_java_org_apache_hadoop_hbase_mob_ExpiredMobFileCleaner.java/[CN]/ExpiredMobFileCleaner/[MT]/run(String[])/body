@@ -1,0 +1,31 @@
+{
+  if (args.length != 2) {
+    printUsage();
+    return 1;
+  }
+  String tableName=args[0];
+  String familyName=args[1];
+  TableName tn=TableName.valueOf(tableName);
+  HBaseAdmin.checkHBaseAvailable(getConf());
+  HBaseAdmin admin=new HBaseAdmin(getConf());
+  try {
+    HTableDescriptor htd=admin.getTableDescriptor(tn);
+    HColumnDescriptor family=htd.getFamily(Bytes.toBytes(familyName));
+    if (family == null || !MobUtils.isMobFamily(family)) {
+      throw new IOException("Column family " + familyName + " is not a MOB column family");
+    }
+    if (family.getMinVersions() > 0) {
+      throw new IOException("The minVersions of the column family is not 0, could not be handled by this cleaner");
+    }
+    cleanExpiredMobFiles(tableName,family);
+    return 0;
+  }
+  finally {
+    try {
+      admin.close();
+    }
+ catch (    IOException e) {
+      LOG.error("Fail to close the HBaseAdmin.",e);
+    }
+  }
+}

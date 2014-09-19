@@ -1,0 +1,58 @@
+{
+  if (compaction.getRequest().isMajor()) {
+    String compactionName=UUID.randomUUID().toString().replaceAll("-","");
+    MobZookeeper zk=null;
+    try {
+      zk=MobZookeeper.newInstance(this.conf,compactionName);
+    }
+ catch (    KeeperException e) {
+      LOG.error("Cannot connect to the zookeeper, ready to perform the minor compaction instead",e);
+      compaction.getRequest().setIsMajor(false,false);
+      return super.compact(compaction);
+    }
+    boolean major=false;
+    try {
+      if (zk.lockColumnFamily(getTableName().getNameAsString(),getFamily().getNameAsString())) {
+        try {
+          LOG.info("Obtain the lock for the store[" + this + "], ready to perform the major compaction");
+          boolean hasSweeper=zk.isSweeperZNodeExist(getTableName().getNameAsString(),getFamily().getNameAsString());
+          if (!hasSweeper) {
+            major=zk.addMajorCompactionZNode(getTableName().getNameAsString(),getFamily().getNameAsString(),compactionName);
+          }
+        }
+ catch (        Exception e) {
+          LOG.error("Fail to handle the Zookeeper",e);
+        }
+ finally {
+          zk.unlockColumnFamily(getTableName().getNameAsString(),getFamily().getNameAsString());
+        }
+      }
+      try {
+        if (major) {
+          return super.compact(compaction);
+        }
+ else {
+          LOG.warn("Cannot obtain the lock or a sweep tool is running on this store[" + this + "], ready to perform the minor compaction instead");
+          compaction.getRequest().setIsMajor(false,false);
+          return super.compact(compaction);
+        }
+      }
+  finally {
+        if (major) {
+          try {
+            zk.deleteMajorCompactionZNode(getTableName().getNameAsString(),getFamily().getNameAsString(),compactionName);
+          }
+ catch (          KeeperException e) {
+            LOG.error("Fail to delete the compaction znode" + compactionName,e);
+          }
+        }
+      }
+    }
+  finally {
+      zk.close();
+    }
+  }
+ else {
+    return super.compact(compaction);
+  }
+}

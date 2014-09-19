@@ -1,0 +1,74 @@
+{
+  Configuration conf=new Configuration(this.conf);
+  String currentUserName=UserGroupInformation.getCurrentUser().getShortUserName();
+  FileStatus[] hbaseRootFileStat=fs.listStatus(new Path(conf.get(HConstants.HBASE_DIR)));
+  if (hbaseRootFileStat.length > 0) {
+    String owner=hbaseRootFileStat[0].getOwner();
+    if (!owner.equals(currentUserName)) {
+      String errorMsg="The current user[" + currentUserName + "] doesn't have hbase root credentials."+ " Please make sure the user is the root of the target HBase";
+      LOG.error(errorMsg);
+      throw new IOException(errorMsg);
+    }
+  }
+ else {
+    LOG.error("The target HBase doesn't exist");
+    throw new IOException("The target HBase doesn't exist");
+  }
+  String familyName=family.getNameAsString();
+  String id="SweepJob" + UUID.randomUUID().toString().replace("-","");
+  MobZookeeper zk=MobZookeeper.newInstance(conf,id);
+  try {
+    if (!zk.lockColumnFamily(tn.getNameAsString(),familyName)) {
+      LOG.warn("Can not lock the store " + familyName + ". The major compaction in HBase may be in-progress. Please re-run the job.");
+      return;
+    }
+    try {
+      boolean hasChildren=zk.hasMajorCompactionChildren(tn.getNameAsString(),familyName);
+      if (hasChildren) {
+        LOG.warn("The major compaction in HBase may be in-progress." + " Please re-run the job.");
+        return;
+      }
+ else {
+        boolean hasSweeper=zk.isSweeperZNodeExist(tn.getNameAsString(),familyName);
+        if (hasSweeper) {
+          LOG.warn("Another sweep job is running");
+          return;
+        }
+ else {
+          zk.addSweeperZNode(tn.getNameAsString(),familyName,Bytes.toBytes(id));
+        }
+      }
+    }
+  finally {
+      zk.unlockColumnFamily(tn.getNameAsString(),familyName);
+    }
+    Job job=null;
+    try {
+      Scan scan=new Scan();
+      scan.addFamily(family.getName());
+      scan.setAttribute(MobConstants.MOB_SCAN_RAW,Bytes.toBytes(Boolean.TRUE));
+      scan.setAttribute(MobConstants.MOB_SCAN_REF_ONLY,Bytes.toBytes(Boolean.TRUE));
+      scan.setCaching(SCAN_CACHING);
+      scan.setCacheBlocks(false);
+      scan.setMaxVersions(family.getMaxVersions());
+      conf.set(CommonConfigurationKeys.IO_SERIALIZATIONS_KEY,JavaSerialization.class.getName() + "," + WritableSerialization.class.getName());
+      conf.set(SWEEP_JOB_ID,id);
+      conf.set(SWEEPER_NODE,zk.getSweeperZNodePath(tn.getNameAsString(),familyName));
+      job=prepareJob(tn,familyName,scan,conf);
+      job.getConfiguration().set(TableInputFormat.SCAN_COLUMN_FAMILY,familyName);
+      job.getConfiguration().setLong(MobConstants.MOB_SWEEP_TOOL_COMPACTION_START_DATE,compactionStartTime);
+      job.setPartitionerClass(MobFilePathHashPartitioner.class);
+      submit(job,tn,familyName);
+      if (job.waitForCompletion(true)) {
+        removeUnusedFiles(job,tn,family);
+      }
+    }
+  finally {
+      cleanup(job,tn,familyName);
+      zk.deleteSweeperZNode(tn.getNameAsString(),familyName);
+    }
+  }
+  finally {
+    zk.close();
+  }
+}

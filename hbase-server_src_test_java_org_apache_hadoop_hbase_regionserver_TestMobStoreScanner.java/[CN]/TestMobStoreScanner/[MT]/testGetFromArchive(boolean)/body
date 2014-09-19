@@ -1,0 +1,50 @@
+{
+  String TN="testGetFromArchive" + reversed;
+  setUp(defaultThreshold,TN);
+  long ts1=System.currentTimeMillis();
+  long ts2=ts1 + 1;
+  long ts3=ts1 + 2;
+  byte[] value=generateMobValue((int)defaultThreshold + 1);
+  ;
+  Put put1=new Put(row1);
+  put1.add(family,qf1,ts3,value);
+  put1.add(family,qf2,ts2,value);
+  put1.add(family,qf3,ts1,value);
+  table.put(put1);
+  table.flushCommits();
+  admin.flush(TN);
+  Path mobFamilyPath;
+  mobFamilyPath=new Path(MobUtils.getMobRegionPath(TEST_UTIL.getConfiguration(),TableName.valueOf(TN)),hcd.getNameAsString());
+  FileSystem fs=FileSystem.get(TEST_UTIL.getConfiguration());
+  FileStatus[] files=fs.listStatus(mobFamilyPath);
+  Path rootDir=FSUtils.getRootDir(TEST_UTIL.getConfiguration());
+  Path tableDir=FSUtils.getTableDir(rootDir,TableName.valueOf(TN));
+  HRegionInfo regionInfo=MobUtils.getMobRegionInfo(TableName.valueOf(TN));
+  Path storeArchiveDir=HFileArchiveUtil.getStoreArchivePath(TEST_UTIL.getConfiguration(),regionInfo,tableDir,family);
+  fs.mkdirs(storeArchiveDir);
+  int fileCount=0;
+  for (  FileStatus file : files) {
+    fileCount++;
+    Path filePath=file.getPath();
+    Path src=new Path(mobFamilyPath,filePath.getName());
+    Path dst=new Path(storeArchiveDir,filePath.getName());
+    fs.rename(src,dst);
+  }
+  FileStatus[] files1=fs.listStatus(mobFamilyPath);
+  Assert.assertEquals(0,files1.length);
+  FileStatus[] files2=fs.listStatus(storeArchiveDir);
+  Assert.assertEquals(fileCount,files2.length);
+  Scan scan=new Scan();
+  setScan(scan,reversed,false);
+  ResultScanner results=table.getScanner(scan);
+  int count=0;
+  for (  Result res : results) {
+    List<Cell> cells=res.listCells();
+    for (    Cell cell : cells) {
+      Assert.assertEquals(Bytes.toString(value),Bytes.toString(CellUtil.cloneValue(cell)));
+      count++;
+    }
+  }
+  results.close();
+  Assert.assertEquals(3,count);
+}

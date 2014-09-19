@@ -1,0 +1,38 @@
+{
+  if (snapshot.getSize() == 0) {
+    return;
+  }
+  String tempPathString=context.getConfiguration().get(SweepJob.WORKING_FILES_DIR_KEY);
+  StoreFile.Writer mobFileWriter=MobUtils.createWriter(conf,fs,hcd,partitionId.getDate(),new Path(tempPathString),snapshot.getCellsCount(),hcd.getCompactionCompression(),partitionId.getStartKey(),cacheConfig);
+  String relativePath=mobFileWriter.getPath().getName();
+  LOG.info("Create files under a temp directory " + mobFileWriter.getPath().toString());
+  byte[] referenceValue=Bytes.toBytes(relativePath);
+  int keyValueCount=0;
+  KeyValueScanner scanner=snapshot.getScanner();
+  Cell cell=null;
+  while (null != (cell=scanner.next())) {
+    KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+    mobFileWriter.append(kv);
+    keyValueCount++;
+  }
+  scanner.close();
+  mobFileWriter.appendMetadata(Long.MAX_VALUE,false);
+  mobFileWriter.close();
+  MobUtils.commitFile(conf,fs,mobFileWriter.getPath(),mobFamilyDir,cacheConfig);
+  context.getCounter(SweepCounter.FILE_AFTER_MERGE_OR_CLEAN).increment(1);
+  scanner=snapshot.getScanner();
+  scanner.seek(KeyValueUtil.createFirstOnRow(HConstants.EMPTY_START_ROW));
+  cell=null;
+  Tag tableNameTag=new Tag(TagType.MOB_TABLE_NAME_TAG_TYPE,this.table.getTableName());
+  while (null != (cell=scanner.next())) {
+    KeyValue reference=MobUtils.createMobRefKeyValue(cell,referenceValue,tableNameTag);
+    Put put=new Put(reference.getRowArray(),reference.getRowOffset(),reference.getRowLength());
+    put.add(reference);
+    table.put(put);
+    context.getCounter(SweepCounter.RECORDS_UPDATED).increment(1);
+  }
+  if (keyValueCount > 0) {
+    table.flushCommits();
+  }
+  scanner.close();
+}

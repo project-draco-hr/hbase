@@ -1,0 +1,53 @@
+{
+  String jobId=context.getConfiguration().get(SweepJob.SWEEP_JOB_ID);
+  String sweeperNode=context.getConfiguration().get(SweepJob.SWEEPER_NODE);
+  ZooKeeperWatcher zkw=new ZooKeeperWatcher(context.getConfiguration(),jobId,new DummyMobAbortable());
+  try {
+    SweepJobNodeTracker tracker=new SweepJobNodeTracker(zkw,sweeperNode,jobId);
+    tracker.start();
+    setup(context);
+    String dir=this.conf.get(SweepJob.WORKING_VISITED_DIR_KEY);
+    Path nameFilePath=new Path(dir,UUID.randomUUID().toString().replace("-",MobConstants.EMPTY_STRING));
+    if (!fs.exists(nameFilePath)) {
+      fs.create(nameFilePath,true);
+    }
+    writer=SequenceFile.createWriter(fs,context.getConfiguration(),nameFilePath,String.class,String.class);
+    SweepPartitionId id;
+    SweepPartition partition=null;
+    while (context.nextKey()) {
+      Text key=context.getCurrentKey();
+      String keyString=key.toString();
+      id=SweepPartitionId.create(keyString);
+      if (null == partition || !id.equals(partition.getId())) {
+        if (null != partition) {
+          partition.close();
+        }
+        partition=createPartition(id,context);
+      }
+      if (partition != null) {
+        partition.execute(key,context.getValues());
+      }
+    }
+    if (null != partition) {
+      partition.close();
+    }
+  }
+ catch (  KeeperException e) {
+    throw new IOException(e);
+  }
+ finally {
+    cleanup(context);
+    zkw.close();
+    if (writer != null) {
+      IOUtils.closeStream(writer);
+    }
+    if (table != null) {
+      try {
+        table.close();
+      }
+ catch (      IOException e) {
+        LOG.warn(e);
+      }
+    }
+  }
+}
