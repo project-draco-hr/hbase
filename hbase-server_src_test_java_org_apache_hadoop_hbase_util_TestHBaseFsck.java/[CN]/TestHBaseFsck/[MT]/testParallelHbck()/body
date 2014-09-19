@@ -1,0 +1,33 @@
+{
+  final ExecutorService service;
+  final Future<HBaseFsck> hbck1, hbck2;
+class RunHbck implements Callable<HBaseFsck> {
+    boolean fail=true;
+    public HBaseFsck call(){
+      try {
+        return doFsck(conf,false);
+      }
+ catch (      Exception e) {
+        if (e.getMessage().contains("Duplicate hbck")) {
+          fail=false;
+        }
+      }
+      if (fail)       fail();
+      return null;
+    }
+  }
+  service=Executors.newFixedThreadPool(2);
+  hbck1=service.submit(new RunHbck());
+  hbck2=service.submit(new RunHbck());
+  service.shutdown();
+  service.awaitTermination(15,TimeUnit.SECONDS);
+  HBaseFsck h1=hbck1.get();
+  HBaseFsck h2=hbck2.get();
+  assert(h1 == null || h2 == null);
+  if (h1 != null) {
+    assert(h1.getRetCode() >= 0);
+  }
+  if (h2 != null) {
+    assert(h2.getRetCode() >= 0);
+  }
+}
