@@ -1,7 +1,11 @@
 {
   final long interval=this.master.getConfiguration().getLong(WAIT_ON_REGIONSERVERS_INTERVAL,1500);
   final long timeout=this.master.getConfiguration().getLong(WAIT_ON_REGIONSERVERS_TIMEOUT,4500);
-  int minToStart=this.master.getConfiguration().getInt(WAIT_ON_REGIONSERVERS_MINTOSTART,2);
+  int defaultMinToStart=1;
+  if (((HMaster)services).tablesOnMaster) {
+    defaultMinToStart=2;
+  }
+  int minToStart=this.master.getConfiguration().getInt(WAIT_ON_REGIONSERVERS_MINTOSTART,defaultMinToStart);
   if (minToStart < 1) {
     LOG.warn(String.format("The value of '%s' (%d) can not be less than 1, ignoring.",WAIT_ON_REGIONSERVERS_MINTOSTART,minToStart));
     minToStart=1;
@@ -18,12 +22,10 @@
   long lastCountChange=startTime;
   int count=countOfRegionServers();
   int oldCount=0;
-  ServerName masterSn=master.getServerName();
-  boolean selfCheckedIn=isServerOnline(masterSn);
-  while (!this.master.isStopped() && (!selfCheckedIn || (count < maxToStart && (lastCountChange + interval > now || timeout > slept || count < minToStart)))) {
+  while (!this.master.isStopped() && count < maxToStart && (lastCountChange + interval > now || timeout > slept || count < minToStart)) {
     if (oldCount != count || lastLogTime + interval < now) {
       lastLogTime=now;
-      String msg="Waiting for region servers count to settle; currently" + " checked in " + count + ", slept for "+ slept+ " ms,"+ " expecting minimum of "+ minToStart+ ", maximum of "+ maxToStart+ ", timeout of "+ timeout+ " ms, interval of "+ interval+ " ms,"+ " selfCheckedIn "+ selfCheckedIn;
+      String msg="Waiting for region servers count to settle; currently" + " checked in " + count + ", slept for "+ slept+ " ms,"+ " expecting minimum of "+ minToStart+ ", maximum of "+ maxToStart+ ", timeout of "+ timeout+ " ms, interval of "+ interval+ " ms.";
       LOG.info(msg);
       status.setStatus(msg);
     }
@@ -31,12 +33,11 @@
     Thread.sleep(sleepTime);
     now=System.currentTimeMillis();
     slept=now - startTime;
-    selfCheckedIn=isServerOnline(masterSn);
     oldCount=count;
     count=countOfRegionServers();
     if (count != oldCount) {
       lastCountChange=now;
     }
   }
-  LOG.info("Finished waiting for region servers count to settle;" + " checked in " + count + ", slept for "+ slept+ " ms,"+ " expecting minimum of "+ minToStart+ ", maximum of "+ maxToStart+ ","+ " master is "+ (this.master.isStopped() ? "stopped." : "running," + " selfCheckedIn " + selfCheckedIn));
+  LOG.info("Finished waiting for region servers count to settle;" + " checked in " + count + ", slept for "+ slept+ " ms,"+ " expecting minimum of "+ minToStart+ ", maximum of "+ maxToStart+ ","+ " master is "+ (this.master.isStopped() ? "stopped." : "running"));
 }

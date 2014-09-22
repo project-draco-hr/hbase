@@ -3,37 +3,24 @@
   if (regions == null || regions.isEmpty()) {
     return null;
   }
-  List<ServerName> backupMasters=normalizeServers(servers);
   int numServers=servers == null ? 0 : servers.size();
-  int numBackupMasters=backupMasters == null ? 0 : backupMasters.size();
-  if (numServers == 0 && numBackupMasters == 0) {
+  if (numServers == 0) {
     LOG.warn("Wanted to do round robin assignment but no servers to assign to");
     return null;
   }
   Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
-  if (numServers + numBackupMasters == 1) {
-    ServerName server=numServers > 0 ? servers.get(0) : backupMasters.get(0);
+  if (numServers == 1) {
+    ServerName server=servers.get(0);
     assignments.put(server,new ArrayList<HRegionInfo>(regions));
     return assignments;
   }
   List<HRegionInfo> masterRegions=null;
-  if (numServers > 0 && servers.contains(masterServerName)) {
+  if (servers.contains(masterServerName)) {
     masterRegions=new ArrayList<HRegionInfo>();
-    if (numServers == 1) {
-      numServers=0;
-    }
   }
-  Cluster cluster=createCluster(servers,regions,backupMasters,tablesOnMaster);
+  Cluster cluster=createCluster(servers,regions,tablesOnMaster);
   List<HRegionInfo> unassignedRegions=new ArrayList<HRegionInfo>();
-  int total=regions.size();
-  int numRegions=total * numBackupMasters / (numServers * backupMasterWeight + numBackupMasters);
-  if (numRegions > 0) {
-    roundRobinAssignment(cluster,regions,unassignedRegions,0,numRegions,backupMasters,masterRegions,assignments);
-  }
-  int remainder=total - numRegions;
-  if (remainder > 0) {
-    roundRobinAssignment(cluster,regions,unassignedRegions,numRegions,remainder,servers,masterRegions,assignments);
-  }
+  roundRobinAssignment(cluster,regions,unassignedRegions,servers,masterRegions,assignments);
   if (masterRegions != null && !masterRegions.isEmpty()) {
     assignments.put(masterServerName,masterRegions);
     for (    HRegionInfo r : masterRegions) {
@@ -67,17 +54,11 @@
     }
   }
   for (  HRegionInfo region : lastFewRegions) {
-    ServerName server=null;
-    if (numServers == 0) {
-      int i=RANDOM.nextInt(backupMasters.size());
-      server=backupMasters.get(i);
-    }
- else {
-      do {
-        int i=RANDOM.nextInt(numServers);
-        server=servers.get(i);
-      }
- while (numServers > 1 && server.equals(masterServerName));
+    int i=RANDOM.nextInt(numServers);
+    ServerName server=servers.get(i);
+    if (server.equals(masterServerName)) {
+      i=(i == 0 ? 1 : i - 1);
+      server=servers.get(i);
     }
     List<HRegionInfo> serverRegions=assignments.get(server);
     if (serverRegions == null) {
