@@ -45,35 +45,35 @@
           List<Cell> results=get(get,false);
           int idx=0;
           for (          Cell cell : family.getValue()) {
-            KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
-            KeyValue newKV;
-            KeyValue oldKv=null;
-            if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),kv)) {
-              oldKv=KeyValueUtil.ensureKeyValue(results.get(idx));
-              newKV=new KeyValue(row.length,kv.getFamilyLength(),kv.getQualifierLength(),now,KeyValue.Type.Put,oldKv.getValueLength() + kv.getValueLength(),oldKv.getTagsLength() + kv.getTagsLength());
-              System.arraycopy(oldKv.getValueArray(),oldKv.getValueOffset(),newKV.getValueArray(),newKV.getValueOffset(),oldKv.getValueLength());
-              System.arraycopy(kv.getValueArray(),kv.getValueOffset(),newKV.getValueArray(),newKV.getValueOffset() + oldKv.getValueLength(),kv.getValueLength());
-              System.arraycopy(oldKv.getTagsArray(),oldKv.getTagsOffset(),newKV.getTagsArray(),newKV.getTagsOffset(),oldKv.getTagsLength());
-              System.arraycopy(kv.getTagsArray(),kv.getTagsOffset(),newKV.getTagsArray(),newKV.getTagsOffset() + oldKv.getTagsLength(),kv.getTagsLength());
-              System.arraycopy(kv.getRowArray(),kv.getRowOffset(),newKV.getRowArray(),newKV.getRowOffset(),kv.getRowLength());
-              System.arraycopy(kv.getFamilyArray(),kv.getFamilyOffset(),newKV.getFamilyArray(),newKV.getFamilyOffset(),kv.getFamilyLength());
-              System.arraycopy(kv.getQualifierArray(),kv.getQualifierOffset(),newKV.getQualifierArray(),newKV.getQualifierOffset(),kv.getQualifierLength());
+            Cell newCell;
+            Cell oldCell=null;
+            if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),cell)) {
+              oldCell=results.get(idx);
+              newCell=new KeyValue(row.length,cell.getFamilyLength(),cell.getQualifierLength(),now,KeyValue.Type.Put,oldCell.getValueLength() + cell.getValueLength(),oldCell.getTagsLength() + cell.getTagsLength());
+              System.arraycopy(oldCell.getValueArray(),oldCell.getValueOffset(),newCell.getValueArray(),newCell.getValueOffset(),oldCell.getValueLength());
+              System.arraycopy(cell.getValueArray(),cell.getValueOffset(),newCell.getValueArray(),newCell.getValueOffset() + oldCell.getValueLength(),cell.getValueLength());
+              System.arraycopy(oldCell.getTagsArray(),oldCell.getTagsOffset(),newCell.getTagsArray(),newCell.getTagsOffset(),oldCell.getTagsLength());
+              System.arraycopy(cell.getTagsArray(),cell.getTagsOffset(),newCell.getTagsArray(),newCell.getTagsOffset() + oldCell.getTagsLength(),cell.getTagsLength());
+              System.arraycopy(cell.getRowArray(),cell.getRowOffset(),newCell.getRowArray(),newCell.getRowOffset(),cell.getRowLength());
+              System.arraycopy(cell.getFamilyArray(),cell.getFamilyOffset(),newCell.getFamilyArray(),newCell.getFamilyOffset(),cell.getFamilyLength());
+              System.arraycopy(cell.getQualifierArray(),cell.getQualifierOffset(),newCell.getQualifierArray(),newCell.getQualifierOffset(),cell.getQualifierLength());
               idx++;
             }
  else {
-              newKV=kv;
+              KeyValue newKV=KeyValueUtil.ensureKeyValue(cell);
               newKV.updateLatestStamp(Bytes.toBytes(now));
+              newCell=newKV;
             }
-            newKV.setSequenceId(mvccNum);
+            CellUtil.setSequenceId(newCell,mvccNum);
             if (coprocessorHost != null) {
-              newKV=KeyValueUtil.ensureKeyValue(coprocessorHost.postMutationBeforeWAL(RegionObserver.MutationType.APPEND,append,oldKv,newKV));
+              newCell=coprocessorHost.postMutationBeforeWAL(RegionObserver.MutationType.APPEND,append,oldCell,newCell);
             }
-            kvs.add(newKV);
+            kvs.add(newCell);
             if (writeToWAL) {
               if (walEdits == null) {
                 walEdits=new WALEdit();
               }
-              walEdits.add(newKV);
+              walEdits.add(newCell);
             }
           }
           tempMemstore.put(store,kvs);
@@ -86,8 +86,7 @@
           }
  else {
             for (            Cell cell : entry.getValue()) {
-              KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
-              Pair<Long,Cell> ret=store.add(kv);
+              Pair<Long,Cell> ret=store.add(cell);
               size+=ret.getFirst();
               memstoreCells.add(ret.getSecond());
               doRollBackMemstore=true;
