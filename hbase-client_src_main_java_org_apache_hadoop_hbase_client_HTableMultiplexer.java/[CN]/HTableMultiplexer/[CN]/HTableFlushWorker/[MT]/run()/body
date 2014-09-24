@@ -1,5 +1,5 @@
 {
-  List<PutStatus> processingList=new ArrayList<PutStatus>();
+  List<PutStatus> processingList=new ArrayList<>();
   long frequency=conf.getLong(TABLE_MULTIPLEXER_FLUSH_FREQ_MS,100);
   try {
     Thread.sleep(frequency);
@@ -8,6 +8,7 @@
     LOG.warn("Interrupted while sleeping");
     Thread.currentThread().interrupt();
   }
+  AsyncProcess ap=conn.getAsyncProcess();
   long start, elapsed;
   int failedCount=0;
   while (true) {
@@ -18,44 +19,46 @@
       queue.drainTo(processingList);
       currentProcessingPutCount.set(processingList.size());
       if (processingList.size() > 0) {
-        ArrayList<Put> list=new ArrayList<Put>(processingList.size());
-        for (        PutStatus putStatus : processingList) {
-          list.add(putStatus.getPut());
+        List<Action<Row>> retainedActions=new ArrayList<>(processingList.size());
+        MultiAction<Row> actions=new MultiAction<>();
+        for (int i=0; i < processingList.size(); i++) {
+          PutStatus putStatus=processingList.get(i);
+          Action<Row> action=new Action<Row>(putStatus.getPut(),i);
+          actions.add(putStatus.getRegionInfo().getRegionName(),action);
+          retainedActions.add(action);
         }
-        List<Put> failed=null;
-        Object[] results=new Object[list.size()];
+        List<PutStatus> failed=null;
+        Object[] results=new Object[actions.size()];
+        ServerName server=addr.getServerName();
+        Map<ServerName,MultiAction<Row>> actionsByServer=Collections.singletonMap(server,actions);
         try {
-          htable.batch(list,results);
+          AsyncRequestFuture arf=ap.submitMultiActions(null,retainedActions,0L,null,results,true,null,null,actionsByServer,pool);
+          arf.waitUntilDone();
+          if (arf.hasError()) {
+            throw arf.getErrors();
+          }
         }
  catch (        IOException e) {
           LOG.debug("Caught some exceptions " + e + " when flushing puts to region server "+ addr.getHostnamePort());
         }
  finally {
-          for (int i=results.length - 1; i >= 0; i--) {
-            if (results[i] instanceof Result) {
-              list.remove(i);
-            }
-          }
-          failed=list;
-        }
-        if (failed != null) {
-          if (failed.size() == processingList.size()) {
-            for (            PutStatus putStatus : processingList) {
-              if (!resubmitFailedPut(putStatus,this.addr)) {
-                failedCount++;
+          for (int i=0; i < results.length; i++) {
+            if (results[i] == null) {
+              if (failed == null) {
+                failed=new ArrayList<PutStatus>();
               }
-            }
-          }
- else {
-            Set<Put> failedPutSet=new HashSet<Put>(failed);
-            for (            PutStatus putStatus : processingList) {
-              if (failedPutSet.contains(putStatus.getPut()) && !resubmitFailedPut(putStatus,this.addr)) {
-                failedCount++;
-              }
+              failed.add(processingList.get(i));
             }
           }
         }
-        this.totalFailedPutCount.addAndGet(failedCount);
+        if (failed != null) {
+          for (          PutStatus putStatus : processingList) {
+            if (!resubmitFailedPut(putStatus,this.addr)) {
+              failedCount++;
+            }
+          }
+          this.totalFailedPutCount.addAndGet(failedCount);
+        }
         elapsed=EnvironmentEdgeManager.currentTime() - start;
         averageLatency.add(elapsed);
         if (elapsed > maxLatency.get()) {
@@ -80,7 +83,7 @@
       }
     }
  catch (    Exception e) {
-      LOG.debug("Caught some exceptions " + e + " when flushing puts to region server "+ addr.getHostnamePort());
+      LOG.debug("Caught some exceptions " + e + " when flushing puts to region server "+ addr.getHostnamePort(),e);
     }
   }
 }
