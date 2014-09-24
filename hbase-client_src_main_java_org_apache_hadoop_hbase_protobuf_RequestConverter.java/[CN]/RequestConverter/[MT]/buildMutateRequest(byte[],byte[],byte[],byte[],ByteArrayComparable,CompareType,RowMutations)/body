@@ -1,0 +1,26 @@
+{
+  RegionAction.Builder builder=getRegionActionBuilderWithRegion(RegionAction.newBuilder(),regionName);
+  builder.setAtomic(true);
+  ClientProtos.Action.Builder actionBuilder=ClientProtos.Action.newBuilder();
+  MutationProto.Builder mutationBuilder=MutationProto.newBuilder();
+  Condition condition=buildCondition(row,family,qualifier,comparator,compareType);
+  for (  Mutation mutation : rowMutations.getMutations()) {
+    MutationType mutateType=null;
+    if (mutation instanceof Put) {
+      mutateType=MutationType.PUT;
+    }
+ else     if (mutation instanceof Delete) {
+      mutateType=MutationType.DELETE;
+    }
+ else {
+      throw new DoNotRetryIOException("RowMutations supports only put and delete, not " + mutation.getClass().getName());
+    }
+    mutationBuilder.clear();
+    MutationProto mp=ProtobufUtil.toMutation(mutateType,mutation,mutationBuilder);
+    actionBuilder.clear();
+    actionBuilder.setMutation(mp);
+    builder.addAction(actionBuilder.build());
+  }
+  ClientProtos.MultiRequest request=ClientProtos.MultiRequest.newBuilder().addRegionAction(builder.build()).setCondition(condition).build();
+  return request;
+}
