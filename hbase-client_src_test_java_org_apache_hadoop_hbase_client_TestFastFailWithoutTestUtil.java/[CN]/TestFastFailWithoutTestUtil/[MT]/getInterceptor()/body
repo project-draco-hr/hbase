@@ -1,0 +1,47 @@
+{
+  final Configuration conf=HBaseConfiguration.create();
+  conf.setBoolean(HConstants.HBASE_CLIENT_FAST_FAIL_MODE_ENABLED,true);
+  conf.setLong(HConstants.HBASE_CLIENT_FAST_FAIL_CLEANUP_MS_DURATION_MS,CLEANUP_TIMEOUT);
+  conf.setLong(HConstants.HBASE_CLIENT_FAST_FAIL_THREASHOLD_MS,FAST_FAIL_THRESHOLD);
+  return new PreemptiveFastFailInterceptor(conf){
+    @Override public void updateFailureInfo(    RetryingCallerInterceptorContext context){
+      boolean pffe=false;
+      if (!isPriviThreadLocal.get().get()) {
+        pffe=!((FastFailInterceptorContext)context).isRetryDespiteFastFailMode();
+      }
+      if (isPriviThreadLocal.get().get()) {
+        try {
+          if (done.get() <= 1) {
+            latches2[priviRetryCounter.get()].await();
+          }
+        }
+ catch (        InterruptedException e) {
+          fail();
+        }
+      }
+      super.updateFailureInfo(context);
+      if (!isPriviThreadLocal.get().get()) {
+        if (pffe)         done.incrementAndGet();
+        latches2[nonPriviRetryCounter.get()].countDown();
+      }
+    }
+    @Override public void intercept(    RetryingCallerInterceptorContext context) throws PreemptiveFastFailException {
+      if (!isPriviThreadLocal.get().get()) {
+        try {
+          latches[nonPriviRetryCounter.getAndIncrement()].await();
+        }
+ catch (        InterruptedException e) {
+          fail();
+        }
+      }
+      super.intercept(context);
+    }
+    @Override public void handleFailure(    RetryingCallerInterceptorContext context,    Throwable t) throws IOException {
+      super.handleFailure(context,t);
+      if (isPriviThreadLocal.get().get()) {
+        latches[priviRetryCounter.getAndIncrement()].countDown();
+      }
+    }
+  }
+;
+}

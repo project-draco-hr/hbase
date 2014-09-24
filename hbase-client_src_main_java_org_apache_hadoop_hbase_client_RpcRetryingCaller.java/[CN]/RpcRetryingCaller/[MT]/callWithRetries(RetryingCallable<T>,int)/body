@@ -1,17 +1,23 @@
 {
   List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
   this.globalStartTime=EnvironmentEdgeManager.currentTime();
+  context.clear();
   for (int tries=0; ; tries++) {
     long expectedSleep;
     try {
       callable.prepare(tries != 0);
+      interceptor.intercept(context.prepare(callable,tries));
       return callable.call(getRemainingTime(callTimeout));
     }
- catch (    Throwable t) {
+ catch (    PreemptiveFastFailException e) {
+      throw e;
+    }
+catch (    Throwable t) {
       ExceptionUtil.rethrowIfInterrupt(t);
       if (LOG.isTraceEnabled()) {
         LOG.trace("Call exception, tries=" + tries + ", retries="+ retries+ ", started="+ (EnvironmentEdgeManager.currentTime() - this.globalStartTime)+ " ms ago, "+ "cancelled="+ cancelled.get(),t);
       }
+      interceptor.handleFailure(context,t);
       t=translateException(t);
       callable.throwable(t,retries != 1);
       RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,EnvironmentEdgeManager.currentTime(),toString());
@@ -25,6 +31,9 @@
         String msg="callTimeout=" + callTimeout + ", callDuration="+ duration+ ": "+ callable.getExceptionMessageAdditionalDetail();
         throw (SocketTimeoutException)(new SocketTimeoutException(msg).initCause(t));
       }
+    }
+ finally {
+      interceptor.updateFailureInfo(context);
     }
     try {
       if (expectedSleep > 0) {
