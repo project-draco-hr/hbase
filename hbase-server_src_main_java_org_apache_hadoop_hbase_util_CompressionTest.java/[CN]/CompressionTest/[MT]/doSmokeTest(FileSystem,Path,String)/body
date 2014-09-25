@@ -2,15 +2,24 @@
   Configuration conf=HBaseConfiguration.create();
   HFileContext context=new HFileContextBuilder().withCompression(AbstractHFileWriter.compressionByName(codec)).build();
   HFile.Writer writer=HFile.getWriterFactoryNoCache(conf).withPath(fs,path).withFileContext(context).create();
-  writer.append(Bytes.toBytes("testkey"),Bytes.toBytes("testval"));
-  writer.appendFileInfo(Bytes.toBytes("infokey"),Bytes.toBytes("infoval"));
+  final byte[] rowKey=Bytes.toBytes("compressiontestkey");
+  Cell c=CellUtil.createCell(rowKey,Bytes.toBytes("compressiontestval"));
+  writer.append(c);
+  ;
+  writer.appendFileInfo(Bytes.toBytes("compressioninfokey"),Bytes.toBytes("compressioninfoval"));
   writer.close();
+  Cell cc=null;
   HFile.Reader reader=HFile.createReader(fs,path,new CacheConfig(conf),conf);
-  reader.loadFileInfo();
-  byte[] key=reader.getFirstKey();
-  boolean rc=Bytes.toString(key).equals("testkey");
-  reader.close();
-  if (!rc) {
-    throw new Exception("Read back incorrect result: " + Bytes.toStringBinary(key));
+  try {
+    reader.loadFileInfo();
+    HFileScanner scanner=reader.getScanner(false,true);
+    scanner.next();
+    cc=scanner.getKeyValue();
+    if (CellComparator.compareRows(c,cc) != 0) {
+      throw new Exception("Read back incorrect result: " + c.toString() + " vs "+ cc.toString());
+    }
+  }
+  finally {
+    reader.close();
   }
 }
