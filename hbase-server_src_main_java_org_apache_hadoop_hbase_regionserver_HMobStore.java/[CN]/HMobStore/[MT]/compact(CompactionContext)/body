@@ -1,23 +1,25 @@
 {
-  if (compaction.getRequest().isMajor()) {
+  if (compaction.getRequest().isAllFiles()) {
     String compactionName=UUID.randomUUID().toString().replaceAll("-","");
     MobZookeeper zk=null;
     try {
       zk=MobZookeeper.newInstance(region.getBaseConf(),compactionName);
     }
  catch (    KeeperException e) {
-      LOG.error("Cannot connect to the zookeeper, ready to perform the minor compaction instead",e);
-      compaction.getRequest().setIsMajor(false,false);
+      LOG.error("Cannot connect to the zookeeper, forcing the delete markers to be retained",e);
+      compaction.getRequest().forceRetainDeleteMarkers();
       return super.compact(compaction);
     }
-    boolean major=false;
+    boolean keepDeleteMarkers=true;
+    boolean majorCompactNodeAdded=false;
     try {
       if (zk.lockColumnFamily(getTableName().getNameAsString(),getFamily().getNameAsString())) {
         try {
-          LOG.info("Obtain the lock for the store[" + this + "], ready to perform the major compaction");
+          LOG.info("Obtain the lock for the store[" + this + "], forcing the delete markers to be retained");
           boolean hasSweeper=zk.isSweeperZNodeExist(getTableName().getNameAsString(),getFamily().getNameAsString());
           if (!hasSweeper) {
-            major=zk.addMajorCompactionZNode(getTableName().getNameAsString(),getFamily().getNameAsString(),compactionName);
+            majorCompactNodeAdded=zk.addMajorCompactionZNode(getTableName().getNameAsString(),getFamily().getNameAsString(),compactionName);
+            keepDeleteMarkers=!majorCompactNodeAdded;
           }
         }
  catch (        Exception e) {
@@ -28,17 +30,14 @@
         }
       }
       try {
-        if (major) {
-          return super.compact(compaction);
+        if (keepDeleteMarkers) {
+          LOG.warn("Cannot obtain the lock or a sweep tool is running on this store[" + this + "], forcing the delete markers to be retained");
+          compaction.getRequest().forceRetainDeleteMarkers();
         }
- else {
-          LOG.warn("Cannot obtain the lock or a sweep tool is running on this store[" + this + "], ready to perform the minor compaction instead");
-          compaction.getRequest().setIsMajor(false,false);
-          return super.compact(compaction);
-        }
+        return super.compact(compaction);
       }
   finally {
-        if (major) {
+        if (majorCompactNodeAdded) {
           try {
             zk.deleteMajorCompactionZNode(getTableName().getNameAsString(),getFamily().getNameAsString(),compactionName);
           }
