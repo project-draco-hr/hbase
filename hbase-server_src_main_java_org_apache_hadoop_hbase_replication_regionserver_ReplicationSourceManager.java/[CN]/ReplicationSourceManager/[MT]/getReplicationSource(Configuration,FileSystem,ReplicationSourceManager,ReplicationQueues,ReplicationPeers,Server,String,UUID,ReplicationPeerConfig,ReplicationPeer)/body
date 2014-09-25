@@ -1,4 +1,8 @@
 {
+  RegionServerCoprocessorHost rsServerHost=null;
+  if (server instanceof HRegionServer) {
+    rsServerHost=((HRegionServer)server).getRegionServerCoprocessorHost();
+  }
   ReplicationSourceInterface src;
   try {
     @SuppressWarnings("rawtypes") Class c=Class.forName(conf.get("replication.replicationsource.implementation",ReplicationSource.class.getCanonicalName()));
@@ -16,13 +20,19 @@
     }
     @SuppressWarnings("rawtypes") Class c=Class.forName(replicationEndpointImpl);
     replicationEndpoint=(ReplicationEndpoint)c.newInstance();
+    if (rsServerHost != null) {
+      ReplicationEndpoint newReplicationEndPoint=rsServerHost.postCreateReplicationEndPoint(replicationEndpoint);
+      if (newReplicationEndPoint != null) {
+        replicationEndpoint=newReplicationEndPoint;
+      }
+    }
   }
  catch (  Exception e) {
     LOG.warn("Passed replication endpoint implementation throws errors",e);
     throw new IOException(e);
   }
   MetricsSource metrics=new MetricsSource(peerId);
-  src.init(conf,fs,manager,replicationQueues,replicationPeers,stopper,peerId,clusterId,replicationEndpoint,metrics);
+  src.init(conf,fs,manager,replicationQueues,replicationPeers,server,peerId,clusterId,replicationEndpoint,metrics);
   replicationEndpoint.init(new ReplicationEndpoint.Context(replicationPeer.getConfiguration(),fs,peerConfig,peerId,clusterId,replicationPeer,metrics));
   return src;
 }
