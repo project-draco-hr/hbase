@@ -2,42 +2,50 @@
   if (buffer1 == buffer2 && offset1 == offset2 && length1 == length2) {
     return 0;
   }
-  int minLength=Math.min(length1,length2);
-  int minWords=minLength / SIZEOF_LONG;
-  int offset1Adj=offset1 + BYTE_ARRAY_BASE_OFFSET;
-  int offset2Adj=offset2 + BYTE_ARRAY_BASE_OFFSET;
+  final int minLength=Math.min(length1,length2);
+  final int minWords=minLength / SIZEOF_LONG;
+  final long offset1Adj=offset1 + BYTE_ARRAY_BASE_OFFSET;
+  final long offset2Adj=offset2 + BYTE_ARRAY_BASE_OFFSET;
   for (int i=0; i < minWords * SIZEOF_LONG; i+=SIZEOF_LONG) {
     long lw=theUnsafe.getLong(buffer1,offset1Adj + (long)i);
     long rw=theUnsafe.getLong(buffer2,offset2Adj + (long)i);
     long diff=lw ^ rw;
+    if (littleEndian) {
+      lw=Long.reverseBytes(lw);
+      rw=Long.reverseBytes(rw);
+    }
     if (diff != 0) {
-      if (!littleEndian) {
-        return lessThanUnsigned(lw,rw) ? -1 : 1;
-      }
-      int n=0;
-      int y;
-      int x=(int)diff;
-      if (x == 0) {
-        x=(int)(diff >>> 32);
-        n=32;
-      }
-      y=x << 16;
-      if (y == 0) {
-        n+=16;
-      }
- else {
-        x=y;
-      }
-      y=x << 8;
-      if (y == 0) {
-        n+=8;
-      }
-      return (int)(((lw >>> n) & 0xFFL) - ((rw >>> n) & 0xFFL));
+      return lessThanUnsignedLong(lw,rw) ? -1 : 1;
     }
   }
-  for (int i=minWords * SIZEOF_LONG; i < minLength; i++) {
-    int a=(buffer1[offset1 + i] & 0xff);
-    int b=(buffer2[offset2 + i] & 0xff);
+  int offset=minWords * SIZEOF_LONG;
+  if (minLength - offset >= SIZEOF_INT) {
+    int il=theUnsafe.getInt(buffer1,offset1Adj + offset);
+    int ir=theUnsafe.getInt(buffer2,offset2Adj + offset);
+    if (littleEndian) {
+      il=Integer.reverseBytes(il);
+      ir=Integer.reverseBytes(ir);
+    }
+    if (il != ir) {
+      return lessThanUnsignedInt(il,ir) ? -1 : 1;
+    }
+    offset+=SIZEOF_INT;
+  }
+  if (minLength - offset >= SIZEOF_SHORT) {
+    short sl=theUnsafe.getShort(buffer1,offset1Adj + offset);
+    short sr=theUnsafe.getShort(buffer2,offset2Adj + offset);
+    if (littleEndian) {
+      sl=Short.reverseBytes(sl);
+      sr=Short.reverseBytes(sr);
+    }
+    if (sl != sr) {
+      return lessThanUnsignedShort(sl,sr) ? -1 : 1;
+    }
+    offset+=SIZEOF_SHORT;
+  }
+  if (minLength - offset == 1) {
+    int a=(buffer1[(int)(offset1 + offset)] & 0xff);
+    int b=(buffer2[(int)(offset2 + offset)] & 0xff);
     if (a != b) {
       return a - b;
     }
