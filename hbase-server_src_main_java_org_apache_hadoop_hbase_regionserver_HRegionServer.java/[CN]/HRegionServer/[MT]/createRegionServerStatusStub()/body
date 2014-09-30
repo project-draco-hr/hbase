@@ -15,10 +15,14 @@
           LOG.debug("No master found and cluster is stopped; bailing out");
           return null;
         }
-        LOG.debug("No master found; retry");
-        previousLogTime=System.currentTimeMillis();
+        if (System.currentTimeMillis() > (previousLogTime + 1000)) {
+          LOG.debug("No master found; retry");
+          previousLogTime=System.currentTimeMillis();
+        }
         refresh=true;
-        sleeper.sleep();
+        if (sleep(200)) {
+          interrupted=true;
+        }
         continue;
       }
       if (this instanceof HMaster && sn.equals(getServerName())) {
@@ -31,25 +35,18 @@
         break;
       }
  catch (      IOException e) {
-        e=e instanceof RemoteException ? ((RemoteException)e).unwrapRemoteException() : e;
-        if (e instanceof ServerNotRunningYetException) {
-          if (System.currentTimeMillis() > (previousLogTime + 1000)) {
+        if (System.currentTimeMillis() > (previousLogTime + 1000)) {
+          e=e instanceof RemoteException ? ((RemoteException)e).unwrapRemoteException() : e;
+          if (e instanceof ServerNotRunningYetException) {
             LOG.info("Master isn't available yet, retrying");
-            previousLogTime=System.currentTimeMillis();
           }
-        }
  else {
-          if (System.currentTimeMillis() > (previousLogTime + 1000)) {
             LOG.warn("Unable to connect to master. Retrying. Error was:",e);
-            previousLogTime=System.currentTimeMillis();
           }
+          previousLogTime=System.currentTimeMillis();
         }
-        try {
-          Thread.sleep(200);
-        }
- catch (        InterruptedException ex) {
+        if (sleep(200)) {
           interrupted=true;
-          LOG.warn("Interrupted while sleeping");
         }
       }
     }

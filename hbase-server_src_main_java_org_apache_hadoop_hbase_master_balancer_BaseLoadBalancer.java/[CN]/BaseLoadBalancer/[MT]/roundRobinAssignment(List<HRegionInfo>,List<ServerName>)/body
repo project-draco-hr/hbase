@@ -1,41 +1,39 @@
 {
   metricsBalancer.incrMiscInvocations();
+  Map<ServerName,List<HRegionInfo>> assignments=assignMasterRegions(regions,servers);
+  if (assignments != null && !assignments.isEmpty()) {
+    servers=new ArrayList<ServerName>(servers);
+    servers.remove(masterServerName);
+    List<HRegionInfo> masterRegions=assignments.get(masterServerName);
+    if (!masterRegions.isEmpty()) {
+      regions=new ArrayList<HRegionInfo>(regions);
+      for (      HRegionInfo region : masterRegions) {
+        regions.remove(region);
+      }
+    }
+  }
   if (regions == null || regions.isEmpty()) {
-    return null;
+    return assignments;
   }
   int numServers=servers == null ? 0 : servers.size();
   if (numServers == 0) {
     LOG.warn("Wanted to do round robin assignment but no servers to assign to");
     return null;
   }
-  Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
   if (numServers == 1) {
     ServerName server=servers.get(0);
     assignments.put(server,new ArrayList<HRegionInfo>(regions));
     return assignments;
   }
-  List<HRegionInfo> masterRegions=null;
-  if (servers.contains(masterServerName)) {
-    masterRegions=new ArrayList<HRegionInfo>();
-  }
-  Cluster cluster=createCluster(servers,regions,tablesOnMaster);
+  Cluster cluster=createCluster(servers,regions);
   List<HRegionInfo> unassignedRegions=new ArrayList<HRegionInfo>();
-  roundRobinAssignment(cluster,regions,unassignedRegions,servers,masterRegions,assignments);
-  if (masterRegions != null && !masterRegions.isEmpty()) {
-    assignments.put(masterServerName,masterRegions);
-    for (    HRegionInfo r : masterRegions) {
-      cluster.doAssignRegion(r,masterServerName);
-    }
-  }
+  roundRobinAssignment(cluster,regions,unassignedRegions,servers,assignments);
   List<HRegionInfo> lastFewRegions=new ArrayList<HRegionInfo>();
   int serverIdx=RANDOM.nextInt(numServers);
   for (  HRegionInfo region : unassignedRegions) {
     boolean assigned=false;
     for (int j=0; j < numServers; j++) {
       ServerName serverName=servers.get((j + serverIdx) % numServers);
-      if (serverName.equals(masterServerName)) {
-        continue;
-      }
       if (!cluster.wouldLowerAvailability(region,serverName)) {
         List<HRegionInfo> serverRegions=assignments.get(serverName);
         if (serverRegions == null) {
@@ -56,10 +54,6 @@
   for (  HRegionInfo region : lastFewRegions) {
     int i=RANDOM.nextInt(numServers);
     ServerName server=servers.get(i);
-    if (server.equals(masterServerName)) {
-      i=(i == 0 ? 1 : i - 1);
-      server=servers.get(i);
-    }
     List<HRegionInfo> serverRegions=assignments.get(server);
     if (serverRegions == null) {
       serverRegions=new ArrayList<HRegionInfo>();

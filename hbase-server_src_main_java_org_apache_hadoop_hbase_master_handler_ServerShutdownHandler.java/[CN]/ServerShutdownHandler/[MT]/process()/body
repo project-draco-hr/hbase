@@ -3,21 +3,24 @@
   final ServerName serverName=this.serverName;
   try {
     AssignmentManager am=services.getAssignmentManager();
+    ServerManager serverManager=services.getServerManager();
     if (isCarryingMeta() || !am.isFailoverCleanupDone()) {
-      this.services.getServerManager().processDeadServer(serverName,this.shouldSplitHlog);
+      serverManager.processDeadServer(serverName,this.shouldSplitHlog);
       return;
     }
     Set<HRegionInfo> hris=null;
-    while (!this.server.isStopped()) {
-      try {
-        server.getMetaTableLocator().waitMetaRegionLocation(server.getZooKeeper());
-        hris=am.getRegionStates().getServerRegions(serverName);
-        break;
+    try {
+      server.getMetaTableLocator().waitMetaRegionLocation(server.getZooKeeper());
+      if (BaseLoadBalancer.tablesOnMaster(server.getConfiguration())) {
+        while (!this.server.isStopped() && serverManager.countOfRegionServers() < 2) {
+          Thread.sleep(100);
+        }
       }
- catch (      InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw (InterruptedIOException)new InterruptedIOException().initCause(e);
-      }
+      hris=am.getRegionStates().getServerRegions(serverName);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw (InterruptedIOException)new InterruptedIOException().initCause(e);
     }
     if (this.server.isStopped()) {
       throw new IOException("Server is stopped");

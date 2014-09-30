@@ -1,14 +1,25 @@
 {
   metricsBalancer.incrMiscInvocations();
+  Map<ServerName,List<HRegionInfo>> assignments=assignMasterRegions(regions.keySet(),servers);
+  if (assignments != null && !assignments.isEmpty()) {
+    servers=new ArrayList<ServerName>(servers);
+    servers.remove(masterServerName);
+    List<HRegionInfo> masterRegions=assignments.get(masterServerName);
+    if (!masterRegions.isEmpty()) {
+      regions=new HashMap<HRegionInfo,ServerName>(regions);
+      for (      HRegionInfo region : masterRegions) {
+        regions.remove(region);
+      }
+    }
+  }
   if (regions == null || regions.isEmpty()) {
-    return null;
+    return assignments;
   }
   int numServers=servers == null ? 0 : servers.size();
   if (numServers == 0) {
     LOG.warn("Wanted to do retain assignment but no servers to assign to");
     return null;
   }
-  Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
   if (numServers == 1) {
     ServerName server=servers.get(0);
     assignments.put(server,new ArrayList<HRegionInfo>(regions.keySet()));
@@ -17,15 +28,12 @@
   ArrayListMultimap<String,ServerName> serversByHostname=ArrayListMultimap.create();
   for (  ServerName server : servers) {
     assignments.put(server,new ArrayList<HRegionInfo>());
-    if (!server.equals(masterServerName)) {
-      serversByHostname.put(server.getHostname(),server);
-    }
+    serversByHostname.put(server.getHostname(),server);
   }
   Set<String> oldHostsNoLongerPresent=Sets.newTreeSet();
-  boolean masterIncluded=servers.contains(masterServerName);
   int numRandomAssignments=0;
   int numRetainedAssigments=0;
-  Cluster cluster=createCluster(servers,regions.keySet(),tablesOnMaster);
+  Cluster cluster=createCluster(servers,regions.keySet());
   for (  Map.Entry<HRegionInfo,ServerName> entry : regions.entrySet()) {
     HRegionInfo region=entry.getKey();
     ServerName oldServerName=entry.getValue();
@@ -33,16 +41,7 @@
     if (oldServerName != null) {
       localServers=serversByHostname.get(oldServerName.getHostname());
     }
-    if (masterIncluded && shouldBeOnMaster(region)) {
-      assignments.get(masterServerName).add(region);
-      if (localServers.contains(masterServerName)) {
-        numRetainedAssigments++;
-      }
- else {
-        numRandomAssignments++;
-      }
-    }
- else     if (localServers.isEmpty()) {
+    if (localServers.isEmpty()) {
       ServerName randomServer=randomAssignment(cluster,region,servers);
       assignments.get(randomServer).add(region);
       numRandomAssignments++;
