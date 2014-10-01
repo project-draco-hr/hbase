@@ -1,9 +1,9 @@
 {
-  KeyValue pkv=null;
+  Cell pCell=null;
   do {
-    KeyValue kv=KeyValueUtil.ensureKeyValue(scanner.getKeyValue());
+    Cell cell=scanner.getKeyValue();
     if (row != null && row.length != 0) {
-      int result=Bytes.compareTo(kv.getRow(),row);
+      int result=CellComparator.compareRows(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),row,0,row.length);
       if (result > 0) {
         break;
       }
@@ -12,35 +12,35 @@
       }
     }
     if (printStats) {
-      fileStats.collect(kv);
+      fileStats.collect(cell);
     }
     if (printKey) {
-      System.out.print("K: " + kv);
+      System.out.print("K: " + cell);
       if (printValue) {
-        System.out.print(" V: " + Bytes.toStringBinary(kv.getValue()));
+        System.out.print(" V: " + Bytes.toStringBinary(cell.getValueArray(),cell.getValueOffset(),cell.getValueLength()));
         int i=0;
-        List<Tag> tags=kv.getTags();
+        List<Tag> tags=Tag.asList(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
         for (        Tag tag : tags) {
-          System.out.print(String.format(" T[%d]: %s",i++,Bytes.toStringBinary(tag.getValue())));
+          System.out.print(String.format(" T[%d]: %s",i++,Bytes.toStringBinary(tag.getBuffer(),tag.getTagOffset(),tag.getTagLength())));
         }
       }
       System.out.println();
     }
-    if (checkRow && pkv != null) {
-      if (Bytes.compareTo(pkv.getRow(),kv.getRow()) > 0) {
-        System.err.println("WARNING, previous row is greater then" + " current row\n\tfilename -> " + file + "\n\tprevious -> "+ Bytes.toStringBinary(pkv.getKey())+ "\n\tcurrent  -> "+ Bytes.toStringBinary(kv.getKey()));
+    if (checkRow && pCell != null) {
+      if (CellComparator.compareRows(pCell,cell) > 0) {
+        System.err.println("WARNING, previous row is greater then" + " current row\n\tfilename -> " + file + "\n\tprevious -> "+ CellUtil.getCellKey(pCell)+ "\n\tcurrent  -> "+ CellUtil.getCellKey(cell));
       }
     }
     if (checkFamily) {
-      String fam=Bytes.toString(kv.getFamily());
+      String fam=Bytes.toString(cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength());
       if (!file.toString().contains(fam)) {
-        System.err.println("WARNING, filename does not match kv family," + "\n\tfilename -> " + file + "\n\tkeyvalue -> "+ Bytes.toStringBinary(kv.getKey()));
+        System.err.println("WARNING, filename does not match kv family," + "\n\tfilename -> " + file + "\n\tkeyvalue -> "+ CellUtil.getCellKey(cell));
       }
-      if (pkv != null && !Bytes.equals(pkv.getFamily(),kv.getFamily())) {
-        System.err.println("WARNING, previous kv has different family" + " compared to current key\n\tfilename -> " + file + "\n\tprevious -> "+ Bytes.toStringBinary(pkv.getKey())+ "\n\tcurrent  -> "+ Bytes.toStringBinary(kv.getKey()));
+      if (pCell != null && CellComparator.compareFamilies(pCell,cell) != 0) {
+        System.err.println("WARNING, previous kv has different family" + " compared to current key\n\tfilename -> " + file + "\n\tprevious -> "+ CellUtil.getCellKey(pCell)+ "\n\tcurrent  -> "+ CellUtil.getCellKey(cell));
       }
     }
-    pkv=kv;
+    pCell=cell;
     ++count;
   }
  while (scanner.next());

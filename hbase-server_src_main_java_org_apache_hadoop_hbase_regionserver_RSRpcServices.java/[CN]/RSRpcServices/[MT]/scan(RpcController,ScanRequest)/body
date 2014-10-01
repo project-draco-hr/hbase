@@ -94,16 +94,15 @@
         lease=regionServer.leases.removeLease(scannerName);
         List<Result> results=new ArrayList<Result>(rows);
         long currentScanResultSize=0;
-        long totalKvSize=0;
+        long totalCellSize=0;
         boolean done=false;
         if (region != null && region.getCoprocessorHost() != null) {
           Boolean bypass=region.getCoprocessorHost().preScannerNext(scanner,results,rows);
           if (!results.isEmpty()) {
             for (            Result r : results) {
               for (              Cell cell : r.rawCells()) {
-                KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
-                currentScanResultSize+=kv.heapSize();
-                totalKvSize+=kv.getLength();
+                currentScanResultSize+=CellUtil.estimatedHeapSizeOf(cell);
+                totalCellSize+=CellUtil.estimatedLengthOf(cell);
               }
             }
           }
@@ -129,9 +128,8 @@ synchronized (scanner) {
                 boolean moreRows=scanner.nextRaw(values);
                 if (!values.isEmpty()) {
                   for (                  Cell cell : values) {
-                    KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
-                    currentScanResultSize+=kv.heapSize();
-                    totalKvSize+=kv.getLength();
+                    currentScanResultSize+=CellUtil.estimatedHeapSizeOf(cell);
+                    totalCellSize+=CellUtil.estimatedLengthOf(cell);
                   }
                   results.add(Result.create(values,null,stale));
                   i++;
@@ -143,7 +141,7 @@ synchronized (scanner) {
               }
             }
             region.readRequestsCount.add(i);
-            region.getMetrics().updateScanNext(totalKvSize);
+            region.getMetrics().updateScanNext(totalCellSize);
           }
   finally {
             region.closeRegionOperation();

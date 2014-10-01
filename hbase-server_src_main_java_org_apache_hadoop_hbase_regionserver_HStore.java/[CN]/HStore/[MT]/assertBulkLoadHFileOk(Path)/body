@@ -17,20 +17,20 @@
     if (verifyBulkLoads) {
       long verificationStartTime=EnvironmentEdgeManager.currentTime();
       LOG.info("Full verification started for bulk load hfile: " + srcPath.toString());
-      Cell prevKV=null;
+      Cell prevCell=null;
       HFileScanner scanner=reader.getScanner(false,false,false);
       scanner.seekTo();
       do {
-        Cell kv=scanner.getKeyValue();
-        if (prevKV != null) {
-          if (Bytes.compareTo(prevKV.getRowArray(),prevKV.getRowOffset(),prevKV.getRowLength(),kv.getRowArray(),kv.getRowOffset(),kv.getRowLength()) > 0) {
-            throw new InvalidHFileException("Previous row is greater than" + " current row: path=" + srcPath + " previous="+ Bytes.toStringBinary(KeyValueUtil.ensureKeyValue(prevKV).getKey())+ " current="+ Bytes.toStringBinary(KeyValueUtil.ensureKeyValue(kv).getKey()));
+        Cell cell=scanner.getKeyValue();
+        if (prevCell != null) {
+          if (CellComparator.compareRows(prevCell,cell) > 0) {
+            throw new InvalidHFileException("Previous row is greater than" + " current row: path=" + srcPath + " previous="+ CellUtil.getCellKey(prevCell)+ " current="+ CellUtil.getCellKey(cell));
           }
-          if (Bytes.compareTo(prevKV.getFamilyArray(),prevKV.getFamilyOffset(),prevKV.getFamilyLength(),kv.getFamilyArray(),kv.getFamilyOffset(),kv.getFamilyLength()) != 0) {
-            throw new InvalidHFileException("Previous key had different" + " family compared to current key: path=" + srcPath + " previous="+ Bytes.toStringBinary(prevKV.getFamily())+ " current="+ Bytes.toStringBinary(kv.getFamily()));
+          if (CellComparator.compareFamilies(prevCell,cell) != 0) {
+            throw new InvalidHFileException("Previous key had different" + " family compared to current key: path=" + srcPath + " previous="+ Bytes.toStringBinary(prevCell.getFamilyArray(),prevCell.getFamilyOffset(),prevCell.getFamilyLength())+ " current="+ Bytes.toStringBinary(cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength()));
           }
         }
-        prevKV=kv;
+        prevCell=cell;
       }
  while (scanner.next());
       LOG.info("Full verification complete for bulk load hfile: " + srcPath.toString() + " took "+ (EnvironmentEdgeManager.currentTime() - verificationStartTime)+ " ms");
