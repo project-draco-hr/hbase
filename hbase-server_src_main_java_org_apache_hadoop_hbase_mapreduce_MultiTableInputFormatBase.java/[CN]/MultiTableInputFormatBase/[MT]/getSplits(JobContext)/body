@@ -4,24 +4,30 @@
   }
   List<InputSplit> splits=new ArrayList<InputSplit>();
   for (  Scan scan : scans) {
-    byte[] tableName=scan.getAttribute(Scan.SCAN_ATTRIBUTES_TABLE_NAME);
-    if (tableName == null)     throw new IOException("A scan object did not have a table name");
-    HTable table=null;
+    byte[] tableNameBytes=scan.getAttribute(Scan.SCAN_ATTRIBUTES_TABLE_NAME);
+    if (tableNameBytes == null)     throw new IOException("A scan object did not have a table name");
+    TableName tableName=TableName.valueOf(tableNameBytes);
+    Table table=null;
+    RegionLocator regionLocator=null;
+    Connection conn=null;
     try {
-      table=new HTable(context.getConfiguration(),TableName.valueOf(tableName));
-      Pair<byte[][],byte[][]> keys=table.getStartEndKeys();
+      conn=ConnectionFactory.createConnection(context.getConfiguration());
+      table=conn.getTable(tableName);
+      regionLocator=conn.getRegionLocator(tableName);
+      regionLocator=(RegionLocator)table;
+      Pair<byte[][],byte[][]> keys=regionLocator.getStartEndKeys();
       if (keys == null || keys.getFirst() == null || keys.getFirst().length == 0) {
-        throw new IOException("Expecting at least one region for table : " + Bytes.toString(tableName));
+        throw new IOException("Expecting at least one region for table : " + tableName.getNameAsString());
       }
       int count=0;
       byte[] startRow=scan.getStartRow();
       byte[] stopRow=scan.getStopRow();
-      RegionSizeCalculator sizeCalculator=new RegionSizeCalculator(table);
+      RegionSizeCalculator sizeCalculator=new RegionSizeCalculator((HTable)table);
       for (int i=0; i < keys.getFirst().length; i++) {
         if (!includeRegionInSplit(keys.getFirst()[i],keys.getSecond()[i])) {
           continue;
         }
-        HRegionLocation hregionLocation=table.getRegionLocation(keys.getFirst()[i],false);
+        HRegionLocation hregionLocation=regionLocator.getRegionLocation(keys.getFirst()[i],false);
         String regionHostname=hregionLocation.getHostname();
         HRegionInfo regionInfo=hregionLocation.getRegionInfo();
         if ((startRow.length == 0 || keys.getSecond()[i].length == 0 || Bytes.compareTo(startRow,keys.getSecond()[i]) < 0) && (stopRow.length == 0 || Bytes.compareTo(stopRow,keys.getFirst()[i]) > 0)) {
@@ -36,6 +42,8 @@
     }
   finally {
       if (null != table)       table.close();
+      if (null != regionLocator)       regionLocator.close();
+      if (null != conn)       conn.close();
     }
   }
   return splits;
