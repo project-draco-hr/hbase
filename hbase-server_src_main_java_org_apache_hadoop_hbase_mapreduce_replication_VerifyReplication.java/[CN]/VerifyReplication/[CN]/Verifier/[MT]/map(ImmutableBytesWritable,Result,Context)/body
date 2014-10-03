@@ -16,6 +16,7 @@
     if (versions >= 0) {
       scan.setMaxVersions(versions);
     }
+    final TableSplit tableSplit=(TableSplit)(context.getInputSplit());
     HConnectionManager.execute(new HConnectable<Void>(conf){
       @Override public Void connect(      HConnection conn) throws IOException {
         String zkClusterKey=conf.get(NAME + ".peerQuorumAddress");
@@ -24,19 +25,38 @@
         TableName tableName=TableName.valueOf(conf.get(NAME + ".tableName"));
         Table replicatedTable=new HTable(peerConf,tableName);
         scan.setStartRow(value.getRow());
+        scan.setStopRow(tableSplit.getEndRow());
         replicatedScanner=replicatedTable.getScanner(scan);
         return null;
       }
     }
 );
+    currentCompareRowInPeerTable=replicatedScanner.next();
   }
-  Result res=replicatedScanner.next();
-  try {
-    Result.compareResults(value,res);
-    context.getCounter(Counters.GOODROWS).increment(1);
-  }
- catch (  Exception e) {
-    LOG.warn("Bad row",e);
-    context.getCounter(Counters.BADROWS).increment(1);
+  while (true) {
+    if (currentCompareRowInPeerTable == null) {
+      logFailRowAndIncreaseCounter(context,Counters.ONLY_IN_SOURCE_TABLE_ROWS,value);
+      break;
+    }
+    int rowCmpRet=Bytes.compareTo(value.getRow(),currentCompareRowInPeerTable.getRow());
+    if (rowCmpRet == 0) {
+      try {
+        Result.compareResults(value,currentCompareRowInPeerTable);
+        context.getCounter(Counters.GOODROWS).increment(1);
+      }
+ catch (      Exception e) {
+        logFailRowAndIncreaseCounter(context,Counters.CONTENT_DIFFERENT_ROWS,value);
+      }
+      currentCompareRowInPeerTable=replicatedScanner.next();
+      break;
+    }
+ else     if (rowCmpRet < 0) {
+      logFailRowAndIncreaseCounter(context,Counters.ONLY_IN_SOURCE_TABLE_ROWS,value);
+      break;
+    }
+ else {
+      logFailRowAndIncreaseCounter(context,Counters.ONLY_IN_PEER_TABLE_ROWS,currentCompareRowInPeerTable);
+      currentCompareRowInPeerTable=replicatedScanner.next();
+    }
   }
 }
