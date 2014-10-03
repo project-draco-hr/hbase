@@ -9,13 +9,21 @@
     LOG.info("Passed destination servername is null/empty so " + "choosing a server at random");
     final List<ServerName> destServers=this.serverManager.createDestinationServersList(regionState.getServerName());
     dest=balancer.randomAssignment(hri,destServers);
+    if (dest == null) {
+      LOG.debug("Unable to determine a plan to assign " + hri);
+      return;
+    }
   }
  else {
     dest=ServerName.valueOf(Bytes.toString(destServerName));
-    if (dest.equals(regionState.getServerName())) {
-      LOG.debug("Skipping move of region " + hri.getRegionNameAsString() + " because region already assigned to the same server "+ dest+ ".");
+    if (dest.equals(serverName) && balancer instanceof BaseLoadBalancer && !((BaseLoadBalancer)balancer).shouldBeOnMaster(hri)) {
+      LOG.debug("Skipping move of region " + hri.getRegionNameAsString() + " to avoid unnecessary region moving later by load balancer,"+ " because it should not be on master");
       return;
     }
+  }
+  if (dest.equals(regionState.getServerName())) {
+    LOG.debug("Skipping move of region " + hri.getRegionNameAsString() + " because region already assigned to the same server "+ dest+ ".");
+    return;
   }
   RegionPlan rp=new RegionPlan(hri,regionState.getServerName(),dest);
   try {
