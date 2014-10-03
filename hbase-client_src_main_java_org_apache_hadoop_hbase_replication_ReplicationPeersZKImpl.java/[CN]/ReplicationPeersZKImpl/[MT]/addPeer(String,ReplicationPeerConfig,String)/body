@@ -4,10 +4,15 @@
       throw new IllegalArgumentException("Cannot add a peer with id=" + id + " because that id already exists.");
     }
     ZKUtil.createWithParents(this.zookeeper,this.peersZNode);
-    ZKUtil.createAndWatch(this.zookeeper,ZKUtil.joinZNode(this.peersZNode,id),toByteArray(peerConfig));
-    ZKUtil.createNodeIfNotExistsAndWatch(this.zookeeper,getPeerStateNode(id),ENABLED_ZNODE_BYTES);
+    List<ZKUtilOp> listOfOps=new ArrayList<ZKUtil.ZKUtilOp>();
+    ZKUtilOp op1=ZKUtilOp.createAndFailSilent(ZKUtil.joinZNode(this.peersZNode,id),toByteArray(peerConfig));
+    ZKUtilOp op2=ZKUtilOp.createAndFailSilent(getPeerStateNode(id),ENABLED_ZNODE_BYTES);
     String tableCFsStr=(tableCFs == null) ? "" : tableCFs;
-    ZKUtil.createNodeIfNotExistsAndWatch(this.zookeeper,getTableCFsNode(id),Bytes.toBytes(tableCFsStr));
+    ZKUtilOp op3=ZKUtilOp.createAndFailSilent(getTableCFsNode(id),Bytes.toBytes(tableCFsStr));
+    listOfOps.add(op1);
+    listOfOps.add(op2);
+    listOfOps.add(op3);
+    ZKUtil.multiOrSequential(this.zookeeper,listOfOps,false);
   }
  catch (  KeeperException e) {
     throw new ReplicationException("Could not add peer with id=" + id + ", peerConfif=>"+ peerConfig,e);
