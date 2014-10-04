@@ -1,19 +1,14 @@
 {
-  LinkedBlockingQueue<PutStatus> queue=serverToBufferQueueMap.get(addr);
-  if (queue == null) {
-synchronized (this.serverToBufferQueueMap) {
-      queue=serverToBufferQueueMap.get(addr);
-      if (queue == null) {
-        queue=new LinkedBlockingQueue<PutStatus>(perRegionServerBufferQueueSize);
-        serverToBufferQueueMap.put(addr,queue);
-        HTableFlushWorker worker=new HTableFlushWorker(conf,this.conn,addr,this,queue,pool);
+  FlushWorker worker=serverToFlushWorkerMap.get(addr);
+  if (worker == null) {
+synchronized (this.serverToFlushWorkerMap) {
+      worker=serverToFlushWorkerMap.get(addr);
+      if (worker == null) {
+        worker=new FlushWorker(conf,this.conn,addr,this,perRegionServerBufferQueueSize,pool,executor);
         this.serverToFlushWorkerMap.put(addr,worker);
-        String name="HTableFlushWorker-" + addr.getHostnamePort() + "-"+ (poolID++);
-        Thread t=new Thread(worker,name);
-        t.setDaemon(true);
-        t.start();
+        executor.scheduleAtFixedRate(worker,flushPeriod,flushPeriod,TimeUnit.MILLISECONDS);
       }
     }
   }
-  return queue;
+  return worker.getQueue();
 }

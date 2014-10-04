@@ -1,0 +1,31 @@
+{
+  final int retryCount=ps.retryCount - 1;
+  if (retryCount <= 0) {
+    return false;
+  }
+  int cnt=retryInQueue.incrementAndGet();
+  if (cnt > maxRetryInQueue) {
+    retryInQueue.decrementAndGet();
+    return false;
+  }
+  final Put failedPut=ps.put;
+  final TableName tableName=ps.regionInfo.getTable();
+  long delayMs=rpcTimeOutMs;
+  delayMs=Math.max(delayMs,(long)(multiplexer.flushPeriod * Math.pow(2,multiplexer.retryNum - retryCount)));
+  executor.schedule(new Runnable(){
+    @Override public void run(){
+      boolean succ=false;
+      try {
+        succ=FlushWorker.this.multiplexer.put(tableName,failedPut,retryCount);
+      }
+  finally {
+        FlushWorker.this.retryInQueue.decrementAndGet();
+        if (!succ) {
+          FlushWorker.this.totalFailedPutCount.incrementAndGet();
+        }
+      }
+    }
+  }
+,delayMs,TimeUnit.MILLISECONDS);
+  return true;
+}

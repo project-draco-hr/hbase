@@ -1,0 +1,73 @@
+{
+  int failedCount=0;
+  try {
+    long start=EnvironmentEdgeManager.currentTime();
+    processingList.clear();
+    queue.drainTo(processingList);
+    if (processingList.size() == 0) {
+      return;
+    }
+    currentProcessingCount.set(processingList.size());
+    failedCount=processingList.size();
+    List<Action<Row>> retainedActions=new ArrayList<>(processingList.size());
+    MultiAction<Row> actions=new MultiAction<>();
+    for (int i=0; i < processingList.size(); i++) {
+      PutStatus putStatus=processingList.get(i);
+      Action<Row> action=new Action<Row>(putStatus.put,i);
+      actions.add(putStatus.regionInfo.getRegionName(),action);
+      retainedActions.add(action);
+    }
+    List<PutStatus> failed=null;
+    Object[] results=new Object[actions.size()];
+    ServerName server=addr.getServerName();
+    Map<ServerName,MultiAction<Row>> actionsByServer=Collections.singletonMap(server,actions);
+    try {
+      AsyncRequestFuture arf=asyncProc.submitMultiActions(null,retainedActions,0L,null,results,true,null,null,actionsByServer,pool);
+      arf.waitUntilDone();
+      if (arf.hasError()) {
+        LOG.debug("Caught some exceptions when flushing puts to region server " + addr.getHostnamePort(),arf.getErrors());
+      }
+    }
+  finally {
+      for (int i=0; i < results.length; i++) {
+        if (results[i] == null) {
+          if (failed == null) {
+            failed=new ArrayList<PutStatus>();
+          }
+          failed.add(processingList.get(i));
+        }
+ else {
+          failedCount--;
+        }
+      }
+    }
+    if (failed != null) {
+      for (      PutStatus putStatus : processingList) {
+        if (resubmitFailedPut(putStatus,this.addr)) {
+          failedCount--;
+        }
+      }
+    }
+    long elapsed=EnvironmentEdgeManager.currentTime() - start;
+    averageLatency.add(elapsed);
+    if (elapsed > maxLatency.get()) {
+      maxLatency.set(elapsed);
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Processed " + currentProcessingCount + " put requests for "+ addr.getHostnamePort()+ " and "+ failedCount+ " failed"+ ", latency for this send: "+ elapsed);
+    }
+    currentProcessingCount.set(0);
+  }
+ catch (  RuntimeException e) {
+    LOG.debug("Caught some exceptions " + e + " when flushing puts to region server "+ addr.getHostnamePort(),e);
+  }
+catch (  Exception e) {
+    if (e instanceof InterruptedException) {
+      Thread.currentThread().interrupt();
+    }
+    LOG.debug("Caught some exceptions " + e + " when flushing puts to region server "+ addr.getHostnamePort(),e);
+  }
+ finally {
+    this.totalFailedPutCount.addAndGet(failedCount);
+  }
+}
