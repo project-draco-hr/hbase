@@ -1,6 +1,24 @@
 {
   String[] otherArgs=new GenericOptionsParser(getConf(),args).getRemainingArgs();
-  Job job=createSubmittableJob(getConf(),otherArgs);
+  Job job=createSubmittableJob(otherArgs);
   if (job == null)   return 1;
-  return job.waitForCompletion(true) ? 0 : 1;
+  if (!job.waitForCompletion(true)) {
+    LOG.info("Map-reduce job failed!");
+    if (bulkload) {
+      LOG.info("Files are not bulkloaded!");
+    }
+    return 1;
+  }
+  int code=0;
+  if (bulkload) {
+    code=new LoadIncrementalHFiles(this.getConf()).run(new String[]{this.bulkloadDir.toString(),this.dstTableName});
+    if (code == 0) {
+      FileSystem fs=FileSystem.get(this.getConf());
+      if (!fs.delete(this.bulkloadDir,true)) {
+        LOG.error("Deleting folder " + bulkloadDir + " failed!");
+        code=1;
+      }
+    }
+  }
+  return code;
 }
