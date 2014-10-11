@@ -1,12 +1,8 @@
 {
-  if (!(cell instanceof KeyValue))   throw new IOException("Cannot write non-KV cells to WAL");
   if (encryptor == null) {
     super.write(cell);
     return;
   }
-  KeyValue kv=(KeyValue)cell;
-  byte[] kvBuffer=kv.getBuffer();
-  int offset=kv.getOffset();
   byte[] iv=nextIv();
   encryptor.setIv(iv);
   encryptor.reset();
@@ -14,18 +10,22 @@
   out.write(iv);
   ByteArrayOutputStream baos=new ByteArrayOutputStream();
   OutputStream cout=encryptor.createEncryptionStream(baos);
-  StreamUtils.writeRawVInt32(cout,kv.getKeyLength());
-  StreamUtils.writeRawVInt32(cout,kv.getValueLength());
-  StreamUtils.writeRawVInt32(cout,kv.getTagsLength());
-  StreamUtils.writeRawVInt32(cout,kv.getRowLength());
-  cout.write(kvBuffer,kv.getRowOffset(),kv.getRowLength());
-  StreamUtils.writeRawVInt32(cout,kv.getFamilyLength());
-  cout.write(kvBuffer,kv.getFamilyOffset(),kv.getFamilyLength());
-  StreamUtils.writeRawVInt32(cout,kv.getQualifierLength());
-  cout.write(kvBuffer,kv.getQualifierOffset(),kv.getQualifierLength());
-  int pos=kv.getTimestampOffset();
-  int remainingLength=kv.getLength() + offset - pos;
-  cout.write(kvBuffer,pos,remainingLength);
+  int tlen=cell.getTagsLength();
+  StreamUtils.writeRawVInt32(cout,KeyValueUtil.keyLength(cell));
+  StreamUtils.writeRawVInt32(cout,cell.getValueLength());
+  StreamUtils.writeRawVInt32(cout,tlen);
+  StreamUtils.writeRawVInt32(cout,cell.getRowLength());
+  cout.write(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
+  StreamUtils.writeRawVInt32(cout,cell.getFamilyLength());
+  cout.write(cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength());
+  StreamUtils.writeRawVInt32(cout,cell.getQualifierLength());
+  cout.write(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+  StreamUtils.writeLong(cout,cell.getTimestamp());
+  cout.write(cell.getTypeByte());
+  cout.write(cell.getValueArray(),cell.getValueOffset(),cell.getValueLength());
+  if (tlen > 0) {
+    cout.write(cell.getTagsArray(),cell.getTagsOffset(),tlen);
+  }
   cout.close();
   StreamUtils.writeRawVInt32(out,baos.size());
   baos.writeTo(out);
