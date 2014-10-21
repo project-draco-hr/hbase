@@ -5,9 +5,16 @@
   HFileBlock unpacked=new HFileBlock(this);
   unpacked.allocateBuffer();
   HFileBlockDecodingContext ctx=blockType == BlockType.ENCODED_DATA ? reader.getBlockDecodingContext() : reader.getDefaultBlockDecodingContext();
-  ctx.prepareDecoding(unpacked.getOnDiskSizeWithoutHeader(),unpacked.getUncompressedSizeWithoutHeader(),unpacked.getBufferWithoutHeader(),this.getBufferReadOnlyWithHeader().array(),this.headerSize());
+  ByteBuffer dup=this.buf.duplicate();
+  dup.position(this.headerSize());
+  dup=dup.slice();
+  ctx.prepareDecoding(unpacked.getOnDiskSizeWithoutHeader(),unpacked.getUncompressedSizeWithoutHeader(),unpacked.getBufferWithoutHeader(),dup);
   if (unpacked.hasNextBlockHeader()) {
-    System.arraycopy(this.buf.array(),this.buf.arrayOffset() + this.onDiskDataSizeWithHeader,unpacked.buf.array(),unpacked.buf.arrayOffset() + unpacked.headerSize() + unpacked.uncompressedSizeWithoutHeader+ unpacked.totalChecksumBytes(),unpacked.headerSize());
+    ByteBuffer inDup=this.buf.duplicate();
+    inDup.limit(inDup.limit() + headerSize());
+    ByteBuffer outDup=unpacked.buf.duplicate();
+    outDup.limit(outDup.limit() + unpacked.headerSize());
+    ByteBufferUtils.copyFromBufferToBuffer(outDup,inDup,this.onDiskDataSizeWithHeader,unpacked.headerSize() + unpacked.uncompressedSizeWithoutHeader + unpacked.totalChecksumBytes(),unpacked.headerSize());
   }
   return unpacked;
 }
