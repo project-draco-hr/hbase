@@ -1,0 +1,28 @@
+{
+  FileSystem fs=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+  Path rootDir=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+  Admin admin=UTIL.getHBaseAdmin();
+  final long startTime=System.currentTimeMillis();
+  final TableName localTableName=TableName.valueOf(STRING_TABLE_NAME + startTime);
+  HTable original=MobSnapshotTestingUtils.createMobTable(UTIL,localTableName,TEST_FAM);
+  SnapshotTestingUtils.loadData(UTIL,original,500,TEST_FAM);
+  final String snapshotNameAsString="snapshot_" + localTableName;
+  SnapshotTestingUtils.createSnapshotAndValidate(admin,localTableName,TEST_FAM_STR,snapshotNameAsString,rootDir,fs,online);
+  if (!online) {
+    admin.enableTable(localTableName);
+  }
+  TableName cloneTableName=TableName.valueOf("test-clone-" + localTableName);
+  byte[] snapshotName=Bytes.toBytes(snapshotNameAsString);
+  admin.cloneSnapshot(snapshotName,cloneTableName);
+  byte[] TEST_FAM_2=Bytes.toBytes("fam2");
+  HColumnDescriptor hcd=new HColumnDescriptor(TEST_FAM_2);
+  admin.disableTable(localTableName);
+  admin.addColumn(localTableName,hcd);
+  admin.enableTable(localTableName);
+  HTableDescriptor originalTableDescriptor=original.getTableDescriptor();
+  HTableDescriptor clonedTableDescriptor=admin.getTableDescriptor(cloneTableName);
+  Assert.assertTrue("The original family was not found. There is something wrong. ",originalTableDescriptor.hasFamily(TEST_FAM));
+  Assert.assertTrue("The original family was not found in the clone. There is something wrong. ",clonedTableDescriptor.hasFamily(TEST_FAM));
+  Assert.assertTrue("The new family was not found. ",originalTableDescriptor.hasFamily(TEST_FAM_2));
+  Assert.assertTrue("The new family was not found. ",!clonedTableDescriptor.hasFamily(TEST_FAM_2));
+}

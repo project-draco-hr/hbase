@@ -1,33 +1,78 @@
 {
   RegionVisitor visitor=createRegionVisitor(desc);
-  HRegionFileSystem regionFs=HRegionFileSystem.openRegionFromFileSystem(conf,fs,tableDir,regionInfo,true);
-  monitor.rethrowException();
-  LOG.debug("Storing region-info for snapshot.");
-  Object regionData=visitor.regionOpen(regionInfo);
-  monitor.rethrowException();
-  LOG.debug("Creating references for hfiles");
-  Collection<String> familyNames=regionFs.getFamilies();
-  if (familyNames != null) {
-    for (    String familyName : familyNames) {
-      Object familyData=visitor.familyOpen(regionData,Bytes.toBytes(familyName));
+  HRegionInfo mobRegionInfo=new HRegionInfo(regionInfo.getTable(),MobConstants.MOB_REGION_NAME_BYTES,HConstants.EMPTY_END_ROW,false,0);
+  if (mobRegionInfo.getEncodedName().equals(regionInfo.getEncodedName())) {
+    try {
+      HRegionFileSystem mobRegionFs=HRegionFileSystem.openRegionFromFileSystem(conf,fs,tableDir,regionInfo,true);
       monitor.rethrowException();
-      Collection<StoreFileInfo> storeFiles=regionFs.getStoreFiles(familyName);
-      if (storeFiles == null) {
-        LOG.debug("No files under family: " + familyName);
-        continue;
+      LOG.debug("Storing region-info for snapshot.");
+      Object regionData=visitor.regionOpen(regionInfo);
+      monitor.rethrowException();
+      LOG.debug("Creating references for hfiles");
+      Collection<String> familyNames=mobRegionFs.getFamilies();
+      if (familyNames != null) {
+        Path regionPath=MobUtils.getMobRegionPath(conf,regionInfo.getTable());
+        for (        String familyName : familyNames) {
+          Object familyData=visitor.familyOpen(regionData,Bytes.toBytes(familyName));
+          monitor.rethrowException();
+          Path storePath=MobUtils.getMobFamilyPath(regionPath,familyName);
+          try {
+            if (fs.exists(storePath)) {
+              FileStatus[] stats=fs.listStatus(storePath);
+              if (LOG.isDebugEnabled()) {
+                LOG.debug("Adding snapshot references for " + stats.length + " hfiles");
+              }
+              for (int i=0, fz=stats.length; i < fz; i++) {
+                FileStatus stat=stats[i];
+                monitor.rethrowException();
+                if (LOG.isDebugEnabled()) {
+                  LOG.debug("Adding reference for file (" + (i + 1) + "/"+ fz+ "): "+ stat.getPath());
+                }
+                StoreFileInfo mobStoreFileInfo=new StoreFileInfo(conf,fs,stat);
+                visitor.storeFile(regionData,familyData,mobStoreFileInfo);
+              }
+            }
+          }
+ catch (          FileNotFoundException e) {
+          }
+          visitor.familyClose(regionData,familyData);
+        }
       }
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Adding snapshot references for " + storeFiles + " hfiles");
-      }
-      int i=0;
-      int sz=storeFiles.size();
-      for (      StoreFileInfo storeFile : storeFiles) {
-        monitor.rethrowException();
-        LOG.debug("Adding reference for file (" + (++i) + "/"+ sz+ "): "+ storeFile.getPath());
-        visitor.storeFile(regionData,familyData,storeFile);
-      }
-      visitor.familyClose(regionData,familyData);
+      visitor.regionClose(regionData);
+    }
+ catch (    IOException e) {
     }
   }
-  visitor.regionClose(regionData);
+ else {
+    HRegionFileSystem regionFs=HRegionFileSystem.openRegionFromFileSystem(conf,fs,tableDir,regionInfo,true);
+    monitor.rethrowException();
+    LOG.debug("Storing region-info for snapshot.");
+    Object regionData=visitor.regionOpen(regionInfo);
+    monitor.rethrowException();
+    LOG.debug("Creating references for hfiles");
+    Collection<String> familyNames=regionFs.getFamilies();
+    if (familyNames != null) {
+      for (      String familyName : familyNames) {
+        Object familyData=visitor.familyOpen(regionData,Bytes.toBytes(familyName));
+        monitor.rethrowException();
+        Collection<StoreFileInfo> storeFiles=regionFs.getStoreFiles(familyName);
+        if (storeFiles == null) {
+          LOG.debug("No files under family: " + familyName);
+          continue;
+        }
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Adding snapshot references for " + storeFiles + " hfiles");
+        }
+        int i=0;
+        int sz=storeFiles.size();
+        for (        StoreFileInfo storeFile : storeFiles) {
+          monitor.rethrowException();
+          LOG.debug("Adding reference for file (" + (++i) + "/"+ sz+ "): "+ storeFile.getPath());
+          visitor.storeFile(regionData,familyData,storeFile);
+        }
+        visitor.familyClose(regionData,familyData);
+      }
+    }
+    visitor.regionClose(regionData);
+  }
 }

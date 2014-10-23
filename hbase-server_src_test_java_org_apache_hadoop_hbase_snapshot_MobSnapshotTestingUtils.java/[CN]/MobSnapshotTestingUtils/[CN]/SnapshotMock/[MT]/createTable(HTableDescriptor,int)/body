@@ -1,0 +1,28 @@
+{
+  Path tableDir=FSUtils.getTableDir(rootDir,htd.getTableName());
+  new FSTableDescriptors(conf).createTableDescriptorForTableDirectory(tableDir,htd,false);
+  assertTrue(nregions % 2 == 0);
+  RegionData[] regions=new RegionData[nregions];
+  for (int i=0; i < regions.length; i+=2) {
+    byte[] startKey=Bytes.toBytes(0 + i * 2);
+    byte[] endKey=Bytes.toBytes(1 + i * 2);
+    HRegionInfo hri=new HRegionInfo(htd.getTableName(),startKey,endKey);
+    HRegionFileSystem rfs=HRegionFileSystem.createRegionOnFileSystem(conf,fs,tableDir,hri);
+    regions[i]=new RegionData(tableDir,hri,3);
+    for (int j=0; j < regions[i].files.length; ++j) {
+      Path storeFile=createStoreFile(rfs.createTempName());
+      regions[i].files[j]=rfs.commitStoreFile(TEST_FAMILY,storeFile);
+    }
+    startKey=Bytes.toBytes(2 + i * 2);
+    endKey=Bytes.toBytes(3 + i * 2);
+    hri=new HRegionInfo(htd.getTableName());
+    rfs=HRegionFileSystem.createRegionOnFileSystem(conf,fs,tableDir,hri);
+    regions[i + 1]=new RegionData(tableDir,hri,regions[i].files.length);
+    for (int j=0; j < regions[i].files.length; ++j) {
+      String refName=regions[i].files[j].getName() + '.' + regions[i].hri.getEncodedName();
+      Path refFile=createStoreFile(new Path(rootDir,refName));
+      regions[i + 1].files[j]=rfs.commitStoreFile(TEST_FAMILY,refFile);
+    }
+  }
+  return regions;
+}

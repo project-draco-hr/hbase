@@ -1,0 +1,36 @@
+{
+  RegionVisitor visitor=createRegionVisitor(desc);
+  LOG.debug("Storing '" + regionInfo + "' region-info for snapshot.");
+  Object regionData=visitor.regionOpen(regionInfo);
+  monitor.rethrowException();
+  LOG.debug("Creating references for hfiles");
+  Path mobRegionPath=MobUtils.getMobRegionPath(conf,regionInfo.getTable());
+  for (  HColumnDescriptor hcd : hcds) {
+    if (hcd.isMobEnabled()) {
+      Object familyData=visitor.familyOpen(regionData,hcd.getName());
+      monitor.rethrowException();
+      Path storePath=MobUtils.getMobFamilyPath(mobRegionPath,hcd.getNameAsString());
+      try {
+        if (fs.exists(storePath)) {
+          FileStatus[] stats=fs.listStatus(storePath);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Adding snapshot references for " + stats.length + " hfiles");
+          }
+          for (int i=0, fz=stats.length; i < fz; i++) {
+            FileStatus stat=stats[i];
+            monitor.rethrowException();
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("Adding reference for file (" + (i + 1) + "/"+ fz+ "): "+ stat.getPath());
+            }
+            StoreFileInfo mobStoreFileInfo=new StoreFileInfo(conf,fs,stat);
+            visitor.storeFile(regionData,familyData,mobStoreFileInfo);
+          }
+        }
+      }
+ catch (      FileNotFoundException e) {
+      }
+      visitor.familyClose(regionData,familyData);
+    }
+  }
+  visitor.regionClose(regionData);
+}

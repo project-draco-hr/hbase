@@ -7,6 +7,7 @@
   }
   RestoreMetaChanges metaChanges=new RestoreMetaChanges(parentsMap);
   Set<String> regionNames=new HashSet<String>(regionManifests.keySet());
+  HRegionInfo mobRegion=MobUtils.getMobRegionInfo(snapshotManifest.getTableDescriptor().getTableName());
   List<HRegionInfo> tableRegions=getTableRegions();
   if (tableRegions != null) {
     monitor.rethrowException();
@@ -24,6 +25,12 @@
     }
     monitor.rethrowException();
     status.setStatus("Restoring table regions...");
+    if (regionNames.contains(mobRegion.getEncodedName())) {
+      List<HRegionInfo> mobRegions=new ArrayList<HRegionInfo>(1);
+      mobRegions.add(mobRegion);
+      restoreHdfsMobRegions(exec,regionManifests,mobRegions);
+      regionNames.remove(mobRegion.getEncodedName());
+    }
     restoreHdfsRegions(exec,regionManifests,metaChanges.getRegionsToRestore());
     status.setStatus("Finished restoring all table regions.");
     monitor.rethrowException();
@@ -34,6 +41,10 @@
   if (regionNames.size() > 0) {
     List<HRegionInfo> regionsToAdd=new ArrayList<HRegionInfo>(regionNames.size());
     monitor.rethrowException();
+    if (regionNames.contains(mobRegion.getEncodedName())) {
+      cloneHdfsMobRegion(regionManifests,mobRegion);
+      regionNames.remove(mobRegion.getEncodedName());
+    }
     for (    String regionName : regionNames) {
       LOG.info("region to add: " + regionName);
       regionsToAdd.add(HRegionInfo.convert(regionManifests.get(regionName).getRegionInfo()));

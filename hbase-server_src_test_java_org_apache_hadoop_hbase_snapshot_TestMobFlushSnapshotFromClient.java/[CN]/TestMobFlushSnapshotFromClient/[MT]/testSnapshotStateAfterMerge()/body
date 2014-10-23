@@ -1,0 +1,32 @@
+{
+  int numRows=DEFAULT_NUM_ROWS;
+  Admin admin=UTIL.getHBaseAdmin();
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  SnapshotTestingUtils.loadData(UTIL,TABLE_NAME,numRows,TEST_FAM);
+  String snapshotBeforeMergeName="snapshotBeforeMerge";
+  admin.snapshot(snapshotBeforeMergeName,TABLE_NAME,SnapshotDescription.Type.FLUSH);
+  TableName cloneBeforeMergeName=TableName.valueOf("cloneBeforeMerge");
+  admin.cloneSnapshot(snapshotBeforeMergeName,cloneBeforeMergeName);
+  SnapshotTestingUtils.waitForTableToBeOnline(UTIL,cloneBeforeMergeName);
+  List<HRegionInfo> regions=admin.getTableRegions(TABLE_NAME);
+  Collections.sort(regions,new Comparator<HRegionInfo>(){
+    public int compare(    HRegionInfo r1,    HRegionInfo r2){
+      return Bytes.compareTo(r1.getStartKey(),r2.getStartKey());
+    }
+  }
+);
+  int numRegions=admin.getTableRegions(TABLE_NAME).size();
+  int numRegionsAfterMerge=numRegions - 2;
+  admin.mergeRegions(regions.get(1).getEncodedNameAsBytes(),regions.get(2).getEncodedNameAsBytes(),true);
+  admin.mergeRegions(regions.get(5).getEncodedNameAsBytes(),regions.get(6).getEncodedNameAsBytes(),true);
+  waitRegionsAfterMerge(numRegionsAfterMerge);
+  assertEquals(numRegionsAfterMerge,admin.getTableRegions(TABLE_NAME).size());
+  TableName cloneAfterMergeName=TableName.valueOf("cloneAfterMerge");
+  admin.cloneSnapshot(snapshotBeforeMergeName,cloneAfterMergeName);
+  SnapshotTestingUtils.waitForTableToBeOnline(UTIL,cloneAfterMergeName);
+  MobSnapshotTestingUtils.verifyMobRowCount(UTIL,TABLE_NAME,numRows);
+  MobSnapshotTestingUtils.verifyMobRowCount(UTIL,cloneBeforeMergeName,numRows);
+  MobSnapshotTestingUtils.verifyMobRowCount(UTIL,cloneAfterMergeName,numRows);
+  UTIL.deleteTable(cloneAfterMergeName);
+  UTIL.deleteTable(cloneBeforeMergeName);
+}

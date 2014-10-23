@@ -1,0 +1,28 @@
+{
+  FileSystem fs=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getFileSystem();
+  Path rootDir=UTIL.getHBaseCluster().getMaster().getMasterFileSystem().getRootDir();
+  Admin admin=UTIL.getHBaseAdmin();
+  final long startTime=System.currentTimeMillis();
+  final TableName localTableName=TableName.valueOf(STRING_TABLE_NAME + startTime);
+  HTable original=MobSnapshotTestingUtils.createMobTable(UTIL,localTableName,TEST_FAM);
+  SnapshotTestingUtils.loadData(UTIL,original,500,TEST_FAM);
+  final int loadedTableCount=MobSnapshotTestingUtils.countMobRows(original);
+  System.out.println("Original table has: " + loadedTableCount + " rows");
+  final String snapshotNameAsString="snapshot_" + localTableName;
+  SnapshotTestingUtils.createSnapshotAndValidate(admin,localTableName,TEST_FAM_STR,snapshotNameAsString,rootDir,fs,online);
+  if (!online) {
+    admin.enableTable(localTableName);
+  }
+  TableName cloneTableName=TableName.valueOf("test-clone-" + localTableName);
+  byte[] snapshotName=Bytes.toBytes(snapshotNameAsString);
+  admin.cloneSnapshot(snapshotName,cloneTableName);
+  original.clearRegionCache();
+  List<HRegionInfo> originalTableHRegions=admin.getTableRegions(localTableName);
+  final int originalRegionCount=originalTableHRegions.size();
+  final int cloneTableRegionCount=admin.getTableRegions(cloneTableName).size();
+  Assert.assertEquals("The number of regions in the cloned table is different than in the original table.",originalRegionCount,cloneTableRegionCount);
+  admin.splitRegion(originalTableHRegions.get(0).getRegionName());
+  waitOnSplit(original,originalRegionCount);
+  final int cloneTableRegionCount2=admin.getTableRegions(cloneTableName).size();
+  Assert.assertEquals("The number of regions in the cloned table changed though none of its regions were split.",cloneTableRegionCount,cloneTableRegionCount2);
+}
