@@ -120,10 +120,13 @@
     final WALFactory wals=new WALFactory(getConf(),null,"wals");
     final HRegion[] regions=new HRegion[numRegions];
     final Runnable[] benchmarks=new Runnable[numRegions];
+    final MockRegionServerServices mockServices=new MockRegionServerServices(getConf());
+    final LogRoller roller=new LogRoller(mockServices,mockServices);
+    Threads.setDaemonThreadRunning(roller.getThread(),"WALPerfEval.logRoller");
     try {
       for (int i=0; i < numRegions; i++) {
         final HTableDescriptor htd=createHTableDescriptor(i,numFamilies);
-        regions[i]=openRegion(fs,rootRegionDir,htd,wals,roll);
+        regions[i]=openRegion(fs,rootRegionDir,htd,wals,roll,roller);
         benchmarks[i]=Trace.wrap(new WALPutBenchmark(regions[i],htd,numIterations,noSync,syncInterval,traceFreq));
       }
       ConsoleReporter.enable(this.metrics,30,TimeUnit.SECONDS);
@@ -136,6 +139,7 @@
         }
       }
       if (verify) {
+        LOG.info("verifying written log entries.");
         Path dir=new Path(FSUtils.getRootDir(getConf()),DefaultWALProvider.getWALDirectoryName("wals"));
         long editCount=0;
         FileStatus[] fsss=fs.listStatus(dir);
@@ -152,10 +156,15 @@
       }
     }
   finally {
+      mockServices.stop("test clean up.");
       for (int i=0; i < numRegions; i++) {
         if (regions[i] != null) {
           closeRegion(regions[i]);
         }
+      }
+      if (null != roller) {
+        LOG.info("shutting down log roller.");
+        Threads.shutdown(roller.getThread());
       }
       wals.shutdown();
       if (cleanup)       cleanRegionRootDir(fs,rootRegionDir);
