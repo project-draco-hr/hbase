@@ -1,16 +1,31 @@
 {
   Map<String,TableDescriptor> tds=new TreeMap<String,TableDescriptor>();
-  List<Path> tableDirs=FSUtils.getTableDirs(fs,rootdir);
-  for (  Path d : tableDirs) {
-    TableDescriptor htd=null;
-    try {
-      htd=getDescriptor(FSUtils.getTableName(d));
+  if (fsvisited && usecache) {
+    for (    Map.Entry<TableName,TableDescriptor> entry : this.cache.entrySet()) {
+      tds.put(entry.getKey().toString(),entry.getValue());
     }
- catch (    FileNotFoundException fnfe) {
-      LOG.warn("Trouble retrieving htd",fnfe);
+    tds.put(this.metaTableDescritor.getNameAsString(),new TableDescriptor(metaTableDescritor,TableState.State.ENABLED));
+  }
+ else {
+    LOG.debug("Fetching table descriptors from the filesystem.");
+    boolean allvisited=true;
+    for (    Path d : FSUtils.getTableDirs(fs,rootdir)) {
+      TableDescriptor htd=null;
+      try {
+        htd=getDescriptor(FSUtils.getTableName(d));
+      }
+ catch (      FileNotFoundException fnfe) {
+        LOG.warn("Trouble retrieving htd",fnfe);
+      }
+      if (htd == null) {
+        allvisited=false;
+        continue;
+      }
+ else {
+        tds.put(htd.getHTableDescriptor().getTableName().getNameAsString(),htd);
+      }
+      fsvisited=allvisited;
     }
-    if (htd == null)     continue;
-    tds.put(htd.getHTableDescriptor().getTableName().getNameAsString(),htd);
   }
   return tds;
 }
