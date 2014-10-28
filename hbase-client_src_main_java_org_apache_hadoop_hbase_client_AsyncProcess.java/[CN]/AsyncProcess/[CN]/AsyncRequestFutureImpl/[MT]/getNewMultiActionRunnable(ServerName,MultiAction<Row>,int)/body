@@ -1,0 +1,29 @@
+{
+  if (AsyncProcess.this.connection.getStatisticsTracker() == null) {
+    return Collections.singletonList(Trace.wrap("AsyncProcess.sendMultiAction",new SingleServerRequestRunnable(multiAction,numAttempt,server)));
+  }
+  Map<Long,DelayingRunner> actions=new HashMap<Long,DelayingRunner>(multiAction.size());
+  for (  Map.Entry<byte[],List<Action<Row>>> e : multiAction.actions.entrySet()) {
+    Long backoff=getBackoff(server,e.getKey());
+    DelayingRunner runner=actions.get(backoff);
+    if (runner == null) {
+      actions.put(backoff,new DelayingRunner(backoff,e));
+    }
+ else {
+      runner.add(e);
+    }
+  }
+  List<Runnable> toReturn=new ArrayList<Runnable>(actions.size());
+  for (  DelayingRunner runner : actions.values()) {
+    String traceText="AsyncProcess.sendMultiAction";
+    Runnable runnable=new SingleServerRequestRunnable(runner.getActions(),numAttempt,server);
+    if (runner.getSleepTime() > 0) {
+      runner.setRunner(runnable);
+      traceText="AsyncProcess.clientBackoff.sendMultiAction";
+      runnable=runner;
+    }
+    runnable=Trace.wrap(traceText,runnable);
+    toReturn.add(runnable);
+  }
+  return toReturn;
+}
