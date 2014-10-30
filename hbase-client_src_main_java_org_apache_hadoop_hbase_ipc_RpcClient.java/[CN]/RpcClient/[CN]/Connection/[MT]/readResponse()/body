@@ -12,18 +12,19 @@
       int readSoFar=IPCUtil.getTotalSizeWhenWrittenDelimited(responseHeader);
       int whatIsLeftToRead=totalSize - readSoFar;
       IOUtils.skipFully(in,whatIsLeftToRead);
+      return;
     }
     if (responseHeader.hasException()) {
       ExceptionResponse exceptionResponse=responseHeader.getException();
       RemoteException re=createRemoteException(exceptionResponse);
-      if (expectedCall)       call.setException(re);
+      call.setException(re);
       if (isFatalConnectionException(exceptionResponse)) {
         markClosed(re);
       }
     }
  else {
       Message value=null;
-      if (expectedCall && call.responseDefaultType != null) {
+      if (call.responseDefaultType != null) {
         Builder builder=call.responseDefaultType.newBuilderForType();
         builder.mergeDelimitedFrom(in);
         value=builder.build();
@@ -35,12 +36,13 @@
         IOUtils.readFully(this.in,cellBlock,0,cellBlock.length);
         cellBlockScanner=ipcUtil.createCellScanner(this.codec,this.compressor,cellBlock);
       }
-      if (expectedCall)       call.setResponse(value,cellBlockScanner);
+      call.setResponse(value,cellBlockScanner);
     }
   }
  catch (  IOException e) {
     if (expectedCall)     call.setException(e);
     if (e instanceof SocketTimeoutException) {
+      if (LOG.isTraceEnabled())       LOG.trace("ignored",e);
     }
  else {
       markClosed(e);
