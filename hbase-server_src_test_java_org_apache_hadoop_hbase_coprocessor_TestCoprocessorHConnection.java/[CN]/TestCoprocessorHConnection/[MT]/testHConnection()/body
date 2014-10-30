@@ -1,0 +1,41 @@
+{
+  Admin admin=util.getHBaseAdmin();
+  TableName testTable=TableName.valueOf("TestHConnection");
+  try {
+    if (admin.tableExists(testTable)) {
+      admin.disableTable(testTable);
+      admin.deleteTable(testTable);
+    }
+    HTableDescriptor htd=new HTableDescriptor(testTable);
+    htd.addFamily(new HColumnDescriptor(A));
+    htd.addCoprocessor(FooCoprocessor.class.getName());
+    admin.createTable(htd,new byte[][]{rowSeperator1,rowSeperator2});
+    util.waitUntilAllRegionsAssigned(testTable);
+  }
+  finally {
+    admin.close();
+  }
+  Connection connection=ConnectionFactory.createConnection(util.getConfiguration());
+  Table table=connection.getTable(testTable);
+  try {
+    for (long i=0; i < ROWSIZE; i++) {
+      byte[] iBytes=Bytes.toBytes(i);
+      Put put=new Put(iBytes);
+      put.add(A,A,iBytes);
+      table.put(put);
+    }
+    HRegion firstRegion=cluster.getRegions(testTable).get(0);
+    Coprocessor cp=firstRegion.getCoprocessorHost().findCoprocessor(FooCoprocessor.class.getName());
+    assertNotNull("FooCoprocessor coprocessor should be loaded",cp);
+    FooCoprocessor fc=(FooCoprocessor)cp;
+    byte[] regionStartKey=fc.getRegionStartKey();
+    Get get=new Get(regionStartKey);
+    Result keyData=table.get(get);
+    Result cpData=fc.getOnCoprocessorHConnection(testTable,regionStartKey);
+    assertEquals(keyData.getValue(A,A),cpData.getValue(A,A));
+  }
+  finally {
+    table.close();
+    connection.close();
+  }
+}
