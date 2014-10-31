@@ -11,44 +11,18 @@
   int failures=0;
   for (int tries=0; tries < (this.numRetries * this.retryLongerMultiplier); tries++) {
     try {
-      HRegionLocation firstMetaServer=getFirstMetaServerForTable(tableName);
-      Scan scan=MetaTableAccessor.getScanForTableName(tableName);
-      scan.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
-      ScanRequest request=RequestConverter.buildScanRequest(firstMetaServer.getRegionInfo().getRegionName(),scan,1,true);
-      Result[] values=null;
-      ClientService.BlockingInterface server=connection.getClient(firstMetaServer.getServerName());
-      PayloadCarryingRpcController controller=new PayloadCarryingRpcController();
-      try {
-        controller.setPriority(tableName);
-        ScanResponse response=server.scan(controller,request);
-        values=ResponseConverter.getResults(controller.cellScanner(),response);
-      }
- catch (      ServiceException se) {
-        throw ProtobufUtil.getRemoteException(se);
-      }
-      if (values == null || values.length == 0) {
-        tableExists=false;
-        GetTableDescriptorsResponse htds;
-        MasterKeepAliveConnection master=connection.getKeepAliveMasterService();
-        try {
-          GetTableDescriptorsRequest req=RequestConverter.buildGetTableDescriptorsRequest(tableName);
-          htds=master.getTableDescriptors(null,req);
-        }
- catch (        ServiceException se) {
-          throw ProtobufUtil.getRemoteException(se);
-        }
- finally {
-          master.close();
-        }
-        tableExists=!htds.getTableSchemaList().isEmpty();
-        if (!tableExists) {
+      List<RegionLocations> regionLations=MetaScanner.listTableRegionLocations(conf,connection,tableName);
+      if (regionLations == null || regionLations.size() == 0) {
+        HTableDescriptor htd=getTableDescriptorByTableName(tableName);
+        if (htd == null) {
+          tableExists=false;
           break;
         }
       }
     }
  catch (    IOException ex) {
       failures++;
-      if (failures == numRetries - 1) {
+      if (failures >= numRetries - 1) {
         if (ex instanceof RemoteException) {
           throw ((RemoteException)ex).unwrapRemoteException();
         }
