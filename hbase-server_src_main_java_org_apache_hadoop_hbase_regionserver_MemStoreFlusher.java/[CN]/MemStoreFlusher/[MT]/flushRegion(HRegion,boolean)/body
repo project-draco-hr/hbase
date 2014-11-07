@@ -1,20 +1,32 @@
 {
+  long startTime=0;
 synchronized (this.regionsInQueue) {
     FlushRegionEntry fqe=this.regionsInQueue.remove(region);
+    if (fqe != null) {
+      startTime=fqe.createTime;
+    }
     if (fqe != null && emergencyFlush) {
       flushQueue.remove(fqe);
     }
   }
+  if (startTime == 0) {
+    startTime=EnvironmentEdgeManager.currentTime();
+  }
   lock.readLock().lock();
   try {
     notifyFlushRequest(region,emergencyFlush);
-    boolean shouldCompact=region.flushcache().isCompactionNeeded();
+    HRegion.FlushResult flushResult=region.flushcache();
+    boolean shouldCompact=flushResult.isCompactionNeeded();
     boolean shouldSplit=region.checkSplit() != null;
     if (shouldSplit) {
       this.server.compactSplitThread.requestSplit(region);
     }
  else     if (shouldCompact) {
       server.compactSplitThread.requestSystemCompaction(region,Thread.currentThread().getName());
+    }
+    if (flushResult.isFlushSucceeded()) {
+      long endTime=EnvironmentEdgeManager.currentTime();
+      server.metricsRegionServer.updateFlushTime(endTime - startTime);
     }
   }
  catch (  DroppedSnapshotException ex) {

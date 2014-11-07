@@ -3,9 +3,10 @@
     LOG.debug("Skipping split because server is stopping=" + this.server.isStopping() + " or stopped="+ this.server.isStopped());
     return;
   }
+  boolean success=false;
+  long startTime=EnvironmentEdgeManager.currentTime();
+  SplitTransaction st=new SplitTransaction(parent,midKey);
   try {
-    final long startTime=System.currentTimeMillis();
-    SplitTransaction st=new SplitTransaction(parent,midKey);
     tableLock=server.getTableLockManager().readLock(parent.getTableDesc().getTableName(),"SPLIT_REGION:" + parent.getRegionNameAsString());
     try {
       tableLock.acquire();
@@ -17,6 +18,7 @@
     if (!st.prepare())     return;
     try {
       st.execute(this.server,this.server);
+      success=true;
     }
  catch (    Exception e) {
       if (this.server.isStopping() || this.server.isStopped()) {
@@ -39,7 +41,6 @@
       }
       return;
     }
-    LOG.info("Region split, hbase:meta updated, and report to master. Parent=" + parent.getRegionNameAsString() + ", new regions: "+ st.getFirstDaughter().getRegionNameAsString()+ ", "+ st.getSecondDaughter().getRegionNameAsString()+ ". Split took "+ StringUtils.formatTimeDiff(System.currentTimeMillis(),startTime));
   }
  catch (  IOException ex) {
     ex=ex instanceof RemoteException ? ((RemoteException)ex).unwrapRemoteException() : ex;
@@ -59,5 +60,11 @@
       parent.clearSplit();
     }
     releaseTableLock();
+    long endTime=EnvironmentEdgeManager.currentTime();
+    server.metricsRegionServer.updateSplitTime(endTime - startTime);
+    if (success) {
+      LOG.info("Region split, hbase:meta updated, and report to master. Parent=" + parent.getRegionNameAsString() + ", new regions: "+ st.getFirstDaughter().getRegionNameAsString()+ ", "+ st.getSecondDaughter().getRegionNameAsString()+ ". Split took "+ StringUtils.formatTimeDiff(EnvironmentEdgeManager.currentTime(),startTime));
+    }
+    LOG.info("Split transaction journal:\n\t" + StringUtils.join("\n\t",st.getJournal()));
   }
 }
