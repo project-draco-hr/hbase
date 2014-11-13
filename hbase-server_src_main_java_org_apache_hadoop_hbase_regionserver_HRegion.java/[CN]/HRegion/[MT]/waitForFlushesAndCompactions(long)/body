@@ -1,0 +1,32 @@
+{
+synchronized (writestate) {
+    boolean interrupted=false;
+    try {
+      while (writestate.compacting > 0 || writestate.flushing) {
+        LOG.debug("waiting for " + writestate.compacting + " compactions"+ (writestate.flushing ? " & cache flush" : "")+ " to complete for region "+ this);
+        try {
+          long start=EnvironmentEdgeManager.currentTime();
+          writestate.wait(millis);
+          if (millis > 0 && EnvironmentEdgeManager.currentTime() - start >= millis) {
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("Waited for " + millis + " ms for compactions to finish on close. Interrupting "+ currentCompactions.size()+ " compactions.");
+            }
+            for (            Thread t : currentCompactions.keySet()) {
+              t.interrupt();
+            }
+            millis=0;
+          }
+        }
+ catch (        InterruptedException iex) {
+          LOG.warn("Interrupted while waiting");
+          interrupted=true;
+        }
+      }
+    }
+  finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+}
