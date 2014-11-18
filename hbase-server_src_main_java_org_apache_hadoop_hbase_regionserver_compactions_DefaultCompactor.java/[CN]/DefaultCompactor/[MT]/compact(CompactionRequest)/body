@@ -2,7 +2,19 @@
   FileDetails fd=getFileDetails(request.getFiles(),request.isAllFiles());
   this.progress=new CompactionProgress(fd.maxKeyCount);
   long smallestReadPoint=getSmallestReadPoint();
-  List<StoreFileScanner> scanners=createFileScanners(request.getFiles(),smallestReadPoint);
+  List<StoreFileScanner> scanners;
+  Collection<StoreFile> readersToClose;
+  if (this.conf.getBoolean("hbase.regionserver.compaction.private.readers",false)) {
+    readersToClose=new ArrayList<StoreFile>(request.getFiles().size());
+    for (    StoreFile f : request.getFiles()) {
+      readersToClose.add(new StoreFile(f));
+    }
+    scanners=createFileScanners(readersToClose,smallestReadPoint);
+  }
+ else {
+    readersToClose=Collections.emptyList();
+    scanners=createFileScanners(request.getFiles(),smallestReadPoint);
+  }
   StoreFile.Writer writer=null;
   List<Path> newFiles=new ArrayList<Path>();
   boolean cleanSeqId=false;
@@ -43,14 +55,21 @@
     throw ioe;
   }
  finally {
-    if (writer != null) {
-      if (e != null) {
-        writer.close();
-      }
+    try {
+      if (writer != null) {
+        if (e != null) {
+          writer.close();
+        }
  else {
-        writer.appendMetadata(fd.maxSeqId,request.isAllFiles());
-        writer.close();
-        newFiles.add(writer.getPath());
+          writer.appendMetadata(fd.maxSeqId,request.isAllFiles());
+          writer.close();
+          newFiles.add(writer.getPath());
+        }
+      }
+    }
+  finally {
+      for (      StoreFile f : readersToClose) {
+        f.closeReader(true);
       }
     }
   }
