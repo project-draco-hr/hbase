@@ -1,11 +1,16 @@
 {
   final Path oldLogDir=new Path(rootDir,HConstants.HREGION_OLDLOGDIR_NAME);
-  final String logName=HLogUtil.getHLogDirectoryName(this.serverName.toString());
+  final String logName=DefaultWALProvider.getWALDirectoryName(this.serverName.toString());
   Path logdir=new Path(rootDir,logName);
   if (LOG.isDebugEnabled())   LOG.debug("logdir=" + logdir);
   if (this.fs.exists(logdir)) {
     throw new RegionServerRunningException("Region server has already " + "created directory at " + this.serverName.toString());
   }
   createNewReplicationInstance(conf,this,this.fs,logdir,oldLogDir);
-  return instantiateHLog(rootDir,logName);
+  final List<WALActionsListener> listeners=new ArrayList<WALActionsListener>();
+  listeners.add(new MetricsWAL());
+  if (this.replicationSourceHandler != null && this.replicationSourceHandler.getWALActionsListener() != null) {
+    listeners.add(this.replicationSourceHandler.getWALActionsListener());
+  }
+  return new WALFactory(conf,listeners,serverName.toString());
 }

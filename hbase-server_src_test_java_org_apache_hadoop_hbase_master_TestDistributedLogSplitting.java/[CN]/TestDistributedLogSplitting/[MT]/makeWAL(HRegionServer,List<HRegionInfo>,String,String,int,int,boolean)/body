@@ -1,0 +1,63 @@
+{
+  TableName fullTName=TableName.valueOf(tname);
+  regions.remove(HRegionInfo.FIRST_META_REGIONINFO);
+  final AtomicLong sequenceId=new AtomicLong(10);
+  for (Iterator<HRegionInfo> iter=regions.iterator(); iter.hasNext(); ) {
+    HRegionInfo regionInfo=iter.next();
+    if (regionInfo.getTable().isSystemTable()) {
+      iter.remove();
+    }
+  }
+  HTableDescriptor htd=new HTableDescriptor(fullTName);
+  byte[] family=Bytes.toBytes(fname);
+  htd.addFamily(new HColumnDescriptor(family));
+  byte[] value=new byte[edit_size];
+  List<HRegionInfo> hris=new ArrayList<HRegionInfo>();
+  for (  HRegionInfo region : regions) {
+    if (!region.getTable().getNameAsString().equalsIgnoreCase(tname)) {
+      continue;
+    }
+    hris.add(region);
+  }
+  LOG.info("Creating wal edits across " + hris.size() + " regions.");
+  for (int i=0; i < edit_size; i++) {
+    value[i]=(byte)('a' + (i % 26));
+  }
+  int n=hris.size();
+  int[] counts=new int[n];
+  final int syncEvery=30 * 1024 / edit_size;
+  if (n > 0) {
+    for (int i=0; i < num_edits; i+=1) {
+      WALEdit e=new WALEdit();
+      HRegionInfo curRegionInfo=hris.get(i % n);
+      final WAL log=hrs.getWAL(curRegionInfo);
+      byte[] startRow=curRegionInfo.getStartKey();
+      if (startRow == null || startRow.length == 0) {
+        startRow=new byte[]{0,0,0,0,1};
+      }
+      byte[] row=Bytes.incrementBytes(startRow,counts[i % n]);
+      row=Arrays.copyOfRange(row,3,8);
+      byte[] qualifier=Bytes.toBytes("c" + Integer.toString(i));
+      e.add(new KeyValue(row,family,qualifier,System.currentTimeMillis(),value));
+      log.append(htd,curRegionInfo,new HLogKey(curRegionInfo.getEncodedNameAsBytes(),fullTName,System.currentTimeMillis()),e,sequenceId,true,null);
+      if (0 == i % syncEvery) {
+        log.sync();
+      }
+      counts[i % n]+=1;
+    }
+  }
+  for (  HRegionInfo info : hris) {
+    final WAL log=hrs.getWAL(info);
+    log.sync();
+  }
+  if (cleanShutdown) {
+    for (    HRegionInfo info : hris) {
+      final WAL log=hrs.getWAL(info);
+      log.shutdown();
+    }
+  }
+  for (int i=0; i < n; i++) {
+    LOG.info("region " + hris.get(i).getRegionNameAsString() + " has "+ counts[i]+ " edits");
+  }
+  return;
+}

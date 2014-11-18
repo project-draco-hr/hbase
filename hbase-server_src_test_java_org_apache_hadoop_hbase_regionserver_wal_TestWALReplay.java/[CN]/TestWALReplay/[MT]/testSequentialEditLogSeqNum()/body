@@ -1,12 +1,12 @@
 {
-  final TableName tableName=TableName.valueOf("testSequentialEditLogSeqNum");
+  final TableName tableName=TableName.valueOf(currentTest.getMethodName());
   final HRegionInfo hri=createBasic3FamilyHRegionInfo(tableName);
   final Path basedir=FSUtils.getTableDir(this.hbaseRootDir,tableName);
   deleteDir(basedir);
   final byte[] rowName=tableName.getName();
   final int countPerFamily=10;
   final HTableDescriptor htd=createBasic1FamilyHTD(tableName);
-  MockHLog wal=createMockWAL(this.conf);
+  MockWAL wal=createMockWAL();
   HRegion region=HRegion.openHRegion(this.conf,this.fs,hbaseRootDir,hri,htd,wal);
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
     addRegionEdits(rowName,hcd.getName(),countPerFamily,this.ee,region,"x");
@@ -18,9 +18,11 @@
   long lastestSeqNumber=region.getSequenceId().get();
   wal.doCompleteCacheFlush=true;
   wal.completeCacheFlush(hri.getEncodedNameAsBytes());
-  wal.close();
-  FileStatus[] listStatus=this.fs.listStatus(wal.getDir());
-  HLogSplitter.splitLogFile(hbaseRootDir,listStatus[0],this.fs,this.conf,null,null,null,mode);
+  wal.shutdown();
+  FileStatus[] listStatus=wal.getFiles();
+  assertNotNull(listStatus);
+  assertTrue(listStatus.length > 0);
+  WALSplitter.splitLogFile(hbaseRootDir,listStatus[0],this.fs,this.conf,null,null,null,mode,wals);
   FileStatus[] listStatus1=this.fs.listStatus(new Path(FSUtils.getTableDir(hbaseRootDir,tableName),new Path(hri.getEncodedName(),"recovered.edits")));
   int editCount=0;
   for (  FileStatus fileStatus : listStatus1) {

@@ -1,35 +1,24 @@
 {
-  if (this.closed)   return;
-  try {
-    closeBarrier.stopAndDrainOps();
-  }
- catch (  InterruptedException e) {
-    LOG.error("Exception while waiting for cache flushes and log rolls",e);
-    Thread.currentThread().interrupt();
-  }
-  if (this.disruptor != null) {
-    long timeoutms=conf.getLong("hbase.wal.disruptor.shutdown.timeout.ms",60000);
-    try {
-      this.disruptor.shutdown(timeoutms,TimeUnit.MILLISECONDS);
+  shutdown();
+  final FileStatus[] files=getFiles();
+  if (null != files && 0 != files.length) {
+    for (    FileStatus file : files) {
+      Path p=getWALArchivePath(this.fullPathArchiveDir,file.getPath());
+      if (!this.listeners.isEmpty()) {
+        for (        WALActionsListener i : this.listeners) {
+          i.preLogArchive(file.getPath(),p);
+        }
+      }
+      if (!FSUtils.renameAndSetModifyTime(fs,file.getPath(),p)) {
+        throw new IOException("Unable to rename " + file.getPath() + " to "+ p);
+      }
+      if (!this.listeners.isEmpty()) {
+        for (        WALActionsListener i : this.listeners) {
+          i.postLogArchive(file.getPath(),p);
+        }
+      }
     }
- catch (    TimeoutException e) {
-      LOG.warn("Timed out bringing down disruptor after " + timeoutms + "ms; forcing halt "+ "(It is a problem if this is NOT an ABORT! -- DATALOSS!!!!)");
-      this.disruptor.halt();
-      this.disruptor.shutdown();
-    }
+    LOG.debug("Moved " + files.length + " WAL file(s) to "+ FSUtils.getPath(this.fullPathArchiveDir));
   }
-  if (this.appendExecutor != null)   this.appendExecutor.shutdown();
-  if (!this.listeners.isEmpty()) {
-    for (    WALActionsListener i : this.listeners) {
-      i.logCloseRequested();
-    }
-  }
-  this.closed=true;
-  if (LOG.isDebugEnabled()) {
-    LOG.debug("Closing WAL writer in " + this.fullPathLogDir.toString());
-  }
-  if (this.writer != null) {
-    this.writer.close();
-    this.writer=null;
-  }
+  LOG.info("Closed WAL: " + toString());
 }

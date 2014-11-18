@@ -3,8 +3,11 @@
   TableName tableName=TableName.valueOf(method);
   byte[] family=Bytes.toBytes("family");
   Path logDir=TEST_UTIL.getDataTestDirOnTestFS(method + "log");
-  HLog hlog=spy(HLogFactory.createHLog(FILESYSTEM,logDir,"logs",TEST_UTIL.getConfiguration()));
-  this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,hlog,family);
+  final Configuration walConf=new Configuration(TEST_UTIL.getConfiguration());
+  FSUtils.setRootDir(walConf,logDir);
+  final WALFactory wals=new WALFactory(walConf,null,method);
+  WAL wal=spy(wals.getWAL(tableName.getName()));
+  this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,wal,family);
   try {
     int i=0;
     Put put=new Put(Bytes.toBytes(i));
@@ -12,7 +15,7 @@
     put.add(family,Bytes.toBytes(i),Bytes.toBytes(i));
     region.put(put);
     IsFlushWALMarker isFlushWALMarker=new IsFlushWALMarker(FlushAction.START_FLUSH);
-    when(hlog.appendNoSync((HTableDescriptor)any(),(HRegionInfo)any(),(HLogKey)any(),(WALEdit)argThat(isFlushWALMarker),(AtomicLong)any(),Mockito.anyBoolean(),(List<Cell>)any())).thenThrow(new IOException("Fail to append flush marker"));
+    when(wal.append((HTableDescriptor)any(),(HRegionInfo)any(),(WALKey)any(),(WALEdit)argThat(isFlushWALMarker),(AtomicLong)any(),Mockito.anyBoolean(),(List<Cell>)any())).thenThrow(new IOException("Fail to append flush marker"));
     try {
       region.flushcache();
       fail("This should have thrown exception");
@@ -33,7 +36,7 @@ catch (    IOException unexpected) {
       throw unexpected;
     }
     region.close();
-    this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,hlog,family);
+    this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,wal,family);
     region.put(put);
     isFlushWALMarker.set(FlushAction.COMMIT_FLUSH,FlushAction.ABORT_FLUSH);
     try {

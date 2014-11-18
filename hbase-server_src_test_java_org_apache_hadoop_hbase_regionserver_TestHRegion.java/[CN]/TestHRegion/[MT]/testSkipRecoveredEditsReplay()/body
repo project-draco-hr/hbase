@@ -3,21 +3,22 @@
   TableName tableName=TableName.valueOf(method);
   byte[] family=Bytes.toBytes("family");
   this.region=initHRegion(tableName,method,CONF,family);
+  final WALFactory wals=new WALFactory(CONF,null,method);
   try {
     Path regiondir=region.getRegionFileSystem().getRegionDir();
     FileSystem fs=region.getRegionFileSystem().getFileSystem();
     byte[] regionName=region.getRegionInfo().getEncodedNameAsBytes();
-    Path recoveredEditsDir=HLogUtil.getRegionDirRecoveredEditsDir(regiondir);
+    Path recoveredEditsDir=WALSplitter.getRegionDirRecoveredEditsDir(regiondir);
     long maxSeqId=1050;
     long minSeqId=1000;
     for (long i=minSeqId; i <= maxSeqId; i+=10) {
       Path recoveredEdits=new Path(recoveredEditsDir,String.format("%019d",i));
       fs.create(recoveredEdits);
-      HLog.Writer writer=HLogFactory.createRecoveredEditsWriter(fs,recoveredEdits,CONF);
+      WALProvider.Writer writer=wals.createRecoveredEditsWriter(fs,recoveredEdits);
       long time=System.nanoTime();
       WALEdit edit=new WALEdit();
       edit.add(new KeyValue(row,family,Bytes.toBytes(i),time,KeyValue.Type.Put,Bytes.toBytes(i)));
-      writer.append(new HLog.Entry(new HLogKey(regionName,tableName,i,time,HConstants.DEFAULT_CLUSTER_ID),edit));
+      writer.append(new WAL.Entry(new HLogKey(regionName,tableName,i,time,HConstants.DEFAULT_CLUSTER_ID),edit));
       writer.close();
     }
     MonitoredTask status=TaskMonitor.get().createStatus(method);
@@ -39,5 +40,6 @@
   finally {
     HRegion.closeHRegion(this.region);
     this.region=null;
+    wals.close();
   }
 }

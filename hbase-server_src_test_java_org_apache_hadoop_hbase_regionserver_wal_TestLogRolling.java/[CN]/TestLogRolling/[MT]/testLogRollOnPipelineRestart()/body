@@ -1,21 +1,20 @@
 {
   LOG.info("Starting testLogRollOnPipelineRestart");
-  assertTrue("This test requires HLog file replication.",fs.getDefaultReplication(TEST_UTIL.getDataTestDirOnTestFS()) > 1);
+  assertTrue("This test requires WAL file replication.",fs.getDefaultReplication(TEST_UTIL.getDataTestDirOnTestFS()) > 1);
   LOG.info("Replication=" + fs.getDefaultReplication(TEST_UTIL.getDataTestDirOnTestFS()));
   Table t=new HTable(TEST_UTIL.getConfiguration(),TableName.META_TABLE_NAME);
   try {
     this.server=cluster.getRegionServer(0);
-    this.log=server.getWAL();
     HTableDescriptor desc=new HTableDescriptor(TableName.valueOf(getName()));
     desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
     admin.createTable(desc);
     HTable table=new HTable(TEST_UTIL.getConfiguration(),desc.getTableName());
     server=TEST_UTIL.getRSForFirstRegionInTable(desc.getTableName());
-    this.log=server.getWAL();
+    final WAL log=server.getWAL(null);
     final List<Path> paths=new ArrayList<Path>();
     final List<Integer> preLogRolledCalled=new ArrayList<Integer>();
-    paths.add(((FSHLog)log).computeFilename());
-    log.registerWALActionsListener(new WALActionsListener(){
+    paths.add(DefaultWALProvider.getCurrentFileName(log));
+    log.registerWALActionsListener(new WALActionsListener.Base(){
       @Override public void preLogRoll(      Path oldFile,      Path newFile){
         LOG.debug("preLogRoll: oldFile=" + oldFile + " newFile="+ newFile);
         preLogRolledCalled.add(new Integer(1));
@@ -23,35 +22,23 @@
       @Override public void postLogRoll(      Path oldFile,      Path newFile){
         paths.add(newFile);
       }
-      @Override public void preLogArchive(      Path oldFile,      Path newFile){
-      }
-      @Override public void postLogArchive(      Path oldFile,      Path newFile){
-      }
-      @Override public void logRollRequested(){
-      }
-      @Override public void logCloseRequested(){
-      }
-      @Override public void visitLogEntryBeforeWrite(      HRegionInfo info,      HLogKey logKey,      WALEdit logEdit){
-      }
-      @Override public void visitLogEntryBeforeWrite(      HTableDescriptor htd,      HLogKey logKey,      WALEdit logEdit){
-      }
     }
 );
-    assertTrue("Need HDFS-826 for this test",((FSHLog)log).canGetCurReplicas());
     assertTrue("Need append support for this test",FSUtils.isAppendSupported(TEST_UTIL.getConfiguration()));
     writeData(table,1002);
     table.setAutoFlush(true,true);
     long curTime=System.currentTimeMillis();
-    long oldFilenum=log.getFilenum();
+    LOG.info("log.getCurrentFileName()): " + DefaultWALProvider.getCurrentFileName(log));
+    long oldFilenum=DefaultWALProvider.extractFileNumFromWAL(log);
     assertTrue("Log should have a timestamp older than now",curTime > oldFilenum && oldFilenum != -1);
-    assertTrue("The log shouldn't have rolled yet",oldFilenum == log.getFilenum());
+    assertTrue("The log shouldn't have rolled yet",oldFilenum == DefaultWALProvider.extractFileNumFromWAL(log));
     dfsCluster.restartDataNodes();
     Thread.sleep(1000);
     dfsCluster.waitActive();
     LOG.info("Data Nodes restarted");
     validateData(table,1002);
     writeData(table,1003);
-    long newFilenum=log.getFilenum();
+    long newFilenum=DefaultWALProvider.extractFileNumFromWAL(log);
     assertTrue("Missing datanode should've triggered a log roll",newFilenum > oldFilenum && newFilenum > curTime);
     validateData(table,1003);
     writeData(table,1004);
@@ -68,11 +55,11 @@
     for (    Path p : paths) {
       LOG.debug("recovering lease for " + p);
       fsUtils.recoverFileLease(((HFileSystem)fs).getBackingFs(),p,TEST_UTIL.getConfiguration(),null);
-      LOG.debug("Reading HLog " + FSUtils.getPath(p));
-      HLog.Reader reader=null;
+      LOG.debug("Reading WAL " + FSUtils.getPath(p));
+      WAL.Reader reader=null;
       try {
-        reader=HLogFactory.createReader(fs,p,TEST_UTIL.getConfiguration());
-        HLog.Entry entry;
+        reader=WALFactory.createReader(fs,p,TEST_UTIL.getConfiguration());
+        WAL.Entry entry;
         while ((entry=reader.next()) != null) {
           LOG.debug("#" + entry.getKey().getLogSeqNum() + ": "+ entry.getEdit().getCells());
           for (          Cell cell : entry.getEdit().getCells()) {

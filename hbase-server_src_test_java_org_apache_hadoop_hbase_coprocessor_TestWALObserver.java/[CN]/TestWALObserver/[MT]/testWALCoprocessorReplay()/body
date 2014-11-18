@@ -7,14 +7,14 @@
   deleteDir(basedir);
   fs.mkdirs(new Path(basedir,hri.getEncodedName()));
   final Configuration newConf=HBaseConfiguration.create(this.conf);
-  HLog wal=createWAL(this.conf);
+  WAL wal=wals.getWAL(UNSPECIFIED_REGION);
   WALEdit edit=new WALEdit();
   long now=EnvironmentEdgeManager.currentTime();
   final int countPerFamily=1000;
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
     addWALEdits(tableName,hri,TEST_ROW,hcd.getName(),countPerFamily,EnvironmentEdgeManager.getDelegate(),wal,htd,sequenceId);
   }
-  wal.append(hri,tableName,edit,now,htd,sequenceId);
+  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,now),edit,sequenceId,true,null);
   wal.sync();
   User user=HBaseTestingUtility.getDifferentUser(newConf,".replay.wal.secondtime");
   user.runAs(new PrivilegedExceptionAction(){
@@ -22,15 +22,19 @@
       Path p=runWALSplit(newConf);
       LOG.info("WALSplit path == " + p);
       FileSystem newFS=FileSystem.get(newConf);
-      HLog wal2=createWAL(newConf);
+      final WALFactory wals2=new WALFactory(conf,null,currentTest.getMethodName() + "2");
+      WAL wal2=wals2.getWAL(UNSPECIFIED_REGION);
+      ;
       HRegion region=HRegion.openHRegion(newConf,FileSystem.get(newConf),hbaseRootDir,hri,htd,wal2,TEST_UTIL.getHBaseCluster().getRegionServer(0),null);
       long seqid2=region.getOpenSeqNum();
       SampleRegionWALObserver cp2=(SampleRegionWALObserver)region.getCoprocessorHost().findCoprocessor(SampleRegionWALObserver.class.getName());
       assertNotNull(cp2);
       assertTrue(cp2.isPreWALRestoreCalled());
       assertTrue(cp2.isPostWALRestoreCalled());
+      assertFalse(cp2.isPreWALRestoreDeprecatedCalled());
+      assertFalse(cp2.isPostWALRestoreDeprecatedCalled());
       region.close();
-      wal2.closeAndDelete();
+      wals2.close();
       return null;
     }
   }

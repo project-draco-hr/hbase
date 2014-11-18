@@ -8,7 +8,7 @@
   final HTableDescriptor htd=createBasic3FamilyHTD(tableName);
   HRegion region3=HRegion.createHRegion(hri,hbaseRootDir,this.conf,htd);
   HRegion.closeHRegion(region3);
-  HLog wal=createWAL(this.conf);
+  WAL wal=createWAL(this.conf);
   HRegion region=HRegion.openHRegion(this.conf,this.fs,hbaseRootDir,hri,htd,wal);
   long seqid=region.getOpenSeqNum();
   boolean first=true;
@@ -23,9 +23,9 @@
   Result result=region.get(g);
   assertEquals(countPerFamily * htd.getFamilies().size(),result.size());
   region.close(true);
-  wal.close();
+  wal.shutdown();
   runWALSplit(this.conf);
-  HLog wal2=createWAL(this.conf);
+  WAL wal2=createWAL(this.conf);
   HRegion region2=HRegion.openHRegion(conf,this.fs,hbaseRootDir,hri,htd,wal2);
   long seqid2=region2.getOpenSeqNum();
   assertTrue(seqid + result.size() < seqid2);
@@ -37,14 +37,13 @@
   final Result result2=region2.get(g);
   assertEquals(2 * result.size(),result2.size());
   wal2.sync();
-  HBaseTestingUtility.setMaxRecoveryErrorCount(((FSHLog)wal2).getOutputStream(),1);
   final Configuration newConf=HBaseConfiguration.create(this.conf);
   User user=HBaseTestingUtility.getDifferentUser(newConf,tableName.getNameAsString());
   user.runAs(new PrivilegedExceptionAction(){
     @Override public Object run() throws Exception {
       runWALSplit(newConf);
       FileSystem newFS=FileSystem.get(newConf);
-      HLog wal3=createWAL(newConf);
+      WAL wal3=createWAL(newConf);
       final AtomicInteger countOfRestoredEdits=new AtomicInteger(0);
       HRegion region3=new HRegion(basedir,wal3,newFS,newConf,hri,htd,null){
         @Override protected boolean restoreEdit(        Store s,        Cell cell){
@@ -59,7 +58,7 @@
       assertEquals(result2.size(),result3.size());
       assertEquals(htd.getFamilies().size() * countPerFamily,countOfRestoredEdits.get());
       region3.close();
-      wal3.closeAndDelete();
+      wal3.close();
       return null;
     }
   }

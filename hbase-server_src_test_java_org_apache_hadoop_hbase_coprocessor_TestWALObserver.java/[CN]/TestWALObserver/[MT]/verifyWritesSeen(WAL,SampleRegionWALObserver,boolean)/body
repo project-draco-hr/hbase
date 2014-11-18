@@ -1,0 +1,63 @@
+{
+  HRegionInfo hri=createBasic3FamilyHRegionInfo(Bytes.toString(TEST_TABLE));
+  final HTableDescriptor htd=createBasic3FamilyHTD(Bytes.toString(TEST_TABLE));
+  Path basedir=new Path(this.hbaseRootDir,Bytes.toString(TEST_TABLE));
+  deleteDir(basedir);
+  fs.mkdirs(new Path(basedir,hri.getEncodedName()));
+  final AtomicLong sequenceId=new AtomicLong(0);
+  cp.setTestValues(TEST_TABLE,TEST_ROW,TEST_FAMILY[0],TEST_QUALIFIER[0],TEST_FAMILY[1],TEST_QUALIFIER[1],TEST_FAMILY[2],TEST_QUALIFIER[2]);
+  assertFalse(cp.isPreWALWriteCalled());
+  assertFalse(cp.isPostWALWriteCalled());
+  assertFalse(cp.isPreWALWriteDeprecatedCalled());
+  assertFalse(cp.isPostWALWriteDeprecatedCalled());
+  Put p=creatPutWith2Families(TEST_ROW);
+  Map<byte[],List<Cell>> familyMap=p.getFamilyCellMap();
+  WALEdit edit=new WALEdit();
+  addFamilyMapToWALEdit(familyMap,edit);
+  boolean foundFamily0=false;
+  boolean foundFamily2=false;
+  boolean modifiedFamily1=false;
+  List<Cell> cells=edit.getCells();
+  for (  Cell cell : cells) {
+    if (Arrays.equals(cell.getFamily(),TEST_FAMILY[0])) {
+      foundFamily0=true;
+    }
+    if (Arrays.equals(cell.getFamily(),TEST_FAMILY[2])) {
+      foundFamily2=true;
+    }
+    if (Arrays.equals(cell.getFamily(),TEST_FAMILY[1])) {
+      if (!Arrays.equals(cell.getValue(),TEST_VALUE[1])) {
+        modifiedFamily1=true;
+      }
+    }
+  }
+  assertTrue(foundFamily0);
+  assertFalse(foundFamily2);
+  assertFalse(modifiedFamily1);
+  long now=EnvironmentEdgeManager.currentTime();
+  long txid=log.append(htd,hri,new HLogKey(hri.getEncodedNameAsBytes(),hri.getTable(),now),edit,sequenceId,true,null);
+  log.sync(txid);
+  foundFamily0=false;
+  foundFamily2=false;
+  modifiedFamily1=false;
+  for (  Cell cell : cells) {
+    if (Arrays.equals(cell.getFamily(),TEST_FAMILY[0])) {
+      foundFamily0=true;
+    }
+    if (Arrays.equals(cell.getFamily(),TEST_FAMILY[2])) {
+      foundFamily2=true;
+    }
+    if (Arrays.equals(cell.getFamily(),TEST_FAMILY[1])) {
+      if (!Arrays.equals(cell.getValue(),TEST_VALUE[1])) {
+        modifiedFamily1=true;
+      }
+    }
+  }
+  assertFalse(foundFamily0);
+  assertTrue(foundFamily2);
+  assertTrue(modifiedFamily1);
+  assertTrue(cp.isPreWALWriteCalled());
+  assertTrue(cp.isPostWALWriteCalled());
+  assertEquals(seesLegacy,cp.isPreWALWriteDeprecatedCalled());
+  assertEquals(seesLegacy,cp.isPostWALWriteDeprecatedCalled());
+}

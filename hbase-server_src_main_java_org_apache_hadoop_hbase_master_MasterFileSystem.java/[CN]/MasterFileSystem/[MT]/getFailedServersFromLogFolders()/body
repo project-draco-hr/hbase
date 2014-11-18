@@ -1,5 +1,5 @@
 {
-  boolean retrySplitting=!conf.getBoolean("hbase.hlog.split.skip.errors",HLog.SPLIT_SKIP_ERRORS_DEFAULT);
+  boolean retrySplitting=!conf.getBoolean("hbase.hlog.split.skip.errors",WALSplitter.SPLIT_SKIP_ERRORS_DEFAULT);
   Set<ServerName> serverNames=new HashSet<ServerName>();
   Path logsDirPath=new Path(this.rootdir,HConstants.HREGION_LOGDIR_NAME);
   do {
@@ -16,12 +16,11 @@
         return serverNames;
       }
       for (      FileStatus status : logFolders) {
-        String sn=status.getPath().getName();
-        if (sn.endsWith(HLog.SPLITTING_EXT)) {
-          sn=sn.substring(0,sn.length() - HLog.SPLITTING_EXT.length());
+        final ServerName serverName=DefaultWALProvider.getServerNameFromWALDirectoryName(status.getPath());
+        if (null == serverName) {
+          LOG.warn("Log folder " + status.getPath() + " doesn't look like its name includes a "+ "region server name; leaving in place. If you see later errors about missing "+ "write ahead logs they may be saved in this location.");
         }
-        ServerName serverName=ServerName.parseServerName(sn);
-        if (!onlineServers.contains(serverName)) {
+ else         if (!onlineServers.contains(serverName)) {
           LOG.info("Log folder " + status.getPath() + " doesn't belong "+ "to a known region server, splitting");
           serverNames.add(serverName);
         }

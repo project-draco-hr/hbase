@@ -1,15 +1,21 @@
 {
   HRegion toReturn=this.onlineRegions.remove(r.getRegionInfo().getEncodedName());
   if (destination != null) {
-    HLog wal=getWAL();
-    long closeSeqNum=wal.getEarliestMemstoreSeqNum(r.getRegionInfo().getEncodedNameAsBytes());
-    if (closeSeqNum == HConstants.NO_SEQNUM) {
-      closeSeqNum=r.getOpenSeqNum();
+    try {
+      WAL wal=getWAL(r.getRegionInfo());
+      long closeSeqNum=wal.getEarliestMemstoreSeqNum(r.getRegionInfo().getEncodedNameAsBytes());
       if (closeSeqNum == HConstants.NO_SEQNUM) {
-        closeSeqNum=0;
+        closeSeqNum=r.getOpenSeqNum();
+        if (closeSeqNum == HConstants.NO_SEQNUM) {
+          closeSeqNum=0;
+        }
       }
+      addToMovedRegions(r.getRegionInfo().getEncodedName(),destination,closeSeqNum);
     }
-    addToMovedRegions(r.getRegionInfo().getEncodedName(),destination,closeSeqNum);
+ catch (    IOException exception) {
+      LOG.error("Could not retrieve WAL information for region " + r.getRegionInfo() + "; not adding to moved regions.");
+      LOG.debug("Exception details for failure to get wal",exception);
+    }
   }
   this.regionFavoredNodesMap.remove(r.getRegionInfo().getEncodedName());
   return toReturn != null;

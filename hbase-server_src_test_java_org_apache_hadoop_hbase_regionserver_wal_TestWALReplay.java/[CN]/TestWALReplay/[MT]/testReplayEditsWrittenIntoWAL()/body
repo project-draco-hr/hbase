@@ -6,7 +6,7 @@
   final HTableDescriptor htd=createBasic3FamilyHTD(tableName);
   HRegion region2=HRegion.createHRegion(hri,hbaseRootDir,this.conf,htd);
   HRegion.closeHRegion(region2);
-  final HLog wal=createWAL(this.conf);
+  final WAL wal=createWAL(this.conf);
   final byte[] rowName=tableName.getName();
   final byte[] regionName=hri.getEncodedNameAsBytes();
   final AtomicLong sequenceId=new AtomicLong(1);
@@ -19,13 +19,12 @@
   WALEdit edit=new WALEdit();
   long now=ee.currentTime();
   edit.add(new KeyValue(rowName,Bytes.toBytes("another family"),rowName,now,rowName));
-  wal.append(hri,tableName,edit,now,htd,sequenceId);
+  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,now),edit,sequenceId,true,null);
   edit=new WALEdit();
   now=ee.currentTime();
   edit.add(new KeyValue(rowName,Bytes.toBytes("c"),null,now,KeyValue.Type.DeleteFamily));
-  wal.append(hri,tableName,edit,now,htd,sequenceId);
+  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,now),edit,sequenceId,true,null);
   wal.sync();
-  HBaseTestingUtility.setMaxRecoveryErrorCount(((FSHLog)wal).getOutputStream(),1);
   final Configuration newConf=HBaseConfiguration.create(this.conf);
   User user=HBaseTestingUtility.getDifferentUser(newConf,".replay.wal.secondtime");
   user.runAs(new PrivilegedExceptionAction(){
@@ -33,11 +32,11 @@
       runWALSplit(newConf);
       FileSystem newFS=FileSystem.get(newConf);
       newConf.setInt(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,1024 * 100);
-      HLog newWal=createWAL(newConf);
+      WAL newWal=createWAL(newConf);
       final AtomicInteger flushcount=new AtomicInteger(0);
       try {
         final HRegion region=new HRegion(basedir,newWal,newFS,newConf,hri,htd,null){
-          @Override protected FlushResult internalFlushcache(          final HLog wal,          final long myseqid,          MonitoredTask status) throws IOException {
+          @Override protected FlushResult internalFlushcache(          final WAL wal,          final long myseqid,          MonitoredTask status) throws IOException {
             LOG.info("InternalFlushCache Invoked");
             FlushResult fs=super.internalFlushcache(wal,myseqid,Mockito.mock(MonitoredTask.class));
             flushcount.incrementAndGet();
@@ -54,7 +53,7 @@
         region.close();
       }
   finally {
-        newWal.closeAndDelete();
+        newWal.close();
       }
       return null;
     }

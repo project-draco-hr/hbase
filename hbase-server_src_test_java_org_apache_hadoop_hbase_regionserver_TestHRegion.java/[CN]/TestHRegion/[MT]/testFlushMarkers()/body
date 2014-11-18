@@ -3,8 +3,11 @@
   TableName tableName=TableName.valueOf(method);
   byte[] family=Bytes.toBytes("family");
   Path logDir=TEST_UTIL.getDataTestDirOnTestFS(method + ".log");
-  HLog hlog=HLogFactory.createHLog(FILESYSTEM,logDir,"logs",TEST_UTIL.getConfiguration());
-  this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,hlog,family);
+  final Configuration walConf=new Configuration(TEST_UTIL.getConfiguration());
+  FSUtils.setRootDir(walConf,logDir);
+  final WALFactory wals=new WALFactory(walConf,null,method);
+  final WAL wal=wals.getWAL(tableName.getName());
+  this.region=initHRegion(tableName.getName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,wal,family);
   try {
     Path regiondir=region.getRegionFileSystem().getRegionDir();
     FileSystem fs=region.getRegionFileSystem().getFileSystem();
@@ -22,51 +25,64 @@
     for (    StoreFile sf : region.getStore(family).getStorefiles()) {
       storeFiles.add(sf.getPath().getName());
     }
-    hlog.close();
-    HLog.Reader reader=HLogFactory.createReader(fs,fs.listStatus(new Path(logDir,"logs"))[0].getPath(),TEST_UTIL.getConfiguration());
-    List<HLog.Entry> flushDescriptors=new ArrayList<HLog.Entry>();
-    long lastFlushSeqId=-1;
-    while (true) {
-      HLog.Entry entry=reader.next();
-      if (entry == null) {
-        break;
-      }
-      Cell cell=entry.getEdit().getCells().get(0);
-      if (WALEdit.isMetaEditFamily(cell)) {
-        FlushDescriptor flushDesc=WALEdit.getFlushDescriptor(cell);
-        assertNotNull(flushDesc);
-        assertArrayEquals(tableName.getName(),flushDesc.getTableName().toByteArray());
-        if (flushDesc.getAction() == FlushAction.START_FLUSH) {
-          assertTrue(flushDesc.getFlushSequenceNumber() > lastFlushSeqId);
+    wal.shutdown();
+    WAL.Reader reader=wals.createReader(fs,DefaultWALProvider.getCurrentFileName(wal),TEST_UTIL.getConfiguration());
+    try {
+      List<WAL.Entry> flushDescriptors=new ArrayList<WAL.Entry>();
+      long lastFlushSeqId=-1;
+      while (true) {
+        WAL.Entry entry=reader.next();
+        if (entry == null) {
+          break;
         }
- else         if (flushDesc.getAction() == FlushAction.COMMIT_FLUSH) {
-          assertTrue(flushDesc.getFlushSequenceNumber() == lastFlushSeqId);
-        }
-        lastFlushSeqId=flushDesc.getFlushSequenceNumber();
-        assertArrayEquals(regionName,flushDesc.getEncodedRegionName().toByteArray());
-        assertEquals(1,flushDesc.getStoreFlushesCount());
-        StoreFlushDescriptor storeFlushDesc=flushDesc.getStoreFlushes(0);
-        assertArrayEquals(family,storeFlushDesc.getFamilyName().toByteArray());
-        assertEquals("family",storeFlushDesc.getStoreHomeDir());
-        if (flushDesc.getAction() == FlushAction.START_FLUSH) {
-          assertEquals(0,storeFlushDesc.getFlushOutputCount());
-        }
+        Cell cell=entry.getEdit().getCells().get(0);
+        if (WALEdit.isMetaEditFamily(cell)) {
+          FlushDescriptor flushDesc=WALEdit.getFlushDescriptor(cell);
+          assertNotNull(flushDesc);
+          assertArrayEquals(tableName.getName(),flushDesc.getTableName().toByteArray());
+          if (flushDesc.getAction() == FlushAction.START_FLUSH) {
+            assertTrue(flushDesc.getFlushSequenceNumber() > lastFlushSeqId);
+          }
+ else           if (flushDesc.getAction() == FlushAction.COMMIT_FLUSH) {
+            assertTrue(flushDesc.getFlushSequenceNumber() == lastFlushSeqId);
+          }
+          lastFlushSeqId=flushDesc.getFlushSequenceNumber();
+          assertArrayEquals(regionName,flushDesc.getEncodedRegionName().toByteArray());
+          assertEquals(1,flushDesc.getStoreFlushesCount());
+          StoreFlushDescriptor storeFlushDesc=flushDesc.getStoreFlushes(0);
+          assertArrayEquals(family,storeFlushDesc.getFamilyName().toByteArray());
+          assertEquals("family",storeFlushDesc.getStoreHomeDir());
+          if (flushDesc.getAction() == FlushAction.START_FLUSH) {
+            assertEquals(0,storeFlushDesc.getFlushOutputCount());
+          }
  else {
-          assertEquals(1,storeFlushDesc.getFlushOutputCount());
-          assertTrue(storeFiles.contains(storeFlushDesc.getFlushOutput(0)));
+            assertEquals(1,storeFlushDesc.getFlushOutputCount());
+            assertTrue(storeFiles.contains(storeFlushDesc.getFlushOutput(0)));
+          }
+          flushDescriptors.add(entry);
         }
-        flushDescriptors.add(entry);
+      }
+      assertEquals(3 * 2,flushDescriptors.size());
+      Path recoveredEditsDir=WALSplitter.getRegionDirRecoveredEditsDir(regiondir);
+      Path recoveredEdits=new Path(recoveredEditsDir,String.format("%019d",1000));
+      fs.create(recoveredEdits);
+      WALProvider.Writer writer=wals.createRecoveredEditsWriter(fs,recoveredEdits);
+      for (      WAL.Entry entry : flushDescriptors) {
+        writer.append(entry);
+      }
+      writer.close();
+    }
+  finally {
+      if (null != reader) {
+        try {
+          reader.close();
+        }
+ catch (        IOException exception) {
+          LOG.warn("Problem closing wal: " + exception.getMessage());
+          LOG.debug("exception details",exception);
+        }
       }
     }
-    assertEquals(3 * 2,flushDescriptors.size());
-    Path recoveredEditsDir=HLogUtil.getRegionDirRecoveredEditsDir(regiondir);
-    Path recoveredEdits=new Path(recoveredEditsDir,String.format("%019d",1000));
-    fs.create(recoveredEdits);
-    HLog.Writer writer=HLogFactory.createRecoveredEditsWriter(fs,recoveredEdits,CONF);
-    for (    HLog.Entry entry : flushDescriptors) {
-      writer.append(entry);
-    }
-    writer.close();
     region.close();
     region=HRegion.openHRegion(region,null);
     for (long i=minSeqId; i < maxSeqId; i++) {
@@ -79,5 +95,6 @@
   finally {
     HRegion.closeHRegion(this.region);
     this.region=null;
+    wals.close();
   }
 }

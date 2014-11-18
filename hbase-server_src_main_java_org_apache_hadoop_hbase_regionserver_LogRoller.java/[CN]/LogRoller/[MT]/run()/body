@@ -15,18 +15,22 @@ synchronized (rollLog) {
         continue;
       }
       if (LOG.isDebugEnabled()) {
-        LOG.debug("Hlog roll period " + this.rollperiod + "ms elapsed");
+        LOG.debug("Wal roll period " + this.rollperiod + "ms elapsed");
       }
     }
  else     if (LOG.isDebugEnabled()) {
-      LOG.debug("HLog roll requested");
+      LOG.debug("WAL roll requested");
     }
     rollLock.lock();
     try {
       this.lastrolltime=now;
-      byte[][] regionsToFlush=getWAL().rollWriter(periodic || rollLog.get());
-      if (regionsToFlush != null) {
-        for (        byte[] r : regionsToFlush)         scheduleFlush(r);
+      for (      Entry<WAL,Boolean> entry : walNeedsRoll.entrySet()) {
+        final WAL wal=entry.getKey();
+        final byte[][] regionsToFlush=wal.rollWriter(periodic || entry.getValue().booleanValue());
+        walNeedsRoll.put(wal,Boolean.FALSE);
+        if (regionsToFlush != null) {
+          for (          byte[] r : regionsToFlush)           scheduleFlush(r);
+        }
       }
     }
  catch (    FailedLogCloseException e) {
