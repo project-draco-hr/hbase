@@ -1,8 +1,7 @@
 {
   TableName tableName=TableName.valueOf("testGroupOrSplitWhenRegionHoleExistsInMeta");
   byte[][] SPLIT_KEYS=new byte[][]{Bytes.toBytes("row_00000100")};
-  Connection connection=ConnectionFactory.createConnection(util.getConfiguration());
-  Table table=connection.getTable(tableName);
+  HTable table=new HTable(util.getConfiguration(),tableName);
   setupTableWithSplitkeys(tableName,10,SPLIT_KEYS);
   Path dir=buildBulkFiles(tableName,2);
   final AtomicInteger countedLqis=new AtomicInteger();
@@ -17,30 +16,28 @@
   }
 ;
   try {
-    loader.doBulkLoad(dir,(HTable)table);
+    loader.doBulkLoad(dir,table);
   }
  catch (  Exception e) {
     LOG.error("exeception=",e);
   }
   this.assertExpectedTable(tableName,ROWCOUNT,2);
   dir=buildBulkFiles(tableName,3);
-  List<HRegionInfo> regionInfos=MetaTableAccessor.getTableRegions(connection,tableName);
+  HConnection hConnection=HConnectionManager.getConnection(util.getConfiguration());
+  List<HRegionInfo> regionInfos=MetaTableAccessor.getTableRegions(hConnection,tableName);
   for (  HRegionInfo regionInfo : regionInfos) {
     if (Bytes.equals(regionInfo.getStartKey(),HConstants.EMPTY_BYTE_ARRAY)) {
-      MetaTableAccessor.deleteRegion(connection,regionInfo);
+      MetaTableAccessor.deleteRegion(hConnection,regionInfo);
       break;
     }
   }
   try {
-    loader.doBulkLoad(dir,(HTable)table);
+    loader.doBulkLoad(dir,table);
   }
  catch (  Exception e) {
     LOG.error("exeception=",e);
     assertTrue("IOException expected",e instanceof IOException);
   }
   table.close();
-  regionInfos=MetaTableAccessor.getTableRegions(connection,tableName);
-  assertTrue(regionInfos.size() >= 1);
-  this.assertExpectedTable(connection,tableName,ROWCOUNT,2);
-  connection.close();
+  this.assertExpectedTable(tableName,ROWCOUNT,2);
 }
