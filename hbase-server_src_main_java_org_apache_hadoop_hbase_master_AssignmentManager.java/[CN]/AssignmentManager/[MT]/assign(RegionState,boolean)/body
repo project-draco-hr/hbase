@@ -22,15 +22,12 @@
       if (plan == null) {
         LOG.warn("Unable to determine a plan to assign " + region);
         if (region.isMetaRegion()) {
-          try {
-            Thread.sleep(this.sleepTimeBeforeRetryingMetaAssignment);
-            if (i == maximumAttempts)             i=1;
-            continue;
+          if (i == maximumAttempts) {
+            i=0;
+            LOG.warn("Unable to determine a plan to assign a hbase:meta region " + region + " after maximumAttempts ("+ this.maximumAttempts+ "). Reset attempts count and continue retrying.");
           }
- catch (          InterruptedException e) {
-            LOG.error("Got exception while waiting for hbase:meta assignment");
-            Thread.currentThread().interrupt();
-          }
+          waitForRetryingMetaAssignment();
+          continue;
         }
         regionStates.updateRegionState(region,State.FAILED_OPEN);
         return;
@@ -97,7 +94,14 @@
         }
       }
       if (i == this.maximumAttempts) {
-        continue;
+        if (region.isMetaRegion()) {
+          i=0;
+          LOG.warn(assignMsg + ", trying to assign a hbase:meta region reached to maximumAttempts (" + this.maximumAttempts+ ").  Reset attempt counts and continue retrying.");
+          waitForRetryingMetaAssignment();
+        }
+ else {
+          continue;
+        }
       }
       if (needNewPlan) {
         RegionPlan newPlan=null;
