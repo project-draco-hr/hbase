@@ -45,17 +45,17 @@
             }
           }
         }
+        if (firstSeqIdInLog == -1) {
+          firstSeqIdInLog=key.getLogSeqNum();
+        }
+        currentEditSeqId=key.getLogSeqNum();
+        currentReplaySeqId=(key.getOrigLogSeqNum() > 0) ? key.getOrigLogSeqNum() : currentEditSeqId;
         if (coprocessorHost != null) {
           status.setStatus("Running pre-WAL-restore hook in coprocessors");
           if (coprocessorHost.preWALRestore(this.getRegionInfo(),key,val)) {
             continue;
           }
         }
-        if (firstSeqIdInLog == -1) {
-          firstSeqIdInLog=key.getLogSeqNum();
-        }
-        currentEditSeqId=key.getLogSeqNum();
-        currentReplaySeqId=(key.getOrigLogSeqNum() > 0) ? key.getOrigLogSeqNum() : currentEditSeqId;
         boolean flush=false;
         for (        Cell cell : val.getCells()) {
           if (CellUtil.matchingFamily(cell,WALEdit.METAFAMILY) || !Bytes.equals(key.getEncodedRegionName(),this.getRegionInfo().getEncodedNameAsBytes())) {
@@ -79,10 +79,14 @@
             continue;
           }
           CellUtil.setSequenceId(cell,currentReplaySeqId);
-          flush=restoreEdit(store,cell);
+          if (!flush) {
+            flush=restoreEdit(store,cell);
+          }
           editsCount++;
         }
-        if (flush)         internalFlushcache(null,currentEditSeqId,status);
+        if (flush) {
+          internalFlushcache(null,currentEditSeqId,status);
+        }
         if (coprocessorHost != null) {
           coprocessorHost.postWALRestore(this.getRegionInfo(),key,val);
         }
