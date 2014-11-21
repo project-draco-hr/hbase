@@ -11,9 +11,11 @@
     tableNameList.add(ProtobufUtil.toTableName(tableNamePB));
   }
   boolean bypass=false;
+  String regex=req.hasRegex() ? req.getRegex() : null;
   if (master.cpHost != null) {
     try {
       bypass=master.cpHost.preGetTableDescriptors(tableNameList,descriptors);
+      bypass|=master.cpHost.preGetTableDescriptors(tableNameList,descriptors,regex);
     }
  catch (    IOException ioe) {
       throw new ServiceException(ioe);
@@ -49,9 +51,19 @@
         }
       }
     }
+    if (regex != null) {
+      Pattern pat=Pattern.compile(regex);
+      for (Iterator<HTableDescriptor> itr=descriptors.iterator(); itr.hasNext(); ) {
+        HTableDescriptor htd=itr.next();
+        if (!pat.matcher(htd.getTableName().getNameAsString()).matches()) {
+          itr.remove();
+        }
+      }
+    }
     if (master.cpHost != null) {
       try {
         master.cpHost.postGetTableDescriptors(descriptors);
+        master.cpHost.postGetTableDescriptors(descriptors,regex);
       }
  catch (      IOException ioe) {
         throw new ServiceException(ioe);
