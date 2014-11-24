@@ -1,15 +1,22 @@
 {
-  Table table=new HTable(UTIL.getConfiguration(),TEST_TABLE);
-  List<Row> puts=constructPutRequests();
-  table.batch(puts);
-  HashSet<ServerName> regionservers=new HashSet<ServerName>();
-  for (  byte[] k : KEYS) {
-    HRegionLocation location=((HTable)table).getRegionLocation(k);
-    regionservers.add(location.getServerName());
+  try (Connection connection=ConnectionFactory.createConnection(UTIL.getConfiguration())){
+    ThreadPoolExecutor executor=HTable.getDefaultExecutor(UTIL.getConfiguration());
+    try {
+      try (Table t=connection.getTable(TEST_TABLE,executor)){
+        List<Row> puts=constructPutRequests();
+        t.batch(puts);
+        HashSet<ServerName> regionservers=new HashSet<ServerName>();
+        try (RegionLocator locator=connection.getRegionLocator(TEST_TABLE)){
+          for (          Row r : puts) {
+            HRegionLocation location=locator.getRegionLocation(r.getRow());
+            regionservers.add(location.getServerName());
+          }
+        }
+         assertEquals(regionservers.size(),executor.getLargestPoolSize());
+      }
+     }
+  finally {
+      executor.shutdownNow();
+    }
   }
-  Field poolField=table.getClass().getDeclaredField("pool");
-  poolField.setAccessible(true);
-  ThreadPoolExecutor tExecutor=(ThreadPoolExecutor)poolField.get(table);
-  assertEquals(regionservers.size(),tExecutor.getLargestPoolSize());
-  table.close();
-}
+ }
