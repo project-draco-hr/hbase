@@ -6,19 +6,15 @@
   }
   int rowUpperLimit=rowLimit > 0 ? rowLimit : Integer.MAX_VALUE;
   byte[] startRow;
-  ResultScanner scanner=null;
-  HTable metaTable=null;
-  try {
-    metaTable=new HTable(TableName.META_TABLE_NAME,connection,null);
+  try (Table metaTable=new HTable(TableName.META_TABLE_NAME,connection,null)){
     if (row != null) {
-      byte[] searchRow=HRegionInfo.createRegionName(tableName,row,HConstants.NINES,false);
-      Result startRowResult=metaTable.getRowOrBefore(searchRow,HConstants.CATALOG_FAMILY);
+      Result startRowResult=getClosestRowOrBefore(metaTable,tableName,row);
       if (startRowResult == null) {
-        throw new TableNotFoundException("Cannot find row in " + TableName.META_TABLE_NAME.getNameAsString() + " for table: "+ tableName+ ", row="+ Bytes.toStringBinary(searchRow));
+        throw new TableNotFoundException("Cannot find row in " + metaTable.getName() + " for table: "+ tableName+ ", row="+ Bytes.toStringBinary(row));
       }
       HRegionInfo regionInfo=getHRegionInfo(startRowResult);
       if (regionInfo == null) {
-        throw new IOException("HRegionInfo was null or empty in Meta for " + tableName + ", row="+ Bytes.toStringBinary(searchRow));
+        throw new IOException("HRegionInfo was null or empty in Meta for " + tableName + ", row="+ Bytes.toStringBinary(row));
       }
       byte[] rowBefore=regionInfo.getStartKey();
       startRow=HRegionInfo.createRegionName(tableName,rowBefore,HConstants.ZEROES,false);
@@ -39,27 +35,19 @@
     if (LOG.isTraceEnabled()) {
       LOG.trace("Scanning " + metaTableName.getNameAsString() + " starting at row="+ Bytes.toStringBinary(startRow)+ " for max="+ rowUpperLimit+ " with caching="+ rows);
     }
-    scanner=metaTable.getScanner(scan);
-    Result result;
-    int processedRows=0;
-    while ((result=scanner.next()) != null) {
-      if (visitor != null) {
-        if (!visitor.processRow(result))         break;
+    try (ResultScanner resultScanner=metaTable.getScanner(scan)){
+      Result result;
+      int processedRows=0;
+      while ((result=resultScanner.next()) != null) {
+        if (visitor != null) {
+          if (!visitor.processRow(result))           break;
+        }
+        processedRows++;
+        if (processedRows >= rowUpperLimit)         break;
       }
-      processedRows++;
-      if (processedRows >= rowUpperLimit)       break;
     }
-  }
+   }
   finally {
-    if (scanner != null) {
-      try {
-        scanner.close();
-      }
- catch (      Throwable t) {
-        ExceptionUtil.rethrowIfInterrupt(t);
-        LOG.debug("Got exception in closing the result scanner",t);
-      }
-    }
     if (visitor != null) {
       try {
         visitor.close();
@@ -69,17 +57,8 @@
         LOG.debug("Got exception in closing the meta scanner visitor",t);
       }
     }
-    if (metaTable != null) {
-      try {
-        metaTable.close();
-      }
- catch (      Throwable t) {
-        ExceptionUtil.rethrowIfInterrupt(t);
-        LOG.debug("Got exception in closing meta table",t);
-      }
-    }
     if (closeConnection) {
-      connection.close();
+      if (connection != null)       connection.close();
     }
   }
 }

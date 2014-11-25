@@ -1,0 +1,63 @@
+{
+  LinkedList<Pair<byte[],byte[]>> finished=Lists.newLinkedList();
+  LinkedList<Pair<byte[],byte[]>> logicalSplitting=Lists.newLinkedList();
+  LinkedList<Pair<byte[],byte[]>> physicalSplitting=Lists.newLinkedList();
+  Pair<Path,Path> tableDirAndSplitFile=getTableDirAndSplitFile(connection.getConfiguration(),tableName);
+  Path tableDir=tableDirAndSplitFile.getFirst();
+  FileSystem fs=tableDir.getFileSystem(connection.getConfiguration());
+  ((ClusterConnection)connection).clearRegionCache();
+  HTableDescriptor htd=null;
+  try (Table table=connection.getTable(tableName)){
+    htd=table.getTableDescriptor();
+  }
+   try (RegionLocator regionLocator=connection.getRegionLocator(tableName)){
+    for (    Pair<byte[],byte[]> region : regionList) {
+      byte[] start=region.getFirst();
+      byte[] split=region.getSecond();
+      try {
+        HRegionInfo dri=regionLocator.getRegionLocation(split).getRegionInfo();
+        if (dri.isOffline() || !Bytes.equals(dri.getStartKey(),split)) {
+          logicalSplitting.add(region);
+          continue;
+        }
+      }
+ catch (      NoServerForRegionException nsfre) {
+        LOG.info(nsfre);
+        logicalSplitting.add(region);
+        continue;
+      }
+      try {
+        LinkedList<HRegionInfo> check=Lists.newLinkedList();
+        check.add(regionLocator.getRegionLocation(start).getRegionInfo());
+        check.add(regionLocator.getRegionLocation(split).getRegionInfo());
+        for (        HRegionInfo hri : check.toArray(new HRegionInfo[check.size()])) {
+          byte[] sk=hri.getStartKey();
+          if (sk.length == 0)           sk=splitAlgo.firstRow();
+          HRegionFileSystem regionFs=HRegionFileSystem.openRegionFromFileSystem(connection.getConfiguration(),fs,tableDir,hri,true);
+          boolean refFound=false;
+          for (          HColumnDescriptor c : htd.getFamilies()) {
+            if ((refFound=regionFs.hasReferences(c.getNameAsString()))) {
+              break;
+            }
+          }
+          if (!refFound) {
+            check.remove(hri);
+          }
+        }
+        if (check.isEmpty()) {
+          finished.add(region);
+        }
+ else {
+          physicalSplitting.add(region);
+        }
+      }
+ catch (      NoServerForRegionException nsfre) {
+        LOG.debug("No Server Exception thrown for: " + splitAlgo.rowToStr(start));
+        physicalSplitting.add(region);
+        ((ClusterConnection)connection).clearRegionCache();
+      }
+    }
+    LOG.debug("Split Scan: " + finished.size() + " finished / "+ logicalSplitting.size()+ " split wait / "+ physicalSplitting.size()+ " reference wait");
+    return finished;
+  }
+ }

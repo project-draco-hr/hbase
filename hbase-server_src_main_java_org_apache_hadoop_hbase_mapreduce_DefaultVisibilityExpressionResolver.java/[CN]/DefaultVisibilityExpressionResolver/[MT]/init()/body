@@ -1,44 +1,56 @@
 {
   Table labelsTable=null;
+  Connection connection=null;
   try {
-    labelsTable=new HTable(conf,LABELS_TABLE_NAME);
-  }
- catch (  TableNotFoundException e) {
-    return;
-  }
-catch (  IOException e) {
-    LOG.error("Error opening 'labels' table",e);
-    return;
-  }
-  Scan scan=new Scan();
-  scan.setAuthorizations(new Authorizations(VisibilityUtils.SYSTEM_LABEL));
-  scan.addColumn(LABELS_TABLE_FAMILY,LABEL_QUALIFIER);
-  ResultScanner scanner=null;
-  try {
-    scanner=labelsTable.getScanner(scan);
-    Result next=null;
-    while ((next=scanner.next()) != null) {
-      byte[] row=next.getRow();
-      byte[] value=next.getValue(LABELS_TABLE_FAMILY,LABEL_QUALIFIER);
-      labels.put(Bytes.toString(value),Bytes.toInt(row));
-    }
-  }
- catch (  IOException e) {
-    LOG.error("Error reading 'labels' table",e);
-  }
- finally {
+    connection=ConnectionFactory.createConnection(conf);
     try {
-      if (scanner != null) {
-        scanner.close();
+      labelsTable=connection.getTable(LABELS_TABLE_NAME);
+    }
+ catch (    TableNotFoundException e) {
+      return;
+    }
+catch (    IOException e) {
+      LOG.error("Error opening 'labels' table",e);
+      return;
+    }
+    Scan scan=new Scan();
+    scan.setAuthorizations(new Authorizations(VisibilityUtils.SYSTEM_LABEL));
+    scan.addColumn(LABELS_TABLE_FAMILY,LABEL_QUALIFIER);
+    ResultScanner scanner=null;
+    try {
+      scanner=labelsTable.getScanner(scan);
+      Result next=null;
+      while ((next=scanner.next()) != null) {
+        byte[] row=next.getRow();
+        byte[] value=next.getValue(LABELS_TABLE_FAMILY,LABEL_QUALIFIER);
+        labels.put(Bytes.toString(value),Bytes.toInt(row));
       }
     }
-  finally {
+ catch (    IOException e) {
+      LOG.error("Error scanning 'labels' table",e);
+    }
+ finally {
+      if (scanner != null)       scanner.close();
+    }
+  }
+ catch (  IOException ioe) {
+    LOG.error("Failed reading 'labels' tags",ioe);
+    return;
+  }
+ finally {
+    if (labelsTable != null) {
       try {
         labelsTable.close();
       }
- catch (      IOException e) {
-        LOG.warn("Error on closing 'labels' table",e);
+ catch (      IOException ioe) {
+        LOG.warn("Error closing 'labels' table",ioe);
       }
+    }
+    if (connection != null)     try {
+      connection.close();
+    }
+ catch (    IOException ioe) {
+      LOG.warn("Failed close of temporary connection",ioe);
     }
   }
 }

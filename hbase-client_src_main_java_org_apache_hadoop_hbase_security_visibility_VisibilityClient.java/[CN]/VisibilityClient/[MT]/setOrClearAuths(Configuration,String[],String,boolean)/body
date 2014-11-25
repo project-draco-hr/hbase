@@ -1,38 +1,33 @@
 {
-  Table ht=null;
-  try {
-    ht=new HTable(conf,LABELS_TABLE_NAME);
-    Batch.Call<VisibilityLabelsService,VisibilityLabelsResponse> callable=new Batch.Call<VisibilityLabelsService,VisibilityLabelsResponse>(){
-      ServerRpcController controller=new ServerRpcController();
-      BlockingRpcCallback<VisibilityLabelsResponse> rpcCallback=new BlockingRpcCallback<VisibilityLabelsResponse>();
-      public VisibilityLabelsResponse call(      VisibilityLabelsService service) throws IOException {
-        SetAuthsRequest.Builder setAuthReqBuilder=SetAuthsRequest.newBuilder();
-        setAuthReqBuilder.setUser(ByteStringer.wrap(Bytes.toBytes(user)));
-        for (        String auth : auths) {
-          if (auth.length() > 0) {
-            setAuthReqBuilder.addAuth(ByteStringer.wrap(Bytes.toBytes(auth)));
+  try (Connection connection=ConnectionFactory.createConnection(conf)){
+    try (Table table=connection.getTable(LABELS_TABLE_NAME)){
+      Batch.Call<VisibilityLabelsService,VisibilityLabelsResponse> callable=new Batch.Call<VisibilityLabelsService,VisibilityLabelsResponse>(){
+        ServerRpcController controller=new ServerRpcController();
+        BlockingRpcCallback<VisibilityLabelsResponse> rpcCallback=new BlockingRpcCallback<VisibilityLabelsResponse>();
+        public VisibilityLabelsResponse call(        VisibilityLabelsService service) throws IOException {
+          SetAuthsRequest.Builder setAuthReqBuilder=SetAuthsRequest.newBuilder();
+          setAuthReqBuilder.setUser(ByteStringer.wrap(Bytes.toBytes(user)));
+          for (          String auth : auths) {
+            if (auth.length() > 0) {
+              setAuthReqBuilder.addAuth(ByteStringer.wrap(Bytes.toBytes(auth)));
+            }
           }
-        }
-        if (setOrClear) {
-          service.setAuths(controller,setAuthReqBuilder.build(),rpcCallback);
-        }
+          if (setOrClear) {
+            service.setAuths(controller,setAuthReqBuilder.build(),rpcCallback);
+          }
  else {
-          service.clearAuths(controller,setAuthReqBuilder.build(),rpcCallback);
+            service.clearAuths(controller,setAuthReqBuilder.build(),rpcCallback);
+          }
+          VisibilityLabelsResponse response=rpcCallback.get();
+          if (controller.failedOnException()) {
+            throw controller.getFailedOn();
+          }
+          return response;
         }
-        VisibilityLabelsResponse response=rpcCallback.get();
-        if (controller.failedOnException()) {
-          throw controller.getFailedOn();
-        }
-        return response;
       }
-    }
 ;
-    Map<byte[],VisibilityLabelsResponse> result=ht.coprocessorService(VisibilityLabelsService.class,HConstants.EMPTY_BYTE_ARRAY,HConstants.EMPTY_BYTE_ARRAY,callable);
-    return result.values().iterator().next();
-  }
-  finally {
-    if (ht != null) {
-      ht.close();
+      Map<byte[],VisibilityLabelsResponse> result=table.coprocessorService(VisibilityLabelsService.class,HConstants.EMPTY_BYTE_ARRAY,HConstants.EMPTY_BYTE_ARRAY,callable);
+      return result.values().iterator().next();
     }
-  }
-}
+   }
+ }

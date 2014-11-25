@@ -7,24 +7,26 @@
   for (  String cf : columnFamilies) {
     desc.addFamily(new HColumnDescriptor(Bytes.toBytes(cf)));
   }
-  HBaseAdmin admin=new HBaseAdmin(conf);
-  try {
-    Preconditions.checkArgument(!admin.tableExists(tableName),"Table already exists: " + tableName);
-    admin.createTable(desc,splitAlgo.split(splitCount));
-  }
+  try (Connection connection=ConnectionFactory.createConnection(conf)){
+    Admin admin=connection.getAdmin();
+    try {
+      Preconditions.checkArgument(!admin.tableExists(tableName),"Table already exists: " + tableName);
+      admin.createTable(desc,splitAlgo.split(splitCount));
+    }
   finally {
-    admin.close();
-  }
-  LOG.debug("Table created!  Waiting for regions to show online in META...");
-  if (!conf.getBoolean("split.verify",true)) {
-    int onlineRegions=0;
-    while (onlineRegions < splitCount) {
-      onlineRegions=MetaTableAccessor.getRegionCount(conf,tableName);
-      LOG.debug(onlineRegions + " of " + splitCount+ " regions online...");
-      if (onlineRegions < splitCount) {
-        Thread.sleep(10 * 1000);
+      admin.close();
+    }
+    LOG.debug("Table created!  Waiting for regions to show online in META...");
+    if (!conf.getBoolean("split.verify",true)) {
+      int onlineRegions=0;
+      while (onlineRegions < splitCount) {
+        onlineRegions=MetaTableAccessor.getRegionCount(connection,tableName);
+        LOG.debug(onlineRegions + " of " + splitCount+ " regions online...");
+        if (onlineRegions < splitCount) {
+          Thread.sleep(10 * 1000);
+        }
       }
     }
+    LOG.debug("Finished creating table with " + splitCount + " regions");
   }
-  LOG.debug("Finished creating table with " + splitCount + " regions");
-}
+ }

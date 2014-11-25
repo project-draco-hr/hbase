@@ -1,34 +1,26 @@
 {
   List<UserPermission> permList=new ArrayList<UserPermission>();
-  Table ht=null;
-  Admin ha=null;
-  try {
-    ha=new HBaseAdmin(conf);
-    ht=new HTable(conf,ACL_TABLE_NAME);
-    CoprocessorRpcChannel service=ht.coprocessorService(HConstants.EMPTY_START_ROW);
-    BlockingInterface protocol=AccessControlProtos.AccessControlService.newBlockingStub(service);
-    HTableDescriptor[] htds=null;
-    if (tableRegex == null || tableRegex.isEmpty()) {
-      permList=ProtobufUtil.getUserPermissions(protocol);
-    }
- else     if (tableRegex.charAt(0) == '@') {
-      String namespace=tableRegex.substring(1);
-      permList=ProtobufUtil.getUserPermissions(protocol,Bytes.toBytes(namespace));
-    }
+  try (Connection connection=ConnectionFactory.createConnection(conf)){
+    try (Table table=connection.getTable(ACL_TABLE_NAME)){
+      try (Admin admin=connection.getAdmin()){
+        CoprocessorRpcChannel service=table.coprocessorService(HConstants.EMPTY_START_ROW);
+        BlockingInterface protocol=AccessControlProtos.AccessControlService.newBlockingStub(service);
+        HTableDescriptor[] htds=null;
+        if (tableRegex == null || tableRegex.isEmpty()) {
+          permList=ProtobufUtil.getUserPermissions(protocol);
+        }
+ else         if (tableRegex.charAt(0) == '@') {
+          String namespace=tableRegex.substring(1);
+          permList=ProtobufUtil.getUserPermissions(protocol,Bytes.toBytes(namespace));
+        }
  else {
-      htds=ha.listTables(Pattern.compile(tableRegex));
-      for (      HTableDescriptor hd : htds) {
-        permList.addAll(ProtobufUtil.getUserPermissions(protocol,hd.getTableName()));
+          htds=admin.listTables(Pattern.compile(tableRegex));
+          for (          HTableDescriptor hd : htds) {
+            permList.addAll(ProtobufUtil.getUserPermissions(protocol,hd.getTableName()));
+          }
+        }
       }
-    }
-  }
-  finally {
-    if (ht != null) {
-      ht.close();
-    }
-    if (ha != null) {
-      ha.close();
-    }
-  }
-  return permList;
+     }
+   }
+   return permList;
 }

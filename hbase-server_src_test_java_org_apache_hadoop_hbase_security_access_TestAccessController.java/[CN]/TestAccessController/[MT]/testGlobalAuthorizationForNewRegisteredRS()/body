@@ -11,13 +11,17 @@
   TEST_UTIL.waitUntilAllRegionsAssigned(TEST_TABLE2);
   JVMClusterUtil.RegionServerThread newRsThread=hbaseCluster.startRegionServer();
   final HRegionServer newRs=newRsThread.getRegionServer();
-  final HTable table=new HTable(TEST_UTIL.getConfiguration(),TEST_TABLE2);
-  try {
-    NavigableMap<HRegionInfo,ServerName> regions=table.getRegionLocations();
-    final Map.Entry<HRegionInfo,ServerName> firstRegion=regions.entrySet().iterator().next();
+  List<HRegionLocation> regions;
+  try (RegionLocator locator=TEST_UTIL.getConnection().getRegionLocator(TEST_TABLE2)){
+    regions=locator.getAllRegionLocations();
+  }
+   HRegionLocation location=regions.get(0);
+  final HRegionInfo hri=location.getRegionInfo();
+  final ServerName server=location.getServerName();
+  try (HTable table=(HTable)TEST_UTIL.getConnection().getTable(TEST_TABLE2)){
     AccessTestAction moveAction=new AccessTestAction(){
       @Override public Object run() throws Exception {
-        admin.move(firstRegion.getKey().getEncodedNameAsBytes(),Bytes.toBytes(newRs.getServerName().getServerName()));
+        admin.move(hri.getEncodedNameAsBytes(),Bytes.toBytes(newRs.getServerName().getServerName()));
         return null;
       }
     }
@@ -48,7 +52,4 @@
 ;
     USER_ADMIN.runAs(putAction);
   }
-  finally {
-    table.close();
-  }
-}
+ }

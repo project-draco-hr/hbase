@@ -4,20 +4,22 @@
   assertErrors(doFsck(conf,false),new ERROR_CODE[]{ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED});
   TEST_UTIL.shutdownMiniHBaseCluster();
   TEST_UTIL.shutdownMiniZKCluster();
-  HConnectionManager.deleteConnection(conf);
   HBaseFsck fsck=new HBaseFsck(conf);
   assertTrue(fsck.rebuildMeta(false));
   TEST_UTIL.startMiniZKCluster();
   TEST_UTIL.restartHBaseCluster(3);
-  TEST_UTIL.getHBaseAdmin().enableTable(table);
-  LOG.info("Waiting for no more RIT");
-  TEST_UTIL.waitUntilNoRegionsInTransition(60000);
-  LOG.info("No more RIT in ZK, now doing final test verification");
-  assertEquals(5,scanMeta());
-  HTableDescriptor[] htbls=TEST_UTIL.getHBaseAdmin().listTables();
-  LOG.info("Tables present after restart: " + Arrays.toString(htbls));
-  assertEquals(1,htbls.length);
-  assertErrors(doFsck(conf,false),new ERROR_CODE[]{});
+  try (Connection connection=ConnectionFactory.createConnection(TEST_UTIL.getConfiguration())){
+    Admin admin=connection.getAdmin();
+    admin.enableTable(table);
+    LOG.info("Waiting for no more RIT");
+    TEST_UTIL.waitUntilNoRegionsInTransition(60000);
+    LOG.info("No more RIT in ZK, now doing final test verification");
+    assertEquals(5,scanMeta());
+    HTableDescriptor[] htbls=admin.listTables();
+    LOG.info("Tables present after restart: " + Arrays.toString(htbls));
+    assertEquals(1,htbls.length);
+  }
+   assertErrors(doFsck(conf,false),new ERROR_CODE[]{});
   LOG.info("Table " + table + " has "+ tableRowCount(conf,table)+ " entries.");
   assertEquals(16,tableRowCount(conf,table));
 }

@@ -12,7 +12,8 @@
   HMaster master=masterThreads.get(0).getMaster();
   assertTrue(master.isActiveMaster());
   assertTrue(master.isInitialized());
-  RegionLocator onlineTable=TEST_UTIL.createTable(TableName.valueOf("onlineTable"),"family");
+  Table onlineTable=TEST_UTIL.createTable(TableName.valueOf("onlineTable"),"family");
+  onlineTable.close();
   HTableDescriptor offlineTable=new HTableDescriptor(TableName.valueOf(Bytes.toBytes("offlineTable")));
   offlineTable.addFamily(new HColumnDescriptor(Bytes.toBytes("family")));
   FileSystem filesystem=FileSystem.get(conf);
@@ -21,11 +22,14 @@
   fstd.createTableDescriptor(offlineTable);
   HRegionInfo hriOffline=new HRegionInfo(offlineTable.getTableName(),null,null);
   createRegion(hriOffline,rootdir,conf,offlineTable);
-  MetaTableAccessor.addRegionToMeta(master.getShortCircuitConnection(),hriOffline);
+  MetaTableAccessor.addRegionToMeta(master.getConnection(),hriOffline);
   log("Regions in hbase:meta and namespace have been created");
   assertEquals(3,cluster.countServedRegions());
-  HRegionInfo hriOnline=onlineTable.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
-  RegionStates regionStates=master.getAssignmentManager().getRegionStates();
+  HRegionInfo hriOnline=null;
+  try (RegionLocator locator=TEST_UTIL.getConnection().getRegionLocator(TableName.valueOf("onlineTable"))){
+    hriOnline=locator.getRegionLocation(HConstants.EMPTY_START_ROW).getRegionInfo();
+  }
+   RegionStates regionStates=master.getAssignmentManager().getRegionStates();
   RegionStateStore stateStore=master.getAssignmentManager().getRegionStateStore();
   RegionState oldState=regionStates.getRegionState(hriOnline);
   RegionState newState=new RegionState(hriOnline,State.PENDING_CLOSE,oldState.getServerName());
