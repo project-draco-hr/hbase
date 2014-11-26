@@ -10,6 +10,15 @@
   assertTrue(table.isAutoFlush());
   server=TEST_UTIL.getRSForFirstRegionInTable(desc.getTableName());
   final FSHLog log=(FSHLog)server.getWAL(null);
+  final AtomicBoolean lowReplicationHookCalled=new AtomicBoolean(false);
+  log.registerWALActionsListener(new WALActionsListener.Base(){
+    @Override public void logRollRequested(    boolean lowReplication){
+      if (lowReplication) {
+        lowReplicationHookCalled.lazySet(true);
+      }
+    }
+  }
+);
   assertTrue("Need append support for this test",FSUtils.isAppendSupported(TEST_UTIL.getConfiguration()));
   List<DataNode> existingNodes=dfsCluster.getDataNodes();
   int numDataNodes=3;
@@ -33,6 +42,7 @@
   writeData(table,2);
   long newFilenum=DefaultWALProvider.extractFileNumFromWAL(log);
   assertTrue("Missing datanode should've triggered a log roll",newFilenum > oldFilenum && newFilenum > curTime);
+  assertTrue("The log rolling hook should have been called with the low replication flag",lowReplicationHookCalled.get());
   writeData(table,3);
   assertTrue("The log should not roll again.",DefaultWALProvider.extractFileNumFromWAL(log) == newFilenum);
   assertTrue(dfsCluster.stopDataNode(pipeline[1].getName()) != null);
