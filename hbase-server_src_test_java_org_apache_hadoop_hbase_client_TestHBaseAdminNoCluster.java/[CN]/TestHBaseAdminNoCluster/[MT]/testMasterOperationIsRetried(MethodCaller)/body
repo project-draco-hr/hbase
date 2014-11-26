@@ -1,0 +1,35 @@
+{
+  Configuration configuration=HBaseConfiguration.create();
+  configuration.setLong(HConstants.HBASE_CLIENT_PAUSE,1);
+  final int count=10;
+  configuration.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,count);
+  ClusterConnection connection=mock(ClusterConnection.class);
+  when(connection.getConfiguration()).thenReturn(configuration);
+  MasterKeepAliveConnection masterAdmin=Mockito.mock(MasterKeepAliveConnection.class,new Answer(){
+    @Override public Object answer(    InvocationOnMock invocation) throws Throwable {
+      if (invocation.getMethod().getName().equals("close")) {
+        return null;
+      }
+      throw new MasterNotRunningException();
+    }
+  }
+);
+  Mockito.when(connection.getKeepAliveMasterService()).thenReturn(masterAdmin);
+  Admin admin=null;
+  try {
+    admin=new HBaseAdmin(connection);
+    try {
+      caller.call(admin);
+      fail();
+    }
+ catch (    RetriesExhaustedException e) {
+      Log.info("Expected fail",e);
+    }
+    caller.verify(masterAdmin,count);
+  }
+  finally {
+    if (admin != null) {
+      admin.close();
+    }
+  }
+}
