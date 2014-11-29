@@ -36,6 +36,26 @@
           }
         }
         try (HTable table=(HTable)connection.getTable(tableName)){
+          boolean noStrict=conf.getBoolean(NO_STRICT_COL_FAMILY,false);
+          if (!noStrict) {
+            ArrayList<String> unmatchedFamilies=new ArrayList<String>();
+            Set<String> cfSet=getColumnFamilies(columns);
+            HTableDescriptor tDesc=table.getTableDescriptor();
+            for (            String cf : cfSet) {
+              if (tDesc.getFamily(Bytes.toBytes(cf)) == null) {
+                unmatchedFamilies.add(cf);
+              }
+            }
+            if (unmatchedFamilies.size() > 0) {
+              ArrayList<String> familyNames=new ArrayList<String>();
+              for (              HColumnDescriptor family : table.getTableDescriptor().getFamilies()) {
+                familyNames.add(family.getNameAsString());
+              }
+              String msg="Column Families " + unmatchedFamilies + " specified in "+ COLUMNS_CONF_KEY+ " does not match with any of the table "+ tableName+ " column families "+ familyNames+ ".\n"+ "To disable column family check, use -D"+ NO_STRICT_COL_FAMILY+ "=true.\n";
+              usage(msg);
+              System.exit(-1);
+            }
+          }
           job.setReducerClass(PutSortReducer.class);
           Path outputDir=new Path(hfileOutPath);
           FileOutputFormat.setOutputPath(job,outputDir);
