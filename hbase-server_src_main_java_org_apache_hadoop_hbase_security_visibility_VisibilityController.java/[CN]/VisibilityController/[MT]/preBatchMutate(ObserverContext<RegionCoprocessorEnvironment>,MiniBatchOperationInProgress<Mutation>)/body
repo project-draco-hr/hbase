@@ -14,11 +14,21 @@
       continue;
     }
     boolean sanityFailure=false;
+    boolean modifiedTagFound=false;
+    Pair<Boolean,Tag> pair=new Pair<Boolean,Tag>(false,null);
     for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
-      if (!checkForReservedVisibilityTagPresence(cellScanner.current())) {
+      pair=checkForReservedVisibilityTagPresence(cellScanner.current(),pair);
+      if (!pair.getFirst()) {
         miniBatchOp.setOperationStatus(i,new OperationStatus(SANITY_CHECK_FAILURE,"Mutation contains cell with reserved type tag"));
         sanityFailure=true;
         break;
+      }
+ else {
+        Tag tag=pair.getSecond();
+        if (cellVisibility == null && tag != null) {
+          cellVisibility=new CellVisibility(Bytes.toString(tag.getBuffer(),tag.getTagOffset(),tag.getTagLength()));
+          modifiedTagFound=true;
+        }
       }
     }
     if (!sanityFailure) {
@@ -42,6 +52,9 @@
           for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
             Cell cell=cellScanner.current();
             List<Tag> tags=Tag.asList(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
+            if (modifiedTagFound) {
+              removeReplicationVisibilityTag(tags);
+            }
             tags.addAll(visibilityTags);
             Cell updatedCell=new TagRewriteCell(cell,Tag.fromList(tags));
             updatedCells.add(updatedCell);
