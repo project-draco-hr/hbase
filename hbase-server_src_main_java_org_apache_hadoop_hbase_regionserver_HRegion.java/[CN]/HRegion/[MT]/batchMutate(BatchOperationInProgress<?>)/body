@@ -1,15 +1,13 @@
 {
   boolean initialized=false;
-  while (!batchOp.isDone()) {
-    if (!batchOp.isInReplay()) {
-      checkReadOnly();
-    }
-    checkResources();
-    long newSize;
-    Operation op=Operation.BATCH_MUTATE;
-    if (batchOp.isInReplay())     op=Operation.REPLAY_BATCH_MUTATE;
-    startRegionOperation(op);
-    try {
+  Operation op=batchOp.isInReplay() ? Operation.REPLAY_BATCH_MUTATE : Operation.BATCH_MUTATE;
+  startRegionOperation(op);
+  try {
+    while (!batchOp.isDone()) {
+      if (!batchOp.isInReplay()) {
+        checkReadOnly();
+      }
+      checkResources();
       if (!initialized) {
         this.writeRequestsCount.add(batchOp.operations.length);
         if (!batchOp.isInReplay()) {
@@ -18,14 +16,14 @@
         initialized=true;
       }
       long addedSize=doMiniBatchMutation(batchOp);
-      newSize=this.addAndGetGlobalMemstoreSize(addedSize);
+      long newSize=this.addAndGetGlobalMemstoreSize(addedSize);
+      if (isFlushSize(newSize)) {
+        requestFlush();
+      }
     }
+  }
   finally {
-      closeRegionOperation(op);
-    }
-    if (isFlushSize(newSize)) {
-      requestFlush();
-    }
+    closeRegionOperation(op);
   }
   return batchOp.retCodeDetails;
 }

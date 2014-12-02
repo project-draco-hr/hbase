@@ -1,0 +1,69 @@
+{
+  byte[] cf=Bytes.toBytes(COLUMN_FAMILY);
+  byte[] qual=Bytes.toBytes("qual");
+  byte[] val=Bytes.toBytes("val");
+  this.region=initHRegion(Bytes.toBytes(getName()),getName(),CONF,cf);
+  MetricsWALSource source=CompatibilitySingletonFactory.getInstance(MetricsWALSource.class);
+  try {
+    long syncs=metricsAssertHelper.getCounter("syncTimeNumOps",source);
+    metricsAssertHelper.assertCounter("syncTimeNumOps",syncs,source);
+    final Put[] puts=new Put[10];
+    for (int i=0; i < 10; i++) {
+      puts[i]=new Put(Bytes.toBytes("row_" + i));
+      puts[i].add(cf,qual,val);
+    }
+    puts[5].add(Bytes.toBytes("BAD_CF"),qual,val);
+    LOG.info("batchPut will have to break into four batches to avoid row locks");
+    RowLock rowLock1=region.getRowLock(Bytes.toBytes("row_2"));
+    RowLock rowLock2=region.getRowLock(Bytes.toBytes("row_4"));
+    RowLock rowLock3=region.getRowLock(Bytes.toBytes("row_6"));
+    MultithreadedTestUtil.TestContext ctx=new MultithreadedTestUtil.TestContext(CONF);
+    final AtomicReference<OperationStatus[]> retFromThread=new AtomicReference<OperationStatus[]>();
+    TestThread putter=new TestThread(ctx){
+      @Override public void doWork() throws IOException {
+        retFromThread.set(region.batchMutate(puts));
+      }
+    }
+;
+    LOG.info("...starting put thread while holding locks");
+    ctx.addThread(putter);
+    ctx.startThreads();
+    LOG.info("...waiting for put thread to sync 1st time");
+    waitForCounter(source,"syncTimeNumOps",syncs + 1);
+    Thread regionCloseThread=new Thread(){
+      @Override public void run(){
+        try {
+          HRegion.closeHRegion(region);
+        }
+ catch (        IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    regionCloseThread.start();
+    LOG.info("...releasing row lock 1, which should let put thread continue");
+    rowLock1.release();
+    LOG.info("...waiting for put thread to sync 2nd time");
+    waitForCounter(source,"syncTimeNumOps",syncs + 2);
+    LOG.info("...releasing row lock 2, which should let put thread continue");
+    rowLock2.release();
+    LOG.info("...waiting for put thread to sync 3rd time");
+    waitForCounter(source,"syncTimeNumOps",syncs + 3);
+    LOG.info("...releasing row lock 3, which should let put thread continue");
+    rowLock3.release();
+    LOG.info("...waiting for put thread to sync 4th time");
+    waitForCounter(source,"syncTimeNumOps",syncs + 4);
+    LOG.info("...joining on put thread");
+    ctx.stop();
+    regionCloseThread.join();
+    OperationStatus[] codes=retFromThread.get();
+    for (int i=0; i < codes.length; i++) {
+      assertEquals((i == 5) ? OperationStatusCode.BAD_FAMILY : OperationStatusCode.SUCCESS,codes[i].getOperationStatusCode());
+    }
+  }
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
+}
