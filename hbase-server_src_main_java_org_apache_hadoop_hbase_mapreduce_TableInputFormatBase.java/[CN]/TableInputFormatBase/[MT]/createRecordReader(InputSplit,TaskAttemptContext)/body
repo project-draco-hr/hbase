@@ -4,14 +4,39 @@
   }
   TableSplit tSplit=(TableSplit)split;
   LOG.info("Input split length: " + StringUtils.humanReadableInt(tSplit.getLength()) + " bytes.");
-  TableRecordReader trr=this.tableRecordReader;
-  if (trr == null) {
-    trr=new TableRecordReader();
-  }
+  final TableRecordReader trr=this.tableRecordReader != null ? this.tableRecordReader : new TableRecordReader();
   Scan sc=new Scan(this.scan);
   sc.setStartRow(tSplit.getStartRow());
   sc.setStopRow(tSplit.getEndRow());
   trr.setScan(sc);
   trr.setTable(table);
-  return trr;
+  return new RecordReader<ImmutableBytesWritable,Result>(){
+    @Override public void close() throws IOException {
+      trr.close();
+      close(admin,table,regionLocator,connection);
+    }
+    private void close(    Closeable... closables) throws IOException {
+      for (      Closeable c : closables) {
+        if (c != null) {
+          c.close();
+        }
+      }
+    }
+    @Override public ImmutableBytesWritable getCurrentKey() throws IOException, InterruptedException {
+      return trr.getCurrentKey();
+    }
+    @Override public Result getCurrentValue() throws IOException, InterruptedException {
+      return trr.getCurrentValue();
+    }
+    @Override public float getProgress() throws IOException, InterruptedException {
+      return trr.getProgress();
+    }
+    @Override public void initialize(    InputSplit inputsplit,    TaskAttemptContext context) throws IOException, InterruptedException {
+      trr.initialize(inputsplit,context);
+    }
+    @Override public boolean nextKeyValue() throws IOException, InterruptedException {
+      return trr.nextKeyValue();
+    }
+  }
+;
 }
