@@ -50,19 +50,42 @@
             if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),cell)) {
               oldCell=results.get(idx);
               long ts=Math.max(now,oldCell.getTimestamp());
-              newCell=new KeyValue(row.length,cell.getFamilyLength(),cell.getQualifierLength(),ts,KeyValue.Type.Put,oldCell.getValueLength() + cell.getValueLength(),oldCell.getTagsLength() + cell.getTagsLength());
-              System.arraycopy(oldCell.getValueArray(),oldCell.getValueOffset(),newCell.getValueArray(),newCell.getValueOffset(),oldCell.getValueLength());
-              System.arraycopy(cell.getValueArray(),cell.getValueOffset(),newCell.getValueArray(),newCell.getValueOffset() + oldCell.getValueLength(),cell.getValueLength());
-              System.arraycopy(oldCell.getTagsArray(),oldCell.getTagsOffset(),newCell.getTagsArray(),newCell.getTagsOffset(),oldCell.getTagsLength());
-              System.arraycopy(cell.getTagsArray(),cell.getTagsOffset(),newCell.getTagsArray(),newCell.getTagsOffset() + oldCell.getTagsLength(),cell.getTagsLength());
+              List<Tag> newTags=new ArrayList<Tag>();
+              if (oldCell.getTagsLength() > 0) {
+                Iterator<Tag> i=CellUtil.tagsIterator(oldCell.getTagsArray(),oldCell.getTagsOffset(),oldCell.getTagsLength());
+                while (i.hasNext()) {
+                  newTags.add(i.next());
+                }
+              }
+              if (cell.getTagsLength() > 0) {
+                Iterator<Tag> i=CellUtil.tagsIterator(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
+                while (i.hasNext()) {
+                  newTags.add(i.next());
+                }
+              }
+              if (append.getTTL() != Long.MAX_VALUE) {
+                newTags.add(new Tag(TagType.TTL_TAG_TYPE,Bytes.toBytes(append.getTTL())));
+              }
+              byte[] tagBytes=Tag.fromList(newTags);
+              newCell=new KeyValue(row.length,cell.getFamilyLength(),cell.getQualifierLength(),ts,KeyValue.Type.Put,oldCell.getValueLength() + cell.getValueLength(),tagBytes.length);
               System.arraycopy(cell.getRowArray(),cell.getRowOffset(),newCell.getRowArray(),newCell.getRowOffset(),cell.getRowLength());
               System.arraycopy(cell.getFamilyArray(),cell.getFamilyOffset(),newCell.getFamilyArray(),newCell.getFamilyOffset(),cell.getFamilyLength());
               System.arraycopy(cell.getQualifierArray(),cell.getQualifierOffset(),newCell.getQualifierArray(),newCell.getQualifierOffset(),cell.getQualifierLength());
+              System.arraycopy(oldCell.getValueArray(),oldCell.getValueOffset(),newCell.getValueArray(),newCell.getValueOffset(),oldCell.getValueLength());
+              System.arraycopy(cell.getValueArray(),cell.getValueOffset(),newCell.getValueArray(),newCell.getValueOffset() + oldCell.getValueLength(),cell.getValueLength());
+              System.arraycopy(tagBytes,0,newCell.getTagsArray(),newCell.getTagsOffset(),tagBytes.length);
               idx++;
             }
  else {
               CellUtil.updateLatestStamp(cell,now);
-              newCell=cell;
+              if (append.getTTL() != Long.MAX_VALUE) {
+                List<Tag> newTags=new ArrayList<Tag>(1);
+                newTags.add(new Tag(TagType.TTL_TAG_TYPE,Bytes.toBytes(append.getTTL())));
+                newCell=new KeyValue(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength(),cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTimestamp(),KeyValue.Type.codeToType(cell.getTypeByte()),cell.getValueArray(),cell.getValueOffset(),cell.getValueLength(),newTags);
+              }
+ else {
+                newCell=cell;
+              }
             }
             CellUtil.setSequenceId(newCell,mvccNum);
             if (coprocessorHost != null) {

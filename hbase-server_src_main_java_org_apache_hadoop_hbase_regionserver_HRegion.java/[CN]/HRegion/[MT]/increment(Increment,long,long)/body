@@ -46,12 +46,19 @@
           get.setTimeRange(tr.getMin(),tr.getMax());
           List<Cell> results=get(get,false);
           int idx=0;
-          for (          Cell kv : family.getValue()) {
-            long amount=Bytes.toLong(CellUtil.cloneValue(kv));
+          for (          Cell cell : family.getValue()) {
+            long amount=Bytes.toLong(CellUtil.cloneValue(cell));
             boolean noWriteBack=(amount == 0);
+            List<Tag> newTags=new ArrayList<Tag>();
+            if (cell.getTagsLength() > 0) {
+              Iterator<Tag> i=CellUtil.tagsIterator(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength());
+              while (i.hasNext()) {
+                newTags.add(i.next());
+              }
+            }
             Cell c=null;
             long ts=now;
-            if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),kv)) {
+            if (idx < results.size() && CellUtil.matchingQualifier(results.get(idx),cell)) {
               c=results.get(idx);
               ts=Math.max(now,c.getTimestamp());
               if (c.getValueLength() == Bytes.SIZEOF_LONG) {
@@ -60,23 +67,20 @@
  else {
                 throw new org.apache.hadoop.hbase.DoNotRetryIOException("Attempted to increment field that isn't 64 bits wide");
               }
+              if (c.getTagsLength() > 0) {
+                Iterator<Tag> i=CellUtil.tagsIterator(c.getTagsArray(),c.getTagsOffset(),c.getTagsLength());
+                while (i.hasNext()) {
+                  newTags.add(i.next());
+                }
+              }
               idx++;
             }
-            byte[] q=CellUtil.cloneQualifier(kv);
+            byte[] q=CellUtil.cloneQualifier(cell);
             byte[] val=Bytes.toBytes(amount);
-            int oldCellTagsLen=(c == null) ? 0 : c.getTagsLength();
-            int incCellTagsLen=kv.getTagsLength();
-            Cell newKV=new KeyValue(row.length,family.getKey().length,q.length,ts,KeyValue.Type.Put,val.length,oldCellTagsLen + incCellTagsLen);
-            System.arraycopy(row,0,newKV.getRowArray(),newKV.getRowOffset(),row.length);
-            System.arraycopy(family.getKey(),0,newKV.getFamilyArray(),newKV.getFamilyOffset(),family.getKey().length);
-            System.arraycopy(q,0,newKV.getQualifierArray(),newKV.getQualifierOffset(),q.length);
-            System.arraycopy(val,0,newKV.getValueArray(),newKV.getValueOffset(),val.length);
-            if (oldCellTagsLen > 0) {
-              System.arraycopy(c.getTagsArray(),c.getTagsOffset(),newKV.getTagsArray(),newKV.getTagsOffset(),oldCellTagsLen);
+            if (increment.getTTL() != Long.MAX_VALUE) {
+              newTags.add(new Tag(TagType.TTL_TAG_TYPE,Bytes.toBytes(increment.getTTL())));
             }
-            if (incCellTagsLen > 0) {
-              System.arraycopy(kv.getTagsArray(),kv.getTagsOffset(),newKV.getTagsArray(),newKV.getTagsOffset() + oldCellTagsLen,incCellTagsLen);
-            }
+            Cell newKV=new KeyValue(row,0,row.length,family.getKey(),0,family.getKey().length,q,0,q.length,ts,KeyValue.Type.Put,val,0,val.length,newTags);
             CellUtil.setSequenceId(newKV,mvccNum);
             if (coprocessorHost != null) {
               newKV=coprocessorHost.postMutationBeforeWAL(RegionObserver.MutationType.INCREMENT,increment,c,newKV);
