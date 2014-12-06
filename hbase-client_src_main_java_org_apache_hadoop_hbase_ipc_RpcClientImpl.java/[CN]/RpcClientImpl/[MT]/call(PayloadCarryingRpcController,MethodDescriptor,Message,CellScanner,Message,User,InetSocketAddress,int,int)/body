@@ -1,0 +1,52 @@
+{
+  final Call call=new Call(this.callIdCnt.getAndIncrement(),md,param,cells,returnType,callTimeout);
+  final Connection connection=getConnection(ticket,call,addr,this.codec,this.compressor);
+  final CallFuture cts;
+  if (connection.callSender != null) {
+    cts=connection.callSender.sendCall(call,priority,Trace.currentSpan());
+    if (pcrc != null) {
+      pcrc.notifyOnCancel(new RpcCallback<Object>(){
+        @Override public void run(        Object parameter){
+          connection.callSender.remove(cts);
+        }
+      }
+);
+      if (pcrc.isCanceled()) {
+        call.callComplete();
+        return new Pair<Message,CellScanner>(call.response,call.cells);
+      }
+    }
+  }
+ else {
+    cts=null;
+    connection.tracedWriteRequest(call,priority,Trace.currentSpan());
+  }
+  while (!call.done) {
+    if (call.checkAndSetTimeout()) {
+      if (cts != null)       connection.callSender.remove(cts);
+      break;
+    }
+    if (connection.shouldCloseConnection.get()) {
+      throw new ConnectionClosingException("Call id=" + call.id + " on server "+ addr+ " aborted: connection is closing");
+    }
+    try {
+synchronized (call) {
+        if (call.done)         break;
+        call.wait(Math.min(call.remainingTime(),1000) + 1);
+      }
+    }
+ catch (    InterruptedException e) {
+      call.setException(new InterruptedIOException());
+      if (cts != null)       connection.callSender.remove(cts);
+      throw e;
+    }
+  }
+  if (call.error != null) {
+    if (call.error instanceof RemoteException) {
+      call.error.fillInStackTrace();
+      throw call.error;
+    }
+    throw wrapException(addr,call.error);
+  }
+  return new Pair<Message,CellScanner>(call.response,call.cells);
+}
