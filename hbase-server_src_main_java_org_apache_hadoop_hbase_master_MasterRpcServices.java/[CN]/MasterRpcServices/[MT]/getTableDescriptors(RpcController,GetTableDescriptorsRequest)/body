@@ -1,82 +1,24 @@
 {
   try {
     master.checkInitialized();
-  }
- catch (  IOException e) {
-    throw new ServiceException(e);
-  }
-  List<HTableDescriptor> descriptors=new ArrayList<HTableDescriptor>();
-  List<TableName> tableNameList=new ArrayList<TableName>();
-  for (  HBaseProtos.TableName tableNamePB : req.getTableNamesList()) {
-    tableNameList.add(ProtobufUtil.toTableName(tableNamePB));
-  }
-  boolean bypass=false;
-  String regex=req.hasRegex() ? req.getRegex() : null;
-  if (master.cpHost != null) {
-    try {
-      bypass=master.cpHost.preGetTableDescriptors(tableNameList,descriptors);
-      bypass|=master.cpHost.preGetTableDescriptors(tableNameList,descriptors,regex);
-    }
- catch (    IOException ioe) {
-      throw new ServiceException(ioe);
-    }
-  }
-  if (!bypass) {
-    if (req.getTableNamesCount() == 0) {
-      Map<String,HTableDescriptor> descriptorMap=null;
-      try {
-        descriptorMap=master.getTableDescriptors().getAll();
-      }
- catch (      IOException e) {
-        LOG.warn("Failed getting all descriptors",e);
-      }
-      if (descriptorMap != null) {
-        for (        HTableDescriptor desc : descriptorMap.values()) {
-          if (!desc.getTableName().isSystemTable()) {
-            descriptors.add(desc);
-          }
-        }
+    final String regex=req.hasRegex() ? req.getRegex() : null;
+    List<TableName> tableNameList=null;
+    if (req.getTableNamesCount() > 0) {
+      tableNameList=new ArrayList<TableName>(req.getTableNamesCount());
+      for (      HBaseProtos.TableName tableNamePB : req.getTableNamesList()) {
+        tableNameList.add(ProtobufUtil.toTableName(tableNamePB));
       }
     }
- else {
-      for (      TableName s : tableNameList) {
-        try {
-          HTableDescriptor desc=master.getTableDescriptors().get(s);
-          if (desc != null) {
-            descriptors.add(desc);
-          }
-        }
- catch (        IOException e) {
-          LOG.warn("Failed getting descriptor for " + s,e);
-        }
+    List<HTableDescriptor> descriptors=master.listTableDescriptors(regex,tableNameList,req.getIncludeSysTables());
+    GetTableDescriptorsResponse.Builder builder=GetTableDescriptorsResponse.newBuilder();
+    if (descriptors != null && descriptors.size() > 0) {
+      for (      HTableDescriptor htd : descriptors) {
+        builder.addTableSchema(htd.convert());
       }
     }
-    if (regex != null) {
-      Pattern pat=Pattern.compile(regex);
-      for (Iterator<HTableDescriptor> itr=descriptors.iterator(); itr.hasNext(); ) {
-        HTableDescriptor htd=itr.next();
-        String tableName=htd.getTableName().getNameAsString();
-        String defaultNameSpace=NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR;
-        boolean matched=pat.matcher(tableName).matches();
-        if (!matched && htd.getTableName().getNamespaceAsString().equals(defaultNameSpace)) {
-          matched=pat.matcher(defaultNameSpace + TableName.NAMESPACE_DELIM + tableName).matches();
-        }
-        if (!matched)         itr.remove();
-      }
-    }
-    if (master.cpHost != null) {
-      try {
-        master.cpHost.postGetTableDescriptors(descriptors);
-        master.cpHost.postGetTableDescriptors(descriptors,regex);
-      }
- catch (      IOException ioe) {
-        throw new ServiceException(ioe);
-      }
-    }
+    return builder.build();
   }
-  GetTableDescriptorsResponse.Builder builder=GetTableDescriptorsResponse.newBuilder();
-  for (  HTableDescriptor htd : descriptors) {
-    builder.addTableSchema(htd.convert());
+ catch (  IOException ioe) {
+    throw new ServiceException(ioe);
   }
-  return builder.build();
 }
