@@ -3,11 +3,12 @@
     if (!HttpServer.isInstrumentationAccessAllowed(getServletContext(),request,response)) {
       return;
     }
-    JsonGenerator jg=null;
     String jsonpcb=null;
     PrintWriter writer=null;
+    JSONBean.Writer beanWriter=null;
     try {
       writer=response.getWriter();
+      beanWriter=this.jsonBeanWriter.open(writer);
       jsonpcb=request.getParameter(CALLBACK_PARAM);
       if (jsonpcb != null) {
         response.setContentType("application/javascript; charset=utf8");
@@ -18,33 +19,33 @@
       }
       String tmpStr=request.getParameter(INCLUDE_DESCRIPTION);
       boolean description=tmpStr != null && tmpStr.length() > 0;
-      jg=jsonFactory.createJsonGenerator(writer);
-      jg.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
-      jg.useDefaultPrettyPrinter();
-      jg.writeStartObject();
       String getmethod=request.getParameter("get");
       if (getmethod != null) {
         String[] splitStrings=getmethod.split("\\:\\:");
         if (splitStrings.length != 2) {
-          jg.writeStringField("result","ERROR");
-          jg.writeStringField("message","query format is not as expected.");
-          jg.flush();
+          beanWriter.write("result","ERROR");
+          beanWriter.write("message","query format is not as expected.");
+          beanWriter.flush();
           response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
           return;
         }
-        listBeans(jg,new ObjectName(splitStrings[0]),splitStrings[1],description,response);
+        if (beanWriter.write(this.mBeanServer,new ObjectName(splitStrings[0]),splitStrings[1],description) != 0) {
+          beanWriter.flush();
+          response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        }
         return;
       }
       String qry=request.getParameter("qry");
       if (qry == null) {
         qry="*:*";
       }
-      listBeans(jg,new ObjectName(qry),null,description,response);
+      if (beanWriter.write(this.mBeanServer,new ObjectName(qry),null,description) != 0) {
+        beanWriter.flush();
+        response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+      }
     }
   finally {
-      if (jg != null) {
-        jg.close();
-      }
+      if (beanWriter != null)       beanWriter.close();
       if (jsonpcb != null) {
         writer.write(");");
       }
