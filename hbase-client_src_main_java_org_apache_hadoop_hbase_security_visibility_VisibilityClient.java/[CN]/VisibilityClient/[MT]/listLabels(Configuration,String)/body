@@ -1,0 +1,36 @@
+{
+  Connection connection=null;
+  Table table=null;
+  try {
+    connection=ConnectionFactory.createConnection(conf);
+    table=connection.getTable(LABELS_TABLE_NAME);
+    Batch.Call<VisibilityLabelsService,ListLabelsResponse> callable=new Batch.Call<VisibilityLabelsService,ListLabelsResponse>(){
+      ServerRpcController controller=new ServerRpcController();
+      BlockingRpcCallback<ListLabelsResponse> rpcCallback=new BlockingRpcCallback<ListLabelsResponse>();
+      public ListLabelsResponse call(      VisibilityLabelsService service) throws IOException {
+        ListLabelsRequest.Builder listAuthLabelsReqBuilder=ListLabelsRequest.newBuilder();
+        if (regex != null) {
+          Pattern pattern=Pattern.compile(regex);
+          listAuthLabelsReqBuilder.setRegex(pattern.toString());
+        }
+        service.listLabels(controller,listAuthLabelsReqBuilder.build(),rpcCallback);
+        ListLabelsResponse response=rpcCallback.get();
+        if (controller.failedOnException()) {
+          throw controller.getFailedOn();
+        }
+        return response;
+      }
+    }
+;
+    Map<byte[],ListLabelsResponse> result=table.coprocessorService(VisibilityLabelsService.class,HConstants.EMPTY_BYTE_ARRAY,HConstants.EMPTY_BYTE_ARRAY,callable);
+    return result.values().iterator().next();
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+    if (connection != null) {
+      connection.close();
+    }
+  }
+}
