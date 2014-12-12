@@ -1,0 +1,29 @@
+{
+  String effectiveUser=realUser.getShortUserName();
+  if (securityEnabled) {
+    try {
+      effectiveUser=doKerberosAuth(request);
+    }
+ catch (    HttpAuthenticationException e) {
+      LOG.error("Kerberos Authentication failed",e);
+      response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+      response.getWriter().println("Authentication Error: " + e.getMessage());
+    }
+  }
+  String doAsUserFromQuery=request.getHeader("doAs");
+  if (doAsUserFromQuery != null) {
+    if (!doAsEnabled) {
+      throw new ServletException("Support for proxyuser is not configured");
+    }
+    UserGroupInformation ugi=UserGroupInformation.createProxyUser(doAsUserFromQuery,realUser);
+    try {
+      ProxyUsers.authorize(ugi,request.getRemoteAddr());
+    }
+ catch (    AuthorizationException e) {
+      throw new ServletException(e.getMessage());
+    }
+    effectiveUser=doAsUserFromQuery;
+  }
+  hbaseHandler.setEffectiveUser(effectiveUser);
+  super.doPost(request,response);
+}
