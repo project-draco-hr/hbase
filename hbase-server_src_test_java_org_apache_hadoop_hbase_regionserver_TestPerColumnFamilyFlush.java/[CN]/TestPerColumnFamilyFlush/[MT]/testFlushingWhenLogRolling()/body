@@ -1,0 +1,41 @@
+{
+  Configuration conf=TEST_UTIL.getConfiguration();
+  conf.setLong(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,300000);
+  conf.set(FlushPolicyFactory.HBASE_FLUSH_POLICY_KEY,FlushLargeStoresPolicy.class.getName());
+  conf.setLong(FlushLargeStoresPolicy.HREGION_COLUMNFAMILY_FLUSH_SIZE_LOWER_BOUND,100000);
+  conf.setLong("hbase.regionserver.logroll.period",2000);
+  conf.setLong("hbase.regionserver.hlog.blocksize",6144);
+  int maxLogs=conf.getInt("hbase.regionserver.maxlogs",32);
+  final int numRegionServers=4;
+  TEST_UTIL.startMiniCluster(numRegionServers);
+  TEST_UTIL.getHBaseAdmin().createNamespace(NamespaceDescriptor.create(TABLENAME.getNamespaceAsString()).build());
+  HTable table=TEST_UTIL.createTable(TABLENAME,families);
+  HTableDescriptor htd=table.getTableDescriptor();
+  for (  byte[] family : families) {
+    if (!htd.hasFamily(family)) {
+      htd.addFamily(new HColumnDescriptor(family));
+    }
+  }
+  HRegion desiredRegion=getRegionWithName(TABLENAME).getFirst();
+  assertTrue("Could not find a region which hosts the new region.",desiredRegion != null);
+  for (int i=1; i <= 10000; i++) {
+    table.put(createPut(1,i));
+    if (i <= 200) {
+      table.put(createPut(2,i));
+      table.put(createPut(3,i));
+    }
+    table.flushCommits();
+    int currentNumLogFiles=((FSHLog)(desiredRegion.getWAL())).getNumLogFiles();
+    if (currentNumLogFiles > maxLogs) {
+      LOG.info("The number of log files is now: " + currentNumLogFiles + ". Expect a log roll and memstore flush.");
+      break;
+    }
+  }
+  table.close();
+  Thread.sleep(4000);
+  assertEquals(DefaultMemStore.DEEP_OVERHEAD,desiredRegion.getStore(FAMILY1).getMemStoreSize());
+  assertEquals(DefaultMemStore.DEEP_OVERHEAD,desiredRegion.getStore(FAMILY2).getMemStoreSize());
+  assertEquals(DefaultMemStore.DEEP_OVERHEAD,desiredRegion.getStore(FAMILY3).getMemStoreSize());
+  assertEquals(0,desiredRegion.getMemstoreSize().get());
+  TEST_UTIL.shutdownMiniCluster();
+}

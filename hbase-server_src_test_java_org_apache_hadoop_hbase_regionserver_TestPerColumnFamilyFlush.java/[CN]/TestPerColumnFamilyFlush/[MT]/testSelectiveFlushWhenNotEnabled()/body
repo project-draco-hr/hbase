@@ -1,0 +1,34 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  conf.setLong(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,200 * 1024);
+  conf.set(FlushPolicyFactory.HBASE_FLUSH_POLICY_KEY,FlushAllStoresPolicy.class.getName());
+  initHRegion("testSelectiveFlushWhenNotEnabled",conf);
+  for (int i=1; i <= 1200; i++) {
+    region.put(createPut(1,i));
+    if (i <= 100) {
+      region.put(createPut(2,i));
+      if (i <= 50) {
+        region.put(createPut(3,i));
+      }
+    }
+  }
+  long totalMemstoreSize=region.getMemstoreSize().get();
+  long cf1MemstoreSize=region.getStore(FAMILY1).getMemStoreSize();
+  long cf2MemstoreSize=region.getStore(FAMILY2).getMemStoreSize();
+  long cf3MemstoreSize=region.getStore(FAMILY3).getMemStoreSize();
+  assertTrue(cf1MemstoreSize > 0);
+  assertTrue(cf2MemstoreSize > 0);
+  assertTrue(cf3MemstoreSize > 0);
+  assertEquals(totalMemstoreSize + 3 * DefaultMemStore.DEEP_OVERHEAD,cf1MemstoreSize + cf2MemstoreSize + cf3MemstoreSize);
+  region.flushcache(false);
+  cf1MemstoreSize=region.getStore(FAMILY1).getMemStoreSize();
+  cf2MemstoreSize=region.getStore(FAMILY2).getMemStoreSize();
+  cf3MemstoreSize=region.getStore(FAMILY3).getMemStoreSize();
+  totalMemstoreSize=region.getMemstoreSize().get();
+  long smallestSeqInRegionCurrentMemstore=region.getWAL().getEarliestMemstoreSeqNum(region.getRegionInfo().getEncodedNameAsBytes());
+  assertEquals(DefaultMemStore.DEEP_OVERHEAD,cf1MemstoreSize);
+  assertEquals(DefaultMemStore.DEEP_OVERHEAD,cf2MemstoreSize);
+  assertEquals(DefaultMemStore.DEEP_OVERHEAD,cf3MemstoreSize);
+  assertEquals(0,totalMemstoreSize);
+  assertEquals(HConstants.NO_SEQNUM,smallestSeqInRegionCurrentMemstore);
+}

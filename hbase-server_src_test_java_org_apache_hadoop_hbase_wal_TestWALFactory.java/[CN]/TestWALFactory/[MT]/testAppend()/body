@@ -1,6 +1,6 @@
 {
   final int COL_COUNT=10;
-  final TableName tableName=TableName.valueOf("tablename");
+  final HTableDescriptor htd=new HTableDescriptor(TableName.valueOf("tablename")).addFamily(new HColumnDescriptor("column"));
   final byte[] row=Bytes.toBytes("row");
   WAL.Reader reader=null;
   final AtomicLong sequenceId=new AtomicLong(1);
@@ -10,13 +10,11 @@
     for (int i=0; i < COL_COUNT; i++) {
       cols.add(new KeyValue(row,Bytes.toBytes("column"),Bytes.toBytes(Integer.toString(i)),timestamp,new byte[]{(byte)(i + '0')}));
     }
-    HRegionInfo hri=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
-    HTableDescriptor htd=new HTableDescriptor();
-    htd.addFamily(new HColumnDescriptor("column"));
+    HRegionInfo hri=new HRegionInfo(htd.getTableName(),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
     final WAL log=wals.getWAL(hri.getEncodedNameAsBytes());
-    final long txid=log.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),cols,sequenceId,true,null);
+    final long txid=log.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),htd.getTableName(),System.currentTimeMillis()),cols,sequenceId,true,null);
     log.sync(txid);
-    log.startCacheFlush(hri.getEncodedNameAsBytes());
+    log.startCacheFlush(hri.getEncodedNameAsBytes(),htd.getFamiliesKeys());
     log.completeCacheFlush(hri.getEncodedNameAsBytes());
     log.shutdown();
     Path filename=DefaultWALProvider.getCurrentFileName(log);
@@ -26,7 +24,7 @@
     int idx=0;
     for (    Cell val : entry.getEdit().getCells()) {
       assertTrue(Bytes.equals(hri.getEncodedNameAsBytes(),entry.getKey().getEncodedRegionName()));
-      assertTrue(tableName.equals(entry.getKey().getTablename()));
+      assertTrue(htd.getTableName().equals(entry.getKey().getTablename()));
       assertTrue(Bytes.equals(row,val.getRow()));
       assertEquals((byte)(idx + '0'),val.getValue()[0]);
       System.out.println(entry.getKey() + " " + val);

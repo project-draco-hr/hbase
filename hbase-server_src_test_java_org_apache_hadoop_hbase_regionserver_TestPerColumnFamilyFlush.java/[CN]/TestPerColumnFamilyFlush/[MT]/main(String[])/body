@@ -1,0 +1,49 @@
+{
+  int numRegions=Integer.parseInt(args[0]);
+  long numRows=Long.parseLong(args[1]);
+  HTableDescriptor htd=new HTableDescriptor(TABLENAME);
+  htd.setMaxFileSize(10L * 1024 * 1024* 1024);
+  htd.setValue(HTableDescriptor.SPLIT_POLICY,ConstantSizeRegionSplitPolicy.class.getName());
+  htd.addFamily(new HColumnDescriptor(FAMILY1));
+  htd.addFamily(new HColumnDescriptor(FAMILY2));
+  htd.addFamily(new HColumnDescriptor(FAMILY3));
+  Configuration conf=HBaseConfiguration.create();
+  HConnection conn=HConnectionManager.createConnection(conf);
+  HBaseAdmin admin=new HBaseAdmin(conn);
+  if (admin.tableExists(TABLENAME)) {
+    admin.disableTable(TABLENAME);
+    admin.deleteTable(TABLENAME);
+  }
+  if (numRegions >= 3) {
+    byte[] startKey=new byte[16];
+    byte[] endKey=new byte[16];
+    Arrays.fill(endKey,(byte)0xFF);
+    admin.createTable(htd,startKey,endKey,numRegions);
+  }
+ else {
+    admin.createTable(htd);
+  }
+  admin.close();
+  HTableInterface table=conn.getTable(TABLENAME);
+  byte[] qf=Bytes.toBytes("qf");
+  Random rand=new Random();
+  byte[] value1=new byte[16];
+  byte[] value2=new byte[256];
+  byte[] value3=new byte[4096];
+  for (long i=0; i < numRows; i++) {
+    Put put=new Put(Hashing.md5().hashLong(i).asBytes());
+    rand.setSeed(i);
+    rand.nextBytes(value1);
+    rand.nextBytes(value2);
+    rand.nextBytes(value3);
+    put.add(FAMILY1,qf,value1);
+    put.add(FAMILY2,qf,value2);
+    put.add(FAMILY3,qf,value3);
+    table.put(put);
+    if (i % 10000 == 0) {
+      LOG.info(i + " rows put");
+    }
+  }
+  table.close();
+  conn.close();
+}

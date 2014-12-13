@@ -11,10 +11,12 @@
   final byte[] regionName=hri.getEncodedNameAsBytes();
   final AtomicLong sequenceId=new AtomicLong(1);
   final int countPerFamily=1000;
+  Set<byte[]> familyNames=new HashSet<byte[]>();
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
     addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal,htd,sequenceId);
+    familyNames.add(hcd.getName());
   }
-  wal.startCacheFlush(regionName);
+  wal.startCacheFlush(regionName,familyNames);
   wal.completeCacheFlush(regionName);
   WALEdit edit=new WALEdit();
   long now=ee.currentTime();
@@ -36,9 +38,9 @@
       final AtomicInteger flushcount=new AtomicInteger(0);
       try {
         final HRegion region=new HRegion(basedir,newWal,newFS,newConf,hri,htd,null){
-          @Override protected FlushResult internalFlushcache(          final WAL wal,          final long myseqid,          MonitoredTask status) throws IOException {
+          @Override protected FlushResult internalFlushcache(          final WAL wal,          final long myseqid,          Collection<Store> storesToFlush,          MonitoredTask status) throws IOException {
             LOG.info("InternalFlushCache Invoked");
-            FlushResult fs=super.internalFlushcache(wal,myseqid,Mockito.mock(MonitoredTask.class));
+            FlushResult fs=super.internalFlushcache(wal,myseqid,storesToFlush,Mockito.mock(MonitoredTask.class));
             flushcount.incrementAndGet();
             return fs;
           }
