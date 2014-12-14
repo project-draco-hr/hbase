@@ -1,19 +1,22 @@
 {
   TableName table=TableName.valueOf("groupOrSplitFailure");
-  setupTable(table,10);
-  LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
-    int i=0;
-    protected List<LoadQueueItem> groupOrSplit(    Multimap<ByteBuffer,LoadQueueItem> regionGroups,    final LoadQueueItem item,    final HTable table,    final Pair<byte[][],byte[][]> startEndKeys) throws IOException {
-      i++;
-      if (i == 5) {
-        throw new IOException("failure");
+  try (Connection connection=ConnectionFactory.createConnection(util.getConfiguration())){
+    setupTable(connection,table,10);
+    LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
+      int i=0;
+      protected List<LoadQueueItem> groupOrSplit(      Multimap<ByteBuffer,LoadQueueItem> regionGroups,      final LoadQueueItem item,      final HTable table,      final Pair<byte[][],byte[][]> startEndKeys) throws IOException {
+        i++;
+        if (i == 5) {
+          throw new IOException("failure");
+        }
+        return super.groupOrSplit(regionGroups,item,table,startEndKeys);
       }
-      return super.groupOrSplit(regionGroups,item,table,startEndKeys);
     }
-  }
 ;
-  Path dir=buildBulkFiles(table,1);
-  HTable t=new HTable(util.getConfiguration(),table);
-  lih.doBulkLoad(dir,t);
-  fail("doBulkLoad should have thrown an exception");
+    Path dir=buildBulkFiles(table,1);
+    try (Table t=connection.getTable(table)){
+      lih.doBulkLoad(dir,(HTable)t);
+    }
+   }
+   fail("doBulkLoad should have thrown an exception");
 }

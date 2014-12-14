@@ -1,15 +1,15 @@
 {
   TableName table=TableName.valueOf("bulkLoadPhaseFailure");
-  setupTable(table,10);
   final AtomicInteger attmptedCalls=new AtomicInteger();
   final AtomicInteger failedCalls=new AtomicInteger();
   util.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,2);
-  try {
+  try (Connection connection=ConnectionFactory.createConnection(this.util.getConfiguration())){
+    setupTable(connection,table,10);
     LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
       protected List<LoadQueueItem> tryAtomicRegionLoad(      final HConnection conn,      TableName tableName,      final byte[] first,      Collection<LoadQueueItem> lqis) throws IOException {
         int i=attmptedCalls.incrementAndGet();
         if (i == 1) {
-          HConnection errConn=null;
+          Connection errConn=null;
           try {
             errConn=getMockedConnection(util.getConfiguration());
           }
@@ -18,18 +18,21 @@
             throw new RuntimeException("mocking cruft, should never happen");
           }
           failedCalls.incrementAndGet();
-          return super.tryAtomicRegionLoad(errConn,tableName,first,lqis);
+          return super.tryAtomicRegionLoad((HConnection)errConn,tableName,first,lqis);
         }
-        return super.tryAtomicRegionLoad(conn,tableName,first,lqis);
+        return super.tryAtomicRegionLoad((HConnection)conn,tableName,first,lqis);
       }
     }
 ;
-    Path dir=buildBulkFiles(table,1);
-    HTable t=new HTable(util.getConfiguration(),table);
-    lih.doBulkLoad(dir,t);
-  }
+    try {
+      Path dir=buildBulkFiles(table,1);
+      try (Table t=connection.getTable(table)){
+        lih.doBulkLoad(dir,(HTable)t);
+      }
+     }
   finally {
-    util.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
+      util.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
+    }
+    fail("doBulkLoad should have thrown an exception");
   }
-  fail("doBulkLoad should have thrown an exception");
-}
+ }

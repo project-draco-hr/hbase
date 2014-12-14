@@ -1,22 +1,25 @@
 {
   final TableName table=TableName.valueOf("splitWhileBulkloadPhase");
-  setupTable(table,10);
-  populateTable(table,1);
-  assertExpectedTable(table,ROWCOUNT,1);
-  final AtomicInteger attemptedCalls=new AtomicInteger();
-  LoadIncrementalHFiles lih2=new LoadIncrementalHFiles(util.getConfiguration()){
-    protected void bulkLoadPhase(    final Table htable,    final HConnection conn,    ExecutorService pool,    Deque<LoadQueueItem> queue,    final Multimap<ByteBuffer,LoadQueueItem> regionGroups) throws IOException {
-      int i=attemptedCalls.incrementAndGet();
-      if (i == 1) {
-        forceSplit(table);
+  try (Connection connection=ConnectionFactory.createConnection(util.getConfiguration())){
+    setupTable(connection,table,10);
+    populateTable(connection,table,1);
+    assertExpectedTable(table,ROWCOUNT,1);
+    final AtomicInteger attemptedCalls=new AtomicInteger();
+    LoadIncrementalHFiles lih2=new LoadIncrementalHFiles(util.getConfiguration()){
+      protected void bulkLoadPhase(      final Table htable,      final HConnection conn,      ExecutorService pool,      Deque<LoadQueueItem> queue,      final Multimap<ByteBuffer,LoadQueueItem> regionGroups) throws IOException {
+        int i=attemptedCalls.incrementAndGet();
+        if (i == 1) {
+          forceSplit(table);
+        }
+        super.bulkLoadPhase(htable,conn,pool,queue,regionGroups);
       }
-      super.bulkLoadPhase(htable,conn,pool,queue,regionGroups);
     }
-  }
 ;
-  HTable t=new HTable(util.getConfiguration(),table);
-  Path bulk=buildBulkFiles(table,2);
-  lih2.doBulkLoad(bulk,t);
-  assertEquals(attemptedCalls.get(),3);
-  assertExpectedTable(table,ROWCOUNT,2);
-}
+    try (Table t=connection.getTable(table)){
+      Path bulk=buildBulkFiles(table,2);
+      lih2.doBulkLoad(bulk,(HTable)t);
+    }
+     assertEquals(attemptedCalls.get(),3);
+    assertExpectedTable(table,ROWCOUNT,2);
+  }
+ }

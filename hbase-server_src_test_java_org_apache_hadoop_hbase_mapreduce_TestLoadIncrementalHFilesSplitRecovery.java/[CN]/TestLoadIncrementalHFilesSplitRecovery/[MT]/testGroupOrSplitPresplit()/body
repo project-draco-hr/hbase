@@ -1,23 +1,26 @@
 {
   final TableName table=TableName.valueOf("groupOrSplitPresplit");
-  setupTable(table,10);
-  populateTable(table,1);
-  assertExpectedTable(table,ROWCOUNT,1);
-  forceSplit(table);
-  final AtomicInteger countedLqis=new AtomicInteger();
-  LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
-    protected List<LoadQueueItem> groupOrSplit(    Multimap<ByteBuffer,LoadQueueItem> regionGroups,    final LoadQueueItem item,    final HTable htable,    final Pair<byte[][],byte[][]> startEndKeys) throws IOException {
-      List<LoadQueueItem> lqis=super.groupOrSplit(regionGroups,item,htable,startEndKeys);
-      if (lqis != null) {
-        countedLqis.addAndGet(lqis.size());
+  try (Connection connection=ConnectionFactory.createConnection(util.getConfiguration())){
+    setupTable(connection,table,10);
+    populateTable(connection,table,1);
+    assertExpectedTable(connection,table,ROWCOUNT,1);
+    forceSplit(table);
+    final AtomicInteger countedLqis=new AtomicInteger();
+    LoadIncrementalHFiles lih=new LoadIncrementalHFiles(util.getConfiguration()){
+      protected List<LoadQueueItem> groupOrSplit(      Multimap<ByteBuffer,LoadQueueItem> regionGroups,      final LoadQueueItem item,      final HTable htable,      final Pair<byte[][],byte[][]> startEndKeys) throws IOException {
+        List<LoadQueueItem> lqis=super.groupOrSplit(regionGroups,item,htable,startEndKeys);
+        if (lqis != null) {
+          countedLqis.addAndGet(lqis.size());
+        }
+        return lqis;
       }
-      return lqis;
     }
-  }
 ;
-  Path bulk=buildBulkFiles(table,2);
-  HTable ht=new HTable(util.getConfiguration(),table);
-  lih.doBulkLoad(bulk,ht);
-  assertExpectedTable(table,ROWCOUNT,2);
-  assertEquals(20,countedLqis.get());
-}
+    Path bulk=buildBulkFiles(table,2);
+    try (Table t=connection.getTable(table)){
+      lih.doBulkLoad(bulk,(HTable)t);
+    }
+     assertExpectedTable(connection,table,ROWCOUNT,2);
+    assertEquals(20,countedLqis.get());
+  }
+ }
