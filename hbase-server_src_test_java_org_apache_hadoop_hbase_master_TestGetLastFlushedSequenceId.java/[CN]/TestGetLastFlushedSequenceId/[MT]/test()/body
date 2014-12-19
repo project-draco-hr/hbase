@@ -1,0 +1,23 @@
+{
+  testUtil.getHBaseAdmin().createNamespace(NamespaceDescriptor.create(tableName.getNamespaceAsString()).build());
+  HTable table=testUtil.createTable(tableName,families);
+  table.put(new Put(Bytes.toBytes("k")).add(family,Bytes.toBytes("q"),Bytes.toBytes("v")));
+  table.flushCommits();
+  MiniHBaseCluster cluster=testUtil.getMiniHBaseCluster();
+  List<JVMClusterUtil.RegionServerThread> rsts=cluster.getRegionServerThreads();
+  HRegion region=null;
+  for (int i=0; i < cluster.getRegionServerThreads().size(); i++) {
+    HRegionServer hrs=rsts.get(i).getRegionServer();
+    for (    HRegion r : hrs.getOnlineRegions(tableName)) {
+      region=r;
+      break;
+    }
+  }
+  assertNotNull(region);
+  Thread.sleep(2000);
+  assertEquals(HConstants.NO_SEQNUM,testUtil.getHBaseCluster().getMaster().getLastSequenceId(region.getRegionInfo().getEncodedNameAsBytes()));
+  testUtil.getHBaseAdmin().flush(tableName);
+  Thread.sleep(2000);
+  assertTrue(testUtil.getHBaseCluster().getMaster().getLastSequenceId(region.getRegionInfo().getEncodedNameAsBytes()) > 0);
+  table.close();
+}
