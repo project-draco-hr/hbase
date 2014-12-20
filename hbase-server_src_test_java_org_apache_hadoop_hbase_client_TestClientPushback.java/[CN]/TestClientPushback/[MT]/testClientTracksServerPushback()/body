@@ -3,19 +3,21 @@
   TableName tablename=TableName.valueOf(tableName);
   Connection conn=ConnectionFactory.createConnection(conf);
   HTable table=(HTable)conn.getTable(tablename);
-  table.setAutoFlushTo(true);
+  HRegionServer rs=UTIL.getHBaseCluster().getRegionServer(0);
+  HRegion region=rs.getOnlineRegions(tablename).get(0);
+  LOG.debug("Writing some data to " + tablename);
   Put p=new Put(Bytes.toBytes("row"));
   p.add(family,qualifier,Bytes.toBytes("value1"));
   table.put(p);
+  table.flushCommits();
+  int load=(int)((region.addAndGetGlobalMemstoreSize(0) * 100) / flushSizeBytes);
+  LOG.debug("Done writing some data to " + tablename);
   ClusterConnection connection=table.connection;
   ServerStatisticTracker stats=connection.getStatisticsTracker();
   assertNotNull("No stats configured for the client!",stats);
-  ServerName server=UTIL.getHBaseCluster().getRegionServer(0).getServerName();
-  byte[] regionName=UTIL.getHBaseCluster().getRegionServer(0).getOnlineRegions(tablename).get(0).getRegionName();
+  ServerName server=rs.getServerName();
+  byte[] regionName=region.getRegionName();
   ServerStatistics serverStats=stats.getServerStatsForTesting(server);
   ServerStatistics.RegionStatistics regionStats=serverStats.getStatsForRegion(regionName);
-  int load=regionStats.getMemstoreLoadPercent();
-  if (load < 11) {
-    assertEquals("Load on memstore too low",11,load);
-  }
+  assertEquals(load,regionStats.getMemstoreLoadPercent());
 }
