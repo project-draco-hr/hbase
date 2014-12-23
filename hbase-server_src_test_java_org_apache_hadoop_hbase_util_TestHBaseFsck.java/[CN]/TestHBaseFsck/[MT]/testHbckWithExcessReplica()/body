@@ -2,11 +2,11 @@
   TableName table=TableName.valueOf("testHbckWithExcessReplica");
   try {
     setupTableWithRegionReplica(table,2);
-    TEST_UTIL.getHBaseAdmin().flush(table);
+    admin.flush(table);
     assertNoErrors(doFsck(conf,false));
     assertEquals(ROWKEYS.length,countRows());
-    Table meta=new HTable(conf,TableName.META_TABLE_NAME);
-    List<HRegionInfo> regions=TEST_UTIL.getHBaseAdmin().getTableRegions(table);
+    Table meta=connection.getTable(TableName.META_TABLE_NAME,tableExecutorService);
+    List<HRegionInfo> regions=admin.getTableRegions(table);
     byte[] startKey=Bytes.toBytes("B");
     byte[] endKey=Bytes.toBytes("C");
     byte[] metaKey=null;
@@ -19,17 +19,17 @@
       }
     }
     Put put=new Put(metaKey);
-    Collection<ServerName> var=TEST_UTIL.getHBaseAdmin().getClusterStatus().getServers();
+    Collection<ServerName> var=admin.getClusterStatus().getServers();
     ServerName sn=var.toArray(new ServerName[var.size()])[0];
     MetaTableAccessor.addLocation(put,sn,sn.getStartcode(),2);
     meta.put(put);
     meta.flushCommits();
-    HBaseFsckRepair.fixUnassigned(TEST_UTIL.getHBaseAdmin(),newHri);
-    HBaseFsckRepair.waitUntilAssigned(TEST_UTIL.getHBaseAdmin(),newHri);
+    HBaseFsckRepair.fixUnassigned(admin,newHri);
+    HBaseFsckRepair.waitUntilAssigned(admin,newHri);
     Delete delete=new Delete(metaKey);
-    delete.deleteColumns(HConstants.CATALOG_FAMILY,MetaTableAccessor.getServerColumn(2));
-    delete.deleteColumns(HConstants.CATALOG_FAMILY,MetaTableAccessor.getStartCodeColumn(2));
-    delete.deleteColumns(HConstants.CATALOG_FAMILY,MetaTableAccessor.getSeqNumColumn(2));
+    delete.addColumns(HConstants.CATALOG_FAMILY,MetaTableAccessor.getServerColumn(2));
+    delete.addColumns(HConstants.CATALOG_FAMILY,MetaTableAccessor.getStartCodeColumn(2));
+    delete.addColumns(HConstants.CATALOG_FAMILY,MetaTableAccessor.getSeqNumColumn(2));
     meta.delete(delete);
     meta.flushCommits();
     meta.close();
@@ -40,6 +40,6 @@
     assertErrors(hbck,new ERROR_CODE[]{});
   }
   finally {
-    deleteTable(table);
+    cleanupTable(table);
   }
 }

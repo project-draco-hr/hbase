@@ -1,14 +1,14 @@
 {
   TableName table=TableName.valueOf("testSidelineOverlapRegion");
-  try (HConnection conn=(HConnection)ConnectionFactory.createConnection(conf)){
+  try {
     setupTable(table);
     assertEquals(ROWKEYS.length,countRows());
     MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
     HMaster master=cluster.getMaster();
-    HRegionInfo hriOverlap1=createRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("A"),Bytes.toBytes("AB"));
+    HRegionInfo hriOverlap1=createRegion(tbl.getTableDescriptor(),Bytes.toBytes("A"),Bytes.toBytes("AB"));
     master.assignRegion(hriOverlap1);
     master.getAssignmentManager().waitForAssignment(hriOverlap1);
-    HRegionInfo hriOverlap2=createRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("AB"),Bytes.toBytes("B"));
+    HRegionInfo hriOverlap2=createRegion(tbl.getTableDescriptor(),Bytes.toBytes("AB"),Bytes.toBytes("B"));
     master.assignRegion(hriOverlap2);
     master.getAssignmentManager().waitForAssignment(hriOverlap2);
     HBaseFsck hbck=doFsck(conf,false);
@@ -29,19 +29,19 @@
             break;
           }
         }
-        HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
-        HBaseFsckRepair.closeRegionSilentlyAndWait(conn,cluster.getRegionServer(k).getServerName(),hbi.getHdfsHRI());
+        HBaseFsckRepair.closeRegionSilentlyAndWait((HConnection)connection,cluster.getRegionServer(k).getServerName(),hbi.getHdfsHRI());
         admin.offline(regionName);
         break;
       }
     }
     assertNotNull(regionName);
     assertNotNull(serverName);
-    Table meta=conn.getTable(TableName.META_TABLE_NAME,executorService);
-    Put put=new Put(regionName);
-    put.add(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(serverName.getHostAndPort()));
-    meta.put(put);
-    HBaseFsck fsck=new HBaseFsck(conf);
+    try (Table meta=connection.getTable(TableName.META_TABLE_NAME,tableExecutorService)){
+      Put put=new Put(regionName);
+      put.add(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(serverName.getHostAndPort()));
+      meta.put(put);
+    }
+     HBaseFsck fsck=new HBaseFsck(conf,hbfsckExecutorService);
     fsck.connect();
     fsck.setDisplayFullReport();
     fsck.setTimeLag(0);
@@ -54,12 +54,13 @@
     fsck.setSidelineBigOverlaps(true);
     fsck.setMaxMerge(2);
     fsck.onlineHbck();
+    fsck.close();
     HBaseFsck hbck2=doFsck(conf,false);
     assertNoErrors(hbck2);
     assertEquals(0,hbck2.getOverlapGroups(table).size());
     assertTrue(ROWKEYS.length > countRows());
   }
   finally {
-    deleteTable(table);
+    cleanupTable(table);
   }
 }
