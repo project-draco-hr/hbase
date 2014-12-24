@@ -1,0 +1,45 @@
+{
+  List<InputSplit> resultList=new ArrayList<InputSplit>();
+  Configuration conf=context.getConfiguration();
+  long dataSkewRatio=conf.getLong(INPUT_AUTOBALANCE_MAXSKEWRATIO,3);
+  boolean isTextKey=context.getConfiguration().getBoolean(TABLE_ROW_TEXTKEY,true);
+  long dataSkewThreshold=dataSkewRatio * average;
+  int count=0;
+  while (count < list.size()) {
+    TableSplit ts=(TableSplit)list.get(count);
+    String regionLocation=ts.getRegionLocation();
+    long regionSize=ts.getLength();
+    if (regionSize >= dataSkewThreshold) {
+      byte[] splitKey=getSplitKey(ts.getStartRow(),ts.getEndRow(),isTextKey);
+      TableSplit t1=new TableSplit(table.getName(),ts.getStartRow(),splitKey,regionLocation,regionSize / 2);
+      TableSplit t2=new TableSplit(table.getName(),splitKey,ts.getEndRow(),regionLocation,regionSize - regionSize / 2);
+      resultList.add(t1);
+      resultList.add(t2);
+      count++;
+    }
+ else     if (regionSize >= average) {
+      resultList.add(ts);
+      count++;
+    }
+ else {
+      long totalSize=regionSize;
+      byte[] splitStartKey=ts.getStartRow();
+      byte[] splitEndKey=ts.getEndRow();
+      count++;
+      for (; count < list.size(); count++) {
+        TableSplit nextRegion=(TableSplit)list.get(count);
+        long nextRegionSize=nextRegion.getLength();
+        if (totalSize + nextRegionSize <= dataSkewThreshold) {
+          totalSize=totalSize + nextRegionSize;
+          splitEndKey=nextRegion.getEndRow();
+        }
+ else {
+          break;
+        }
+      }
+      TableSplit t=new TableSplit(table.getName(),splitStartKey,splitEndKey,regionLocation,totalSize);
+      resultList.add(t);
+    }
+  }
+  return resultList;
+}
