@@ -7,32 +7,11 @@
     long remainingResultSize=maxScannerResultSize;
     int countdown=this.caching;
     callable.setCaching(this.caching);
-    boolean skipFirst=false;
     boolean retryAfterOutOfOrderException=true;
     do {
       try {
-        if (skipFirst) {
-          callable.setCaching(1);
-          values=call(scan,callable,caller,scannerTimeout);
-          if (values == null && callable.switchedToADifferentReplica()) {
-            if (this.lastResult != null) {
-              skipFirst=true;
-            }
-            this.currentRegion=callable.getHRegionInfo();
-            continue;
-          }
-          callable.setCaching(this.caching);
-          skipFirst=false;
-        }
-        values=call(scan,callable,caller,scannerTimeout);
-        if (skipFirst && values != null && values.length == 1) {
-          skipFirst=false;
-          values=call(scan,callable,caller,scannerTimeout);
-        }
+        values=call(callable,caller,scannerTimeout);
         if (values == null && callable.switchedToADifferentReplica()) {
-          if (this.lastResult != null) {
-            skipFirst=true;
-          }
           this.currentRegion=callable.getHRegionInfo();
           continue;
         }
@@ -57,8 +36,12 @@
           }
         }
         if (this.lastResult != null) {
-          this.scan.setStartRow(this.lastResult.getRow());
-          skipFirst=true;
+          if (scan.isReversed()) {
+            scan.setStartRow(createClosestRowBefore(lastResult.getRow()));
+          }
+ else {
+            scan.setStartRow(Bytes.add(lastResult.getRow(),new byte[1]));
+          }
         }
         if (e instanceof OutOfOrderScannerNextException) {
           if (retryAfterOutOfOrderException) {
