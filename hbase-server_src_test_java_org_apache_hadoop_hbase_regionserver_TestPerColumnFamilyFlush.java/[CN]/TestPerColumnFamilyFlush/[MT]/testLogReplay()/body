@@ -4,47 +4,51 @@
   conf.set(FlushPolicyFactory.HBASE_FLUSH_POLICY_KEY,FlushLargeStoresPolicy.class.getName());
   conf.setLong(FlushLargeStoresPolicy.HREGION_COLUMNFAMILY_FLUSH_SIZE_LOWER_BOUND,10000);
   final int numRegionServers=4;
-  TEST_UTIL.startMiniCluster(numRegionServers);
-  TEST_UTIL.getHBaseAdmin().createNamespace(NamespaceDescriptor.create(TABLENAME.getNamespaceAsString()).build());
-  HTable table=TEST_UTIL.createTable(TABLENAME,families);
-  HTableDescriptor htd=table.getTableDescriptor();
-  for (  byte[] family : families) {
-    if (!htd.hasFamily(family)) {
-      htd.addFamily(new HColumnDescriptor(family));
+  try {
+    TEST_UTIL.startMiniCluster(numRegionServers);
+    TEST_UTIL.getHBaseAdmin().createNamespace(NamespaceDescriptor.create(TABLENAME.getNamespaceAsString()).build());
+    HTable table=TEST_UTIL.createTable(TABLENAME,families);
+    HTableDescriptor htd=table.getTableDescriptor();
+    for (    byte[] family : families) {
+      if (!htd.hasFamily(family)) {
+        htd.addFamily(new HColumnDescriptor(family));
+      }
+    }
+    for (int i=1; i <= 80; i++) {
+      table.put(createPut(1,i));
+      if (i <= 10) {
+        table.put(createPut(2,i));
+        table.put(createPut(3,i));
+      }
+    }
+    table.flushCommits();
+    Thread.sleep(1000);
+    Pair<HRegion,HRegionServer> desiredRegionAndServer=getRegionWithName(TABLENAME);
+    HRegion desiredRegion=desiredRegionAndServer.getFirst();
+    assertTrue("Could not find a region which hosts the new region.",desiredRegion != null);
+    desiredRegion.flushcache(false);
+    long totalMemstoreSize;
+    long cf1MemstoreSize, cf2MemstoreSize, cf3MemstoreSize;
+    totalMemstoreSize=desiredRegion.getMemstoreSize().get();
+    cf1MemstoreSize=desiredRegion.getStore(FAMILY1).getMemStoreSize();
+    cf2MemstoreSize=desiredRegion.getStore(FAMILY2).getMemStoreSize();
+    cf3MemstoreSize=desiredRegion.getStore(FAMILY3).getMemStoreSize();
+    assertEquals(DefaultMemStore.DEEP_OVERHEAD,cf1MemstoreSize);
+    assertTrue(cf2MemstoreSize > 0);
+    assertTrue(cf3MemstoreSize > 0);
+    assertEquals(totalMemstoreSize + 2 * DefaultMemStore.DEEP_OVERHEAD,cf2MemstoreSize + cf3MemstoreSize);
+    Thread.sleep(2000);
+    HRegionServer rs=desiredRegionAndServer.getSecond();
+    rs.abort("testing");
+    for (int i=1; i <= 80; i++) {
+      verifyEdit(1,i,table);
+      if (i <= 10) {
+        verifyEdit(2,i,table);
+        verifyEdit(3,i,table);
+      }
     }
   }
-  for (int i=1; i <= 80; i++) {
-    table.put(createPut(1,i));
-    if (i <= 10) {
-      table.put(createPut(2,i));
-      table.put(createPut(3,i));
-    }
+  finally {
+    TEST_UTIL.shutdownMiniCluster();
   }
-  table.flushCommits();
-  Thread.sleep(1000);
-  Pair<HRegion,HRegionServer> desiredRegionAndServer=getRegionWithName(TABLENAME);
-  HRegion desiredRegion=desiredRegionAndServer.getFirst();
-  assertTrue("Could not find a region which hosts the new region.",desiredRegion != null);
-  desiredRegion.flushcache(false);
-  long totalMemstoreSize;
-  long cf1MemstoreSize, cf2MemstoreSize, cf3MemstoreSize;
-  totalMemstoreSize=desiredRegion.getMemstoreSize().get();
-  cf1MemstoreSize=desiredRegion.getStore(FAMILY1).getMemStoreSize();
-  cf2MemstoreSize=desiredRegion.getStore(FAMILY2).getMemStoreSize();
-  cf3MemstoreSize=desiredRegion.getStore(FAMILY3).getMemStoreSize();
-  assertEquals(DefaultMemStore.DEEP_OVERHEAD,cf1MemstoreSize);
-  assertTrue(cf2MemstoreSize > 0);
-  assertTrue(cf3MemstoreSize > 0);
-  assertEquals(totalMemstoreSize + 2 * DefaultMemStore.DEEP_OVERHEAD,cf2MemstoreSize + cf3MemstoreSize);
-  Thread.sleep(2000);
-  HRegionServer rs=desiredRegionAndServer.getSecond();
-  rs.abort("testing");
-  for (int i=1; i <= 80; i++) {
-    verifyEdit(1,i,table);
-    if (i <= 10) {
-      verifyEdit(2,i,table);
-      verifyEdit(3,i,table);
-    }
-  }
-  TEST_UTIL.shutdownMiniCluster();
 }
