@@ -1,19 +1,18 @@
 {
   TableName table=TableName.valueOf("testSplitdaughtersNotInMeta");
-  Table meta=connection.getTable(TableName.META_TABLE_NAME,tableExecutorService);
-  try {
+  try (HConnection conn=(HConnection)ConnectionFactory.createConnection(conf);Table meta=conn.getTable(TableName.META_TABLE_NAME)){
     setupTable(table);
     assertEquals(ROWKEYS.length,countRows());
-    admin.flush(table);
-    HRegionLocation location=tbl.getRegionLocation(Bytes.toBytes("B"));
+    TEST_UTIL.getHBaseAdmin().flush(table);
+    HRegionLocation location=tbl.getRegionLocation("B");
     HRegionInfo hri=location.getRegionInfo();
     byte[] regionName=location.getRegionInfo().getRegionName();
-    admin.splitRegion(location.getRegionInfo().getRegionName(),Bytes.toBytes("BM"));
-    TestEndToEndSplitTransaction.blockUntilRegionSplit(conf,60000,regionName,true);
-    PairOfSameType<HRegionInfo> daughters=MetaTableAccessor.getDaughterRegions(meta.get(new Get(regionName)));
+    conn.getAdmin().splitRegion(location.getRegionInfo().getRegionName(),Bytes.toBytes("BM"));
+    TestEndToEndSplitTransaction.blockUntilRegionSplit(TEST_UTIL.getConfiguration(),60000,regionName,true);
+    PairOfSameType<HRegionInfo> daughters=HRegionInfo.getDaughterRegions(meta.get(new Get(regionName)));
     Map<HRegionInfo,ServerName> hris=tbl.getRegionLocations();
-    undeployRegion(connection,hris.get(daughters.getFirst()),daughters.getFirst());
-    undeployRegion(connection,hris.get(daughters.getSecond()),daughters.getSecond());
+    undeployRegion(conn,hris.get(daughters.getFirst()),daughters.getFirst());
+    undeployRegion(conn,hris.get(daughters.getSecond()),daughters.getSecond());
     meta.delete(new Delete(daughters.getFirst().getRegionName()));
     meta.delete(new Delete(daughters.getSecond().getRegionName()));
     meta.flushCommits();
@@ -27,13 +26,12 @@
     Get get=new Get(hri.getRegionName());
     Result result=meta.get(get);
     assertNotNull(result);
-    assertNotNull(MetaTableAccessor.getHRegionInfo(result));
+    assertNotNull(HRegionInfo.getHRegionInfo(result));
     assertEquals(ROWKEYS.length,countRows());
     assertEquals(tbl.getStartKeys().length,SPLITS.length + 1 + 1);
     assertNoErrors(doFsck(conf,false));
   }
   finally {
-    meta.close();
-    cleanupTable(table);
+    deleteTable(table);
   }
 }

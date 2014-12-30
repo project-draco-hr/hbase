@@ -3,25 +3,24 @@
   try {
     setupTable(table);
     assertEquals(ROWKEYS.length,countRows());
-    admin.disableTable(table);
+    TEST_UTIL.getHBaseAdmin().disableTable(table);
     deleteRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("A"),Bytes.toBytes("B"),true,true,false,true,HRegionInfo.DEFAULT_REPLICA_ID);
-    admin.enableTable(table);
-    HRegionInfo hriOverlap=createRegion(tbl.getTableDescriptor(),Bytes.toBytes("A2"),Bytes.toBytes("B"));
+    TEST_UTIL.getHBaseAdmin().enableTable(table);
+    HRegionInfo hriOverlap=createRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("A2"),Bytes.toBytes("B"));
     TEST_UTIL.getHBaseCluster().getMaster().assignRegion(hriOverlap);
     TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(hriOverlap);
     ServerName server=regionStates.getRegionServerOfRegion(hriOverlap);
     TEST_UTIL.assertRegionOnServer(hriOverlap,server,REGION_ONLINE_TIMEOUT);
     HBaseFsck hbck=doFsck(conf,false);
     assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.ORPHAN_HDFS_REGION,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.HOLE_IN_REGION_CHAIN});
-    HBaseFsck fsck=new HBaseFsck(conf,hbfsckExecutorService);
+    HBaseFsck fsck=new HBaseFsck(conf);
     fsck.connect();
     fsck.setDisplayFullReport();
     fsck.setTimeLag(0);
     fsck.setCheckHdfs(false);
     fsck.onlineHbck();
     assertErrors(fsck,new ERROR_CODE[]{ERROR_CODE.HOLE_IN_REGION_CHAIN});
-    fsck.close();
-    fsck=new HBaseFsck(conf,hbfsckExecutorService);
+    fsck=new HBaseFsck(conf);
     fsck.connect();
     fsck.setDisplayFullReport();
     fsck.setTimeLag(0);
@@ -32,12 +31,11 @@
     fsck.onlineHbck();
     assertFalse(fsck.shouldRerun());
     assertErrors(fsck,new ERROR_CODE[]{ERROR_CODE.HOLE_IN_REGION_CHAIN});
-    fsck.close();
   }
   finally {
-    if (admin.isTableDisabled(table)) {
-      admin.enableTable(table);
+    if (TEST_UTIL.getHBaseAdmin().isTableDisabled(table)) {
+      TEST_UTIL.getHBaseAdmin().enableTable(table);
     }
-    cleanupTable(table);
+    deleteTable(table);
   }
 }

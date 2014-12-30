@@ -4,25 +4,26 @@
   try {
     setupTable(table);
     assertEquals(ROWKEYS.length,countRows());
-    admin.flush(table);
-    HRegionLocation location=tbl.getRegionLocation(Bytes.toBytes("B"));
-    meta=connection.getTable(TableName.META_TABLE_NAME,tableExecutorService);
+    TEST_UTIL.getHBaseAdmin().flush(table);
+    HRegionLocation location=tbl.getRegionLocation("B");
+    meta=new HTable(conf,TableName.META_TABLE_NAME);
     HRegionInfo hri=location.getRegionInfo();
+    Admin admin=TEST_UTIL.getHBaseAdmin();
     byte[] regionName=location.getRegionInfo().getRegionName();
     admin.splitRegion(location.getRegionInfo().getRegionName(),Bytes.toBytes("BM"));
-    TestEndToEndSplitTransaction.blockUntilRegionSplit(conf,60000,regionName,true);
+    TestEndToEndSplitTransaction.blockUntilRegionSplit(TEST_UTIL.getConfiguration(),60000,regionName,true);
     HBaseFsck hbck=doFsck(conf,true,true,false,false,false,true,true,true,false,false,null);
     assertErrors(hbck,new ERROR_CODE[]{});
     Get get=new Get(hri.getRegionName());
     Result result=meta.get(get);
     assertNotNull(result);
-    assertNotNull(MetaTableAccessor.getHRegionInfo(result));
+    assertNotNull(HRegionInfo.getHRegionInfo(result));
     assertEquals(ROWKEYS.length,countRows());
     assertEquals(tbl.getStartKeys().length,SPLITS.length + 1 + 1);
     assertNoErrors(doFsck(conf,false));
   }
   finally {
-    cleanupTable(table);
+    deleteTable(table);
     IOUtils.closeQuietly(meta);
   }
 }
