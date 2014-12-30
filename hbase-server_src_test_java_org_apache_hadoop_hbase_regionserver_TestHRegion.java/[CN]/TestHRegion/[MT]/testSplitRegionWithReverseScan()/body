@@ -1,0 +1,83 @@
+{
+  byte[] tableName=Bytes.toBytes("testSplitRegionWithReverseScan");
+  byte[] qualifier=Bytes.toBytes("qualifier");
+  Configuration hc=initSplit();
+  int numRows=3;
+  byte[][] families={fam1};
+  String method=this.getName();
+  this.region=initHRegion(tableName,method,hc,families);
+  int startRow=100;
+  putData(startRow,numRows,qualifier,families);
+  int splitRow=startRow + numRows;
+  putData(splitRow,numRows,qualifier,families);
+  int endRow=splitRow + numRows;
+  region.flushcache();
+  HRegion[] regions=null;
+  try {
+    regions=splitRegion(region,Bytes.toBytes("" + splitRow));
+    for (int i=0; i < regions.length; i++) {
+      regions[i]=HRegion.openHRegion(regions[i],null);
+    }
+    assertEquals(2,regions.length);
+    verifyData(regions[0],startRow,numRows,qualifier,families);
+    verifyData(regions[1],splitRow,numRows,qualifier,families);
+    Scan scan=new Scan(Bytes.toBytes(String.valueOf(startRow + 10 * numRows)));
+    scan.setReversed(true);
+    InternalScanner scanner=regions[1].getScanner(scan);
+    List<Cell> currRow=new ArrayList<Cell>();
+    boolean more=false;
+    int verify=startRow + 2 * numRows - 1;
+    do {
+      more=scanner.next(currRow);
+      assertEquals(Bytes.toString(currRow.get(0).getRow()),verify + "");
+      verify--;
+      currRow.clear();
+    }
+ while (more);
+    assertEquals(verify,startRow + numRows - 1);
+    scanner.close();
+    scan=new Scan(Bytes.toBytes(String.valueOf(startRow + 2 * numRows - 1)));
+    scan.setReversed(true);
+    scanner=regions[1].getScanner(scan);
+    verify=startRow + 2 * numRows - 1;
+    do {
+      more=scanner.next(currRow);
+      assertEquals(Bytes.toString(currRow.get(0).getRow()),verify + "");
+      verify--;
+      currRow.clear();
+    }
+ while (more);
+    assertEquals(verify,startRow + numRows - 1);
+    scanner.close();
+    scan=new Scan(Bytes.toBytes(String.valueOf(startRow + numRows)));
+    scan.setReversed(true);
+    scanner=regions[0].getScanner(scan);
+    verify=startRow + numRows - 1;
+    do {
+      more=scanner.next(currRow);
+      assertEquals(Bytes.toString(currRow.get(0).getRow()),verify + "");
+      verify--;
+      currRow.clear();
+    }
+ while (more);
+    assertEquals(verify,99);
+    scanner.close();
+    scan=new Scan(Bytes.toBytes(String.valueOf(startRow + numRows - 1)));
+    scan.setReversed(true);
+    scanner=regions[0].getScanner(scan);
+    verify=startRow + numRows - 1;
+    do {
+      more=scanner.next(currRow);
+      assertEquals(Bytes.toString(currRow.get(0).getRow()),verify + "");
+      verify--;
+      currRow.clear();
+    }
+ while (more);
+    assertEquals(verify,startRow - 1);
+    scanner.close();
+  }
+  finally {
+    HRegion.closeHRegion(this.region);
+    this.region=null;
+  }
+}
