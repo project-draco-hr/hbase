@@ -6,12 +6,18 @@
   conf.setLong(FlushLargeStoresPolicy.HREGION_COLUMNFAMILY_FLUSH_SIZE_LOWER_BOUND,100000);
   conf.setLong("hbase.regionserver.logroll.period",2000);
   conf.setLong("hbase.regionserver.hlog.blocksize",6144);
-  int maxLogs=conf.getInt("hbase.regionserver.maxlogs",32);
+  final int walcount=10;
+  conf.setInt("hbase.regionserver.maxlogs",walcount);
+  int maxLogs=conf.getInt("hbase.regionserver.maxlogs",walcount);
   final int numRegionServers=4;
   try {
     TEST_UTIL.startMiniCluster(numRegionServers);
-    HTable table=TEST_UTIL.createTable(tableName,families);
-    HRegion desiredRegion=getRegionWithName(tableName).getFirst();
+    HTable table=null;
+    table=TEST_UTIL.createTable(tableName,families);
+    try (Admin admin=TEST_UTIL.getConnection().getAdmin()){
+      admin.flush(TableName.NAMESPACE_TABLE_NAME);
+    }
+     HRegion desiredRegion=getRegionWithName(tableName).getFirst();
     assertTrue("Could not find a region which hosts the new region.",desiredRegion != null);
     LOG.info("Writing to region=" + desiredRegion);
     for (int i=1; i <= 10000; i++) {
@@ -28,7 +34,7 @@
       }
     }
     table.close();
-    Thread.sleep(4000);
+    while (((FSHLog)(desiredRegion.getWAL())).getNumLogFiles() > maxLogs)     Threads.sleep(100);
     LOG.info("Finished waiting on flush after too many WALs...");
     assertEquals(DefaultMemStore.DEEP_OVERHEAD,desiredRegion.getStore(FAMILY1).getMemStoreSize());
     assertEquals(DefaultMemStore.DEEP_OVERHEAD,desiredRegion.getStore(FAMILY2).getMemStoreSize());
