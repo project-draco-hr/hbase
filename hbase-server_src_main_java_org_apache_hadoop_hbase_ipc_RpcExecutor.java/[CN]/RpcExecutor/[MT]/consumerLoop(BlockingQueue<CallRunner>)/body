@@ -1,5 +1,6 @@
 {
   boolean interrupted=false;
+  double handlerFailureThreshhold=conf == null ? 1.0 : conf.getDouble(HConstants.REGION_SERVER_HANDLER_ABORT_ON_ERROR_PERCENT,HConstants.DEFAULT_REGION_SERVER_HANDLER_ABORT_ON_ERROR_PERCENT);
   try {
     while (running) {
       try {
@@ -8,9 +9,26 @@
           activeHandlerCount.incrementAndGet();
           task.run();
         }
- catch (        Throwable t) {
-          LOG.error("RpcServer handler thread throws exception: ",t);
-          throw t;
+ catch (        Throwable e) {
+          if (e instanceof Error) {
+            int failedCount=failedHandlerCount.incrementAndGet();
+            if (handlerFailureThreshhold >= 0 && failedCount > handlerCount * handlerFailureThreshhold) {
+              String message="Number of failed RpcServer handler exceeded threshhold " + handlerFailureThreshhold + "  with failed reason: "+ StringUtils.stringifyException(e);
+              if (abortable != null) {
+                abortable.abort(message,e);
+              }
+ else {
+                LOG.error("Received " + StringUtils.stringifyException(e) + " but not aborting due to abortable being null");
+                throw e;
+              }
+            }
+ else {
+              LOG.warn("RpcServer handler threads encountered errors " + StringUtils.stringifyException(e));
+            }
+          }
+ else {
+            LOG.warn("RpcServer handler threads encountered exceptions " + StringUtils.stringifyException(e));
+          }
         }
  finally {
           activeHandlerCount.decrementAndGet();
