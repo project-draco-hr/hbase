@@ -1,36 +1,36 @@
 {
   Arrays.sort(startKeys,Bytes.BYTES_COMPARATOR);
-  Table meta=new HTable(c,TableName.META_TABLE_NAME);
-  HTableDescriptor htd=table.getTableDescriptor();
-  if (!htd.hasFamily(columnFamily)) {
-    HColumnDescriptor hcd=new HColumnDescriptor(columnFamily);
-    htd.addFamily(hcd);
-  }
-  List<byte[]> rows=getMetaTableRows(htd.getTableName());
-  String regionToDeleteInFS=table.getRegionsInRange(Bytes.toBytes(""),Bytes.toBytes("")).get(0).getRegionInfo().getEncodedName();
-  List<HRegionInfo> newRegions=new ArrayList<HRegionInfo>(startKeys.length);
-  int count=0;
-  for (int i=0; i < startKeys.length; i++) {
-    int j=(i + 1) % startKeys.length;
-    HRegionInfo hri=new HRegionInfo(table.getName(),startKeys[i],startKeys[j]);
-    MetaTableAccessor.addRegionToMeta(meta,hri);
-    newRegions.add(hri);
-    count++;
-  }
-  for (  byte[] row : rows) {
-    LOG.info("createMultiRegions: deleting meta row -> " + Bytes.toStringBinary(row));
-    meta.delete(new Delete(row));
-  }
-  Path tableDir=new Path(getDefaultRootDirPath().toString() + System.getProperty("file.separator") + htd.getTableName()+ System.getProperty("file.separator")+ regionToDeleteInFS);
-  FileSystem.get(c).delete(tableDir,true);
-  HConnection conn=table.getConnection();
-  conn.clearRegionCache();
-  Admin admin=getHBaseAdmin();
-  if (admin.isTableEnabled(table.getName())) {
-    for (    HRegionInfo hri : newRegions) {
-      admin.assign(hri.getRegionName());
+  try (Table meta=new HTable(c,TableName.META_TABLE_NAME)){
+    HTableDescriptor htd=table.getTableDescriptor();
+    if (!htd.hasFamily(columnFamily)) {
+      HColumnDescriptor hcd=new HColumnDescriptor(columnFamily);
+      htd.addFamily(hcd);
     }
+    List<byte[]> rows=getMetaTableRows(htd.getTableName());
+    String regionToDeleteInFS=table.getRegionsInRange(Bytes.toBytes(""),Bytes.toBytes("")).get(0).getRegionInfo().getEncodedName();
+    List<HRegionInfo> newRegions=new ArrayList<HRegionInfo>(startKeys.length);
+    int count=0;
+    for (int i=0; i < startKeys.length; i++) {
+      int j=(i + 1) % startKeys.length;
+      HRegionInfo hri=new HRegionInfo(table.getName(),startKeys[i],startKeys[j]);
+      MetaTableAccessor.addRegionToMeta(meta,hri);
+      newRegions.add(hri);
+      count++;
+    }
+    for (    byte[] row : rows) {
+      LOG.info("createMultiRegions: deleting meta row -> " + Bytes.toStringBinary(row));
+      meta.delete(new Delete(row));
+    }
+    Path tableDir=new Path(getDefaultRootDirPath().toString() + System.getProperty("file.separator") + htd.getTableName()+ System.getProperty("file.separator")+ regionToDeleteInFS);
+    FileSystem.get(c).delete(tableDir,true);
+    HConnection conn=table.getConnection();
+    conn.clearRegionCache();
+    Admin admin=conn.getAdmin();
+    if (admin.isTableEnabled(table.getName())) {
+      for (      HRegionInfo hri : newRegions) {
+        admin.assign(hri.getRegionName());
+      }
+    }
+    return count;
   }
-  meta.close();
-  return count;
-}
+ }

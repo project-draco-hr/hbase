@@ -18,15 +18,16 @@
   }
   if (hfileOutPath != null) {
     job.setMapperClass(KeyValueImporter.class);
-    HTable table=new HTable(conf,tableName);
-    job.setReducerClass(KeyValueSortReducer.class);
-    Path outputDir=new Path(hfileOutPath);
-    FileOutputFormat.setOutputPath(job,outputDir);
-    job.setMapOutputKeyClass(ImmutableBytesWritable.class);
-    job.setMapOutputValueClass(KeyValue.class);
-    HFileOutputFormat2.configureIncrementalLoad(job,table,table);
-    TableMapReduceUtil.addDependencyJars(job.getConfiguration(),com.google.common.base.Preconditions.class);
-  }
+    try (Connection conn=ConnectionFactory.createConnection(conf);Table table=conn.getTable(tableName);RegionLocator regionLocator=conn.getRegionLocator(tableName)){
+      job.setReducerClass(KeyValueSortReducer.class);
+      Path outputDir=new Path(hfileOutPath);
+      FileOutputFormat.setOutputPath(job,outputDir);
+      job.setMapOutputKeyClass(ImmutableBytesWritable.class);
+      job.setMapOutputValueClass(KeyValue.class);
+      HFileOutputFormat2.configureIncrementalLoad(job,table.getTableDescriptor(),regionLocator);
+      TableMapReduceUtil.addDependencyJars(job.getConfiguration(),com.google.common.base.Preconditions.class);
+    }
+   }
  else {
     job.setMapperClass(Importer.class);
     TableMapReduceUtil.initTableReducerJob(tableName.getNameAsString(),null,job);

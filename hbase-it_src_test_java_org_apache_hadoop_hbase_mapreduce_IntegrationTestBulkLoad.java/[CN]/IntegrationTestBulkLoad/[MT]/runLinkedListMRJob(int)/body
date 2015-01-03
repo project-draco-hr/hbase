@@ -2,7 +2,6 @@
   String jobName=IntegrationTestBulkLoad.class.getSimpleName() + " - " + EnvironmentEdgeManager.currentTime();
   Configuration conf=new Configuration(util.getConfiguration());
   Path p=util.getDataTestDirOnTestFS(getTablename() + "-" + iteration);
-  HTable table=new HTable(conf,getTablename());
   conf.setBoolean("mapreduce.map.speculative",false);
   conf.setBoolean("mapreduce.reduce.speculative",false);
   conf.setInt(ROUND_NUM_KEY,iteration);
@@ -14,9 +13,11 @@
   job.setMapOutputValueClass(KeyValue.class);
   job.setJarByClass(getClass());
   FileOutputFormat.setOutputPath(job,p);
-  HFileOutputFormat2.configureIncrementalLoad(job,table,table);
-  assertEquals(true,job.waitForCompletion(true));
-  LoadIncrementalHFiles loader=new LoadIncrementalHFiles(conf);
-  loader.doBulkLoad(p,table);
-  util.getTestFileSystem().delete(p,true);
+  try (Connection conn=ConnectionFactory.createConnection(conf);Admin admin=conn.getAdmin();Table table=conn.getTable(getTablename());RegionLocator regionLocator=conn.getRegionLocator(getTablename())){
+    HFileOutputFormat2.configureIncrementalLoad(job,table.getTableDescriptor(),regionLocator);
+    assertEquals(true,job.waitForCompletion(true));
+    LoadIncrementalHFiles loader=new LoadIncrementalHFiles(conf);
+    loader.doBulkLoad(p,admin,table,regionLocator);
+  }
+   util.getTestFileSystem().delete(p,true);
 }

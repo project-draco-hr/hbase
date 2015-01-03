@@ -26,14 +26,16 @@
     if (tables.length != 1) {
       throw new IOException("Exactly one table must be specified for the bulk export option");
     }
-    HTable table=new HTable(conf,TableName.valueOf(tables[0]));
+    TableName tableName=TableName.valueOf(tables[0]);
     job.setMapperClass(WALKeyValueMapper.class);
     job.setReducerClass(KeyValueSortReducer.class);
     Path outputDir=new Path(hfileOutPath);
     FileOutputFormat.setOutputPath(job,outputDir);
     job.setMapOutputValueClass(KeyValue.class);
-    HFileOutputFormat2.configureIncrementalLoad(job,table,table);
-    TableMapReduceUtil.addDependencyJars(job.getConfiguration(),com.google.common.base.Preconditions.class);
+    try (Connection conn=ConnectionFactory.createConnection(conf);Table table=conn.getTable(tableName);RegionLocator regionLocator=conn.getRegionLocator(tableName)){
+      HFileOutputFormat2.configureIncrementalLoad(job,table.getTableDescriptor(),regionLocator);
+    }
+     TableMapReduceUtil.addDependencyJars(job.getConfiguration(),com.google.common.base.Preconditions.class);
   }
  else {
     job.setMapperClass(WALMapper.class);

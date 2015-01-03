@@ -2,20 +2,21 @@
   Configuration conf=HBaseConfiguration.create();
   util=new HBaseTestingUtility(conf);
   if ("newtable".equals(args[0])) {
-    byte[] tname=args[1].getBytes();
-    HTable table=util.createTable(tname,FAMILIES);
-    HBaseAdmin admin=new HBaseAdmin(conf);
-    admin.disableTable(tname);
-    byte[][] startKeys=generateRandomStartKeys(5);
-    util.createMultiRegions(conf,table,FAMILIES[0],startKeys);
-    admin.enableTable(tname);
-  }
+    TableName tname=TableName.valueOf(args[1]);
+    try (HTable table=util.createTable(tname,FAMILIES);Admin admin=table.getConnection().getAdmin()){
+      admin.disableTable(tname);
+      byte[][] startKeys=generateRandomStartKeys(5);
+      util.createMultiRegions(conf,table,FAMILIES[0],startKeys);
+      admin.enableTable(tname);
+    }
+   }
  else   if ("incremental".equals(args[0])) {
     TableName tname=TableName.valueOf(args[1]);
-    HTable table=new HTable(conf,tname);
-    Path outDir=new Path("incremental-out");
-    runIncrementalPELoad(conf,table,outDir);
-  }
+    try (Connection c=ConnectionFactory.createConnection(conf);Admin admin=c.getAdmin();RegionLocator regionLocator=c.getRegionLocator(tname)){
+      Path outDir=new Path("incremental-out");
+      runIncrementalPELoad(conf,admin.getTableDescriptor(tname),regionLocator,outDir);
+    }
+   }
  else {
     throw new RuntimeException("usage: TestHFileOutputFormat2 newtable | incremental");
   }

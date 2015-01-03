@@ -2,30 +2,30 @@
   TableName TABLE=TableName.valueOf("testNonCachedGetRegionLocation");
   byte[] family1=Bytes.toBytes("f1");
   byte[] family2=Bytes.toBytes("f2");
-  HTable table=TEST_UTIL.createTable(TABLE,new byte[][]{family1,family2},10);
-  Admin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
-  Map<HRegionInfo,ServerName> regionsMap=table.getRegionLocations();
-  assertEquals(1,regionsMap.size());
-  HRegionInfo regionInfo=regionsMap.keySet().iterator().next();
-  ServerName addrBefore=regionsMap.get(regionInfo);
-  HRegionLocation addrCache=table.getRegionLocation(regionInfo.getStartKey(),false);
-  HRegionLocation addrNoCache=table.getRegionLocation(regionInfo.getStartKey(),true);
-  assertEquals(addrBefore.getPort(),addrCache.getPort());
-  assertEquals(addrBefore.getPort(),addrNoCache.getPort());
-  ServerName addrAfter=null;
-  for (int i=0; i < SLAVES; i++) {
-    HRegionServer regionServer=TEST_UTIL.getHBaseCluster().getRegionServer(i);
-    ServerName addr=regionServer.getServerName();
-    if (addr.getPort() != addrBefore.getPort()) {
-      admin.move(regionInfo.getEncodedNameAsBytes(),Bytes.toBytes(addr.toString()));
-      Thread.sleep(5000);
-      addrAfter=addr;
-      break;
+  try (HTable table=TEST_UTIL.createTable(TABLE,new byte[][]{family1,family2},10);Admin admin=new HBaseAdmin(TEST_UTIL.getConfiguration())){
+    Map<HRegionInfo,ServerName> regionsMap=table.getRegionLocations();
+    assertEquals(1,regionsMap.size());
+    HRegionInfo regionInfo=regionsMap.keySet().iterator().next();
+    ServerName addrBefore=regionsMap.get(regionInfo);
+    HRegionLocation addrCache=table.getRegionLocation(regionInfo.getStartKey(),false);
+    HRegionLocation addrNoCache=table.getRegionLocation(regionInfo.getStartKey(),true);
+    assertEquals(addrBefore.getPort(),addrCache.getPort());
+    assertEquals(addrBefore.getPort(),addrNoCache.getPort());
+    ServerName addrAfter=null;
+    for (int i=0; i < SLAVES; i++) {
+      HRegionServer regionServer=TEST_UTIL.getHBaseCluster().getRegionServer(i);
+      ServerName addr=regionServer.getServerName();
+      if (addr.getPort() != addrBefore.getPort()) {
+        admin.move(regionInfo.getEncodedNameAsBytes(),Bytes.toBytes(addr.toString()));
+        Thread.sleep(5000);
+        addrAfter=addr;
+        break;
+      }
     }
+    addrCache=table.getRegionLocation(regionInfo.getStartKey(),false);
+    addrNoCache=table.getRegionLocation(regionInfo.getStartKey(),true);
+    assertNotNull(addrAfter);
+    assertTrue(addrAfter.getPort() != addrCache.getPort());
+    assertEquals(addrAfter.getPort(),addrNoCache.getPort());
   }
-  addrCache=table.getRegionLocation(regionInfo.getStartKey(),false);
-  addrNoCache=table.getRegionLocation(regionInfo.getStartKey(),true);
-  assertNotNull(addrAfter);
-  assertTrue(addrAfter.getPort() != addrCache.getPort());
-  assertEquals(addrAfter.getPort(),addrNoCache.getPort());
-}
+ }

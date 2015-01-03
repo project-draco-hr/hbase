@@ -2,10 +2,9 @@
   Configuration conf=util.getConfiguration();
   conf.setInt("hbase.hstore.compaction.min",2);
   generateRandomStartKeys(5);
-  try {
-    util.startMiniCluster();
+  util.startMiniCluster();
+  try (Connection conn=ConnectionFactory.createConnection();Admin admin=conn.getAdmin()){
     final FileSystem fs=util.getDFSCluster().getFileSystem();
-    HBaseAdmin admin=new HBaseAdmin(conf);
     HTable table=util.createTable(TABLE_NAME,FAMILIES);
     assertEquals("Should start with empty table",0,util.countRows(table));
     final Path storePath=new Path(FSUtils.getTableDir(FSUtils.getRootDir(conf),TABLE_NAME),new Path(admin.getTableRegions(TABLE_NAME).get(0).getEncodedName(),Bytes.toString(FAMILIES[0])));
@@ -14,16 +13,16 @@
     util.startMiniMapReduceCluster();
     for (int i=0; i < 2; i++) {
       Path testDir=util.getDataTestDirOnTestFS("testExcludeAllFromMinorCompaction_" + i);
-      runIncrementalPELoad(conf,table,testDir);
+      runIncrementalPELoad(conf,table.getTableDescriptor(),conn.getRegionLocator(TABLE_NAME),testDir);
       new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
     }
     int expectedRows=2 * NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
     assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
     assertEquals(2,fs.listStatus(storePath).length);
-    admin.compact(TABLE_NAME.getName());
+    admin.compact(TABLE_NAME);
     try {
       quickPoll(new Callable<Boolean>(){
-        public Boolean call() throws Exception {
+        @Override public Boolean call() throws Exception {
           return fs.listStatus(storePath).length == 1;
         }
       }
@@ -32,9 +31,9 @@
     }
  catch (    AssertionError ae) {
     }
-    admin.majorCompact(TABLE_NAME.getName());
+    admin.majorCompact(TABLE_NAME);
     quickPoll(new Callable<Boolean>(){
-      public Boolean call() throws Exception {
+      @Override public Boolean call() throws Exception {
         return fs.listStatus(storePath).length == 1;
       }
     }

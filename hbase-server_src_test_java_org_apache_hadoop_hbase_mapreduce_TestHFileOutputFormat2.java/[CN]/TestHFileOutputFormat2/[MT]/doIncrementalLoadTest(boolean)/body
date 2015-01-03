@@ -2,17 +2,14 @@
   util=new HBaseTestingUtility();
   Configuration conf=util.getConfiguration();
   byte[][] startKeys=generateRandomStartKeys(5);
-  HBaseAdmin admin=null;
-  try {
-    util.startMiniCluster();
+  util.startMiniCluster();
+  try (HTable table=util.createTable(TABLE_NAME,FAMILIES);Admin admin=table.getConnection().getAdmin()){
     Path testDir=util.getDataTestDirOnTestFS("testLocalMRIncrementalLoad");
-    admin=new HBaseAdmin(conf);
-    HTable table=util.createTable(TABLE_NAME,FAMILIES);
     assertEquals("Should start with empty table",0,util.countRows(table));
     int numRegions=util.createMultiRegions(util.getConfiguration(),table,FAMILIES[0],startKeys);
     assertEquals("Should make 5 regions",numRegions,5);
     util.startMiniMapReduceCluster();
-    runIncrementalPELoad(conf,table,testDir);
+    runIncrementalPELoad(conf,table.getTableDescriptor(),table.getRegionLocator(),testDir);
     assertEquals("HFOF should not touch actual table",0,util.countRows(table));
     int dir=0;
     for (    FileStatus f : testDir.getFileSystem(conf).listStatus(testDir)) {
@@ -25,15 +22,15 @@
     assertEquals("Column family not found in FS.",FAMILIES.length,dir);
     if (shouldChangeRegions) {
       LOG.info("Changing regions in table");
-      admin.disableTable(table.getTableName());
+      admin.disableTable(table.getName());
       while (util.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates().isRegionsInTransition()) {
         Threads.sleep(200);
         LOG.info("Waiting on table to finish disabling");
       }
       byte[][] newStartKeys=generateRandomStartKeys(15);
       util.createMultiRegions(util.getConfiguration(),table,FAMILIES[0],newStartKeys);
-      admin.enableTable(table.getTableName());
-      while (table.getRegionLocations().size() != 15 || !admin.isTableAvailable(table.getTableName())) {
+      admin.enableTable(table.getName());
+      while (table.getRegionLocator().getAllRegionLocations().size() != 15 || !admin.isTableAvailable(table.getName())) {
         Thread.sleep(200);
         LOG.info("Waiting for new region assignment to happen");
       }
@@ -63,7 +60,6 @@
     assertEquals("Data should remain after reopening of regions",tableDigestBefore,util.checksumRows(table));
   }
   finally {
-    if (admin != null)     admin.close();
     util.shutdownMiniMapReduceCluster();
     util.shutdownMiniCluster();
   }
