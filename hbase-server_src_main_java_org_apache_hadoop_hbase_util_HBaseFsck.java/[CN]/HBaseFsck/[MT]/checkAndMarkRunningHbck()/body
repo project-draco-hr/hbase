@@ -1,29 +1,26 @@
 {
-  long start=EnvironmentEdgeManager.currentTime();
+  FileLockCallable callable=new FileLockCallable();
+  ExecutorService executor=Executors.newFixedThreadPool(1);
+  FutureTask<FSDataOutputStream> futureTask=new FutureTask<FSDataOutputStream>(callable);
+  executor.execute(futureTask);
+  final int timeoutInSeconds=30;
+  FSDataOutputStream stream=null;
   try {
-    FileSystem fs=FSUtils.getCurrentFileSystem(getConf());
-    FsPermission defaultPerms=FSUtils.getFilePermissions(fs,getConf(),HConstants.DATA_FILE_UMASK_KEY);
-    Path tmpDir=new Path(FSUtils.getRootDir(getConf()),HConstants.HBASE_TEMP_DIRECTORY);
-    fs.mkdirs(tmpDir);
-    HBCK_LOCK_PATH=new Path(tmpDir,HBCK_LOCK_FILE);
-    final FSDataOutputStream out=FSUtils.create(fs,HBCK_LOCK_PATH,defaultPerms,false);
-    out.writeBytes(InetAddress.getLocalHost().toString());
-    out.flush();
-    return out;
+    stream=futureTask.get(timeoutInSeconds,TimeUnit.SECONDS);
   }
- catch (  RemoteException e) {
-    if (AlreadyBeingCreatedException.class.getName().equals(e.getClassName())) {
-      return null;
-    }
- else {
-      throw e;
-    }
+ catch (  ExecutionException ee) {
+    LOG.warn("Encountered exception when opening lock file",ee);
+  }
+catch (  InterruptedException ie) {
+    LOG.warn("Interrupted when opening lock file",ie);
+    Thread.currentThread().interrupt();
+  }
+catch (  TimeoutException exception) {
+    LOG.warn("Took more than " + timeoutInSeconds + " seconds in obtaining lock");
+    futureTask.cancel(true);
   }
  finally {
-    long duration=EnvironmentEdgeManager.currentTime() - start;
-    if (duration > 30000) {
-      LOG.warn("Took " + duration + " milliseconds to obtain lock");
-      return null;
-    }
+    executor.shutdownNow();
   }
+  return stream;
 }
