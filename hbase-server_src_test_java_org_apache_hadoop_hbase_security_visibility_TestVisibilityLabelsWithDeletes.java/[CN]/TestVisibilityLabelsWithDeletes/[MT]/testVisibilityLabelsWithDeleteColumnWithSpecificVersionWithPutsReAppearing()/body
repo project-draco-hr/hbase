@@ -1,43 +1,38 @@
 {
   final TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
-  Table table=null;
-  try {
-    Admin hBaseAdmin=TEST_UTIL.getHBaseAdmin();
-    HColumnDescriptor colDesc=new HColumnDescriptor(fam);
-    colDesc.setMaxVersions(5);
-    HTableDescriptor desc=new HTableDescriptor(tableName);
-    desc.addFamily(colDesc);
-    hBaseAdmin.createTable(desc);
-    table=new HTable(conf,tableName);
-    Put put=new Put(Bytes.toBytes("row1"));
-    put.add(fam,qual,123l,value);
-    put.setCellVisibility(new CellVisibility(CONFIDENTIAL));
-    table.put(put);
-    put=new Put(Bytes.toBytes("row1"));
-    put.add(fam,qual,123l,value1);
-    put.setCellVisibility(new CellVisibility(SECRET));
-    table.put(put);
-    table.flushCommits();
+  Admin hBaseAdmin=TEST_UTIL.getHBaseAdmin();
+  HColumnDescriptor colDesc=new HColumnDescriptor(fam);
+  colDesc.setMaxVersions(5);
+  HTableDescriptor desc=new HTableDescriptor(tableName);
+  desc.addFamily(colDesc);
+  hBaseAdmin.createTable(desc);
+  try (Table table=new HTable(conf,tableName)){
+    Put put1=new Put(Bytes.toBytes("row1"));
+    put1.add(fam,qual,123l,value);
+    put1.setCellVisibility(new CellVisibility(CONFIDENTIAL));
+    Put put2=new Put(Bytes.toBytes("row1"));
+    put2.add(fam,qual,123l,value1);
+    put2.setCellVisibility(new CellVisibility(SECRET));
+    table.put(createList(put1,put2));
     Scan s=new Scan();
     s.setMaxVersions(5);
     s.setAuthorizations(new Authorizations(CONFIDENTIAL,SECRET));
     ResultScanner scanner=table.getScanner(s);
-    Result[] next=scanner.next(3);
-    assertEquals(next.length,1);
+    assertEquals(scanner.next(3).length,1);
+    scanner.close();
     PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
       @Override public Void run() throws Exception {
-        try {
-          Table table=new HTable(conf,tableName);
+        try (Table table=new HTable(conf,tableName)){
           Delete d=new Delete(row1);
           d.setCellVisibility(new CellVisibility(CONFIDENTIAL));
-          d.deleteColumn(fam,qual,123l);
+          d.addColumn(fam,qual,123l);
           table.delete(d);
-          table=new HTable(conf,tableName);
-          d=new Delete(row1);
+        }
+         try (Table table=new HTable(conf,tableName)){
+          Delete d=new Delete(row1);
           d.setCellVisibility(new CellVisibility(SECRET));
-          d.deleteColumn(fam,qual,123l);
+          d.addColumn(fam,qual,123l);
           table.delete(d);
-          table.flushCommits();
         }
  catch (        Throwable t) {
           throw new IOException(t);
@@ -51,12 +46,7 @@
     s.setMaxVersions(5);
     s.setAuthorizations(new Authorizations(CONFIDENTIAL));
     scanner=table.getScanner(s);
-    next=scanner.next(3);
-    assertEquals(next.length,0);
+    assertEquals(scanner.next(3).length,0);
+    scanner.close();
   }
-  finally {
-    if (table != null) {
-      table.close();
-    }
-  }
-}
+ }

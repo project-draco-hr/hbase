@@ -1,22 +1,17 @@
 {
   setAuths();
   final TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
-  Table table=null;
-  try {
-    table=doPuts(tableName);
+  try (Table table=doPuts(tableName)){
     TEST_UTIL.getHBaseAdmin().flush(tableName);
     PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
       @Override public Void run() throws Exception {
-        try {
-          Table table=new HTable(conf,tableName);
-          Delete d=new Delete(row1);
-          d.deleteFamily(fam);
-          table.delete(d);
-          d=new Delete(row1);
-          d.setCellVisibility(new CellVisibility(SECRET + "&" + TOPSECRET));
-          d.deleteColumns(fam,qual);
-          table.delete(d);
-          table.flushCommits();
+        Delete d1=new Delete(row1);
+        d1.addFamily(fam);
+        Delete d2=new Delete(row1);
+        d2.setCellVisibility(new CellVisibility(SECRET + "&" + TOPSECRET));
+        d2.addColumns(fam,qual);
+        try (Table table=new HTable(conf,tableName)){
+          table.delete(createList(d1,d2));
         }
  catch (        Throwable t) {
           throw new IOException(t);
@@ -53,10 +48,6 @@
     cellScanner.advance();
     current=cellScanner.current();
     assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row2,0,row2.length));
+    scanner.close();
   }
-  finally {
-    if (table != null) {
-      table.close();
-    }
-  }
-}
+ }

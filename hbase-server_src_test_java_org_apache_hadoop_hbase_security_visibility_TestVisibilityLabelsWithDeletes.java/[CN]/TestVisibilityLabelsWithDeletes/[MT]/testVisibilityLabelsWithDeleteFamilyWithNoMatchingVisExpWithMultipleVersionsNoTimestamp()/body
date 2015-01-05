@@ -1,28 +1,21 @@
 {
   setAuths();
   final TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
-  Table table=null;
-  try {
-    table=doPuts(tableName);
+  try (Table table=doPuts(tableName)){
     TEST_UTIL.getHBaseAdmin().flush(tableName);
     PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
       @Override public Void run() throws Exception {
-        try {
-          Table table=new HTable(conf,tableName);
-          Delete d=new Delete(row1);
-          d.setCellVisibility(new CellVisibility(CONFIDENTIAL));
-          d.deleteFamily(fam);
-          table.delete(d);
-          d=new Delete(row1);
-          d.setCellVisibility(new CellVisibility(SECRET));
-          d.deleteFamily(fam);
-          table.delete(d);
-          table.flushCommits();
-          d=new Delete(row1);
-          d.setCellVisibility(new CellVisibility("(" + PRIVATE + "&"+ CONFIDENTIAL+ ")|("+ SECRET+ "&"+ TOPSECRET+ ")"));
-          d.deleteFamily(fam);
-          table.delete(d);
-          table.flushCommits();
+        Delete d1=new Delete(row1);
+        d1.setCellVisibility(new CellVisibility(CONFIDENTIAL));
+        d1.addFamily(fam);
+        Delete d2=new Delete(row1);
+        d2.setCellVisibility(new CellVisibility(SECRET));
+        d2.addFamily(fam);
+        Delete d3=new Delete(row1);
+        d3.setCellVisibility(new CellVisibility("(" + PRIVATE + "&"+ CONFIDENTIAL+ ")|("+ SECRET+ "&"+ TOPSECRET+ ")"));
+        d3.addFamily(fam);
+        try (Table table=new HTable(conf,tableName)){
+          table.delete(createList(d1,d2,d3));
         }
  catch (        Throwable t) {
           throw new IOException(t);
@@ -46,10 +39,6 @@
     cellScanner.advance();
     current=cellScanner.current();
     assertTrue(Bytes.equals(current.getRowArray(),current.getRowOffset(),current.getRowLength(),row2,0,row2.length));
+    scanner.close();
   }
-  finally {
-    if (table != null) {
-      table.close();
-    }
-  }
-}
+ }
