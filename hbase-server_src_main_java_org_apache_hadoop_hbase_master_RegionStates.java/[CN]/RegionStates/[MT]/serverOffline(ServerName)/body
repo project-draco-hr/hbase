@@ -14,9 +14,6 @@
       regionsToOffline.add(region);
     }
   }
-  for (  HRegionInfo hri : regionsToOffline) {
-    regionOffline(hri);
-  }
   for (  RegionState state : regionsInTransition.values()) {
     HRegionInfo hri=state.getRegion();
     if (assignedRegions.contains(hri)) {
@@ -27,10 +24,24 @@
         LOG.info("Found region in " + state + " to be reassigned by SSH for "+ sn);
         rits.add(hri);
       }
+ else       if (isOneOfStates(state,State.SPLITTING_NEW)) {
+        try {
+          if (MetaTableAccessor.getRegion(server.getConnection(),state.getRegion().getEncodedNameAsBytes()) == null) {
+            regionsToOffline.add(state.getRegion());
+            FSUtils.deleteRegionDir(server.getConfiguration(),state.getRegion());
+          }
+        }
+ catch (        IOException e) {
+          LOG.warn("Got exception while deleting " + state.getRegion() + " directories from file system.",e);
+        }
+      }
  else {
         LOG.warn("THIS SHOULD NOT HAPPEN: unexpected " + state);
       }
     }
+  }
+  for (  HRegionInfo hri : regionsToOffline) {
+    regionOffline(hri);
   }
   this.notifyAll();
   return rits;
