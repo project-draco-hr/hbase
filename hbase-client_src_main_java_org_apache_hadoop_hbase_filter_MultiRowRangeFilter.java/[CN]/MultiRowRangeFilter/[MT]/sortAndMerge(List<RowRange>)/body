@@ -1,0 +1,136 @@
+{
+  if (ranges.size() == 0) {
+    throw new IllegalArgumentException("No ranges found.");
+  }
+  List<RowRange> invalidRanges=new ArrayList<RowRange>();
+  List<RowRange> newRanges=new ArrayList<RowRange>(ranges.size());
+  Collections.sort(ranges);
+  if (ranges.get(0).isValid()) {
+    if (ranges.size() == 1) {
+      newRanges.add(ranges.get(0));
+    }
+  }
+ else {
+    invalidRanges.add(ranges.get(0));
+  }
+  byte[] lastStartRow=ranges.get(0).startRow;
+  boolean lastStartRowInclusive=ranges.get(0).startRowInclusive;
+  byte[] lastStopRow=ranges.get(0).stopRow;
+  boolean lastStopRowInclusive=ranges.get(0).stopRowInclusive;
+  int i=1;
+  for (; i < ranges.size(); i++) {
+    RowRange range=ranges.get(i);
+    if (!range.isValid()) {
+      invalidRanges.add(range);
+    }
+    if (Bytes.equals(lastStopRow,HConstants.EMPTY_BYTE_ARRAY)) {
+      newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,lastStopRow,lastStopRowInclusive));
+      break;
+    }
+    if ((Bytes.compareTo(lastStopRow,range.startRow) > 0) || (Bytes.compareTo(lastStopRow,range.startRow) == 0 && !(lastStopRowInclusive == false && range.isStartRowInclusive() == false))) {
+      if (Bytes.equals(range.stopRow,HConstants.EMPTY_BYTE_ARRAY)) {
+        newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,range.stopRow,range.stopRowInclusive));
+        break;
+      }
+      if (Bytes.compareTo(lastStopRow,range.stopRow) >= 0) {
+        if ((Bytes.compareTo(lastStopRow,range.stopRow) == 0)) {
+          if (lastStopRowInclusive == true || range.stopRowInclusive == true) {
+            lastStopRowInclusive=true;
+          }
+        }
+        if ((i + 1) == ranges.size()) {
+          newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,lastStopRow,lastStopRowInclusive));
+        }
+      }
+ else {
+        lastStopRow=range.stopRow;
+        lastStopRowInclusive=range.stopRowInclusive;
+        if ((i + 1) < ranges.size()) {
+          i++;
+          range=ranges.get(i);
+          if (!range.isValid()) {
+            invalidRanges.add(range);
+          }
+        }
+ else {
+          newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,lastStopRow,lastStopRowInclusive));
+          break;
+        }
+        while ((Bytes.compareTo(lastStopRow,range.startRow) > 0) || (Bytes.compareTo(lastStopRow,range.startRow) == 0 && (lastStopRowInclusive == true || range.startRowInclusive == true))) {
+          if (Bytes.equals(range.stopRow,HConstants.EMPTY_BYTE_ARRAY)) {
+            break;
+          }
+          if (Bytes.compareTo(lastStopRow,range.stopRow) >= 0) {
+            if (lastStopRowInclusive == true || range.stopRowInclusive == true) {
+              lastStopRowInclusive=true;
+            }
+            i++;
+            if (i < ranges.size()) {
+              range=ranges.get(i);
+              if (!range.isValid()) {
+                invalidRanges.add(range);
+              }
+            }
+ else {
+              break;
+            }
+          }
+ else {
+            lastStopRow=range.stopRow;
+            lastStopRowInclusive=range.stopRowInclusive;
+            i++;
+            if (i < ranges.size()) {
+              range=ranges.get(i);
+              if (!range.isValid()) {
+                invalidRanges.add(range);
+              }
+            }
+ else {
+              break;
+            }
+          }
+        }
+        if (Bytes.equals(range.stopRow,HConstants.EMPTY_BYTE_ARRAY)) {
+          if ((Bytes.compareTo(lastStopRow,range.startRow) < 0) || (Bytes.compareTo(lastStopRow,range.startRow) == 0 && lastStopRowInclusive == false && range.startRowInclusive == false)) {
+            newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,lastStopRow,lastStopRowInclusive));
+            newRanges.add(range);
+          }
+ else {
+            newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,range.stopRow,range.stopRowInclusive));
+            break;
+          }
+        }
+        newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,lastStopRow,lastStopRowInclusive));
+        if ((i + 1) == ranges.size()) {
+          newRanges.add(range);
+        }
+        lastStartRow=range.startRow;
+        lastStartRowInclusive=range.startRowInclusive;
+        lastStopRow=range.stopRow;
+        lastStopRowInclusive=range.stopRowInclusive;
+      }
+    }
+ else {
+      newRanges.add(new RowRange(lastStartRow,lastStartRowInclusive,lastStopRow,lastStopRowInclusive));
+      if ((i + 1) == ranges.size()) {
+        newRanges.add(range);
+      }
+      lastStartRow=range.startRow;
+      lastStartRowInclusive=range.startRowInclusive;
+      lastStopRow=range.stopRow;
+      lastStopRowInclusive=range.stopRowInclusive;
+    }
+  }
+  for (int j=i; j < ranges.size(); j++) {
+    if (!ranges.get(j).isValid()) {
+      invalidRanges.add(ranges.get(j));
+    }
+  }
+  if (invalidRanges.size() != 0) {
+    throwExceptionForInvalidRanges(invalidRanges,true);
+  }
+  if (newRanges.size() == 0) {
+    throw new IllegalArgumentException("No valid ranges found.");
+  }
+  return newRanges;
+}
