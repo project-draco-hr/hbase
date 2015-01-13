@@ -1,5 +1,7 @@
 {
   final Configuration conf=HBaseConfiguration.create(CONF);
+  final String callingMethod=name.getMethodName();
+  final WAL wal=createWALCompatibleWithFaultyFileSystem(callingMethod,conf,tableName);
   conf.setInt("hbase.hstore.flush.retries.number",1);
   final User user=User.createUserForTesting(conf,this.name.getMethodName(),new String[]{"foo"});
   conf.setClass("fs.file.impl",FaultyFileSystem.class,FileSystem.class);
@@ -10,7 +12,7 @@
       FaultyFileSystem ffs=(FaultyFileSystem)fs;
       HRegion region=null;
       try {
-        region=initHRegion(tableName,name.getMethodName(),conf,COLUMN_FAMILY_BYTES);
+        region=initHRegion(tableName,null,null,callingMethod,conf,false,Durability.SYNC_WAL,wal,COLUMN_FAMILY_BYTES);
         long size=region.getMemstoreSize().get();
         Assert.assertEquals(0,size);
         Put p1=new Put(row);
@@ -35,7 +37,7 @@
         Assert.assertEquals(sizeOfOnePut * 2,region.getMemstoreSize().get());
       }
   finally {
-        HRegion.closeHRegion(region);
+        HBaseTestingUtility.closeRegionAndWAL(region);
       }
       return null;
     }
