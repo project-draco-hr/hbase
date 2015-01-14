@@ -1,13 +1,18 @@
 {
   util=new HBaseTestingUtility();
   Configuration conf=util.getConfiguration();
-  byte[][] startKeys=generateRandomStartKeys(5);
+  byte[][] splitKeys=generateRandomSplitKeys(4);
   util.startMiniCluster();
-  try (HTable table=util.createTable(TABLE_NAME,FAMILIES);Admin admin=table.getConnection().getAdmin()){
+  try {
+    HTable table=util.createTable(TABLE_NAME,FAMILIES,splitKeys);
+    Admin admin=table.getConnection().getAdmin();
     Path testDir=util.getDataTestDirOnTestFS("testLocalMRIncrementalLoad");
     assertEquals("Should start with empty table",0,util.countRows(table));
-    int numRegions=util.createMultiRegions(util.getConfiguration(),table,FAMILIES[0],startKeys);
-    assertEquals("Should make 5 regions",numRegions,5);
+    int numRegions=-1;
+    try (RegionLocator r=table.getRegionLocator()){
+      numRegions=r.getStartKeys().length;
+    }
+     assertEquals("Should make 5 regions",numRegions,5);
     util.startMiniMapReduceCluster();
     runIncrementalPELoad(conf,table.getTableDescriptor(),table.getRegionLocator(),testDir);
     assertEquals("HFOF should not touch actual table",0,util.countRows(table));
@@ -27,9 +32,9 @@
         Threads.sleep(200);
         LOG.info("Waiting on table to finish disabling");
       }
-      byte[][] newStartKeys=generateRandomStartKeys(15);
-      util.createMultiRegions(util.getConfiguration(),table,FAMILIES[0],newStartKeys);
-      admin.enableTable(table.getName());
+      util.deleteTable(table.getName());
+      byte[][] newSplitKeys=generateRandomSplitKeys(14);
+      table=util.createTable(TABLE_NAME,FAMILIES,newSplitKeys);
       while (table.getRegionLocator().getAllRegionLocations().size() != 15 || !admin.isTableAvailable(table.getName())) {
         Thread.sleep(200);
         LOG.info("Waiting for new region assignment to happen");
