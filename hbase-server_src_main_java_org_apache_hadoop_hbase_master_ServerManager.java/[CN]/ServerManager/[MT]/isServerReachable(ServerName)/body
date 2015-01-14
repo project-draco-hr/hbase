@@ -1,7 +1,7 @@
 {
   if (server == null)   throw new NullPointerException("Passed server is null");
-  int maximumAttempts=Math.max(1,master.getConfiguration().getInt("hbase.master.maximum.ping.server.attempts",10));
-  for (int i=0; i < maximumAttempts; i++) {
+  RetryCounter retryCounter=pingRetryCounterFactory.create();
+  while (retryCounter.shouldRetry()) {
     try {
       AdminService.BlockingInterface admin=getRsAdmin(server);
       if (admin != null) {
@@ -10,7 +10,13 @@
       }
     }
  catch (    IOException ioe) {
-      LOG.debug("Couldn't reach " + server + ", try="+ i+ " of "+ maximumAttempts,ioe);
+      LOG.debug("Couldn't reach " + server + ", try="+ retryCounter.getAttemptTimes()+ " of "+ retryCounter.getMaxAttempts(),ioe);
+      try {
+        retryCounter.sleepUntilNextRetry();
+      }
+ catch (      InterruptedException ie) {
+        Thread.currentThread().interrupt();
+      }
     }
   }
   return false;
