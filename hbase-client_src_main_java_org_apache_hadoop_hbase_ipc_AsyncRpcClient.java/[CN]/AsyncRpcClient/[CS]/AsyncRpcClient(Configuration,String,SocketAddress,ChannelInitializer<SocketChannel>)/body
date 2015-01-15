@@ -1,0 +1,29 @@
+{
+  super(configuration,clusterId,localAddress);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Starting async Hbase RPC client");
+  }
+  int maxThreads=conf.getInt(CLIENT_MAX_THREADS,0);
+  boolean epollEnabled=conf.getBoolean(USE_NATIVE_TRANSPORT,false);
+  Class<? extends Channel> socketChannelClass;
+  if (epollEnabled && JVM.isLinux()) {
+    socketChannelClass=EpollSocketChannel.class;
+    this.eventLoopGroup=new EpollEventLoopGroup(maxThreads,Threads.newDaemonThreadFactory("AsyncRpcChannel"));
+  }
+ else {
+    socketChannelClass=NioSocketChannel.class;
+    this.eventLoopGroup=new NioEventLoopGroup(maxThreads,Threads.newDaemonThreadFactory("AsyncRpcChannel"));
+  }
+  this.connections=new PoolMap<>(getPoolType(configuration),getPoolSize(configuration));
+  this.failedServers=new FailedServers(configuration);
+  int operationTimeout=configuration.getInt(HConstants.HBASE_CLIENT_OPERATION_TIMEOUT,HConstants.DEFAULT_HBASE_CLIENT_OPERATION_TIMEOUT);
+  this.bootstrap=new Bootstrap();
+  bootstrap.group(eventLoopGroup).channel(socketChannelClass).option(ChannelOption.ALLOCATOR,PooledByteBufAllocator.DEFAULT).option(ChannelOption.TCP_NODELAY,tcpNoDelay).option(ChannelOption.SO_KEEPALIVE,tcpKeepAlive).option(ChannelOption.CONNECT_TIMEOUT_MILLIS,operationTimeout);
+  if (channelInitializer == null) {
+    channelInitializer=DEFAULT_CHANNEL_INITIALIZER;
+  }
+  bootstrap.handler(channelInitializer);
+  if (localAddress != null) {
+    bootstrap.localAddress(localAddress);
+  }
+}

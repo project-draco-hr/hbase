@@ -1,0 +1,49 @@
+{
+  return bootstrap.remoteAddress(address).connect().addListener(new GenericFutureListener<ChannelFuture>(){
+    @Override public void operationComplete(    final ChannelFuture f) throws Exception {
+      if (!f.isSuccess()) {
+        if (f.cause() instanceof SocketException) {
+          retryOrClose(bootstrap,connectFailureCounter++,f.cause());
+        }
+ else {
+          retryOrClose(bootstrap,ioFailureCounter++,f.cause());
+        }
+        return;
+      }
+      channel=f.channel();
+      setupAuthorization();
+      ByteBuf b=channel.alloc().directBuffer(6);
+      createPreamble(b,authMethod);
+      channel.writeAndFlush(b).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
+      if (useSasl) {
+        UserGroupInformation ticket=AsyncRpcChannel.this.ticket.getUGI();
+        if (authMethod == AuthMethod.KERBEROS) {
+          if (ticket != null && ticket.getRealUser() != null) {
+            ticket=ticket.getRealUser();
+          }
+        }
+        SaslClientHandler saslHandler;
+        if (ticket == null) {
+          throw new FatalConnectionException("ticket/user is null");
+        }
+        saslHandler=ticket.doAs(new PrivilegedExceptionAction<SaslClientHandler>(){
+          @Override public SaslClientHandler run() throws IOException {
+            return getSaslHandler(bootstrap);
+          }
+        }
+);
+        if (saslHandler != null) {
+          channel.pipeline().addFirst(saslHandler);
+        }
+ else {
+          authMethod=AuthMethod.SIMPLE;
+          useSasl=false;
+        }
+      }
+ else {
+        startHBaseConnection(f.channel());
+      }
+    }
+  }
+);
+}

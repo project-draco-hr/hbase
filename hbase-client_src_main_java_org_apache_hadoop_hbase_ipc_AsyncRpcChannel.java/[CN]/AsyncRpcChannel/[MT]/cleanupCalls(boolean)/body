@@ -1,0 +1,50 @@
+{
+  if (cleanupTimer != null) {
+    cleanupTimer.cancel();
+    cleanupTimer=null;
+  }
+  if (cleanAll) {
+    for (    AsyncCall call : calls.values()) {
+synchronized (call) {
+        if (!call.isDone()) {
+          if (closeException == null) {
+            failCall(call,new ConnectionClosingException("Call id=" + call.id + " on server "+ address+ " aborted: connection is closing"));
+          }
+ else {
+            failCall(call,closeException);
+          }
+        }
+      }
+    }
+  }
+ else {
+    for (    AsyncCall call : calls.values()) {
+      long waitTime=EnvironmentEdgeManager.currentTime() - call.getStartTime();
+      long timeout=call.getRpcTimeout();
+      if (timeout > 0 && waitTime >= timeout) {
+synchronized (call) {
+          if (!call.isDone()) {
+            closeException=new CallTimeoutException("Call id=" + call.id + ", waitTime="+ waitTime+ ", rpcTimeout="+ timeout);
+            failCall(call,closeException);
+          }
+        }
+      }
+ else {
+        break;
+      }
+    }
+    if (!calls.isEmpty()) {
+      AsyncCall firstCall=calls.firstEntry().getValue();
+      final long newTimeout;
+      long maxWaitTime=EnvironmentEdgeManager.currentTime() - firstCall.getStartTime();
+      if (maxWaitTime < firstCall.getRpcTimeout()) {
+        newTimeout=firstCall.getRpcTimeout() - maxWaitTime;
+      }
+ else {
+        newTimeout=0;
+      }
+      closeException=null;
+      cleanupTimer=AsyncRpcClient.WHEEL_TIMER.newTimeout(timeoutTask,newTimeout,TimeUnit.MILLISECONDS);
+    }
+  }
+}

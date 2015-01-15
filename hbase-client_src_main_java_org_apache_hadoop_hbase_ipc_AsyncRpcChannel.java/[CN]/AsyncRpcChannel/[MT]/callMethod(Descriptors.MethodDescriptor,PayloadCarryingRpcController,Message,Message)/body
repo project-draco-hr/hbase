@@ -1,0 +1,22 @@
+{
+  if (shouldCloseConnection) {
+    Promise<Message> promise=channel.eventLoop().newPromise();
+    promise.setFailure(new ConnectException());
+    return promise;
+  }
+  final AsyncCall call=new AsyncCall(channel.eventLoop(),client.callIdCnt.getAndIncrement(),method,request,controller,responsePrototype);
+  controller.notifyOnCancel(new RpcCallback<Object>(){
+    @Override public void run(    Object parameter){
+      failCall(call,new IOException("Canceled connection"));
+    }
+  }
+);
+  calls.put(call.id,call);
+  if (cleanupTimer == null) {
+    cleanupTimer=AsyncRpcClient.WHEEL_TIMER.newTimeout(timeoutTask,call.getRpcTimeout(),TimeUnit.MILLISECONDS);
+  }
+  if (channel.isActive()) {
+    writeRequest(call);
+  }
+  return call;
+}

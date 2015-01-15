@@ -1,0 +1,70 @@
+{
+  ByteBuf in=(ByteBuf)msg;
+  if (!saslClient.isComplete()) {
+    while (!saslClient.isComplete() && in.isReadable()) {
+      readStatus(in);
+      int len=in.readInt();
+      if (firstRead) {
+        firstRead=false;
+        if (len == SaslUtil.SWITCH_TO_SIMPLE_AUTH) {
+          if (!fallbackAllowed) {
+            throw new IOException("Server asks us to fall back to SIMPLE auth, " + "but this " + "client is configured to only allow secure connections.");
+          }
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("Server asks us to fall back to simple auth.");
+          }
+          saslClient.dispose();
+          ctx.pipeline().remove(this);
+          successfulConnectHandler.onSuccess(ctx.channel());
+          return;
+        }
+      }
+      saslToken=new byte[len];
+      if (LOG.isDebugEnabled())       LOG.debug("Will read input token of size " + saslToken.length + " for processing by initSASLContext");
+      in.readBytes(saslToken);
+      saslToken=saslClient.evaluateChallenge(saslToken);
+      if (saslToken != null) {
+        if (LOG.isDebugEnabled())         LOG.debug("Will send token of size " + saslToken.length + " from initSASLContext.");
+        writeSaslToken(ctx,saslToken);
+      }
+    }
+    if (saslClient.isComplete()) {
+      String qop=(String)saslClient.getNegotiatedProperty(Sasl.QOP);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("SASL client context established. Negotiated QoP: " + qop);
+      }
+      boolean useWrap=qop != null && !"auth".equalsIgnoreCase(qop);
+      if (!useWrap) {
+        ctx.pipeline().remove(this);
+      }
+      successfulConnectHandler.onSuccess(ctx.channel());
+    }
+  }
+ else {
+    try {
+      int length=in.readInt();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Actual length is " + length);
+      }
+      saslToken=new byte[length];
+      in.readBytes(saslToken);
+    }
+ catch (    IndexOutOfBoundsException e) {
+      return;
+    }
+    try {
+      ByteBuf b=ctx.channel().alloc().buffer(saslToken.length);
+      b.writeBytes(saslClient.unwrap(saslToken,0,saslToken.length));
+      ctx.fireChannelRead(b);
+    }
+ catch (    SaslException se) {
+      try {
+        saslClient.dispose();
+      }
+ catch (      SaslException ignored) {
+        LOG.debug("Ignoring SASL exception",ignored);
+      }
+      throw se;
+    }
+  }
+}

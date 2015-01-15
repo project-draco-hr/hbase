@@ -1,0 +1,34 @@
+{
+  if (!saslClient.isComplete()) {
+    super.write(ctx,msg,promise);
+  }
+ else {
+    ByteBuf in=(ByteBuf)msg;
+    try {
+      saslToken=saslClient.wrap(in.array(),in.readerIndex(),in.readableBytes());
+    }
+ catch (    SaslException se) {
+      try {
+        saslClient.dispose();
+      }
+ catch (      SaslException ignored) {
+        LOG.debug("Ignoring SASL exception",ignored);
+      }
+      promise.setFailure(se);
+    }
+    if (saslToken != null) {
+      ByteBuf out=ctx.channel().alloc().buffer(4 + saslToken.length);
+      out.writeInt(saslToken.length);
+      out.writeBytes(saslToken,0,saslToken.length);
+      ctx.write(out).addListener(new ChannelFutureListener(){
+        @Override public void operationComplete(        ChannelFuture future) throws Exception {
+          if (!future.isSuccess()) {
+            exceptionCaught(ctx,future.cause());
+          }
+        }
+      }
+);
+      saslToken=null;
+    }
+  }
+}

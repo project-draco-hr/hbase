@@ -1,0 +1,26 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  AsyncRpcClient client=new AsyncRpcClient(conf,HConstants.CLUSTER_ID_DEFAULT,null){
+    @Override Codec getCodec(){
+      return null;
+    }
+  }
+;
+  TestRpcServer rpcServer=new TestRpcServer();
+  try {
+    rpcServer.start();
+    InetSocketAddress address=rpcServer.getListenerAddress();
+    MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
+    final String message="hello";
+    EchoRequestProto param=EchoRequestProto.newBuilder().setMessage(message).build();
+    BlockingRpcChannel channel=client.createBlockingRpcChannel(ServerName.valueOf(address.getHostName(),address.getPort(),System.currentTimeMillis()),User.getCurrent(),0);
+    PayloadCarryingRpcController controller=new PayloadCarryingRpcController();
+    Message response=channel.callBlockingMethod(md,controller,param,md.getOutputType().toProto());
+    assertTrue(controller.cellScanner() == null);
+    assertTrue(response.toString().contains(message));
+  }
+  finally {
+    client.close();
+    rpcServer.stop();
+  }
+}
