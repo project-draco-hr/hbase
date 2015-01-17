@@ -13,11 +13,31 @@
   int load=(int)((region.addAndGetGlobalMemstoreSize(0) * 100) / flushSizeBytes);
   LOG.debug("Done writing some data to " + tablename);
   ClusterConnection connection=table.connection;
+  ClientBackoffPolicy backoffPolicy=connection.getBackoffPolicy();
+  assertTrue("Backoff policy is not correctly configured",backoffPolicy instanceof ExponentialClientBackoffPolicy);
   ServerStatisticTracker stats=connection.getStatisticsTracker();
   assertNotNull("No stats configured for the client!",stats);
   ServerName server=rs.getServerName();
   byte[] regionName=region.getRegionName();
   ServerStatistics serverStats=stats.getServerStatsForTesting(server);
   ServerStatistics.RegionStatistics regionStats=serverStats.getStatsForRegion(regionName);
-  assertEquals(load,regionStats.getMemstoreLoadPercent());
+  assertEquals("We did not find some load on the memstore",load,regionStats.getMemstoreLoadPercent());
+  long backoffTime=backoffPolicy.getBackoffTime(server,regionName,serverStats);
+  assertNotEquals("Reported load does not produce a backoff",backoffTime,0);
+  LOG.debug("Backoff calculated for " + region.getRegionNameAsString() + " @ "+ server+ " is "+ backoffTime);
+  List<Row> ops=new ArrayList<Row>(1);
+  ops.add(p);
+  final CountDownLatch latch=new CountDownLatch(1);
+  final AtomicLong endTime=new AtomicLong();
+  long startTime=EnvironmentEdgeManager.currentTime();
+  table.ap.submit(tablename,ops,true,new Batch.Callback<Result>(){
+    @Override public void update(    byte[] region,    byte[] row,    Result result){
+      endTime.set(EnvironmentEdgeManager.currentTime());
+      latch.countDown();
+    }
+  }
+,true);
+  latch.await(backoffTime * 2,TimeUnit.MILLISECONDS);
+  assertNotEquals("AsyncProcess did not submit the work time",endTime.get(),0);
+  assertTrue("AsyncProcess did not delay long enough",endTime.get() - startTime >= backoffTime);
 }
