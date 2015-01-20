@@ -1,2 +1,27 @@
 {
+  if (result == null) {
+    throw new RuntimeException("Result cannot be null");
+  }
+  ReplicaResultState state=null;
+  boolean isStale=!RegionReplicaUtil.isDefaultReplica(action.getReplicaId());
+  int index=action.getOriginalIndex();
+  if (results == null) {
+    decActionCounter(index);
+    return;
+  }
+  state=trySetResultSimple(index,action.getAction(),false,result,null,isStale);
+  if (state == null) {
+    return;
+  }
+synchronized (state) {
+    if (state.callCount == 0)     return;
+    state.callCount=0;
+  }
+synchronized (replicaResultLock) {
+    if (results[index] != state) {
+      throw new AssertionError("We set the callCount but someone else replaced the result");
+    }
+    results[index]=result;
+  }
+  decActionCounter(index);
 }
