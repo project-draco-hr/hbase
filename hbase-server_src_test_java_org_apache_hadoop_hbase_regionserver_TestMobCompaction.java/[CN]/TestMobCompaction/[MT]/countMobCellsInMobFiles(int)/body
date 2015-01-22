@@ -1,0 +1,34 @@
+{
+  Configuration copyOfConf=new Configuration(conf);
+  copyOfConf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY,0f);
+  CacheConfig cacheConfig=new CacheConfig(copyOfConf);
+  Path mobDirPath=new Path(MobUtils.getMobRegionPath(conf,htd.getTableName()),hcd.getNameAsString());
+  List<StoreFile> sfs=new ArrayList<StoreFile>();
+  int numDelfiles=0;
+  int size=0;
+  if (fs.exists(mobDirPath)) {
+    for (    FileStatus f : fs.listStatus(mobDirPath)) {
+      StoreFile sf=new StoreFile(fs,f.getPath(),conf,cacheConfig,BloomType.NONE);
+      sfs.add(sf);
+      if (StoreFileInfo.isDelFile(sf.getPath())) {
+        numDelfiles++;
+      }
+    }
+    List scanners=StoreFileScanner.getScannersForStoreFiles(sfs,false,true,false,null,HConstants.LATEST_TIMESTAMP);
+    Scan scan=new Scan();
+    scan.setMaxVersions(hcd.getMaxVersions());
+    long timeToPurgeDeletes=Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes",0),0);
+    long ttl=HStore.determineTTLFromFamily(hcd);
+    ScanInfo scanInfo=new ScanInfo(hcd,ttl,timeToPurgeDeletes,KeyValue.COMPARATOR);
+    StoreScanner scanner=new StoreScanner(scan,scanInfo,ScanType.COMPACT_DROP_DELETES,null,scanners,0L,HConstants.LATEST_TIMESTAMP);
+    List<Cell> results=new ArrayList<>();
+    boolean hasMore=true;
+    while (hasMore) {
+      hasMore=scanner.next(results);
+      size+=results.size();
+      results.clear();
+    }
+  }
+  assertEquals(expectedNumDelfiles,numDelfiles);
+  return size;
+}
