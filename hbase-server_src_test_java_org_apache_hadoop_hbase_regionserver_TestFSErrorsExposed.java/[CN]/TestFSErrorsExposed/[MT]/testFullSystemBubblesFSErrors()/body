@@ -10,21 +10,21 @@
     desc.addFamily(new HColumnDescriptor(fam).setMaxVersions(1).setBlockCacheEnabled(false));
     admin.createTable(desc);
     util.getConfiguration().setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,1);
-    Table table=util.getConnection().getTable(tableName);
-    util.loadTable(table,fam,false);
-    table.flushCommits();
-    util.flush();
-    util.countRows(table);
-    util.getDFSCluster().shutdownDataNodes();
-    try {
+    try (Table table=util.getConnection().getTable(tableName)){
+      util.loadTable(table,fam,false);
+      util.flush();
       util.countRows(table);
-      fail("Did not fail to count after removing data");
+      util.getDFSCluster().shutdownDataNodes();
+      try {
+        util.countRows(table);
+        fail("Did not fail to count after removing data");
+      }
+ catch (      Exception e) {
+        LOG.info("Got expected error",e);
+        assertTrue(e.getMessage().contains("Could not seek"));
+      }
     }
- catch (    Exception e) {
-      LOG.info("Got expected error",e);
-      assertTrue(e.getMessage().contains("Could not seek"));
-    }
-    util.getDFSCluster().restartDataNodes();
+     util.getDFSCluster().restartDataNodes();
   }
   finally {
     util.getMiniHBaseCluster().killAll();

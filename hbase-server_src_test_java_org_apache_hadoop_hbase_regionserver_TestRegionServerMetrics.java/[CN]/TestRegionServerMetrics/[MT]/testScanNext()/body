@@ -4,26 +4,30 @@
   byte[] cf=Bytes.toBytes("d");
   byte[] qualifier=Bytes.toBytes("qual");
   byte[] val=Bytes.toBytes("One");
-  HTable t=TEST_UTIL.createTable(tableName,cf);
-  t.setAutoFlushTo(false);
+  List<Put> puts=new ArrayList<>();
   for (int insertCount=0; insertCount < 100; insertCount++) {
     Put p=new Put(Bytes.toBytes("" + insertCount + "row"));
     p.add(cf,qualifier,val);
-    t.put(p);
+    puts.add(p);
   }
-  t.flushCommits();
-  Scan s=new Scan();
-  s.setBatch(1);
-  s.setCaching(1);
-  ResultScanner resultScanners=t.getScanner(s);
-  for (int nextCount=0; nextCount < 30; nextCount++) {
-    Result result=resultScanners.next();
-    assertNotNull(result);
-    assertEquals(1,result.size());
+  try (HTable t=TEST_UTIL.createTable(tableName,cf)){
+    t.put(puts);
+    Scan s=new Scan();
+    s.setBatch(1);
+    s.setCaching(1);
+    ResultScanner resultScanners=t.getScanner(s);
+    for (int nextCount=0; nextCount < 30; nextCount++) {
+      Result result=resultScanners.next();
+      assertNotNull(result);
+      assertEquals(1,result.size());
+    }
   }
-  for (  HRegionInfo i : t.getRegionLocations().keySet()) {
-    MetricsRegionAggregateSource agg=rs.getRegion(i.getRegionName()).getMetrics().getSource().getAggregateSource();
-    String prefix="namespace_" + NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR + "_table_"+ tableNameString+ "_region_"+ i.getEncodedName()+ "_metric";
-    metricsHelper.assertCounter(prefix + "_scanNextNumOps",30,agg);
+   try (RegionLocator locator=TEST_UTIL.getConnection().getRegionLocator(tableName)){
+    for (    HRegionLocation location : locator.getAllRegionLocations()) {
+      HRegionInfo i=location.getRegionInfo();
+      MetricsRegionAggregateSource agg=rs.getRegion(i.getRegionName()).getMetrics().getSource().getAggregateSource();
+      String prefix="namespace_" + NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR + "_table_"+ tableNameString+ "_region_"+ i.getEncodedName()+ "_metric";
+      metricsHelper.assertCounter(prefix + "_scanNextNumOps",30,agg);
+    }
   }
-}
+ }
