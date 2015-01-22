@@ -1,0 +1,34 @@
+{
+  assert(labelsRegion != null || systemCall);
+  if (systemCall || labelsRegion == null) {
+    return this.labelsCache.getGroupAuths(groups);
+  }
+  Scan s=new Scan();
+  if (groups != null && groups.length > 0) {
+    for (    String group : groups) {
+      s.addColumn(LABELS_TABLE_FAMILY,Bytes.toBytes(AccessControlLists.toGroupEntry(group)));
+    }
+  }
+  Filter filter=VisibilityUtils.createVisibilityLabelFilter(this.labelsRegion,new Authorizations(SYSTEM_LABEL));
+  s.setFilter(filter);
+  Set<String> auths=new HashSet<String>();
+  RegionScanner scanner=this.labelsRegion.getScanner(s);
+  try {
+    List<Cell> results=new ArrayList<Cell>(1);
+    while (true) {
+      scanner.next(results);
+      if (results.isEmpty())       break;
+      Cell cell=results.get(0);
+      int ordinal=Bytes.toInt(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
+      String label=this.labelsCache.getLabel(ordinal);
+      if (label != null) {
+        auths.add(label);
+      }
+      results.clear();
+    }
+  }
+  finally {
+    scanner.close();
+  }
+  return new ArrayList<String>(auths);
+}
