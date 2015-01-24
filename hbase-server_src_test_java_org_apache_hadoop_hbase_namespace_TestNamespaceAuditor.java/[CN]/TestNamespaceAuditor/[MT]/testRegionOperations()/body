@@ -1,0 +1,46 @@
+{
+  String nsp1=prefix + "_regiontest";
+  NamespaceDescriptor nspDesc=NamespaceDescriptor.create(nsp1).addConfiguration(TableNamespaceManager.KEY_MAX_REGIONS,"2").addConfiguration(TableNamespaceManager.KEY_MAX_TABLES,"2").build();
+  admin.createNamespace(nspDesc);
+  boolean constraintViolated=false;
+  final TableName tableOne=TableName.valueOf(nsp1 + TableName.NAMESPACE_DELIM + "table1");
+  byte[] columnFamily=Bytes.toBytes("info");
+  HTableDescriptor tableDescOne=new HTableDescriptor(tableOne);
+  tableDescOne.addFamily(new HColumnDescriptor(columnFamily));
+  NamespaceTableAndRegionInfo stateInfo;
+  try {
+    admin.createTable(tableDescOne,Bytes.toBytes("1"),Bytes.toBytes("1000"),7);
+  }
+ catch (  Exception exp) {
+    assertTrue(exp instanceof DoNotRetryIOException);
+    LOG.info(exp);
+    constraintViolated=true;
+  }
+ finally {
+    assertTrue(constraintViolated);
+  }
+  assertFalse(admin.tableExists(tableOne));
+  admin.createTable(tableDescOne);
+  Connection connection=ConnectionFactory.createConnection(UTIL.getConfiguration());
+  HTable htable=(HTable)connection.getTable(tableOne);
+  UTIL.loadNumericRows(htable,Bytes.toBytes("info"),1,1000);
+  admin.flush(tableOne);
+  stateInfo=getNamespaceState(nsp1);
+  assertEquals(1,stateInfo.getTables().size());
+  assertEquals(1,stateInfo.getRegionCount());
+  restartMaster();
+  admin.split(tableOne,Bytes.toBytes("500"));
+  HRegion actualRegion=UTIL.getHBaseCluster().getRegions(tableOne).get(0);
+  CustomObserver observer=(CustomObserver)actualRegion.getCoprocessorHost().findCoprocessor(CustomObserver.class.getName());
+  assertNotNull(observer);
+  observer.postSplit.await();
+  assertEquals(2,admin.getTableRegions(tableOne).size());
+  actualRegion=UTIL.getHBaseCluster().getRegions(tableOne).get(0);
+  observer=(CustomObserver)actualRegion.getCoprocessorHost().findCoprocessor(CustomObserver.class.getName());
+  assertNotNull(observer);
+  admin.split(tableOne,getSplitKey(actualRegion.getStartKey(),actualRegion.getEndKey()));
+  observer.postSplit.await();
+  assertEquals(2,admin.getTableRegions(tableOne).size());
+  assertTrue("split completed",observer.preSplitBeforePONR.getCount() == 1);
+  htable.close();
+}
