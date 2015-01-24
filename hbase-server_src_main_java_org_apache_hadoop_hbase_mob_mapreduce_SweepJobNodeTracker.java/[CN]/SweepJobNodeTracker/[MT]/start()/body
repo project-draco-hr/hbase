@@ -1,14 +1,23 @@
 {
   watcher.registerListener(this);
-  if (ZKUtil.watchAndCheckExists(watcher,node)) {
-    byte[] data=ZKUtil.getDataAndWatch(watcher,node);
-    if (data != null) {
-      if (!sweepJobId.equals(Bytes.toString(data))) {
-        System.exit(1);
+  List<String> children=ZKUtil.listChildrenNoWatch(watcher,parentNode);
+  if (children != null && !children.isEmpty()) {
+    TreeSet<String> sortedChildren=new TreeSet<String>();
+    sortedChildren.addAll(children);
+    SortedSet<String> tails=sortedChildren.tailSet(lockNodePrefix);
+    if (!tails.isEmpty()) {
+      for (      String tail : tails) {
+        String path=ZKUtil.joinZNode(parentNode,tail);
+        byte[] data=ZKUtil.getDataAndWatch(watcher,path);
+        TableLock lock=TableLockManager.fromBytes(data);
+        ServerName serverName=lock.getLockOwner();
+        org.apache.hadoop.hbase.ServerName sn=org.apache.hadoop.hbase.ServerName.valueOf(serverName.getHostName(),serverName.getPort(),serverName.getStartCode());
+        if (owner.equals(sn.toString())) {
+          lockNode=path;
+          return;
+        }
       }
     }
   }
- else {
-    System.exit(1);
-  }
+  System.exit(1);
 }

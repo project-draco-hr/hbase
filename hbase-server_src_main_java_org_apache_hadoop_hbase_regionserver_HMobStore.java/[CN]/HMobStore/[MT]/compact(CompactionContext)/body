@@ -1,54 +1,40 @@
 {
   if (compaction.getRequest().isAllFiles()) {
-    String compactionName=UUID.randomUUID().toString().replaceAll("-","");
-    MobZookeeper zk=null;
-    try {
-      zk=MobZookeeper.newInstance(region.getBaseConf(),compactionName);
+    TableLock lock=null;
+    if (tableLockManager != null) {
+      lock=tableLockManager.readLock(tableLockName,"Major compaction in HMobStore");
     }
- catch (    KeeperException e) {
-      LOG.error("Cannot connect to the zookeeper, forcing the delete markers to be retained",e);
-      compaction.getRequest().forceRetainDeleteMarkers();
+    boolean tableLocked=false;
+    String tableName=getTableName().getNameAsString();
+    if (lock != null) {
+      try {
+        LOG.info("Start to acquire a read lock for the table[" + tableName + "], ready to perform the major compaction");
+        lock.acquire();
+        tableLocked=true;
+      }
+ catch (      Exception e) {
+        LOG.error("Fail to lock the table " + tableName,e);
+      }
+    }
+ else {
+      tableLocked=true;
+    }
+    try {
+      if (!tableLocked) {
+        LOG.warn("Cannot obtain the table lock, maybe a sweep tool is running on this table[" + tableName + "], forcing the delete markers to be retained");
+        compaction.getRequest().forceRetainDeleteMarkers();
+      }
       return super.compact(compaction);
     }
-    boolean keepDeleteMarkers=true;
-    boolean majorCompactNodeAdded=false;
-    try {
-      if (zk.lockColumnFamily(getTableName().getNameAsString(),getFamily().getNameAsString())) {
+  finally {
+      if (tableLocked && lock != null) {
         try {
-          LOG.info("Obtain the lock for the store[" + this + "], ready to perform the major compaction");
-          boolean hasSweeper=zk.isSweeperZNodeExist(getTableName().getNameAsString(),getFamily().getNameAsString());
-          if (!hasSweeper) {
-            majorCompactNodeAdded=zk.addMajorCompactionZNode(getTableName().getNameAsString(),getFamily().getNameAsString(),compactionName);
-            keepDeleteMarkers=!majorCompactNodeAdded;
-          }
+          lock.release();
         }
- catch (        Exception e) {
-          LOG.error("Fail to handle the Zookeeper",e);
-        }
- finally {
-          zk.unlockColumnFamily(getTableName().getNameAsString(),getFamily().getNameAsString());
+ catch (        IOException e) {
+          LOG.error("Fail to release the table lock " + tableName,e);
         }
       }
-      try {
-        if (keepDeleteMarkers) {
-          LOG.warn("Cannot obtain the lock or a sweep tool is running on this store[" + this + "], forcing the delete markers to be retained");
-          compaction.getRequest().forceRetainDeleteMarkers();
-        }
-        return super.compact(compaction);
-      }
-  finally {
-        if (majorCompactNodeAdded) {
-          try {
-            zk.deleteMajorCompactionZNode(getTableName().getNameAsString(),getFamily().getNameAsString(),compactionName);
-          }
- catch (          KeeperException e) {
-            LOG.error("Fail to delete the compaction znode" + compactionName,e);
-          }
-        }
-      }
-    }
-  finally {
-      zk.close();
     }
   }
  else {
