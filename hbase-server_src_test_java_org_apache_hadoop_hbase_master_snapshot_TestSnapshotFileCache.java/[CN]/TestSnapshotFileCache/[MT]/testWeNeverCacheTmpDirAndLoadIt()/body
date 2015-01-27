@@ -1,0 +1,28 @@
+{
+  final AtomicInteger count=new AtomicInteger(0);
+  long period=Long.MAX_VALUE;
+  SnapshotFileCache cache=new SnapshotFileCache(fs,rootDir,period,10000000,"test-snapshot-file-cache-refresh",new SnapshotFiles()){
+    @Override List<String> getSnapshotsInProgress() throws IOException {
+      List<String> result=super.getSnapshotsInProgress();
+      count.incrementAndGet();
+      return result;
+    }
+    @Override public void triggerCacheRefreshForTesting(){
+      super.triggerCacheRefreshForTesting();
+    }
+  }
+;
+  SnapshotMock.SnapshotBuilder complete=createAndTestSnapshotV1(cache,"snapshot",false,false);
+  SnapshotMock.SnapshotBuilder inProgress=createAndTestSnapshotV1(cache,"snapshotInProgress",true,false);
+  int countBeforeCheck=count.get();
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  List<FileStatus> allStoreFiles=getStoreFilesForSnapshot(complete);
+  Iterable<FileStatus> deletableFiles=cache.getUnreferencedFiles(allStoreFiles);
+  assertTrue(Iterables.isEmpty(deletableFiles));
+  assertEquals(0,count.get() - countBeforeCheck);
+  FileStatus randomFile=mockStoreFile(UUID.randomUUID().toString());
+  allStoreFiles.add(randomFile);
+  deletableFiles=cache.getUnreferencedFiles(allStoreFiles);
+  assertEquals(randomFile,Iterables.getOnlyElement(deletableFiles));
+  assertEquals(1,count.get() - countBeforeCheck);
+}

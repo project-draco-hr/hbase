@@ -1,32 +1,36 @@
 {
-  List<String> files=new ArrayList<String>();
+  List<Path> files=new ArrayList<Path>();
   for (int i=0; i < 3; ++i) {
     for (    Path filePath : builder.addRegion()) {
       String fileName=filePath.getName();
       if (tmp) {
         FSUtils.logFileSystemState(fs,rootDir,LOG);
-        assertTrue("Cache didn't find " + fileName,cache.contains(fileName));
+        Iterable<FileStatus> nonSnapshot=getNonSnapshotFiles(cache,filePath);
+        assertFalse("Cache didn't find " + fileName,Iterables.contains(nonSnapshot,fileName));
       }
-      files.add(fileName);
+      files.add(filePath);
     }
   }
   if (!tmp) {
     builder.commit();
   }
-  for (  String fileName : files) {
-    assertTrue("Cache didn't find " + fileName,cache.contains(fileName));
+  for (  Path path : files) {
+    Iterable<FileStatus> nonSnapshotFiles=getNonSnapshotFiles(cache,path);
+    assertFalse("Cache didn't find " + path.getName(),Iterables.contains(nonSnapshotFiles,path.getName()));
   }
   FSUtils.logFileSystemState(fs,rootDir,LOG);
   if (removeOnExit) {
     LOG.debug("Deleting snapshot.");
     fs.delete(builder.getSnapshotsDir(),true);
     FSUtils.logFileSystemState(fs,rootDir,LOG);
-    for (    String fileName : files) {
-      assertTrue("Cache didn't find " + fileName,cache.contains(fileName));
+    for (    Path filePath : files) {
+      Iterable<FileStatus> nonSnapshotFiles=getNonSnapshotFiles(cache,filePath);
+      assertFalse("Cache didn't find " + filePath.getName(),Iterables.contains(nonSnapshotFiles,filePath.getName()));
     }
     cache.triggerCacheRefreshForTesting();
-    for (    String fileName : files) {
-      assertFalse("Cache found '" + fileName + "', but it shouldn't have.",cache.contains(fileName));
+    for (    Path filePath : files) {
+      Iterable<FileStatus> nonSnapshotFiles=getNonSnapshotFiles(cache,filePath);
+      assertTrue("Cache found '" + filePath.getName() + "', but it shouldn't have.",!Iterables.contains(nonSnapshotFiles,filePath.getName()));
     }
   }
 }
