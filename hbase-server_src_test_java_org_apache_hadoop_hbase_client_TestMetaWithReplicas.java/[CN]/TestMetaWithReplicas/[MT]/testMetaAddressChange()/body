@@ -1,0 +1,31 @@
+{
+  Configuration conf=TEST_UTIL.getConfiguration();
+  ZooKeeperWatcher zkw=TEST_UTIL.getZooKeeperWatcher();
+  String baseZNode=conf.get(HConstants.ZOOKEEPER_ZNODE_PARENT,HConstants.DEFAULT_ZOOKEEPER_ZNODE_PARENT);
+  String primaryMetaZnode=ZKUtil.joinZNode(baseZNode,conf.get("zookeeper.znode.metaserver","meta-region-server"));
+  byte[] data=ZKUtil.getData(zkw,primaryMetaZnode);
+  ServerName currentServer=ServerName.parseFrom(data);
+  Collection<ServerName> liveServers=TEST_UTIL.getHBaseAdmin().getClusterStatus().getServers();
+  ServerName moveToServer=null;
+  for (  ServerName s : liveServers) {
+    if (!currentServer.equals(s)) {
+      moveToServer=s;
+    }
+  }
+  assert(moveToServer != null);
+  String tableName="randomTable5678";
+  TEST_UTIL.createTable(TableName.valueOf(tableName),"f");
+  assertTrue(TEST_UTIL.getHBaseAdmin().tableExists(tableName));
+  TEST_UTIL.getHBaseAdmin().move(HRegionInfo.FIRST_META_REGIONINFO.getEncodedNameAsBytes(),Bytes.toBytes(moveToServer.getServerName()));
+  int i=0;
+  do {
+    Thread.sleep(10);
+    data=ZKUtil.getData(zkw,primaryMetaZnode);
+    currentServer=ServerName.parseFrom(data);
+    i++;
+  }
+ while (!moveToServer.equals(currentServer) && i < 1000);
+  assert(i != 1000);
+  TEST_UTIL.getHBaseAdmin().disableTable("randomTable5678");
+  assertTrue(TEST_UTIL.getHBaseAdmin().isTableDisabled("randomTable5678"));
+}

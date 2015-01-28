@@ -1,0 +1,46 @@
+{
+  int assigned=0;
+  long timeout=this.conf.getLong("hbase.catalog.verification.timeout",1000);
+  if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID) {
+    status.setStatus("Assigning hbase:meta region");
+  }
+ else {
+    status.setStatus("Assigning hbase:meta region, replicaId " + replicaId);
+  }
+  RegionState metaState=MetaTableLocator.getMetaRegionState(getZooKeeper(),replicaId);
+  HRegionInfo hri=RegionReplicaUtil.getRegionInfoForReplica(HRegionInfo.FIRST_META_REGIONINFO,replicaId);
+  RegionStates regionStates=assignmentManager.getRegionStates();
+  regionStates.createRegionState(hri,metaState.getState(),metaState.getServerName(),null);
+  if (!metaState.isOpened() || !metaTableLocator.verifyMetaRegionLocation(this.getConnection(),this.getZooKeeper(),timeout,replicaId)) {
+    ServerName currentMetaServer=metaState.getServerName();
+    if (serverManager.isServerOnline(currentMetaServer)) {
+      if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID) {
+        LOG.info("Meta was in transition on " + currentMetaServer);
+      }
+ else {
+        LOG.info("Meta with replicaId " + replicaId + " was in transition on "+ currentMetaServer);
+      }
+      assignmentManager.processRegionsInTransition(Arrays.asList(metaState));
+    }
+ else {
+      if (currentMetaServer != null) {
+        if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID) {
+          splitMetaLogBeforeAssignment(currentMetaServer);
+          regionStates.logSplit(HRegionInfo.FIRST_META_REGIONINFO);
+          previouslyFailedMetaRSs.add(currentMetaServer);
+        }
+      }
+      LOG.info("Re-assigning hbase:meta with replicaId, " + replicaId + " it was on "+ currentMetaServer);
+      assignmentManager.assignMeta(hri);
+    }
+    assigned++;
+  }
+  if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID)   enableMeta(TableName.META_TABLE_NAME);
+  if ((RecoveryMode.LOG_REPLAY == this.getMasterFileSystem().getLogRecoveryMode()) && (!previouslyFailedMetaRSs.isEmpty())) {
+    status.setStatus("replaying log for Meta Region");
+    this.fileSystemManager.splitMetaLog(previouslyFailedMetaRSs);
+  }
+  if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID)   enableServerShutdownHandler(assigned != 0);
+  LOG.info("hbase:meta with replicaId " + replicaId + " assigned="+ assigned+ ", location="+ metaTableLocator.getMetaRegionLocation(this.getZooKeeper(),replicaId));
+  status.setStatus("META assigned.");
+}

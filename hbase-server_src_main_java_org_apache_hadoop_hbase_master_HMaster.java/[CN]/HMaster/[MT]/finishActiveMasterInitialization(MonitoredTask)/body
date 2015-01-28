@@ -6,6 +6,7 @@
   this.masterActiveTime=System.currentTimeMillis();
   this.fileSystemManager=new MasterFileSystem(this,this);
   this.tableDescriptors.setCacheOn();
+  this.tableDescriptors.get(TableName.META_TABLE_NAME).setRegionReplication(conf.getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM));
   if (preLoadTableDescriptors) {
     status.setStatus("Pre-loading table descriptors");
     this.tableDescriptors.getAll();
@@ -47,7 +48,7 @@
   this.balancer.initialize();
   if (isStopped())   return;
   status.setStatus("Assigning Meta Region");
-  assignMeta(status,previouslyFailedMetaRSs);
+  assignMeta(status,previouslyFailedMetaRSs,HRegionInfo.DEFAULT_REPLICA_ID);
   if (isStopped())   return;
   status.setStatus("Submitting log splitting work for previously failed region servers");
   for (  ServerName tmpServer : previouslyFailedServers) {
@@ -77,6 +78,12 @@
   LOG.info("Master has completed initialization");
   configurationManager.registerObserver(this.balancer);
   initialized=true;
+  Set<ServerName> EMPTY_SET=new HashSet<ServerName>();
+  int numReplicas=conf.getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM);
+  for (int i=1; i < numReplicas; i++) {
+    assignMeta(status,EMPTY_SET,i);
+  }
+  unassignExcessMetaReplica(zooKeeper,numReplicas);
   status.setStatus("Starting quota manager");
   initQuotaManager();
   this.serverManager.clearDeadServersWithSameHostNameAndPortOfOnlineServer();

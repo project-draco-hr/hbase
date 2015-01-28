@@ -47,9 +47,17 @@
  catch (    IOException ioe) {
       resubmit(serverName,ioe);
     }
+    List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
+    int replicaCount=services.getConfiguration().getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM);
+    for (int i=1; i < replicaCount; i++) {
+      HRegionInfo metaHri=RegionReplicaUtil.getRegionInfoForReplica(HRegionInfo.FIRST_META_REGIONINFO,i);
+      if (am.isCarryingMetaReplica(serverName,metaHri)) {
+        LOG.info("Reassigning meta replica" + metaHri + " that was on "+ serverName);
+        toAssignRegions.add(metaHri);
+      }
+    }
     List<HRegionInfo> regionsInTransition=am.processServerShutdown(serverName);
     LOG.info("Reassigning " + ((hris == null) ? 0 : hris.size()) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (and "+ regionsInTransition.size()+ " regions(s) that were opening on this server)");
-    List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
     toAssignRegions.addAll(regionsInTransition);
     if (hris != null && !hris.isEmpty()) {
       RegionStates regionStates=am.getRegionStates();

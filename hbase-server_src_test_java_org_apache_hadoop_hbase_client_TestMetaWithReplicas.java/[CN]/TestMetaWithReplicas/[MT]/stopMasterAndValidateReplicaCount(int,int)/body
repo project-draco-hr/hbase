@@ -1,0 +1,21 @@
+{
+  ServerName sn=TEST_UTIL.getHBaseClusterInterface().getClusterStatus().getMaster();
+  TEST_UTIL.getHBaseClusterInterface().stopMaster(sn);
+  TEST_UTIL.getHBaseClusterInterface().waitForMasterToStop(sn,60000);
+  List<String> metaZnodes=TEST_UTIL.getZooKeeperWatcher().getMetaReplicaNodes();
+  assert(metaZnodes.size() == originalReplicaCount);
+  TEST_UTIL.getHBaseClusterInterface().getConf().setInt(HConstants.META_REPLICAS_NUM,newReplicaCount);
+  TEST_UTIL.getHBaseClusterInterface().startMaster(sn.getHostname(),0);
+  TEST_UTIL.getHBaseClusterInterface().waitForActiveAndReadyMaster();
+  int count=0;
+  do {
+    metaZnodes=TEST_UTIL.getZooKeeperWatcher().getMetaReplicaNodes();
+    Thread.sleep(10);
+    count++;
+  }
+ while (metaZnodes.size() == originalReplicaCount && count < 1000);
+  assert(metaZnodes.size() == newReplicaCount);
+  TEST_UTIL.getConfiguration().setInt(HConstants.META_REPLICAS_NUM,newReplicaCount);
+  HBaseFsck hbck=HbckTestingUtil.doFsck(TEST_UTIL.getConfiguration(),false);
+  HbckTestingUtil.assertNoErrors(hbck);
+}
