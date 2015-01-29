@@ -1,0 +1,48 @@
+{
+  String nsp1=prefix + "_regiontest";
+  NamespaceDescriptor nspDesc=NamespaceDescriptor.create(nsp1).addConfiguration(TableNamespaceManager.KEY_MAX_REGIONS,"3").addConfiguration(TableNamespaceManager.KEY_MAX_TABLES,"2").build();
+  admin.createNamespace(nspDesc);
+  final TableName tableTwo=TableName.valueOf(nsp1 + TableName.NAMESPACE_DELIM + "table2");
+  byte[] columnFamily=Bytes.toBytes("info");
+  HTableDescriptor tableDescOne=new HTableDescriptor(tableTwo);
+  tableDescOne.addFamily(new HColumnDescriptor(columnFamily));
+  NamespaceTableAndRegionInfo stateInfo;
+  final int initialRegions=3;
+  admin.createTable(tableDescOne,Bytes.toBytes("1"),Bytes.toBytes("2000"),initialRegions);
+  Connection connection=ConnectionFactory.createConnection(UTIL.getConfiguration());
+  HTable htable=(HTable)connection.getTable(tableTwo);
+  UTIL.loadNumericRows(htable,Bytes.toBytes("info"),1,1000);
+  admin.flush(tableTwo);
+  stateInfo=getNamespaceState(nsp1);
+  List<HRegionInfo> hris=admin.getTableRegions(tableTwo);
+  admin.mergeRegions(hris.get(0).getEncodedNameAsBytes(),hris.get(1).getEncodedNameAsBytes(),false);
+  while (admin.getTableRegions(tableTwo).size() == initialRegions) {
+    Thread.sleep(100);
+  }
+  hris=admin.getTableRegions(tableTwo);
+  assertEquals(initialRegions - 1,hris.size());
+  HRegion actualRegion=UTIL.getHBaseCluster().getRegions(tableTwo).get(0);
+  byte[] splitKey=getSplitKey(actualRegion.getStartKey(),actualRegion.getEndKey());
+  admin.split(tableTwo,Bytes.toBytes("500"));
+  while (admin.getTableRegions(tableTwo).size() != initialRegions) {
+    Thread.sleep(100);
+  }
+  assertEquals(initialRegions,admin.getTableRegions(tableTwo).size());
+  MiniHBaseCluster cluster=UTIL.getHBaseCluster();
+  hris=admin.getTableRegions(tableTwo);
+  HRegionServer regionServer=cluster.getRegionServer(cluster.getServerWith(hris.get(0).getRegionName()));
+  RegionServerCoprocessorHost cpHost=regionServer.getRegionServerCoprocessorHost();
+  Coprocessor coprocessor=cpHost.findCoprocessor(CPRegionServerObserver.class.getName());
+  CPRegionServerObserver regionServerObserver=(CPRegionServerObserver)coprocessor;
+  regionServerObserver.failMerge(true);
+  admin.mergeRegions(hris.get(0).getEncodedNameAsBytes(),hris.get(1).getEncodedNameAsBytes(),false);
+  assertEquals(initialRegions,admin.getTableRegions(tableTwo).size());
+  actualRegion=UTIL.getHBaseCluster().getRegions(tableTwo).get(0);
+  admin.split(tableTwo,TableInputFormatBase.getSplitKey(actualRegion.getStartKey(),actualRegion.getEndKey(),true));
+  while (admin.getTableRegions(tableTwo).size() != initialRegions) {
+    Thread.sleep(100);
+  }
+  assertEquals(initialRegions,admin.getTableRegions(tableTwo).size());
+  regionServerObserver.failMerge(true);
+  htable.close();
+}
