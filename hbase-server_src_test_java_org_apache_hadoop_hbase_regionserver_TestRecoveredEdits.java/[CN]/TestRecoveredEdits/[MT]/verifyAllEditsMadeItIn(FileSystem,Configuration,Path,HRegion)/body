@@ -1,0 +1,37 @@
+{
+  int count=0;
+  WAL.Reader reader=null;
+  try {
+    reader=WALFactory.createReader(fs,edits,conf);
+    WAL.Entry entry;
+    while ((entry=reader.next()) != null) {
+      WALKey key=entry.getKey();
+      WALEdit val=entry.getEdit();
+      count++;
+      if (!Bytes.equals(key.getEncodedRegionName(),region.getRegionInfo().getEncodedNameAsBytes())) {
+        continue;
+      }
+      Cell previous=null;
+      for (      Cell cell : val.getCells()) {
+        if (CellUtil.matchingFamily(cell,WALEdit.METAFAMILY))         continue;
+        if (previous != null && CellComparator.compareRows(previous,cell) == 0)         continue;
+        previous=cell;
+        Get g=new Get(CellUtil.cloneRow(cell));
+        Result r=region.get(g);
+        boolean found=false;
+        for (CellScanner scanner=r.cellScanner(); scanner.advance(); ) {
+          Cell current=scanner.current();
+          if (CellComparator.compare(cell,current,true) == 0) {
+            found=true;
+            break;
+          }
+        }
+        assertTrue("Failed to find " + cell,found);
+      }
+    }
+  }
+  finally {
+    if (reader != null)     reader.close();
+  }
+  return count;
+}

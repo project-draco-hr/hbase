@@ -1,0 +1,41 @@
+{
+  Configuration conf=new Configuration(TEST_UTIL.getConfiguration());
+  conf.setInt(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,1024 * 1024);
+  final String encodedRegionName="4823016d8fca70b25503ee07f4c6d79f";
+  HTableDescriptor htd=new HTableDescriptor(TableName.valueOf(testName.getMethodName()));
+  final String columnFamily="meta";
+  byte[][] columnFamilyAsByteArray=new byte[][]{Bytes.toBytes(columnFamily)};
+  htd.addFamily(new HColumnDescriptor(columnFamily));
+  HRegionInfo hri=new HRegionInfo(htd.getTableName()){
+    @Override public synchronized String getEncodedName(){
+      return encodedRegionName;
+    }
+    private byte[] encodedRegionNameAsBytes=null;
+    @Override public synchronized byte[] getEncodedNameAsBytes(){
+      if (encodedRegionNameAsBytes == null) {
+        this.encodedRegionNameAsBytes=Bytes.toBytes(getEncodedName());
+      }
+      return this.encodedRegionNameAsBytes;
+    }
+  }
+;
+  Path hbaseRootDir=TEST_UTIL.getDataTestDir();
+  HRegion region=HRegion.createHRegion(hri,hbaseRootDir,conf,htd,null);
+  assertEquals(encodedRegionName,region.getRegionInfo().getEncodedName());
+  List<String> storeFiles=region.getStoreFileList(columnFamilyAsByteArray);
+  assertTrue(storeFiles.isEmpty());
+  region.close();
+  Path regionDir=region.getRegionDir(hbaseRootDir,hri);
+  Path recoveredEditsDir=WALSplitter.getRegionDirRecoveredEditsDir(regionDir);
+  Path recoveredEditsFile=new Path(new Path(System.getProperty("project.build.testSourceDirectory","src" + Path.SEPARATOR + "test"),"data"),"0000000000000016310");
+  FileSystem fs=FileSystem.get(conf);
+  Path destination=new Path(recoveredEditsDir,recoveredEditsFile.getName());
+  fs.copyToLocalFile(recoveredEditsFile,destination);
+  assertTrue(fs.exists(destination));
+  region=HRegion.openHRegion(region,null);
+  assertEquals(encodedRegionName,region.getRegionInfo().getEncodedName());
+  storeFiles=region.getStoreFileList(columnFamilyAsByteArray);
+  assertTrue("Files count=" + storeFiles.size(),storeFiles.size() > 10);
+  int count=verifyAllEditsMadeItIn(fs,conf,recoveredEditsFile,region);
+  Log.info("Checked " + count + " edits made it in");
+}

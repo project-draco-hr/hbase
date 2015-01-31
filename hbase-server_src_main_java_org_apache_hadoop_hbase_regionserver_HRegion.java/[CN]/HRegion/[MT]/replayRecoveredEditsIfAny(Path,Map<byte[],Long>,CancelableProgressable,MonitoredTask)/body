@@ -51,12 +51,22 @@
   if (seqid > minSeqIdForTheRegion) {
     internalFlushcache(null,seqid,stores.values(),status);
   }
-  for (  Path file : files) {
-    if (!fs.delete(file,false)) {
-      LOG.error("Failed delete of " + file);
+  if (files.size() > 0 && this.conf.getBoolean("hbase.region.archive.recovered.edits",false)) {
+    String fakeFamilyName=WALSplitter.getRegionDirRecoveredEditsDir(regiondir).getName();
+    Set<StoreFile> fakeStoreFiles=new HashSet<StoreFile>(files.size());
+    for (    Path file : files) {
+      fakeStoreFiles.add(new StoreFile(getRegionFileSystem().getFileSystem(),file,this.conf,null,null));
     }
+    getRegionFileSystem().removeStoreFiles(fakeFamilyName,fakeStoreFiles);
+  }
  else {
-      LOG.debug("Deleted recovered.edits file=" + file);
+    for (    Path file : files) {
+      if (!fs.delete(file,false)) {
+        LOG.error("Failed delete of " + file);
+      }
+ else {
+        LOG.debug("Deleted recovered.edits file=" + file);
+      }
     }
   }
   return seqid;
