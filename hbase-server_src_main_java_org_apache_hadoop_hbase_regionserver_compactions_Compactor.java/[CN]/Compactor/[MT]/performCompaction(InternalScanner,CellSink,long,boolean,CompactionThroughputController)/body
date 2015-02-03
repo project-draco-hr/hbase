@@ -1,0 +1,63 @@
+{
+  long bytesWritten=0;
+  long bytesWrittenProgress=0;
+  List<Cell> cells=new ArrayList<Cell>();
+  long closeCheckInterval=HStore.getCloseCheckInterval();
+  long lastMillis=0;
+  if (LOG.isDebugEnabled()) {
+    lastMillis=EnvironmentEdgeManager.currentTime();
+  }
+  String compactionName=store.getRegionInfo().getRegionNameAsString() + "#" + store.getFamily().getNameAsString();
+  long now=0;
+  boolean hasMore;
+  throughputController.start(compactionName);
+  try {
+    do {
+      hasMore=scanner.next(cells,compactionKVMax);
+      if (LOG.isDebugEnabled()) {
+        now=EnvironmentEdgeManager.currentTime();
+      }
+      for (      Cell c : cells) {
+        if (cleanSeqId && c.getSequenceId() <= smallestReadPoint) {
+          CellUtil.setSequenceId(c,0);
+        }
+        writer.append(c);
+        int len=KeyValueUtil.length(c);
+        ++progress.currentCompactedKVs;
+        progress.totalCompactedSize+=len;
+        if (LOG.isDebugEnabled()) {
+          bytesWrittenProgress+=len;
+        }
+        throughputController.control(compactionName,len);
+        if (closeCheckInterval > 0) {
+          bytesWritten+=len;
+          if (bytesWritten > closeCheckInterval) {
+            bytesWritten=0;
+            if (!store.areWritesEnabled()) {
+              progress.cancel();
+              return false;
+            }
+          }
+        }
+      }
+      if (LOG.isDebugEnabled()) {
+        if ((now - lastMillis) >= 60 * 1000) {
+          LOG.debug("Compaction progress: " + compactionName + " "+ progress+ String.format(", rate=%.2f kB/sec",(bytesWrittenProgress / 1024.0) / ((now - lastMillis) / 1000.0))+ ", throughputController is "+ throughputController);
+          lastMillis=now;
+          bytesWrittenProgress=0;
+        }
+      }
+      cells.clear();
+    }
+ while (hasMore);
+  }
+ catch (  InterruptedException e) {
+    progress.cancel();
+    throw new InterruptedIOException("Interrupted while control throughput of compacting " + compactionName);
+  }
+ finally {
+    throughputController.finish(compactionName);
+  }
+  progress.complete();
+  return true;
+}

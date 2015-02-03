@@ -1,0 +1,29 @@
+{
+  ActiveCompaction compaction=activeCompactions.get(compactionName);
+  compaction.totalSize+=size;
+  long deltaSize=compaction.totalSize - compaction.lastControlSize;
+  if (deltaSize < controlPerSize) {
+    return 0;
+  }
+  long now=EnvironmentEdgeManager.currentTime();
+  double maxThroughputPerCompaction=this.maxThroughput / activeCompactions.size();
+  long minTimeAllowed=(long)(deltaSize / maxThroughputPerCompaction * 1000);
+  long elapsedTime=now - compaction.lastControlTime;
+  compaction.lastControlSize=compaction.totalSize;
+  if (elapsedTime >= minTimeAllowed) {
+    compaction.lastControlTime=EnvironmentEdgeManager.currentTime();
+    return 0;
+  }
+  long sleepTime=minTimeAllowed - elapsedTime;
+  if (LOG.isDebugEnabled()) {
+    if (now - compaction.lastLogTime > 60L * 1000) {
+      LOG.debug(compactionName + " sleep " + sleepTime+ " ms because current throughput is "+ throughputDesc(deltaSize,elapsedTime)+ ", max allowed is "+ throughputDesc(maxThroughputPerCompaction)+ ", already slept "+ compaction.numberOfSleeps+ " time(s) and total slept time is "+ compaction.totalSleepTime+ " ms till now.");
+      compaction.lastLogTime=now;
+    }
+  }
+  Thread.sleep(sleepTime);
+  compaction.numberOfSleeps++;
+  compaction.totalSleepTime+=sleepTime;
+  compaction.lastControlTime=EnvironmentEdgeManager.currentTime();
+  return sleepTime;
+}
