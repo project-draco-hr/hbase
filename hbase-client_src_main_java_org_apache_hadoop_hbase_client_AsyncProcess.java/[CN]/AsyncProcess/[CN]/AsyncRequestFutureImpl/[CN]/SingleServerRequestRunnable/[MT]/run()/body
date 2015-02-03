@@ -1,9 +1,15 @@
 {
   MultiResponse res;
+  MultiServerCallable<Row> callable=null;
   try {
-    MultiServerCallable<Row> callable=createCallable(server,tableName,multiAction);
+    callable=createCallable(server,tableName,multiAction);
     try {
-      res=createCaller(callable).callWithoutRetries(callable,timeout);
+      RpcRetryingCaller<MultiResponse> caller=createCaller(callable);
+      if (callsInProgress != null)       callsInProgress.add(callable);
+      res=caller.callWithoutRetries(callable,timeout);
+      if (res == null) {
+        return;
+      }
     }
  catch (    IOException e) {
       receiveGlobalFailure(multiAction,server,numAttempt,e);
@@ -22,5 +28,8 @@ catch (    Throwable t) {
   }
  finally {
     decTaskCounters(multiAction.getRegions(),server);
+    if (callsInProgress != null && callable != null) {
+      callsInProgress.remove(callable);
+    }
   }
 }
