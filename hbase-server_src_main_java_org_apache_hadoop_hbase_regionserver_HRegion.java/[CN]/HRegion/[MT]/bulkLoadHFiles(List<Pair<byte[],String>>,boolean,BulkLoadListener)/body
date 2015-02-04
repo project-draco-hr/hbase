@@ -1,4 +1,6 @@
 {
+  long seqId=-1;
+  Map<byte[],List<Path>> storeFiles=new TreeMap<byte[],List<Path>>(Bytes.BYTES_COMPARATOR);
   Preconditions.checkNotNull(familyPaths);
   startBulkRegionOperation(hasMultipleColumnFamilies(familyPaths));
   try {
@@ -38,7 +40,6 @@ catch (        IOException ioe) {
       LOG.warn("There was a recoverable bulk load failure likely due to a" + " split.  These (family, HFile) pairs were not loaded: " + list);
       return false;
     }
-    long seqId=-1;
     if (assignSeqId) {
       FlushResult fs=this.flushcache(true);
       if (fs.isFlushSucceeded()) {
@@ -61,6 +62,14 @@ catch (        IOException ioe) {
           finalPath=bulkLoadListener.prepareBulkLoad(familyName,path);
         }
         store.bulkLoadHFile(finalPath,seqId);
+        if (storeFiles.containsKey(familyName)) {
+          storeFiles.get(familyName).add(new Path(finalPath));
+        }
+ else {
+          List<Path> storeFileNames=new ArrayList<Path>();
+          storeFileNames.add(new Path(finalPath));
+          storeFiles.put(familyName,storeFileNames);
+        }
         if (bulkLoadListener != null) {
           bulkLoadListener.doneBulkLoad(familyName,path);
         }
@@ -81,6 +90,17 @@ catch (        IOException ioe) {
     return true;
   }
   finally {
+    if (wal != null && !storeFiles.isEmpty()) {
+      try {
+        WALProtos.BulkLoadDescriptor loadDescriptor=ProtobufUtil.toBulkLoadDescriptor(this.getRegionInfo().getTable(),ByteStringer.wrap(this.getRegionInfo().getEncodedNameAsBytes()),storeFiles,seqId);
+        WALUtil.writeBulkLoadMarkerAndSync(wal,this.htableDescriptor,getRegionInfo(),loadDescriptor,sequenceId);
+      }
+ catch (      IOException ioe) {
+        if (this.rsServices != null) {
+          this.rsServices.abort("Failed to write bulk load event into WAL.",ioe);
+        }
+      }
+    }
     closeBulkRegionOperation();
   }
 }
