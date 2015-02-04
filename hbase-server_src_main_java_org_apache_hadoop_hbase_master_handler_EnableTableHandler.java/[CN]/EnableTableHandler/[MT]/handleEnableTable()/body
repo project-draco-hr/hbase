@@ -29,16 +29,22 @@
   LOG.info("Table '" + this.tableName + "' has "+ countOfRegionsInTable+ " regions, of which "+ regionsCount+ " are offline.");
   List<ServerName> onlineServers=serverManager.createDestinationServersList();
   Map<ServerName,List<HRegionInfo>> bulkPlan=this.assignmentManager.getBalancer().retainAssignment(regionsToAssign,onlineServers);
-  LOG.info("Bulk assigning " + regionsCount + " region(s) across "+ bulkPlan.size()+ " server(s), retainAssignment=true");
-  BulkAssigner ba=new GeneralBulkAssigner(this.server,bulkPlan,this.assignmentManager,true);
-  try {
-    if (ba.bulkAssign()) {
-      done=true;
+  if (bulkPlan != null) {
+    LOG.info("Bulk assigning " + regionsCount + " region(s) across "+ bulkPlan.size()+ " server(s), retainAssignment=true");
+    BulkAssigner ba=new GeneralBulkAssigner(this.server,bulkPlan,this.assignmentManager,true);
+    try {
+      if (ba.bulkAssign()) {
+        done=true;
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Enable operation was interrupted when enabling table '" + this.tableName + "'");
+      Thread.currentThread().interrupt();
     }
   }
- catch (  InterruptedException e) {
-    LOG.warn("Enable operation was interrupted when enabling table '" + this.tableName + "'");
-    Thread.currentThread().interrupt();
+ else {
+    LOG.info("Balancer was unable to find suitable servers for table " + tableName + ", leaving unassigned");
+    done=true;
   }
   if (done) {
     this.assignmentManager.getTableStateManager().setTableState(this.tableName,TableState.State.ENABLED);
