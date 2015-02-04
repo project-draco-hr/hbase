@@ -1,0 +1,51 @@
+{
+  int resultSize=resultsFromServer != null ? resultsFromServer.length : 0;
+  List<Result> resultsToAddToCache=new ArrayList<Result>(resultSize);
+  final boolean isBatchSet=scan != null && scan.getBatch() > 0;
+  final boolean allowPartials=scan != null && scan.getAllowPartialResults();
+  if (allowPartials || isBatchSet) {
+    addResultsToList(resultsToAddToCache,resultsFromServer,0,resultsFromServer.length);
+    return resultsToAddToCache;
+  }
+  if (resultsFromServer == null || resultsFromServer.length == 0) {
+    if (!partialResults.isEmpty()) {
+      resultsToAddToCache.add(Result.createCompleteResult(partialResults));
+      partialResults.clear();
+    }
+    return resultsToAddToCache;
+  }
+  Result last=resultsFromServer[resultsFromServer.length - 1];
+  Result partial=last.isPartial() ? last : null;
+  if (LOG.isTraceEnabled()) {
+    StringBuilder sb=new StringBuilder();
+    sb.append("number results from RPC: ").append(resultsFromServer.length).append(",");
+    sb.append("partial != null: ").append(partial != null).append(",");
+    sb.append("number of partials so far: ").append(partialResults.size());
+    LOG.trace(sb.toString());
+  }
+  if (partial != null && partialResults.isEmpty()) {
+    partialResults.add(partial);
+    addResultsToList(resultsToAddToCache,resultsFromServer,0,resultsFromServer.length - 1);
+  }
+ else   if (partial != null && !partialResults.isEmpty()) {
+    if (resultsFromServer.length > 1) {
+      Result finalResult=resultsFromServer[0];
+      partialResults.add(finalResult);
+      resultsToAddToCache.add(Result.createCompleteResult(partialResults));
+      partialResults.clear();
+      addResultsToList(resultsToAddToCache,resultsFromServer,1,resultsFromServer.length - 1);
+    }
+    partialResults.add(partial);
+  }
+ else   if (partial == null && !partialResults.isEmpty()) {
+    Result finalResult=resultsFromServer[0];
+    partialResults.add(finalResult);
+    resultsToAddToCache.add(Result.createCompleteResult(partialResults));
+    partialResults.clear();
+    addResultsToList(resultsToAddToCache,resultsFromServer,1,resultsFromServer.length);
+  }
+ else {
+    addResultsToList(resultsToAddToCache,resultsFromServer,0,resultsFromServer.length);
+  }
+  return resultsToAddToCache;
+}

@@ -1,0 +1,38 @@
+{
+  Scan partialScan=new Scan(basePartialScan);
+  partialScan.setAllowPartialResults(true);
+  ResultScanner partialScanner=TABLE.getScanner(partialScan);
+  Scan oneShotScan=new Scan(basePartialScan);
+  oneShotScan.setMaxResultSize(Long.MAX_VALUE);
+  oneShotScan.setCaching(ROWS.length);
+  ResultScanner oneShotScanner=TABLE.getScanner(oneShotScan);
+  Result oneShotResult=oneShotScanner.next();
+  Result partialResult=null;
+  int iterationCount=0;
+  while (oneShotResult != null && oneShotResult.rawCells() != null) {
+    List<Cell> aggregatePartialCells=new ArrayList<Cell>();
+    do {
+      partialResult=partialScanner.next();
+      assertTrue("Partial Result is null. iteration: " + iterationCount,partialResult != null);
+      assertTrue("Partial cells are null. iteration: " + iterationCount,partialResult.rawCells() != null);
+      for (      Cell c : partialResult.rawCells()) {
+        aggregatePartialCells.add(c);
+      }
+    }
+ while (partialResult.isPartial());
+    assertTrue("Number of cells differs. iteration: " + iterationCount,oneShotResult.rawCells().length == aggregatePartialCells.size());
+    final Cell[] oneShotCells=oneShotResult.rawCells();
+    for (int cell=0; cell < oneShotCells.length; cell++) {
+      Cell oneShotCell=oneShotCells[cell];
+      Cell partialCell=aggregatePartialCells.get(cell);
+      assertTrue("One shot cell was null",oneShotCell != null);
+      assertTrue("Partial cell was null",partialCell != null);
+      assertTrue("Cell differs. oneShotCell:" + oneShotCell + " partialCell:"+ partialCell,oneShotCell.equals(partialCell));
+    }
+    oneShotResult=oneShotScanner.next();
+    iterationCount++;
+  }
+  assertTrue(partialScanner.next() == null);
+  partialScanner.close();
+  oneShotScanner.close();
+}

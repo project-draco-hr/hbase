@@ -18,6 +18,7 @@
         retryAfterOutOfOrderException=true;
       }
  catch (      DoNotRetryIOException e) {
+        partialResults.clear();
         if (e instanceof UnknownScannerException) {
           long timeout=lastNext + scannerTimeout;
           if (timeout < System.currentTimeMillis()) {
@@ -60,8 +61,9 @@
         this.scanMetrics.sumOfMillisSecBetweenNexts.addAndGet(currentTime - lastNext);
       }
       lastNext=currentTime;
-      if (values != null && values.length > 0) {
-        for (        Result rs : values) {
+      List<Result> resultsToAddToCache=getResultsToAddToCache(values);
+      if (!resultsToAddToCache.isEmpty()) {
+        for (        Result rs : resultsToAddToCache) {
           cache.add(rs);
           for (          Cell cell : rs.rawCells()) {
             remainingResultSize-=CellUtil.estimatedHeapSizeOf(cell);
@@ -71,7 +73,7 @@
         }
       }
     }
- while (remainingResultSize > 0 && countdown > 0 && possiblyNextScanner(countdown,values == null));
+ while (remainingResultSize > 0 && countdown > 0 && (!partialResults.isEmpty() || possiblyNextScanner(countdown,values == null)));
   }
   if (cache.size() > 0) {
     return cache.poll();
