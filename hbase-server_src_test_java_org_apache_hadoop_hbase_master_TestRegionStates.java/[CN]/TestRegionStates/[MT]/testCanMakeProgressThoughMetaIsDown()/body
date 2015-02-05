@@ -1,0 +1,36 @@
+{
+  Server server=mock(Server.class);
+  when(server.getServerName()).thenReturn(ServerName.valueOf("master,1,1"));
+  Connection connection=mock(ClusterConnection.class);
+  Table metaTable=Mockito.mock(Table.class);
+  final CyclicBarrier latch=new CyclicBarrier(2);
+  when(metaTable.get((Get)Mockito.any())).thenAnswer(new Answer<Result>(){
+    @Override public Result answer(    InvocationOnMock invocation) throws Throwable {
+      latch.await();
+      throw new java.net.ConnectException("Connection refused");
+    }
+  }
+);
+  when(connection.getTable(TableName.META_TABLE_NAME)).thenReturn(metaTable);
+  when(server.getConnection()).thenReturn((ClusterConnection)connection);
+  Configuration configuration=mock(Configuration.class);
+  when(server.getConfiguration()).thenReturn(configuration);
+  TableStateManager tsm=mock(TableStateManager.class);
+  ServerManager sm=mock(ServerManager.class);
+  when(sm.isServerOnline(isA(ServerName.class))).thenReturn(true);
+  RegionStateStore rss=mock(RegionStateStore.class);
+  final RegionStates regionStates=new RegionStates(server,tsm,sm,rss);
+  final ServerName sn=mockServer("one",1);
+  regionStates.updateRegionState(HRegionInfo.FIRST_META_REGIONINFO,State.SPLITTING_NEW,sn);
+  Thread backgroundThread=new Thread("Get stuck setting server offline"){
+    @Override public void run(){
+      regionStates.serverOffline(sn);
+    }
+  }
+;
+  assertTrue(latch.getNumberWaiting() == 0);
+  backgroundThread.start();
+  while (latch.getNumberWaiting() == 0)   ;
+  regionStates.getRegionServerOfRegion(HRegionInfo.FIRST_META_REGIONINFO);
+  latch.await();
+}
