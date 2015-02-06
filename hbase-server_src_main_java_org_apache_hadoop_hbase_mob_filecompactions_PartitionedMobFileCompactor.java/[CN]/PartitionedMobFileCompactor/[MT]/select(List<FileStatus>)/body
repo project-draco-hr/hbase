@@ -1,0 +1,43 @@
+{
+  Collection<FileStatus> allDelFiles=new ArrayList<FileStatus>();
+  Map<CompactionPartitionId,CompactionPartition> filesToCompact=new HashMap<CompactionPartitionId,CompactionPartition>();
+  int selectedFileCount=0;
+  int irrelevantFileCount=0;
+  for (  FileStatus file : candidates) {
+    if (!file.isFile()) {
+      irrelevantFileCount++;
+      continue;
+    }
+    FileStatus linkedFile=file;
+    if (HFileLink.isHFileLink(file.getPath())) {
+      HFileLink link=new HFileLink(conf,file.getPath());
+      linkedFile=getLinkedFileStatus(link);
+      if (linkedFile == null) {
+        irrelevantFileCount++;
+        continue;
+      }
+    }
+    if (StoreFileInfo.isDelFile(linkedFile.getPath())) {
+      allDelFiles.add(file);
+    }
+ else     if (linkedFile.getLen() < mergeableSize) {
+      MobFileName fileName=MobFileName.create(linkedFile.getPath().getName());
+      CompactionPartitionId id=new CompactionPartitionId(fileName.getStartKey(),fileName.getDate());
+      CompactionPartition compactionPartition=filesToCompact.get(id);
+      if (compactionPartition == null) {
+        compactionPartition=new CompactionPartition(id);
+        compactionPartition.addFile(file);
+        filesToCompact.put(id,compactionPartition);
+      }
+ else {
+        compactionPartition.addFile(file);
+      }
+      selectedFileCount++;
+    }
+  }
+  PartitionedMobFileCompactionRequest request=new PartitionedMobFileCompactionRequest(filesToCompact.values(),allDelFiles);
+  if (candidates.size() == (allDelFiles.size() + selectedFileCount + irrelevantFileCount)) {
+    request.setCompactionType(CompactionType.ALL_FILES);
+  }
+  return request;
+}

@@ -1,0 +1,41 @@
+{
+  Collection<CompactionPartition> partitions=request.compactionPartitions;
+  if (partitions == null || partitions.isEmpty()) {
+    return Collections.emptyList();
+  }
+  List<Path> paths=new ArrayList<Path>();
+  final HTable table=new HTable(conf,tableName);
+  try {
+    Map<CompactionPartitionId,Future<List<Path>>> results=new HashMap<CompactionPartitionId,Future<List<Path>>>();
+    for (    final CompactionPartition partition : partitions) {
+      results.put(partition.getPartitionId(),pool.submit(new Callable<List<Path>>(){
+        @Override public List<Path> call() throws Exception {
+          return compactMobFilePartition(request,partition,delFiles,table);
+        }
+      }
+));
+    }
+    boolean hasFailure=false;
+    for (    Entry<CompactionPartitionId,Future<List<Path>>> result : results.entrySet()) {
+      try {
+        paths.addAll(result.getValue().get());
+      }
+ catch (      Exception e) {
+        LOG.error("Failed to compact the partition " + result.getKey(),e);
+        hasFailure=true;
+      }
+    }
+    if (hasFailure) {
+      throw new IOException("Failed to compact the partitions");
+    }
+  }
+  finally {
+    try {
+      table.close();
+    }
+ catch (    IOException e) {
+      LOG.error("Failed to close the HTable",e);
+    }
+  }
+  return paths;
+}

@@ -1,0 +1,24 @@
+{
+  List<StoreFile> sfs=new ArrayList<StoreFile>();
+  int size=0;
+  for (  Path path : paths) {
+    StoreFile sf=new StoreFile(fs,path,conf,cacheConf,BloomType.NONE);
+    sfs.add(sf);
+  }
+  List scanners=StoreFileScanner.getScannersForStoreFiles(sfs,false,true,false,null,HConstants.LATEST_TIMESTAMP);
+  Scan scan=new Scan();
+  scan.setMaxVersions(hcd.getMaxVersions());
+  long timeToPurgeDeletes=Math.max(conf.getLong("hbase.hstore.time.to.purge.deletes",0),0);
+  long ttl=HStore.determineTTLFromFamily(hcd);
+  ScanInfo scanInfo=new ScanInfo(hcd,ttl,timeToPurgeDeletes,KeyValue.COMPARATOR);
+  StoreScanner scanner=new StoreScanner(scan,scanInfo,ScanType.COMPACT_RETAIN_DELETES,null,scanners,0L,HConstants.LATEST_TIMESTAMP);
+  List<Cell> results=new ArrayList<>();
+  boolean hasMore=true;
+  while (hasMore) {
+    hasMore=scanner.next(results);
+    size+=results.size();
+    results.clear();
+  }
+  scanner.close();
+  return size;
+}

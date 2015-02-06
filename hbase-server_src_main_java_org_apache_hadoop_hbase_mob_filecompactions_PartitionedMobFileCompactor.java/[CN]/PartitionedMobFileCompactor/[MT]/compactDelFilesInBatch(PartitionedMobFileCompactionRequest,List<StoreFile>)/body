@@ -1,0 +1,39 @@
+{
+  StoreScanner scanner=createScanner(delFiles,ScanType.COMPACT_RETAIN_DELETES);
+  Writer writer=null;
+  Path filePath=null;
+  try {
+    writer=MobUtils.createDelFileWriter(conf,fs,column,MobUtils.formatDate(new Date(request.selectionTime)),tempPath,Long.MAX_VALUE,column.getCompactionCompression(),HConstants.EMPTY_START_ROW,compactionCacheConfig);
+    filePath=writer.getPath();
+    List<Cell> cells=new ArrayList<Cell>();
+    boolean hasMore=false;
+    do {
+      hasMore=scanner.next(cells,compactionKVMax);
+      for (      Cell cell : cells) {
+        KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+        writer.append(kv);
+      }
+      cells.clear();
+    }
+ while (hasMore);
+  }
+  finally {
+    scanner.close();
+    if (writer != null) {
+      try {
+        writer.close();
+      }
+ catch (      IOException e) {
+        LOG.error("Failed to close the writer of the file " + filePath,e);
+      }
+    }
+  }
+  Path path=MobUtils.commitFile(conf,fs,filePath,mobFamilyDir,compactionCacheConfig);
+  try {
+    MobUtils.removeMobFiles(conf,fs,tableName,mobTableDir,column.getName(),delFiles);
+  }
+ catch (  IOException e) {
+    LOG.error("Failed to archive the old del files " + delFiles,e);
+  }
+  return path;
+}

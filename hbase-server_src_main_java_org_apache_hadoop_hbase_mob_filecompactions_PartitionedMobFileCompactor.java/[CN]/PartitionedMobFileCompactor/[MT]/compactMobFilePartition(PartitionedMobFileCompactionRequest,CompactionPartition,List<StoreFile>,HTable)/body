@@ -1,0 +1,28 @@
+{
+  List<Path> newFiles=new ArrayList<Path>();
+  List<FileStatus> files=partition.listFiles();
+  int offset=0;
+  Path bulkloadPathOfPartition=new Path(bulkloadPath,partition.getPartitionId().toString());
+  Path bulkloadColumnPath=new Path(bulkloadPathOfPartition,column.getNameAsString());
+  while (offset < files.size()) {
+    int batch=compactionBatchSize;
+    if (files.size() - offset < compactionBatchSize) {
+      batch=files.size() - offset;
+    }
+    if (batch == 1 && delFiles.isEmpty()) {
+      newFiles.add(files.get(offset).getPath());
+      offset++;
+      continue;
+    }
+    fs.delete(bulkloadPathOfPartition,true);
+    List<StoreFile> filesToCompact=new ArrayList<StoreFile>();
+    for (int i=offset; i < batch + offset; i++) {
+      StoreFile sf=new StoreFile(fs,files.get(i).getPath(),conf,compactionCacheConfig,BloomType.NONE);
+      filesToCompact.add(sf);
+    }
+    filesToCompact.addAll(delFiles);
+    compactMobFilesInBatch(request,partition,table,filesToCompact,batch,bulkloadPathOfPartition,bulkloadColumnPath,newFiles);
+    offset+=batch;
+  }
+  return newFiles;
+}
