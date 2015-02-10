@@ -7,9 +7,9 @@
   }
   int numRegs=(splitKeys == null ? 1 : splitKeys.length + 1) * desc.getRegionReplication();
   int prevRegCount=0;
-  boolean doneWithMetaScan=false;
+  boolean tableWasEnabled=false;
   for (int tries=0; tries < this.numRetries * this.retryLongerMultiplier; ++tries) {
-    if (!doneWithMetaScan) {
+    if (tableWasEnabled) {
       final AtomicInteger actualRegCount=new AtomicInteger(0);
       MetaScannerVisitor visitor=new MetaScannerVisitorBase(){
         @Override public boolean processRow(        Result rowResult) throws IOException {
@@ -55,19 +55,26 @@
         }
       }
  else {
-        doneWithMetaScan=true;
-        tries=-1;
+        return;
       }
-    }
- else     if (isTableEnabled(desc.getTableName())) {
-      return;
     }
  else {
       try {
-        Thread.sleep(getPauseTime(tries));
+        tableWasEnabled=isTableAvailable(desc.getTableName());
       }
- catch (      InterruptedException e) {
-        throw new InterruptedIOException("Interrupted when waiting" + " for table to be enabled; meta scan was done");
+ catch (      TableNotFoundException tnfe) {
+        LOG.debug("Table " + desc.getTableName() + " was not enabled, sleeping, still "+ numRetries+ " retries left");
+      }
+      if (tableWasEnabled) {
+        tries=-1;
+      }
+ else {
+        try {
+          Thread.sleep(getPauseTime(tries));
+        }
+ catch (        InterruptedException e) {
+          throw new InterruptedIOException("Interrupted when waiting" + " for table to be enabled; meta scan was done");
+        }
       }
     }
   }

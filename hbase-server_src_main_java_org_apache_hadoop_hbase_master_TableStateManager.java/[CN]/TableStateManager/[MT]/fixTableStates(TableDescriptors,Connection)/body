@@ -1,0 +1,32 @@
+{
+  final Map<String,TableDescriptor> allDescriptors=tableDescriptors.getAllDescriptors();
+  final Map<String,TableState> states=new HashMap<>();
+  MetaTableAccessor.fullScanTables(connection,new MetaTableAccessor.Visitor(){
+    @Override public boolean visit(    Result r) throws IOException {
+      TableState state=MetaTableAccessor.getTableState(r);
+      if (state != null)       states.put(state.getTableName().getNameAsString(),state);
+      return true;
+    }
+  }
+);
+  for (  Map.Entry<String,TableDescriptor> entry : allDescriptors.entrySet()) {
+    String table=entry.getKey();
+    if (table.equals(TableName.META_TABLE_NAME.getNameAsString()))     continue;
+    if (!states.containsKey(table)) {
+      LOG.warn("Found table without state " + table);
+      TableDescriptor td=entry.getValue();
+      TableState.State tds=td.getTableState();
+      if (tds != null) {
+        LOG.warn("Found table with state in descriptor, using that state");
+        MetaTableAccessor.updateTableState(connection,TableName.valueOf(table),tds);
+        LOG.warn("Updating table descriptor");
+        td.setTableState(null);
+        tableDescriptors.add(td);
+      }
+ else {
+        LOG.warn("Found table with no state in descriptor, assuming ENABLED");
+        MetaTableAccessor.updateTableState(connection,TableName.valueOf(table),TableState.State.ENABLED);
+      }
+    }
+  }
+}
