@@ -2,52 +2,26 @@
   final Configuration conf=new Configuration();
   final FileSystem fs=FileSystem.get(conf);
   final Path mf=fs.makeQualified(new Path("performanceevaluation.mapfile"));
+  runWriteBenchmark(conf,fs,mf,"none","none");
+  runReadBenchmark(conf,fs,mf,"none","none");
+  runWriteBenchmark(conf,fs,mf,"gz","none");
+  runReadBenchmark(conf,fs,mf,"gz","none");
+  final Configuration aesconf=new Configuration();
+  aesconf.set(HConstants.CRYPTO_KEYPROVIDER_CONF_KEY,KeyProviderForTesting.class.getName());
+  aesconf.set(HConstants.CRYPTO_MASTERKEY_NAME_CONF_KEY,"hbase");
+  aesconf.setInt("hfile.format.version",3);
+  final FileSystem aesfs=FileSystem.get(aesconf);
+  final Path aesmf=aesfs.makeQualified(new Path("performanceevaluation.aes.mapfile"));
+  runWriteBenchmark(aesconf,aesfs,aesmf,"none","aes");
+  runReadBenchmark(aesconf,aesfs,aesmf,"none","aes");
+  runWriteBenchmark(aesconf,aesfs,aesmf,"gz","aes");
+  runReadBenchmark(aesconf,aesfs,aesmf,"gz","aes");
   if (fs.exists(mf)) {
     fs.delete(mf,true);
   }
-  runBenchmark(new SequentialWriteBenchmark(conf,fs,mf,ROW_COUNT),ROW_COUNT);
-  PerformanceEvaluationCommons.concurrentReads(new Runnable(){
-    @Override public void run(){
-      try {
-        runBenchmark(new UniformRandomSmallScan(conf,fs,mf,ROW_COUNT),ROW_COUNT);
-      }
- catch (      Exception e) {
-        e.printStackTrace();
-      }
-    }
+  if (aesfs.exists(aesmf)) {
+    aesfs.delete(aesmf,true);
   }
-);
-  PerformanceEvaluationCommons.concurrentReads(new Runnable(){
-    @Override public void run(){
-      try {
-        runBenchmark(new UniformRandomReadBenchmark(conf,fs,mf,ROW_COUNT),ROW_COUNT);
-      }
- catch (      Exception e) {
-        e.printStackTrace();
-      }
-    }
-  }
-);
-  PerformanceEvaluationCommons.concurrentReads(new Runnable(){
-    @Override public void run(){
-      try {
-        runBenchmark(new GaussianRandomReadBenchmark(conf,fs,mf,ROW_COUNT),ROW_COUNT);
-      }
- catch (      Exception e) {
-        e.printStackTrace();
-      }
-    }
-  }
-);
-  PerformanceEvaluationCommons.concurrentReads(new Runnable(){
-    @Override public void run(){
-      try {
-        runBenchmark(new SequentialReadBenchmark(conf,fs,mf,ROW_COUNT),ROW_COUNT);
-      }
- catch (      Exception e) {
-        e.printStackTrace();
-      }
-    }
-  }
-);
+  LOG.info("\n***************\n" + "Result Summary" + "\n***************\n");
+  LOG.info(testSummary.toString());
 }
