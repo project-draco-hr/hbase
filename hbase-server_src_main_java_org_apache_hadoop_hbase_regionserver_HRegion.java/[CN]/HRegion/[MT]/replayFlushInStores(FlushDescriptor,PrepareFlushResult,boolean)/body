@@ -1,0 +1,26 @@
+{
+  for (  StoreFlushDescriptor storeFlush : flush.getStoreFlushesList()) {
+    byte[] family=storeFlush.getFamilyName().toByteArray();
+    Store store=getStore(family);
+    if (store == null) {
+      LOG.warn("Received a flush commit marker from primary, but the family is not found." + "Ignoring StoreFlushDescriptor:" + storeFlush);
+      continue;
+    }
+    List<String> flushFiles=storeFlush.getFlushOutputList();
+    StoreFlushContext ctx=null;
+    long startTime=EnvironmentEdgeManager.currentTime();
+    if (prepareFlushResult == null) {
+      ctx=store.createFlushContext(flush.getFlushSequenceNumber());
+    }
+ else {
+      ctx=prepareFlushResult.storeFlushCtxs.get(family);
+      startTime=prepareFlushResult.startTime;
+    }
+    if (ctx == null) {
+      LOG.warn("Unexpected: flush commit marker received from store " + Bytes.toString(family) + " but no associated flush context. Ignoring");
+      continue;
+    }
+    ctx.replayFlush(flushFiles,dropMemstoreSnapshot);
+    this.lastStoreFlushTimeMap.put(store,startTime);
+  }
+}
