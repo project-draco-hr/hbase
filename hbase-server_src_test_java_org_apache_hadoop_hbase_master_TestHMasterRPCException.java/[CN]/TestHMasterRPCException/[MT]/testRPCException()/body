@@ -1,45 +1,22 @@
 {
-  HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility();
-  TEST_UTIL.startMiniZKCluster();
-  Configuration conf=TEST_UTIL.getConfiguration();
-  conf.set(HConstants.MASTER_PORT,"0");
-  CoordinatedStateManager cp=CoordinatedStateManagerFactory.getCoordinatedStateManager(conf);
-  HMaster hm=new HMaster(conf,cp);
-  ServerName sm=hm.getServerName();
-  RpcClient rpcClient=RpcClientFactory.createClient(conf,HConstants.CLUSTER_ID_DEFAULT);
-  try {
-    int i=0;
-    while (i < 20) {
-      try {
-        BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(sm,User.getCurrent(),0);
-        MasterProtos.MasterService.BlockingInterface stub=MasterProtos.MasterService.newBlockingStub(channel);
-        stub.isMasterRunning(null,IsMasterRunningRequest.getDefaultInstance());
-        fail();
-      }
- catch (      ServiceException ex) {
-        IOException ie=ProtobufUtil.getRemoteException(ex);
-        if (!(ie instanceof SocketTimeoutException)) {
-          if (ie.getMessage().startsWith("org.apache.hadoop.hbase.ipc." + "ServerNotRunningYetException: Server is not running yet")) {
-            System.out.println("Expected exception: " + ie.getMessage());
-            return;
-          }
- else {
-            throw ex;
-          }
-        }
- else {
-          System.err.println("Got SocketTimeoutException. Will retry. ");
-        }
-      }
-catch (      Throwable t) {
-        fail("Unexpected throwable: " + t);
-      }
-      Thread.sleep(100);
-      i++;
+  ServerName sm=master.getServerName();
+  boolean fakeZNodeDelete=false;
+  for (int i=0; i < 20; i++) {
+    try {
+      BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(sm,User.getCurrent(),0);
+      MasterProtos.MasterService.BlockingInterface stub=MasterProtos.MasterService.newBlockingStub(channel);
+      assertTrue(stub.isMasterRunning(null,IsMasterRunningRequest.getDefaultInstance()).getIsMasterRunning());
+      return;
     }
-    fail();
-  }
-  finally {
-    rpcClient.close();
+ catch (    ServiceException ex) {
+      IOException ie=ProtobufUtil.getRemoteException(ex);
+      assertTrue(ie.getMessage().startsWith("org.apache.hadoop.hbase.ipc.ServerNotRunningYetException: Server is not running yet"));
+      LOG.info("Expected exception: ",ie);
+      if (!fakeZNodeDelete) {
+        testUtil.getZooKeeperWatcher().getRecoverableZooKeeper().delete(testUtil.getZooKeeperWatcher().getMasterAddressZNode(),-1);
+        fakeZNodeDelete=true;
+      }
+    }
+    Thread.sleep(1000);
   }
 }
