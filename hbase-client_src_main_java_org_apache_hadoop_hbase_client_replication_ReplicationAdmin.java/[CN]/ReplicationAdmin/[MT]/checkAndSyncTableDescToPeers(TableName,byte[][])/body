@@ -1,0 +1,26 @@
+{
+  List<ReplicationPeer> repPeers=listValidReplicationPeers();
+  if (repPeers == null || repPeers.size() <= 0) {
+    throw new IllegalArgumentException("Found no peer cluster for replication.");
+  }
+  for (  ReplicationPeer repPeer : repPeers) {
+    Configuration peerConf=repPeer.getConfiguration();
+    HTableDescriptor htd=null;
+    try (Connection conn=ConnectionFactory.createConnection(peerConf);Admin admin=this.connection.getAdmin();Admin repHBaseAdmin=conn.getAdmin()){
+      htd=admin.getTableDescriptor(tableName);
+      HTableDescriptor peerHtd=null;
+      if (!repHBaseAdmin.tableExists(tableName)) {
+        repHBaseAdmin.createTable(htd,splits);
+      }
+ else {
+        peerHtd=repHBaseAdmin.getTableDescriptor(tableName);
+        if (peerHtd == null) {
+          throw new IllegalArgumentException("Failed to get table descriptor for table " + tableName.getNameAsString() + " from peer cluster "+ repPeer.getId());
+        }
+ else         if (!peerHtd.equals(htd)) {
+          throw new IllegalArgumentException("Table " + tableName.getNameAsString() + " exists in peer cluster "+ repPeer.getId()+ ", but the table descriptors are not same when comapred with source cluster."+ " Thus can not enable the table's replication switch.");
+        }
+      }
+    }
+   }
+}
