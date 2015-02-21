@@ -15,16 +15,28 @@
       if (!waitForLock) {
         return null;
       }
+      TraceScope traceScope=null;
       try {
+        if (Trace.isTracing()) {
+          traceScope=Trace.startSpan("HRegion.getRowLockInternal");
+        }
         if (!existingContext.latch.await(this.rowLockWaitDuration,TimeUnit.MILLISECONDS)) {
+          if (traceScope != null) {
+            traceScope.getSpan().addTimelineAnnotation("Failed to get row lock");
+          }
           throw new IOException("Timed out waiting for lock for row: " + rowKey);
         }
+        if (traceScope != null)         traceScope.close();
+        traceScope=null;
       }
  catch (      InterruptedException ie) {
         LOG.warn("Thread interrupted waiting for lock on row: " + rowKey);
         InterruptedIOException iie=new InterruptedIOException();
         iie.initCause(ie);
         throw iie;
+      }
+ finally {
+        if (traceScope != null)         traceScope.close();
       }
     }
   }
