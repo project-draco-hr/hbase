@@ -1,0 +1,41 @@
+{
+  LOG.info("testConcurrentSplitLogAndReplayRecoverEdit");
+  String regionName="r0";
+  final Path regiondir=new Path(TABLEDIR,regionName);
+  REGIONS.clear();
+  REGIONS.add(regionName);
+  generateWALs(-1);
+  wals.getWAL(Bytes.toBytes(regionName));
+  FileStatus[] logfiles=fs.listStatus(WALDIR);
+  assertTrue("There should be some log file",logfiles != null && logfiles.length > 0);
+  WALSplitter logSplitter=new WALSplitter(wals,conf,HBASEDIR,fs,null,null,this.mode){
+    @Override protected Writer createWriter(    Path logfile) throws IOException {
+      Writer writer=wals.createRecoveredEditsWriter(this.fs,logfile);
+      NavigableSet<Path> files=WALSplitter.getSplitEditFilesSorted(fs,regiondir);
+      if (files != null && !files.isEmpty()) {
+        for (        Path file : files) {
+          if (!this.fs.delete(file,false)) {
+            LOG.error("Failed delete of " + file);
+          }
+ else {
+            LOG.debug("Deleted recovered.edits file=" + file);
+          }
+        }
+      }
+      return writer;
+    }
+  }
+;
+  try {
+    logSplitter.splitLogFile(logfiles[0],null);
+  }
+ catch (  IOException e) {
+    LOG.info(e);
+    fail("Throws IOException when spliting " + "log, it is most likely because writing file does not " + "exist which is caused by concurrent replayRecoveredEditsIfAny()");
+  }
+  if (fs.exists(CORRUPTDIR)) {
+    if (fs.listStatus(CORRUPTDIR).length > 0) {
+      fail("There are some corrupt logs, " + "it is most likely caused by concurrent replayRecoveredEditsIfAny()");
+    }
+  }
+}

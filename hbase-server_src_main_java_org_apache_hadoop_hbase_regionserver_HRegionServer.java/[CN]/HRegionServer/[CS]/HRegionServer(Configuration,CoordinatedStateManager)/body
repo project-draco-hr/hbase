@@ -2,9 +2,9 @@
   this.fsOk=true;
   this.conf=conf;
   checkCodecs(this.conf);
-  this.online=new AtomicBoolean(false);
   this.userProvider=UserProvider.instantiate(conf);
   FSUtils.setupShortCircuitRead(this.conf);
+  this.conf.setBoolean(HConstants.USE_META_REPLICAS,false);
   this.numRetries=this.conf.getInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,HConstants.DEFAULT_HBASE_CLIENT_RETRIES_NUMBER);
   this.threadWakeFrequency=conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000);
   this.msgInterval=conf.getInt("hbase.regionserver.msginterval",3 * 1000);
@@ -34,7 +34,7 @@
   boolean useHBaseChecksum=conf.getBoolean(HConstants.HBASE_CHECKSUM_VERIFICATION,true);
   this.fs=new HFileSystem(this.conf,useHBaseChecksum);
   this.rootDir=FSUtils.getRootDir(this.conf);
-  this.tableDescriptors=new FSTableDescriptors(this.fs,this.rootDir,!canUpdateTableDescriptor());
+  this.tableDescriptors=getFsTableDescriptors();
   service=new ExecutorService(getServerName().toShortString());
   spanReceiverHost=SpanReceiverHost.getInstance(getConfiguration());
   if (!conf.getBoolean("hbase.testing.nocluster",false)) {
@@ -48,6 +48,9 @@
     clusterStatusTracker=new ClusterStatusTracker(zooKeeper,this);
     clusterStatusTracker.start();
   }
+  this.configurationManager=new ConfigurationManager();
   rpcServices.start();
   putUpWebUI();
+  this.walRoller=new LogRoller(this,this);
+  this.choreService=new ChoreService(getServerName().toString());
 }

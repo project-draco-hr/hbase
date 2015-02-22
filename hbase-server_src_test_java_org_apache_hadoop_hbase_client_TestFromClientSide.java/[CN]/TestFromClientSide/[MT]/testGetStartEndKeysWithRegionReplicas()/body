@@ -3,8 +3,10 @@
   HColumnDescriptor fam=new HColumnDescriptor(FAMILY);
   htd.addFamily(fam);
   byte[][] KEYS=HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE;
-  TEST_UTIL.getHBaseAdmin().createTable(htd,KEYS);
-  List<HRegionInfo> regions=TEST_UTIL.getHBaseAdmin().getTableRegions(htd.getTableName());
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  admin.createTable(htd,KEYS);
+  List<HRegionInfo> regions=admin.getTableRegions(htd.getTableName());
+  HRegionLocator locator=(HRegionLocator)admin.getConnection().getRegionLocator(htd.getTableName());
   for (int regionReplication=1; regionReplication < 4; regionReplication++) {
     List<RegionLocations> regionLocations=new ArrayList<RegionLocations>();
     for (    HRegionInfo region : regions) {
@@ -14,9 +16,7 @@
       }
       regionLocations.add(new RegionLocations(arr));
     }
-    HTable table=spy(new HTable(TEST_UTIL.getConfiguration(),htd.getTableName()));
-    when(table.listRegionLocations()).thenReturn(regionLocations);
-    Pair<byte[][],byte[][]> startEndKeys=table.getStartEndKeys();
+    Pair<byte[][],byte[][]> startEndKeys=locator.getStartEndKeys(regionLocations);
     assertEquals(KEYS.length + 1,startEndKeys.getFirst().length);
     for (int i=0; i < KEYS.length + 1; i++) {
       byte[] startKey=i == 0 ? HConstants.EMPTY_START_ROW : KEYS[i - 1];
@@ -24,6 +24,5 @@
       assertArrayEquals(startKey,startEndKeys.getFirst()[i]);
       assertArrayEquals(endKey,startEndKeys.getSecond()[i]);
     }
-    table.close();
   }
 }

@@ -2,6 +2,7 @@
   String rowKeyStr=Bytes.toString(result.getRow());
   if (result.isEmpty()) {
     LOG.error("Error checking data for key [" + rowKeyStr + "], no data returned");
+    printLocations(result);
     return false;
   }
   if (!verifyValues && !verifyCfAndColumnIntegrity) {
@@ -10,6 +11,7 @@
   byte[][] expectedCfs=dataGenerator.getColumnFamilies();
   if (verifyCfAndColumnIntegrity && (expectedCfs.length != result.getMap().size())) {
     LOG.error("Error checking data for key [" + rowKeyStr + "], bad family count: "+ result.getMap().size());
+    printLocations(result);
     return false;
   }
   for (  byte[] cf : result.getMap().keySet()) {
@@ -17,12 +19,14 @@
     Map<byte[],byte[]> columnValues=result.getFamilyMap(cf);
     if (columnValues == null) {
       LOG.error("Error checking data for key [" + rowKeyStr + "], no data for family ["+ cfStr+ "]]");
+      printLocations(result);
       return false;
     }
     Map<String,MutationType> mutateInfo=null;
     if (verifyCfAndColumnIntegrity || verifyValues) {
       if (!columnValues.containsKey(MUTATE_INFO)) {
         LOG.error("Error checking data for key [" + rowKeyStr + "], column family ["+ cfStr+ "], column ["+ Bytes.toString(MUTATE_INFO)+ "]; value is not found");
+        printLocations(result);
         return false;
       }
       long cfHash=Arrays.hashCode(cf);
@@ -36,6 +40,7 @@
           if (hashCode % 2 == 0) {
             if (columnValues.containsKey(column)) {
               LOG.error("Error checking data for key [" + rowKeyStr + "], column family ["+ cfStr+ "], column ["+ mutate.getKey()+ "]; should be deleted");
+              printLocations(result);
               return false;
             }
             byte[] hashCodeBytes=Bytes.toBytes(hashCode);
@@ -45,6 +50,7 @@
       }
       if (!columnValues.containsKey(INCREMENT)) {
         LOG.error("Error checking data for key [" + rowKeyStr + "], column family ["+ cfStr+ "], column ["+ Bytes.toString(INCREMENT)+ "]; value is not found");
+        printLocations(result);
         return false;
       }
       long currentValue=Bytes.toLong(columnValues.remove(INCREMENT));
@@ -54,6 +60,7 @@
         long extra=currentValue - originalValue;
         if (extra != 0 && (amount == 0 || extra % amount != 0)) {
           LOG.error("Error checking data for key [" + rowKeyStr + "], column family ["+ cfStr+ "], column [increment], extra ["+ extra+ "], amount ["+ amount+ "]");
+          printLocations(result);
           return false;
         }
         if (amount != 0 && extra != amount) {
@@ -69,6 +76,7 @@
           colsStr+="[" + Bytes.toString(col) + "]";
         }
         LOG.error("Error checking data for key [" + rowKeyStr + "], bad columns for family ["+ cfStr+ "]: "+ colsStr);
+        printLocations(result);
         return false;
       }
       if (verifyValues) {
@@ -109,11 +117,13 @@
             }
             if (!mutationVerified) {
               LOG.error("Error checking data for key [" + rowKeyStr + "], mutation checking failed for column family ["+ cfStr+ "], column ["+ column+ "]; mutation ["+ mutation+ "], hashCode ["+ hashCode+ "], verificationNeeded ["+ verificationNeeded+ "]");
+              printLocations(result);
               return false;
             }
           }
           if (verificationNeeded && !dataGenerator.verify(result.getRow(),cf,kv.getKey(),bytes)) {
             LOG.error("Error checking data for key [" + rowKeyStr + "], column family ["+ cfStr+ "], column ["+ column+ "], mutation ["+ mutation+ "]; value of length "+ bytes.length);
+            printLocations(result);
             return false;
           }
         }

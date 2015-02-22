@@ -12,9 +12,12 @@
   TableName table=TableName.valueOf("tableRestart");
   byte[] family=Bytes.toBytes("family");
   log("Creating table with " + NUM_REGIONS_TO_CREATE + " regions");
-  HTable ht=TEST_UTIL.createTable(table,family);
-  int numRegions=TEST_UTIL.createMultiRegions(conf,ht,family,NUM_REGIONS_TO_CREATE);
-  numRegions+=1;
+  HTable ht=TEST_UTIL.createMultiRegionTable(table,family,NUM_REGIONS_TO_CREATE);
+  int numRegions=-1;
+  try (RegionLocator r=ht.getRegionLocator()){
+    numRegions=r.getStartKeys().length;
+  }
+   numRegions+=1;
   log("Waiting for no more RIT\n");
   TEST_UTIL.waitUntilNoRegionsInTransition(60000);
   log("Disabling table\n");
@@ -32,9 +35,9 @@
   activeMaster.getMaster().stop("stopping the active master so that the backup can become active");
   cluster.hbaseCluster.waitOnMaster(activeMaster);
   cluster.waitForActiveAndReadyMaster();
-  assertTrue("The table should not be in enabled state",cluster.getMaster().getAssignmentManager().getTableStateManager().isTableState(TableName.valueOf("tableRestart"),ZooKeeperProtos.Table.State.DISABLED,ZooKeeperProtos.Table.State.DISABLING));
+  assertTrue("The table should not be in enabled state",cluster.getMaster().getAssignmentManager().getTableStateManager().isTableState(TableName.valueOf("tableRestart"),TableState.State.DISABLED,TableState.State.DISABLING));
   log("Enabling table\n");
-  HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+  Admin admin=TEST_UTIL.getHBaseAdmin();
   admin.enableTable(table);
   admin.close();
   log("Waiting for no more RIT\n");
@@ -42,7 +45,7 @@
   log("Verifying there are " + numRegions + " assigned on cluster\n");
   regions=HBaseTestingUtility.getAllOnlineRegions(cluster);
   assertEquals("The assigned regions were not onlined after master" + " switch except for the catalog and namespace tables.",6,regions.size());
-  assertTrue("The table should be in enabled state",cluster.getMaster().getAssignmentManager().getTableStateManager().isTableState(TableName.valueOf("tableRestart"),ZooKeeperProtos.Table.State.ENABLED));
+  assertTrue("The table should be in enabled state",cluster.getMaster().getAssignmentManager().getTableStateManager().isTableState(TableName.valueOf("tableRestart"),TableState.State.ENABLED));
   ht.close();
   TEST_UTIL.shutdownMiniCluster();
 }

@@ -1,13 +1,16 @@
 {
   super(conf,csm);
   this.rsFatals=new MemoryBoundedLogMessageBuffer(conf.getLong("hbase.master.buffer.for.rs.fatals",1 * 1024 * 1024));
-  LOG.info("hbase.rootdir=" + FSUtils.getRootDir(this.conf) + ", hbase.cluster.distributed="+ this.conf.getBoolean("hbase.cluster.distributed",false));
+  LOG.info("hbase.rootdir=" + FSUtils.getRootDir(this.conf) + ", hbase.cluster.distributed="+ this.conf.getBoolean(HConstants.CLUSTER_DISTRIBUTED,false));
+  this.conf.setBoolean(HConstants.USE_META_REPLICAS,false);
   Replication.decorateMasterConfiguration(this.conf);
   if (this.conf.get("mapreduce.task.attempt.id") == null) {
     this.conf.set("mapreduce.task.attempt.id","hb_m_" + this.serverName.toString());
   }
   this.masterCheckCompression=conf.getBoolean("hbase.master.check.compression",true);
+  this.masterCheckEncryption=conf.getBoolean("hbase.master.check.encryption",true);
   this.metricsMaster=new MetricsMaster(new MetricsMasterWrapperImpl(this));
+  this.preLoadTableDescriptors=conf.getBoolean("hbase.master.preload.tabledescriptors",true);
   boolean shouldPublish=conf.getBoolean(HConstants.STATUS_PUBLISHED,HConstants.STATUS_PUBLISHED_DEFAULT);
   Class<? extends ClusterStatusPublisher.Publisher> publisherClass=conf.getClass(ClusterStatusPublisher.STATUS_PUBLISHER_CLASS,ClusterStatusPublisher.DEFAULT_STATUS_PUBLISHER_CLASS,ClusterStatusPublisher.Publisher.class);
   if (shouldPublish) {
@@ -16,9 +19,10 @@
     }
  else {
       clusterStatusPublisherChore=new ClusterStatusPublisher(this,conf,publisherClass);
-      Threads.setDaemonThreadRunning(clusterStatusPublisherChore.getThread());
+      getChoreService().scheduleChore(clusterStatusPublisherChore);
     }
   }
-  startActiveMasterManager();
-  putUpJettyServer();
+  activeMasterManager=new ActiveMasterManager(zooKeeper,this.serverName,this);
+  int infoPort=putUpJettyServer();
+  startActiveMasterManager(infoPort);
 }

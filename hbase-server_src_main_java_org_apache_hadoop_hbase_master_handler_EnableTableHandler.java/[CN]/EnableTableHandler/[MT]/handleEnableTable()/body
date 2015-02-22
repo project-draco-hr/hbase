@@ -1,8 +1,14 @@
 {
-  this.assignmentManager.getTableStateManager().setTableState(this.tableName,ZooKeeperProtos.Table.State.ENABLING);
+  this.assignmentManager.getTableStateManager().setTableState(this.tableName,TableState.State.ENABLING);
   boolean done=false;
   ServerManager serverManager=((HMaster)this.server).getServerManager();
-  List<Pair<HRegionInfo,ServerName>> tableRegionsAndLocations=MetaTableAccessor.getTableRegionsAndLocations(this.server.getZooKeeper(),this.server.getShortCircuitConnection(),tableName,true);
+  List<Pair<HRegionInfo,ServerName>> tableRegionsAndLocations;
+  if (TableName.META_TABLE_NAME.equals(tableName)) {
+    tableRegionsAndLocations=new MetaTableLocator().getMetaRegionsAndLocations(server.getZooKeeper());
+  }
+ else {
+    tableRegionsAndLocations=MetaTableAccessor.getTableRegionsAndLocations(server.getConnection(),tableName,true);
+  }
   int countOfRegionsInTable=tableRegionsAndLocations.size();
   Map<HRegionInfo,ServerName> regionsToAssign=regionsToAssignWithServerName(tableRegionsAndLocations);
   if (services != null) {
@@ -23,19 +29,25 @@
   LOG.info("Table '" + this.tableName + "' has "+ countOfRegionsInTable+ " regions, of which "+ regionsCount+ " are offline.");
   List<ServerName> onlineServers=serverManager.createDestinationServersList();
   Map<ServerName,List<HRegionInfo>> bulkPlan=this.assignmentManager.getBalancer().retainAssignment(regionsToAssign,onlineServers);
-  LOG.info("Bulk assigning " + regionsCount + " region(s) across "+ bulkPlan.size()+ " server(s), retainAssignment=true");
-  BulkAssigner ba=new GeneralBulkAssigner(this.server,bulkPlan,this.assignmentManager,true);
-  try {
-    if (ba.bulkAssign()) {
-      done=true;
+  if (bulkPlan != null) {
+    LOG.info("Bulk assigning " + regionsCount + " region(s) across "+ bulkPlan.size()+ " server(s), retainAssignment=true");
+    BulkAssigner ba=new GeneralBulkAssigner(this.server,bulkPlan,this.assignmentManager,true);
+    try {
+      if (ba.bulkAssign()) {
+        done=true;
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Enable operation was interrupted when enabling table '" + this.tableName + "'");
+      Thread.currentThread().interrupt();
     }
   }
- catch (  InterruptedException e) {
-    LOG.warn("Enable operation was interrupted when enabling table '" + this.tableName + "'");
-    Thread.currentThread().interrupt();
+ else {
+    LOG.info("Balancer was unable to find suitable servers for table " + tableName + ", leaving unassigned");
+    done=true;
   }
   if (done) {
-    this.assignmentManager.getTableStateManager().setTableState(this.tableName,ZooKeeperProtos.Table.State.ENABLED);
+    this.assignmentManager.getTableStateManager().setTableState(this.tableName,TableState.State.ENABLED);
     LOG.info("Table '" + this.tableName + "' was successfully enabled. Status: done="+ done);
   }
  else {

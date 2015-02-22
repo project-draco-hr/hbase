@@ -7,29 +7,32 @@
   edit.add(kv);
   List<WALActionsListener> listeners=new ArrayList<WALActionsListener>();
   listeners.add(replication);
-  HLog hlog=HLogFactory.createHLog(fs,utility.getDataTestDir(),logName,conf,listeners,URLEncoder.encode("regionserver:60020","UTF8"));
+  final WALFactory wals=new WALFactory(utility.getConfiguration(),listeners,URLEncoder.encode("regionserver:60020","UTF8"));
+  final WAL wal=wals.getWAL(hri.getEncodedNameAsBytes());
   final AtomicLong sequenceId=new AtomicLong(1);
   manager.init();
   HTableDescriptor htd=new HTableDescriptor();
   htd.addFamily(new HColumnDescriptor(f1));
   for (long i=1; i < 101; i++) {
     if (i > 1 && i % 20 == 0) {
-      hlog.rollWriter();
+      wal.rollWriter();
     }
     LOG.info(i);
-    HLogKey key=new HLogKey(hri.getRegionName(),test,seq++,System.currentTimeMillis(),HConstants.DEFAULT_CLUSTER_ID);
-    hlog.append(hri,test,edit,System.currentTimeMillis(),htd,sequenceId);
+    final long txid=wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis()),edit,sequenceId,true,null);
+    wal.sync(txid);
   }
   LOG.info(baseline + " and " + time);
   baseline+=101;
   time=baseline;
   LOG.info(baseline + " and " + time);
   for (int i=0; i < 3; i++) {
-    hlog.append(hri,test,edit,System.currentTimeMillis(),htd,sequenceId);
+    wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis()),edit,sequenceId,true,null);
   }
-  assertEquals(6,manager.getHLogs().get(slaveId).size());
-  hlog.rollWriter();
+  wal.sync();
+  assertEquals(6,manager.getWALs().get(slaveId).size());
+  wal.rollWriter();
   manager.logPositionAndCleanOldLogs(manager.getSources().get(0).getCurrentPath(),"1",0,false,false);
-  hlog.append(hri,test,edit,System.currentTimeMillis(),htd,sequenceId);
-  assertEquals(1,manager.getHLogs().size());
+  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis()),edit,sequenceId,true,null);
+  wal.sync();
+  assertEquals(1,manager.getWALs().size());
 }

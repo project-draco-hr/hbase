@@ -5,22 +5,22 @@
   htd.addFamily(new HColumnDescriptor(fam1));
   htd.addFamily(new HColumnDescriptor(fam2));
   HRegionInfo hri=new HRegionInfo(htd.getTableName(),HConstants.EMPTY_BYTE_ARRAY,HConstants.EMPTY_BYTE_ARRAY);
-  HRegion region=HRegion.createHRegion(hri,TEST_UTIL.getDataTestDir(),TEST_UTIL.getConfiguration(),htd);
+  HRegion region=HBaseTestingUtility.createRegionAndWAL(hri,TEST_UTIL.getDataTestDir(),TEST_UTIL.getConfiguration(),htd);
   assertNotNull(region);
   region.put(new Put(Bytes.toBytes("a")).add(fam1,fam1,fam1));
   region.flushcache();
-  region.close();
+  HBaseTestingUtility.closeRegionAndWAL(region);
   ArgumentCaptor<WALEdit> editCaptor=ArgumentCaptor.forClass(WALEdit.class);
-  HLog log=mock(HLog.class);
-  when(rss.getWAL((HRegionInfo)any())).thenReturn(log);
+  WAL wal=mock(WAL.class);
+  when(rss.getWAL((HRegionInfo)any())).thenReturn(wal);
   try {
     region=HRegion.openHRegion(hri,htd,rss.getWAL(hri),TEST_UTIL.getConfiguration(),rss,null);
-    verify(log,times(1)).appendNoSync((HTableDescriptor)any(),(HRegionInfo)any(),(HLogKey)any(),editCaptor.capture(),(AtomicLong)any(),anyBoolean(),(List<Cell>)any());
+    verify(wal,times(1)).append((HTableDescriptor)any(),(HRegionInfo)any(),(WALKey)any(),editCaptor.capture(),(AtomicLong)any(),anyBoolean(),(List<Cell>)any());
     WALEdit edit=editCaptor.getValue();
     assertNotNull(edit);
-    assertNotNull(edit.getKeyValues());
-    assertEquals(1,edit.getKeyValues().size());
-    RegionEventDescriptor desc=WALEdit.getRegionEventDescriptor(edit.getKeyValues().get(0));
+    assertNotNull(edit.getCells());
+    assertEquals(1,edit.getCells().size());
+    RegionEventDescriptor desc=WALEdit.getRegionEventDescriptor(edit.getCells().get(0));
     assertNotNull(desc);
     LOG.info("RegionEventDescriptor from WAL: " + desc);
     assertEquals(RegionEventDescriptor.EventType.REGION_OPEN,desc.getEventType());
@@ -40,6 +40,6 @@
     assertEquals(0,store.getStoreFileCount());
   }
   finally {
-    HRegion.closeHRegion(region);
+    HBaseTestingUtility.closeRegionAndWAL(region);
   }
 }

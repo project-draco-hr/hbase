@@ -4,7 +4,7 @@
       LOG.info("testChecksumCorruption: Compression algorithm: " + algo + ", pread="+ pread);
       Path path=new Path(TEST_UTIL.getDataTestDir(),"blocks_v2_" + algo);
       FSDataOutputStream os=fs.create(path);
-      HFileContext meta=new HFileContextBuilder().withCompression(algo).withIncludesMvcc(true).withIncludesTags(useTags).withChecksumType(HFile.DEFAULT_CHECKSUM_TYPE).withBytesPerCheckSum(HFile.DEFAULT_BYTES_PER_CHECKSUM).build();
+      HFileContext meta=new HFileContextBuilder().withCompression(algo).withIncludesMvcc(true).withIncludesTags(useTags).withBytesPerCheckSum(HFile.DEFAULT_BYTES_PER_CHECKSUM).build();
       HFileBlock.Writer hbw=new HFileBlock.Writer(null,meta);
       long totalSize=0;
       for (int blockId=0; blockId < 2; ++blockId) {
@@ -17,12 +17,12 @@
       assertEquals(true,hfs.useHBaseChecksum());
       FSDataInputStreamWrapper is=new FSDataInputStreamWrapper(fs,path);
       meta=new HFileContextBuilder().withCompression(algo).withIncludesMvcc(true).withIncludesTags(useTags).withHBaseCheckSum(true).build();
-      HFileBlock.FSReader hbr=new FSReaderV2Test(is,totalSize,fs,path,meta);
+      HFileBlock.FSReader hbr=new FSReaderImplTest(is,totalSize,fs,path,meta);
       HFileBlock b=hbr.readBlockData(0,-1,-1,pread);
       b.sanityCheck();
       assertEquals(4936,b.getUncompressedSizeWithoutHeader());
       assertEquals(algo == GZ ? 2173 : 4936,b.getOnDiskSizeWithoutHeader() - b.totalChecksumBytes());
-      ByteBuffer bb=b.getBufferWithoutHeader();
+      ByteBuffer bb=b.unpack(meta,hbr).getBufferWithoutHeader();
       DataInputStream in=new DataInputStream(new ByteArrayInputStream(bb.array(),bb.arrayOffset(),bb.limit()));
       assertEquals(1,HFile.getChecksumFailuresCount());
       validateData(in);
@@ -38,10 +38,11 @@
       HFileSystem newfs=new HFileSystem(TEST_UTIL.getConfiguration(),false);
       assertEquals(false,newfs.useHBaseChecksum());
       is=new FSDataInputStreamWrapper(newfs,path);
-      hbr=new FSReaderV2Test(is,totalSize,newfs,path,meta);
+      hbr=new FSReaderImplTest(is,totalSize,newfs,path,meta);
       b=hbr.readBlockData(0,-1,-1,pread);
       is.close();
       b.sanityCheck();
+      b=b.unpack(meta,hbr);
       assertEquals(4936,b.getUncompressedSizeWithoutHeader());
       assertEquals(algo == GZ ? 2173 : 4936,b.getOnDiskSizeWithoutHeader() - b.totalChecksumBytes());
       bb=b.getBufferWithoutHeader();

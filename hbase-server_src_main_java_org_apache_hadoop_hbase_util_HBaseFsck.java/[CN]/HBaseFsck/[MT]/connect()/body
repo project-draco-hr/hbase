@@ -1,6 +1,21 @@
 {
-  connection=HConnectionManager.createConnection(getConf());
-  admin=new HBaseAdmin(connection);
-  meta=new HTable(TableName.META_TABLE_NAME,connection);
+  hbckOutFd=checkAndMarkRunningHbck();
+  if (hbckOutFd == null) {
+    setRetCode(-1);
+    LOG.error("Another instance of hbck is running, exiting this instance.[If you are sure" + " no other instance is running, delete the lock file " + HBCK_LOCK_PATH + " and rerun the tool]");
+    throw new IOException("Duplicate hbck - Abort");
+  }
+  hbckLockCleanup.set(true);
+  Runtime.getRuntime().addShutdownHook(new Thread(){
+    @Override public void run(){
+      IOUtils.closeStream(HBaseFsck.this);
+      unlockHbck();
+    }
+  }
+);
+  LOG.debug("Launching hbck");
+  connection=(ClusterConnection)ConnectionFactory.createConnection(getConf());
+  admin=connection.getAdmin();
+  meta=connection.getTable(TableName.META_TABLE_NAME);
   status=admin.getClusterStatus();
 }

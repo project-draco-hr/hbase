@@ -1,0 +1,33 @@
+{
+  for (  Entry<TableName,TableState> entry : tableStates.entrySet()) {
+    TableName tableName=entry.getKey();
+    TableState tableState=entry.getValue();
+    TableInfo tableInfo=tablesInfo.get(tableName);
+    if (isTableIncluded(tableName) && !tableName.isSystemTable() && tableInfo == null) {
+      if (fixMeta) {
+        MetaTableAccessor.deleteTableState(connection,tableName);
+        TableState state=MetaTableAccessor.getTableState(connection,tableName);
+        if (state != null) {
+          errors.reportError(ERROR_CODE.ORPHAN_TABLE_STATE,tableName + " unable to delete dangling table state " + tableState);
+        }
+      }
+ else {
+        errors.reportError(ERROR_CODE.ORPHAN_TABLE_STATE,tableName + " has dangling table state " + tableState);
+      }
+    }
+  }
+  for (  TableName tableName : tablesInfo.keySet()) {
+    if (isTableIncluded(tableName) && !tableStates.containsKey(tableName)) {
+      if (fixMeta) {
+        MetaTableAccessor.updateTableState(connection,tableName,TableState.State.ENABLED);
+        TableState newState=MetaTableAccessor.getTableState(connection,tableName);
+        if (newState == null) {
+          errors.reportError(ERROR_CODE.NO_TABLE_STATE,"Unable to change state for table " + tableName + " in meta ");
+        }
+      }
+ else {
+        errors.reportError(ERROR_CODE.NO_TABLE_STATE,tableName + " has no state in meta ");
+      }
+    }
+  }
+}

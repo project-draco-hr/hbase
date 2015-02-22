@@ -1,0 +1,22 @@
+{
+  TEST_UTIL.getConfiguration().setInt("zookeeper.session.timeout",30000);
+  TEST_UTIL.getConfiguration().setInt(HConstants.META_REPLICAS_NUM,3);
+  TEST_UTIL.getConfiguration().setInt(StorefileRefresherChore.REGIONSERVER_STOREFILE_REFRESH_PERIOD,1000);
+  TEST_UTIL.startMiniCluster(3);
+  LoadBalancerTracker l=new LoadBalancerTracker(TEST_UTIL.getZooKeeperWatcher(),new Abortable(){
+    boolean aborted=false;
+    @Override public boolean isAborted(){
+      return aborted;
+    }
+    @Override public void abort(    String why,    Throwable e){
+      aborted=true;
+    }
+  }
+);
+  l.setBalancerOn(false);
+  for (int replicaId=1; replicaId < 3; replicaId++) {
+    HRegionInfo h=RegionReplicaUtil.getRegionInfoForReplica(HRegionInfo.FIRST_META_REGIONINFO,replicaId);
+    TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(h);
+  }
+  LOG.debug("All meta replicas assigned");
+}

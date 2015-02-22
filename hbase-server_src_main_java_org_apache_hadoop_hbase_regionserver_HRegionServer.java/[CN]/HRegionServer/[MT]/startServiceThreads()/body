@@ -7,19 +7,13 @@
     this.service.startExecutorService(ExecutorType.RS_PARALLEL_SEEK,conf.getInt("hbase.storescanner.parallel.seek.threads",10));
   }
   this.service.startExecutorService(ExecutorType.RS_LOG_REPLAY_OPS,conf.getInt("hbase.regionserver.wal.max.splitters",SplitLogWorkerCoordination.DEFAULT_MAX_SPLITTERS));
-  Threads.setDaemonThreadRunning(this.hlogRoller.getThread(),getName() + ".logRoller",uncaughtExceptionHandler);
+  Threads.setDaemonThreadRunning(this.walRoller.getThread(),getName() + ".logRoller",uncaughtExceptionHandler);
   this.cacheFlusher.start(uncaughtExceptionHandler);
-  Threads.setDaemonThreadRunning(this.compactionChecker.getThread(),getName() + ".compactionChecker",uncaughtExceptionHandler);
-  Threads.setDaemonThreadRunning(this.periodicFlusher.getThread(),getName() + ".periodicFlusher",uncaughtExceptionHandler);
-  if (this.healthCheckChore != null) {
-    Threads.setDaemonThreadRunning(this.healthCheckChore.getThread(),getName() + ".healthChecker",uncaughtExceptionHandler);
-  }
-  if (this.nonceManagerChore != null) {
-    Threads.setDaemonThreadRunning(this.nonceManagerChore.getThread(),getName() + ".nonceCleaner",uncaughtExceptionHandler);
-  }
-  if (this.storefileRefresher != null) {
-    Threads.setDaemonThreadRunning(this.storefileRefresher.getThread(),getName() + ".storefileRefresher",uncaughtExceptionHandler);
-  }
+  if (this.compactionChecker != null)   choreService.scheduleChore(compactionChecker);
+  if (this.periodicFlusher != null)   choreService.scheduleChore(periodicFlusher);
+  if (this.healthCheckChore != null)   choreService.scheduleChore(healthCheckChore);
+  if (this.nonceManagerChore != null)   choreService.scheduleChore(nonceManagerChore);
+  if (this.storefileRefresher != null)   choreService.scheduleChore(storefileRefresher);
   this.leases.setName(getName() + ".leaseChecker");
   this.leases.start();
   if (this.replicationSourceHandler == this.replicationSinkHandler && this.replicationSourceHandler != null) {
@@ -33,11 +27,10 @@
       this.replicationSinkHandler.startReplicationService();
     }
   }
-  rpcServices.rpcServer.start();
   Configuration sinkConf=HBaseConfiguration.create(conf);
   sinkConf.setInt(HConstants.HBASE_CLIENT_RETRIES_NUMBER,conf.getInt("hbase.log.replay.retries.number",8));
   sinkConf.setInt(HConstants.HBASE_RPC_TIMEOUT_KEY,conf.getInt("hbase.log.replay.rpc.timeout",30000));
   sinkConf.setInt("hbase.client.serverside.retries.multiplier",1);
-  this.splitLogWorker=new SplitLogWorker(this,sinkConf,this,this);
+  this.splitLogWorker=new SplitLogWorker(this,sinkConf,this,this,walFactory);
   splitLogWorker.start();
 }

@@ -1,0 +1,58 @@
+{
+  LOG.debug("Setting up the counters to start the test");
+  priviRetryCounter.set(0);
+  nonPriviRetryCounter.set(0);
+  done.set(0);
+  for (int i=0; i <= RETRIES; i++) {
+    latches[i]=new CountDownLatch(1);
+    latches2[i]=new CountDownLatch(1);
+  }
+  PreemptiveFastFailInterceptor interceptor=getInterceptor();
+  final RpcRetryingCaller<Void> priviCaller=getRpcRetryingCaller(PAUSE_TIME,RETRIES,interceptor);
+  final RpcRetryingCaller<Void> nonPriviCaller=getRpcRetryingCaller(PAUSE_TIME,RETRIES,interceptor);
+  LOG.debug("Submitting the thread 1");
+  Future<Boolean> priviFuture=executor.submit(new Callable<Boolean>(){
+    @Override public Boolean call() throws Exception {
+      try {
+        isPriviThreadLocal.get().set(true);
+        priviCaller.callWithRetries(getRetryingCallable(serverName,exception),CLEANUP_TIMEOUT);
+      }
+ catch (      RetriesExhaustedException e) {
+        return true;
+      }
+catch (      PreemptiveFastFailException e) {
+        return false;
+      }
+      return false;
+    }
+  }
+);
+  LOG.debug("Submitting the thread 2");
+  Future<Boolean> nonPriviFuture=executor.submit(new Callable<Boolean>(){
+    @Override public Boolean call() throws Exception {
+      try {
+        isPriviThreadLocal.get().set(false);
+        nonPriviCaller.callWithRetries(getRetryingCallable(serverName,exception),CLEANUP_TIMEOUT);
+      }
+ catch (      PreemptiveFastFailException e) {
+        return true;
+      }
+      return false;
+    }
+  }
+);
+  LOG.debug("Waiting for Thread 2 to finish");
+  assertTrue(nonPriviFuture.get());
+  LOG.debug("Waiting for Thread 1 to finish");
+  assertTrue(priviFuture.get());
+  assertTrue(interceptor.isServerInFailureMap(serverName));
+  final RpcRetryingCaller<Void> priviCallerNew=getRpcRetryingCaller(PAUSE_TIME,RETRIES,interceptor);
+  executor.submit(new Callable<Boolean>(){
+    @Override public Boolean call() throws Exception {
+      priviCallerNew.callWithRetries(getRetryingCallable(serverName,null),CLEANUP_TIMEOUT);
+      return false;
+    }
+  }
+).get();
+  assertFalse("The server was supposed to be removed from the map",interceptor.isServerInFailureMap(serverName));
+}

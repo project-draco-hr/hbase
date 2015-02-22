@@ -1,25 +1,24 @@
 {
   Path tempdir=fileSystemManager.getTempDir();
   FileSystem fs=fileSystemManager.getFileSystem();
+  TableDescriptor underConstruction=new TableDescriptor(this.hTableDescriptor);
   Path tempTableDir=FSUtils.getTableDir(tempdir,tableName);
-  new FSTableDescriptors(this.conf).createTableDescriptorForTableDirectory(tempTableDir,this.hTableDescriptor,false);
+  ((FSTableDescriptors)(masterServices.getTableDescriptors())).createTableDescriptorForTableDirectory(tempTableDir,underConstruction,false);
   Path tableDir=FSUtils.getTableDir(fileSystemManager.getRootDir(),tableName);
   List<HRegionInfo> regionInfos=handleCreateHdfsRegions(tempdir,tableName);
   if (!fs.rename(tempTableDir,tableDir)) {
     throw new IOException("Unable to move table from temp=" + tempTableDir + " to hbase root="+ tableDir);
   }
+  masterServices.getTableDescriptors().get(tableName);
+  MetaTableAccessor.updateTableState(this.server.getConnection(),hTableDescriptor.getTableName(),TableState.State.ENABLING);
   if (regionInfos != null && regionInfos.size() > 0) {
-    addRegionsToMeta(regionInfos);
+    addRegionsToMeta(regionInfos,hTableDescriptor.getRegionReplication());
     regionInfos=addReplicas(hTableDescriptor,regionInfos);
     if (hTableDescriptor.getRegionReplication() > 1) {
       ServerRegionReplicaUtil.setupRegionReplicaReplication(conf);
     }
     ModifyRegionUtils.assignRegions(assignmentManager,regionInfos);
   }
-  try {
-    assignmentManager.getTableStateManager().setTableState(tableName,ZooKeeperProtos.Table.State.ENABLED);
-  }
- catch (  CoordinatedStateException e) {
-    throw new IOException("Unable to ensure that " + tableName + " will be"+ " enabled because of a ZooKeeper issue",e);
-  }
+  assignmentManager.getTableStateManager().setTableState(tableName,TableState.State.ENABLED);
+  ((HMaster)this.server).getTableDescriptors().get(tableName);
 }

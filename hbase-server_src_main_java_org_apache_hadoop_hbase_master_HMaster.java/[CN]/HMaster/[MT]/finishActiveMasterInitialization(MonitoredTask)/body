@@ -1,18 +1,22 @@
 {
   isActiveMaster=true;
+  Thread zombieDetector=new Thread(new InitializationMonitor(this));
+  zombieDetector.start();
   status.setStatus("Initializing Master file system");
   this.masterActiveTime=System.currentTimeMillis();
   this.fileSystemManager=new MasterFileSystem(this,this);
+  this.tableDescriptors.setCacheOn();
+  this.tableDescriptors.get(TableName.META_TABLE_NAME).setRegionReplication(conf.getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM));
+  if (preLoadTableDescriptors) {
+    status.setStatus("Pre-loading table descriptors");
+    this.tableDescriptors.getAll();
+  }
   status.setStatus("Publishing Cluster ID in ZooKeeper");
   ZKClusterId.setClusterId(this.zooKeeper,fileSystemManager.getClusterId());
   this.serverManager=createServerManager(this,this);
-synchronized (this) {
-    if (shortCircuitConnection == null) {
-      shortCircuitConnection=createShortCircuitConnection();
-      metaTableLocator=new MetaTableLocator();
-    }
-  }
+  setupClusterConnection();
   this.tableLockManager.reapWriteLocks();
+  this.tableStateManager=new TableStateManager(this);
   status.setStatus("Initializing ZK system trackers");
   initializeZKBasedSystemTrackers();
   status.setStatus("Initializing master coprocessors");
@@ -35,17 +39,15 @@ synchronized (this) {
   Set<ServerName> previouslyFailedMetaRSs=getPreviouselyFailedMetaServersFromZK();
   previouslyFailedMetaRSs.addAll(previouslyFailedServers);
   this.initializationBeforeMetaAssignment=true;
-synchronized (online) {
-    while (!isStopped() && !isOnline()) {
-      online.wait(100);
-    }
+  if (BaseLoadBalancer.tablesOnMaster(conf)) {
+    waitForServerOnline();
   }
   this.balancer.setClusterStatus(getClusterStatus());
   this.balancer.setMasterServices(this);
   this.balancer.initialize();
   if (isStopped())   return;
   status.setStatus("Assigning Meta Region");
-  assignMeta(status,previouslyFailedMetaRSs);
+  assignMeta(status,previouslyFailedMetaRSs,HRegionInfo.DEFAULT_REPLICA_ID);
   if (isStopped())   return;
   status.setStatus("Submitting log splitting work for previously failed region servers");
   for (  ServerName tmpServer : previouslyFailedServers) {
@@ -56,11 +58,11 @@ synchronized (online) {
   this.balancer.setClusterStatus(getClusterStatus());
   status.setStatus("Starting balancer and catalog janitor");
   this.clusterStatusChore=new ClusterStatusChore(this,balancer);
-  Threads.setDaemonThreadRunning(clusterStatusChore.getThread());
+  getChoreService().scheduleChore(clusterStatusChore);
   this.balancerChore=new BalancerChore(this);
-  Threads.setDaemonThreadRunning(balancerChore.getThread());
+  getChoreService().scheduleChore(balancerChore);
   this.catalogJanitorChore=new CatalogJanitor(this,this);
-  Threads.setDaemonThreadRunning(catalogJanitorChore.getThread());
+  getChoreService().scheduleChore(catalogJanitorChore);
   status.setStatus("Starting namespace manager");
   initNamespace();
   if (this.cpHost != null) {
@@ -73,12 +75,21 @@ synchronized (online) {
   }
   status.markComplete("Initialization successful");
   LOG.info("Master has completed initialization");
+  configurationManager.registerObserver(this.balancer);
   initialized=true;
+  Set<ServerName> EMPTY_SET=new HashSet<ServerName>();
+  int numReplicas=conf.getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM);
+  for (int i=1; i < numReplicas; i++) {
+    assignMeta(status,EMPTY_SET,i);
+  }
+  unassignExcessMetaReplica(zooKeeper,numReplicas);
+  status.setStatus("Starting quota manager");
+  initQuotaManager();
   this.serverManager.clearDeadServersWithSameHostNameAndPortOfOnlineServer();
   this.expiredMobFileCleanerChore=new ExpiredMobFileCleanerChore(this);
-  Threads.setDaemonThreadRunning(expiredMobFileCleanerChore.getThread());
+  getChoreService().scheduleChore(expiredMobFileCleanerChore);
   this.mobFileCompactChore=new MobFileCompactionChore(this);
-  Threads.setDaemonThreadRunning(mobFileCompactChore.getThread());
+  getChoreService().scheduleChore(mobFileCompactChore);
   if (this.cpHost != null) {
     try {
       this.cpHost.postStartMaster();
@@ -87,4 +98,5 @@ synchronized (online) {
       LOG.error("Coprocessor postStartMaster() hook failed",ioe);
     }
   }
+  zombieDetector.interrupt();
 }

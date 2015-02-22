@@ -1,0 +1,46 @@
+{
+  if (this.generalBloomFilterWriter != null) {
+    boolean newKey=true;
+    if (this.lastCell != null) {
+switch (bloomType) {
+case ROW:
+        newKey=!kvComparator.matchingRows(cell,lastCell);
+      break;
+case ROWCOL:
+    newKey=!kvComparator.matchingRowColumn(cell,lastCell);
+  break;
+case NONE:
+newKey=false;
+break;
+default :
+throw new IOException("Invalid Bloom filter type: " + bloomType + " (ROW or ROWCOL expected)");
+}
+}
+if (newKey) {
+byte[] bloomKey;
+int bloomKeyOffset, bloomKeyLen;
+switch (bloomType) {
+case ROW:
+bloomKey=cell.getRowArray();
+bloomKeyOffset=cell.getRowOffset();
+bloomKeyLen=cell.getRowLength();
+break;
+case ROWCOL:
+bloomKey=generalBloomFilterWriter.createBloomKey(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+bloomKeyOffset=0;
+bloomKeyLen=bloomKey.length;
+break;
+default :
+throw new IOException("Invalid Bloom filter type: " + bloomType + " (ROW or ROWCOL expected)");
+}
+generalBloomFilterWriter.add(bloomKey,bloomKeyOffset,bloomKeyLen);
+if (lastBloomKey != null && generalBloomFilterWriter.getComparator().compareFlatKey(bloomKey,bloomKeyOffset,bloomKeyLen,lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen) <= 0) {
+throw new IOException("Non-increasing Bloom keys: " + Bytes.toStringBinary(bloomKey,bloomKeyOffset,bloomKeyLen) + " after "+ Bytes.toStringBinary(lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen));
+}
+lastBloomKey=bloomKey;
+lastBloomKeyOffset=bloomKeyOffset;
+lastBloomKeyLen=bloomKeyLen;
+this.lastCell=cell;
+}
+}
+}

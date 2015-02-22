@@ -12,6 +12,8 @@
   conf1.setLong(HConstants.THREAD_WAKE_FREQUENCY,100);
   conf1.setInt("replication.stats.thread.period.seconds",5);
   conf1.setBoolean("hbase.tests.use.shortcircuit.reads",false);
+  conf1.setLong("replication.sleep.before.failover",2000);
+  conf1.setInt("replication.source.maxretriesmultiplier",10);
   utility1=new HBaseTestingUtility(conf1);
   utility1.startMiniZKCluster();
   MiniZooKeeperCluster miniZK=utility1.getZkCluster();
@@ -33,18 +35,24 @@
   CONF_WITH_LOCALFS=HBaseConfiguration.create(conf1);
   utility1.startMiniCluster(2);
   utility2.startMiniCluster(2);
-  HTableDescriptor table=new HTableDescriptor(TableName.valueOf(tableName));
+  HTableDescriptor table=new HTableDescriptor(tableName);
   HColumnDescriptor fam=new HColumnDescriptor(famName);
   fam.setMaxVersions(3);
   fam.setScope(HConstants.REPLICATION_SCOPE_GLOBAL);
   table.addFamily(fam);
   fam=new HColumnDescriptor(noRepfamName);
   table.addFamily(fam);
-  HBaseAdmin admin1=new HBaseAdmin(conf1);
-  HBaseAdmin admin2=new HBaseAdmin(conf2);
-  admin1.createTable(table,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
-  admin2.createTable(table,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
-  htable1=new HTable(conf1,tableName);
+  Connection connection1=ConnectionFactory.createConnection(conf1);
+  Connection connection2=ConnectionFactory.createConnection(conf2);
+  try (Admin admin1=connection1.getAdmin()){
+    admin1.createTable(table,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
+  }
+   try (Admin admin2=connection2.getAdmin()){
+    admin2.createTable(table,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
+  }
+   utility1.waitUntilAllRegionsAssigned(tableName);
+  utility2.waitUntilAllRegionsAssigned(tableName);
+  htable1=connection1.getTable(tableName);
   htable1.setWriteBufferSize(1024);
-  htable2=new HTable(conf2,tableName);
+  htable2=connection2.getTable(tableName);
 }

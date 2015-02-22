@@ -6,6 +6,7 @@
     return snapshotDescs;
   }
   FileStatus[] snapshots=fs.listStatus(snapshotDir,new SnapshotDescriptionUtils.CompletedSnaphotDirectoriesFilter(fs));
+  MasterCoprocessorHost cpHost=master.getMasterCoprocessorHost();
   for (  FileStatus snapshot : snapshots) {
     Path info=new Path(snapshot.getPath(),SnapshotDescriptionUtils.SNAPSHOTINFO_FILE);
     if (!fs.exists(info)) {
@@ -16,7 +17,19 @@
     try {
       in=fs.open(info);
       SnapshotDescription desc=SnapshotDescription.parseFrom(in);
+      if (cpHost != null) {
+        try {
+          cpHost.preListSnapshot(desc);
+        }
+ catch (        AccessDeniedException e) {
+          LOG.warn("Current user does not have access to " + desc.getName() + " snapshot. "+ "Either you should be owner of this snapshot or admin user.");
+          continue;
+        }
+      }
       snapshotDescs.add(desc);
+      if (cpHost != null) {
+        cpHost.postListSnapshot(desc);
+      }
     }
  catch (    IOException e) {
       LOG.warn("Found a corrupted snapshot " + snapshot.getPath(),e);

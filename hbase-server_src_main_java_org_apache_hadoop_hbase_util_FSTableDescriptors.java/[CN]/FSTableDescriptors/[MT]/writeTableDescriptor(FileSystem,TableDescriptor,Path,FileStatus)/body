@@ -1,0 +1,41 @@
+{
+  Path tmpTableDir=new Path(tableDir,TMP_DIR);
+  Path tableInfoDir=new Path(tableDir,TABLEINFO_DIR);
+  int currentSequenceId=currentDescriptorFile == null ? 0 : getTableInfoSequenceId(currentDescriptorFile.getPath());
+  int newSequenceId=currentSequenceId;
+  int retries=10;
+  int retrymax=currentSequenceId + retries;
+  Path tableInfoDirPath=null;
+  do {
+    newSequenceId+=1;
+    String filename=getTableInfoFileName(newSequenceId);
+    Path tempPath=new Path(tmpTableDir,filename);
+    if (fs.exists(tempPath)) {
+      LOG.debug(tempPath + " exists; retrying up to " + retries+ " times");
+      continue;
+    }
+    tableInfoDirPath=new Path(tableInfoDir,filename);
+    try {
+      writeTD(fs,tempPath,htd);
+      fs.mkdirs(tableInfoDirPath.getParent());
+      if (!fs.rename(tempPath,tableInfoDirPath)) {
+        throw new IOException("Failed rename of " + tempPath + " to "+ tableInfoDirPath);
+      }
+      LOG.debug("Wrote descriptor into: " + tableInfoDirPath);
+    }
+ catch (    IOException ioe) {
+      LOG.debug("Failed write and/or rename; retrying",ioe);
+      if (!FSUtils.deleteDirectory(fs,tempPath)) {
+        LOG.warn("Failed cleanup of " + tempPath);
+      }
+      tableInfoDirPath=null;
+      continue;
+    }
+    break;
+  }
+ while (newSequenceId < retrymax);
+  if (tableInfoDirPath != null) {
+    deleteTableDescriptorFiles(fs,tableInfoDir,newSequenceId - 1);
+  }
+  return tableInfoDirPath;
+}

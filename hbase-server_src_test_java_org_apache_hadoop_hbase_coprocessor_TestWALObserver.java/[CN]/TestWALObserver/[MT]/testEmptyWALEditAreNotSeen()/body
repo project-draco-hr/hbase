@@ -1,0 +1,20 @@
+{
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(Bytes.toString(TEST_TABLE));
+  final HTableDescriptor htd=createBasic3FamilyHTD(Bytes.toString(TEST_TABLE));
+  final AtomicLong sequenceId=new AtomicLong(0);
+  WAL log=wals.getWAL(UNSPECIFIED_REGION);
+  try {
+    SampleRegionWALObserver cp=getCoprocessor(log,SampleRegionWALObserver.class);
+    cp.setTestValues(TEST_TABLE,null,null,null,null,null,null,null);
+    assertFalse(cp.isPreWALWriteCalled());
+    assertFalse(cp.isPostWALWriteCalled());
+    final long now=EnvironmentEdgeManager.currentTime();
+    long txid=log.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),hri.getTable(),now),new WALEdit(),sequenceId,true,null);
+    log.sync(txid);
+    assertFalse("Empty WALEdit should skip coprocessor evaluation.",cp.isPreWALWriteCalled());
+    assertFalse("Empty WALEdit should skip coprocessor evaluation.",cp.isPostWALWriteCalled());
+  }
+  finally {
+    log.close();
+  }
+}

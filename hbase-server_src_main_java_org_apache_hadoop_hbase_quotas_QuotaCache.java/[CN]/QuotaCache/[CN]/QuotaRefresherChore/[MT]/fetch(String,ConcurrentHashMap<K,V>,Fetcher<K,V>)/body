@@ -1,0 +1,39 @@
+{
+  long now=EnvironmentEdgeManager.currentTime();
+  long refreshPeriod=getPeriod();
+  long evictPeriod=refreshPeriod * EVICT_PERIOD_FACTOR;
+  List<Get> gets=new ArrayList<Get>();
+  List<K> toRemove=new ArrayList<K>();
+  for (  Map.Entry<K,V> entry : quotasMap.entrySet()) {
+    long lastUpdate=entry.getValue().getLastUpdate();
+    long lastQuery=entry.getValue().getLastQuery();
+    if (lastQuery > 0 && (now - lastQuery) >= evictPeriod) {
+      toRemove.add(entry.getKey());
+    }
+ else     if (TEST_FORCE_REFRESH || (now - lastUpdate) >= refreshPeriod) {
+      gets.add(fetcher.makeGet(entry));
+    }
+  }
+  for (  final K key : toRemove) {
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("evict " + type + " key="+ key);
+    }
+    quotasMap.remove(key);
+  }
+  if (!gets.isEmpty()) {
+    try {
+      for (      Map.Entry<K,V> entry : fetcher.fetchEntries(gets).entrySet()) {
+        V quotaInfo=quotasMap.putIfAbsent(entry.getKey(),entry.getValue());
+        if (quotaInfo != null) {
+          quotaInfo.update(entry.getValue());
+        }
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("refresh " + type + " key="+ entry.getKey()+ " quotas="+ quotaInfo);
+        }
+      }
+    }
+ catch (    IOException e) {
+      LOG.warn("Unable to read " + type + " from quota table",e);
+    }
+  }
+}

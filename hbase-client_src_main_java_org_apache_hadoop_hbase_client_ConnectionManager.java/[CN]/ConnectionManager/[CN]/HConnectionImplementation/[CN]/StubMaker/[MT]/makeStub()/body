@@ -1,12 +1,9 @@
 {
 synchronized (masterAndZKLock) {
     Exception exceptionCaught=null;
-    Object stub=null;
-    int tries=0;
-    while (!closed && stub == null) {
-      tries++;
+    if (!closed) {
       try {
-        stub=makeStubNoRetries();
+        return makeStubNoRetries();
       }
  catch (      IOException e) {
         exceptionCaught=e;
@@ -17,24 +14,10 @@ catch (      KeeperException e) {
 catch (      ServiceException e) {
         exceptionCaught=e;
       }
-      if (exceptionCaught != null)       if (tries < numTries && !ExceptionUtil.isInterrupt(exceptionCaught)) {
-        long pauseTime=ConnectionUtils.getPauseTime(pause,tries - 1);
-        LOG.info("getMaster attempt " + tries + " of "+ numTries+ " failed; retrying after sleep of "+ pauseTime+ ", exception="+ exceptionCaught);
-        try {
-          Thread.sleep(pauseTime);
-        }
- catch (        InterruptedException e) {
-          throw new MasterNotRunningException("Thread was interrupted while trying to connect to master.",e);
-        }
-      }
+      throw new MasterNotRunningException(exceptionCaught);
+    }
  else {
-        LOG.info("getMaster attempt " + tries + " of "+ numTries+ " failed; no more retrying.",exceptionCaught);
-        throw new MasterNotRunningException(exceptionCaught);
-      }
+      throw new DoNotRetryIOException("Connection was closed while trying to get master");
     }
-    if (stub == null) {
-      throw new MasterNotRunningException("Connection was closed while trying to get master");
-    }
-    return stub;
   }
 }

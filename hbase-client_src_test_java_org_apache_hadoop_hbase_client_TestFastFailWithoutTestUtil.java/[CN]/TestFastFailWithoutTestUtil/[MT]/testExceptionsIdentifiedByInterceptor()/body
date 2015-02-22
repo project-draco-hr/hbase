@@ -1,0 +1,45 @@
+{
+  Throwable[] networkexceptions=new Throwable[]{new ConnectException("Mary is unwell"),new SocketTimeoutException("Mike is too late"),new ClosedChannelException(),new SyncFailedException("Dave is not on the same page"),new TimeoutException("Mike is late again"),new EOFException("This is the end... "),new ConnectionClosingException("Its closing")};
+  final String INDUCED="Induced";
+  Throwable[] nonNetworkExceptions=new Throwable[]{new IOException("Bob died"),new RemoteException("Bob's cousin died",null),new NoSuchMethodError(INDUCED),new NullPointerException(INDUCED),new DoNotRetryIOException(INDUCED),new Error(INDUCED)};
+  Configuration conf=HBaseConfiguration.create();
+  long CLEANUP_TIMEOUT=0;
+  long FAST_FAIL_THRESHOLD=1000000;
+  conf.setBoolean(HConstants.HBASE_CLIENT_FAST_FAIL_MODE_ENABLED,true);
+  conf.setLong(HConstants.HBASE_CLIENT_FAST_FAIL_CLEANUP_MS_DURATION_MS,CLEANUP_TIMEOUT);
+  conf.setLong(HConstants.HBASE_CLIENT_FAST_FAIL_THREASHOLD_MS,FAST_FAIL_THRESHOLD);
+  for (  Throwable e : networkexceptions) {
+    PreemptiveFastFailInterceptor interceptor=TestFastFailWithoutTestUtil.createPreemptiveInterceptor(conf);
+    FastFailInterceptorContext context=(FastFailInterceptorContext)interceptor.createEmptyContext();
+    RetryingCallable<?> callable=getDummyRetryingCallable(getSomeServerName());
+    context.prepare(callable,0);
+    interceptor.intercept(context);
+    interceptor.handleFailure(context,e);
+    interceptor.updateFailureInfo(context);
+    assertTrue("The call shouldn't have been successful if there was a ConnectException",context.getCouldNotCommunicateWithServer().booleanValue());
+  }
+  for (  Throwable e : nonNetworkExceptions) {
+    try {
+      PreemptiveFastFailInterceptor interceptor=TestFastFailWithoutTestUtil.createPreemptiveInterceptor(conf);
+      FastFailInterceptorContext context=(FastFailInterceptorContext)interceptor.createEmptyContext();
+      RetryingCallable<?> callable=getDummyRetryingCallable(getSomeServerName());
+      context.prepare(callable,0);
+      interceptor.intercept(context);
+      interceptor.handleFailure(context,e);
+      interceptor.updateFailureInfo(context);
+      assertFalse("The call shouldn't have been successful if there was a ConnectException",context.getCouldNotCommunicateWithServer().booleanValue());
+    }
+ catch (    NoSuchMethodError t) {
+      assertTrue("Exception not induced",t.getMessage().contains(INDUCED));
+    }
+catch (    NullPointerException t) {
+      assertTrue("Exception not induced",t.getMessage().contains(INDUCED));
+    }
+catch (    DoNotRetryIOException t) {
+      assertTrue("Exception not induced",t.getMessage().contains(INDUCED));
+    }
+catch (    Error t) {
+      assertTrue("Exception not induced",t.getMessage().contains(INDUCED));
+    }
+  }
+}

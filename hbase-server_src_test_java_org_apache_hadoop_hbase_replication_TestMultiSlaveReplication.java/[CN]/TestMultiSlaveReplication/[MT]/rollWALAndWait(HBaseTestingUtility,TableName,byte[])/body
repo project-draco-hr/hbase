@@ -1,0 +1,29 @@
+{
+  final Admin admin=utility.getHBaseAdmin();
+  final MiniHBaseCluster cluster=utility.getMiniHBaseCluster();
+  HRegion region=null;
+  for (  HRegion candidate : cluster.getRegions(table)) {
+    if (HRegion.rowIsInRange(candidate.getRegionInfo(),row)) {
+      region=candidate;
+      break;
+    }
+  }
+  assertNotNull("Couldn't find the region for row '" + Arrays.toString(row) + "'",region);
+  final CountDownLatch latch=new CountDownLatch(1);
+  final WALActionsListener listener=new WALActionsListener.Base(){
+    @Override public void postLogRoll(    final Path oldPath,    final Path newPath) throws IOException {
+      latch.countDown();
+    }
+  }
+;
+  region.getWAL().registerWALActionsListener(listener);
+  admin.rollWALWriter(cluster.getServerHoldingRegion(region.getTableDesc().getTableName(),region.getRegionName()));
+  try {
+    latch.await();
+  }
+ catch (  InterruptedException exception) {
+    LOG.warn("Interrupted while waiting for the wal of '" + region + "' to roll. If later "+ "replication tests fail, it's probably because we should still be waiting.");
+    Thread.currentThread().interrupt();
+  }
+  region.getWAL().unregisterWALActionsListener(listener);
+}

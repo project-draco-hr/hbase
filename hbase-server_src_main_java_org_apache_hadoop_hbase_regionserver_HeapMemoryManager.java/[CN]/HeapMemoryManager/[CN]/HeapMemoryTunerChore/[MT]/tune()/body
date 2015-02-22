@@ -1,0 +1,50 @@
+{
+  evictCount=blockCache.getStats().getEvictedCount() - evictCount;
+  tunerContext.setBlockedFlushCount(blockedFlushCount.getAndSet(0));
+  tunerContext.setUnblockedFlushCount(unblockedFlushCount.getAndSet(0));
+  tunerContext.setEvictCount(evictCount);
+  tunerContext.setCurBlockCacheSize(blockCachePercent);
+  tunerContext.setCurMemStoreSize(globalMemStorePercent);
+  TunerResult result=null;
+  try {
+    result=this.heapMemTuner.tune(tunerContext);
+  }
+ catch (  Throwable t) {
+    LOG.error("Exception thrown from the HeapMemoryTuner implementation",t);
+  }
+  if (result != null && result.needsTuning()) {
+    float memstoreSize=result.getMemstoreSize();
+    float blockCacheSize=result.getBlockCacheSize();
+    LOG.debug("From HeapMemoryTuner new memstoreSize: " + memstoreSize + ". new blockCacheSize: "+ blockCacheSize);
+    if (memstoreSize < globalMemStorePercentMinRange) {
+      LOG.info("New memstoreSize from HeapMemoryTuner " + memstoreSize + " is below min level "+ globalMemStorePercentMinRange+ ". Resetting memstoreSize to min size");
+      memstoreSize=globalMemStorePercentMinRange;
+    }
+ else     if (memstoreSize > globalMemStorePercentMaxRange) {
+      LOG.info("New memstoreSize from HeapMemoryTuner " + memstoreSize + " is above max level "+ globalMemStorePercentMaxRange+ ". Resetting memstoreSize to max size");
+      memstoreSize=globalMemStorePercentMaxRange;
+    }
+    if (blockCacheSize < blockCachePercentMinRange) {
+      LOG.info("New blockCacheSize from HeapMemoryTuner " + blockCacheSize + " is below min level "+ blockCachePercentMinRange+ ". Resetting blockCacheSize to min size");
+      blockCacheSize=blockCachePercentMinRange;
+    }
+ else     if (blockCacheSize > blockCachePercentMaxRange) {
+      LOG.info("New blockCacheSize from HeapMemoryTuner " + blockCacheSize + " is above max level "+ blockCachePercentMaxRange+ ". Resetting blockCacheSize to min size");
+      blockCacheSize=blockCachePercentMaxRange;
+    }
+    int gml=(int)(memstoreSize * CONVERT_TO_PERCENTAGE);
+    int bcul=(int)((blockCacheSize + l2BlockCachePercent) * CONVERT_TO_PERCENTAGE);
+    if (CONVERT_TO_PERCENTAGE - (gml + bcul) < CLUSTER_MINIMUM_MEMORY_THRESHOLD) {
+      LOG.info("Current heap configuration from HeapMemoryTuner exceeds " + "the threshold required for successful cluster operation. " + "The combined value cannot exceed 0.8. " + HeapMemorySizeUtil.MEMSTORE_SIZE_KEY + " is "+ memstoreSize+ " and "+ HFILE_BLOCK_CACHE_SIZE_KEY+ " is "+ blockCacheSize);
+    }
+ else {
+      long newBlockCacheSize=(long)(maxHeapSize * blockCacheSize);
+      long newMemstoreSize=(long)(maxHeapSize * memstoreSize);
+      LOG.info("Setting block cache heap size to " + newBlockCacheSize + " and memstore heap size to "+ newMemstoreSize);
+      blockCachePercent=blockCacheSize;
+      blockCache.setMaxSize(newBlockCacheSize);
+      globalMemStorePercent=memstoreSize;
+      memStoreFlusher.setGlobalMemstoreLimit(newMemstoreSize);
+    }
+  }
+}

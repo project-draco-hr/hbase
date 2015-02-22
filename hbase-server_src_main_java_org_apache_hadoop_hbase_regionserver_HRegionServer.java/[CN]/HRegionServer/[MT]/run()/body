@@ -24,6 +24,7 @@
     }
     if (!isStopped() && isHealthy()) {
       rspmHost.start();
+      rsQuotaManager.start(getRpcServer().getScheduler());
     }
     long lastMsg=System.currentTimeMillis();
     long oldRequestCount=-1;
@@ -86,7 +87,7 @@
       LOG.error("Failed to stop infoServer",e);
     }
   }
-  if (cacheConfig.isBlockCacheEnabled()) {
+  if (cacheConfig != null && cacheConfig.isBlockCacheEnabled()) {
     cacheConfig.getBlockCache().shutdown();
   }
   mobCacheConfig.getMobFileCache().shutdown();
@@ -96,15 +97,12 @@
   if (this.hMemManager != null)   this.hMemManager.stop();
   if (this.cacheFlusher != null)   this.cacheFlusher.interruptIfNecessary();
   if (this.compactSplitThread != null)   this.compactSplitThread.interruptIfNecessary();
-  if (this.compactionChecker != null)   this.compactionChecker.interrupt();
-  if (this.healthCheckChore != null) {
-    this.healthCheckChore.interrupt();
-  }
-  if (this.nonceManagerChore != null) {
-    this.nonceManagerChore.interrupt();
-  }
-  if (this.storefileRefresher != null) {
-    this.storefileRefresher.interrupt();
+  if (this.compactionChecker != null)   this.compactionChecker.cancel(true);
+  if (this.healthCheckChore != null)   this.healthCheckChore.cancel(true);
+  if (this.nonceManagerChore != null)   this.nonceManagerChore.cancel(true);
+  if (this.storefileRefresher != null)   this.storefileRefresher.cancel(true);
+  if (rsQuotaManager != null) {
+    rsQuotaManager.stop();
   }
   if (rspmHost != null) {
     rspmHost.stop(this.abortRequested || this.killed);
@@ -121,13 +119,13 @@
     closeUserRegions(abortRequested);
     LOG.info("stopping server " + this.serverName);
   }
-  metaTableLocator.stop();
-  if (this.shortCircuitConnection != null && !shortCircuitConnection.isClosed()) {
+  if (this.metaTableLocator != null)   this.metaTableLocator.stop();
+  if (this.clusterConnection != null && !clusterConnection.isClosed()) {
     try {
-      this.shortCircuitConnection.close();
+      this.clusterConnection.close();
     }
  catch (    IOException e) {
-      LOG.error("Attempt to close server's short circuit HConnection failed.",e);
+      LOG.warn("Attempt to close server's short circuit HConnection failed.",e);
     }
   }
   if (!this.killed && containsMetaTableRegions()) {
@@ -144,13 +142,13 @@
     LOG.info("stopping server " + this.serverName + "; all regions closed.");
   }
   if (this.fsOk) {
-    closeWAL(!abortRequested);
+    shutdownWAL(!abortRequested);
   }
   if (this.rssStub != null) {
     this.rssStub=null;
   }
   if (this.rpcClient != null) {
-    this.rpcClient.stop();
+    this.rpcClient.close();
   }
   if (this.leases != null) {
     this.leases.close();
@@ -167,7 +165,9 @@
   try {
     deleteMyEphemeralNode();
   }
- catch (  KeeperException e) {
+ catch (  KeeperException.NoNodeException nn) {
+  }
+catch (  KeeperException e) {
     LOG.warn("Failed deleting my ephemeral node",e);
   }
   ZNodeClearer.deleteMyEphemeralNodeOnDisk();

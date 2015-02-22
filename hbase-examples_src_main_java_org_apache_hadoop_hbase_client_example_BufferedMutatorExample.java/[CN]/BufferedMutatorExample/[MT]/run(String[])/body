@@ -1,0 +1,34 @@
+{
+  final BufferedMutator.ExceptionListener listener=new BufferedMutator.ExceptionListener(){
+    @Override public void onException(    RetriesExhaustedWithDetailsException e,    BufferedMutator mutator){
+      for (int i=0; i < e.getNumExceptions(); i++) {
+        LOG.info("Failed to sent put " + e.getRow(i) + ".");
+      }
+    }
+  }
+;
+  BufferedMutatorParams params=new BufferedMutatorParams(TABLE).listener(listener);
+  try (final Connection conn=ConnectionFactory.createConnection(getConf());final BufferedMutator mutator=conn.getBufferedMutator(params)){
+    final ExecutorService workerPool=Executors.newFixedThreadPool(POOL_SIZE);
+    List<Future<Void>> futures=new ArrayList<>(TASK_COUNT);
+    for (int i=0; i < TASK_COUNT; i++) {
+      futures.add(workerPool.submit(new Callable<Void>(){
+        @Override public Void call() throws Exception {
+          Put p=new Put(Bytes.toBytes("someRow"));
+          p.add(FAMILY,Bytes.toBytes("someQualifier"),Bytes.toBytes("some value"));
+          mutator.mutate(p);
+          return null;
+        }
+      }
+));
+    }
+    for (    Future<Void> f : futures) {
+      f.get(5,TimeUnit.MINUTES);
+    }
+    workerPool.shutdown();
+  }
+ catch (  IOException e) {
+    LOG.info("exception while creating/destroying Connection or BufferedMutator",e);
+  }
+  return 0;
+}

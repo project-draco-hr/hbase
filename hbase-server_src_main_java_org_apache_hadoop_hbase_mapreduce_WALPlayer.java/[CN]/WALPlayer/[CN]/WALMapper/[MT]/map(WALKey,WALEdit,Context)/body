@@ -1,0 +1,38 @@
+{
+  try {
+    if (tables.isEmpty() || tables.containsKey(key.getTablename())) {
+      TableName targetTable=tables.isEmpty() ? key.getTablename() : tables.get(key.getTablename());
+      ImmutableBytesWritable tableOut=new ImmutableBytesWritable(targetTable.getName());
+      Put put=null;
+      Delete del=null;
+      Cell lastCell=null;
+      for (      Cell cell : value.getCells()) {
+        if (WALEdit.isMetaEditFamily(cell.getFamily()))         continue;
+        if (filter(context,cell)) {
+          if (lastCell == null || lastCell.getTypeByte() != cell.getTypeByte() || !CellUtil.matchingRow(lastCell,cell)) {
+            if (put != null)             context.write(tableOut,put);
+            if (del != null)             context.write(tableOut,del);
+            if (CellUtil.isDelete(cell)) {
+              del=new Delete(cell.getRow());
+            }
+ else {
+              put=new Put(cell.getRow());
+            }
+          }
+          if (CellUtil.isDelete(cell)) {
+            del.addDeleteMarker(cell);
+          }
+ else {
+            put.add(cell);
+          }
+        }
+        lastCell=cell;
+      }
+      if (put != null)       context.write(tableOut,put);
+      if (del != null)       context.write(tableOut,del);
+    }
+  }
+ catch (  InterruptedException e) {
+    e.printStackTrace();
+  }
+}

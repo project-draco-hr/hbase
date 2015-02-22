@@ -1,2 +1,24 @@
 {
+  Map<byte[],Long> storeSeqNumsBeforeFlushStarts;
+  Map<byte[],Long> currentStoreSeqNums=new TreeMap<byte[],Long>(Bytes.BYTES_COMPARATOR);
+synchronized (regionSequenceIdLock) {
+    storeSeqNumsBeforeFlushStarts=this.lowestFlushingStoreSequenceIds.remove(encodedRegionName);
+    if (storeSeqNumsBeforeFlushStarts != null) {
+      ConcurrentMap<byte[],Long> oldestUnflushedStoreSequenceIdsOfRegion=getOrCreateOldestUnflushedStoreSequenceIdsOfRegion(encodedRegionName);
+      for (      Map.Entry<byte[],Long> familyNameAndSeqId : storeSeqNumsBeforeFlushStarts.entrySet()) {
+        currentStoreSeqNums.put(familyNameAndSeqId.getKey(),oldestUnflushedStoreSequenceIdsOfRegion.put(familyNameAndSeqId.getKey(),familyNameAndSeqId.getValue()));
+      }
+    }
+  }
+  closeBarrier.endOp();
+  if (storeSeqNumsBeforeFlushStarts != null) {
+    for (    Map.Entry<byte[],Long> familyNameAndSeqId : storeSeqNumsBeforeFlushStarts.entrySet()) {
+      Long currentSeqNum=currentStoreSeqNums.get(familyNameAndSeqId.getKey());
+      if (currentSeqNum != null && currentSeqNum.longValue() <= familyNameAndSeqId.getValue().longValue()) {
+        String errorStr="Region " + Bytes.toString(encodedRegionName) + " family "+ Bytes.toString(familyNameAndSeqId.getKey())+ " acquired edits out of order current memstore seq="+ currentSeqNum+ ", previous oldest unflushed id="+ familyNameAndSeqId.getValue();
+        LOG.error(errorStr);
+        Runtime.getRuntime().halt(1);
+      }
+    }
+  }
 }

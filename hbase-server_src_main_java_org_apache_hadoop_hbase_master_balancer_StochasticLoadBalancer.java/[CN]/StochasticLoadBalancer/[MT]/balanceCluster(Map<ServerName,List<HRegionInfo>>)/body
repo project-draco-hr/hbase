@@ -1,10 +1,20 @@
 {
   List<RegionPlan> plans=balanceMasterRegions(clusterState);
-  if (plans != null) {
+  if (plans != null || clusterState == null || clusterState.size() <= 1) {
     return plans;
   }
-  filterExcludedServers(clusterState);
-  Cluster cluster=new Cluster(masterServerName,clusterState,loads,regionFinder,getBackupMasters(),tablesOnMaster,rackManager);
+  if (masterServerName != null && clusterState.containsKey(masterServerName)) {
+    if (clusterState.size() <= 2) {
+      return null;
+    }
+    clusterState=new HashMap<ServerName,List<HRegionInfo>>(clusterState);
+    clusterState.remove(masterServerName);
+  }
+  RegionLocationFinder finder=null;
+  if (this.localityCost != null && this.localityCost.getMultiplier() > 0) {
+    finder=this.regionFinder;
+  }
+  Cluster cluster=new Cluster(clusterState,loads,finder,rackManager);
   if (!needsBalance(cluster)) {
     return null;
   }

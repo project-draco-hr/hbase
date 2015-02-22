@@ -1,0 +1,61 @@
+{
+  Configuration localConf=new Configuration(conf);
+  localConf.setInt("hbase.regionserver.hlog.splitlog.buffersize",bufferSize);
+  Path logPath=new Path(WALDIR,WAL_FILE_PREFIX + ".fake");
+  FSDataOutputStream out=fs.create(logPath);
+  out.close();
+  final List<String> regions=ImmutableList.of("r0","r1","r2","r3","r4");
+  makeRegionDirs(regions);
+  WALSplitter logSplitter=new WALSplitter(wals,localConf,HBASEDIR,fs,null,null,this.mode){
+    @Override protected Writer createWriter(    Path logfile) throws IOException {
+      Writer mockWriter=Mockito.mock(Writer.class);
+      Mockito.doAnswer(new Answer<Void>(){
+        int expectedIndex=0;
+        @Override public Void answer(        InvocationOnMock invocation){
+          if (writerSlowness > 0) {
+            try {
+              Thread.sleep(writerSlowness);
+            }
+ catch (            InterruptedException ie) {
+              Thread.currentThread().interrupt();
+            }
+          }
+          Entry entry=(Entry)invocation.getArguments()[0];
+          WALEdit edit=entry.getEdit();
+          List<Cell> cells=edit.getCells();
+          assertEquals(1,cells.size());
+          Cell cell=cells.get(0);
+          assertEquals(expectedIndex,Bytes.toInt(cell.getRow()));
+          expectedIndex++;
+          return null;
+        }
+      }
+).when(mockWriter).append(Mockito.<Entry>any());
+      return mockWriter;
+    }
+    @Override protected Reader getReader(    Path curLogFile,    CancelableProgressable reporter) throws IOException {
+      Reader mockReader=Mockito.mock(Reader.class);
+      Mockito.doAnswer(new Answer<Entry>(){
+        int index=0;
+        @Override public Entry answer(        InvocationOnMock invocation) throws Throwable {
+          if (index >= numFakeEdits)           return null;
+          int regionIdx=index % regions.size();
+          byte region[]=new byte[]{(byte)'r',(byte)(0x30 + regionIdx)};
+          Entry ret=createTestEntry(TABLE_NAME,region,Bytes.toBytes((int)(index / regions.size())),FAMILY,QUALIFIER,VALUE,index);
+          index++;
+          return ret;
+        }
+      }
+).when(mockReader).next();
+      return mockReader;
+    }
+  }
+;
+  logSplitter.splitLogFile(fs.getFileStatus(logPath),null);
+  Map<byte[],Long> outputCounts=logSplitter.outputSink.getOutputCounts();
+  for (  Map.Entry<byte[],Long> entry : outputCounts.entrySet()) {
+    LOG.info("Got " + entry.getValue() + " output edits for region "+ Bytes.toString(entry.getKey()));
+    assertEquals((long)entry.getValue(),numFakeEdits / regions.size());
+  }
+  assertEquals("Should have as many outputs as regions",regions.size(),outputCounts.size());
+}

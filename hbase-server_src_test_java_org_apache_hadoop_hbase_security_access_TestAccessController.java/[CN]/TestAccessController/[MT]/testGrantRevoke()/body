@@ -1,7 +1,8 @@
 {
   AccessTestAction grantAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+      Connection connection=ConnectionFactory.createConnection(conf);
+      Table acl=connection.getTable(AccessControlLists.ACL_TABLE_NAME);
       try {
         BlockingRpcChannel service=acl.coprocessorService(TEST_TABLE.getTableName().getName());
         AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -9,6 +10,7 @@
       }
   finally {
         acl.close();
+        connection.close();
       }
       return null;
     }
@@ -16,7 +18,8 @@
 ;
   AccessTestAction revokeAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+      Connection connection=ConnectionFactory.createConnection(conf);
+      Table acl=connection.getTable(AccessControlLists.ACL_TABLE_NAME);
       try {
         BlockingRpcChannel service=acl.coprocessorService(TEST_TABLE.getTableName().getName());
         AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -24,14 +27,16 @@
       }
   finally {
         acl.close();
+        connection.close();
       }
       return null;
     }
   }
 ;
-  AccessTestAction getPermissionsAction=new AccessTestAction(){
+  AccessTestAction getTablePermissionsAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      HTable acl=new HTable(conf,AccessControlLists.ACL_TABLE_NAME);
+      Connection connection=ConnectionFactory.createConnection(conf);
+      Table acl=connection.getTable(AccessControlLists.ACL_TABLE_NAME);
       try {
         BlockingRpcChannel service=acl.coprocessorService(TEST_TABLE.getTableName().getName());
         AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -39,6 +44,24 @@
       }
   finally {
         acl.close();
+        connection.close();
+      }
+      return null;
+    }
+  }
+;
+  AccessTestAction getGlobalPermissionsAction=new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      Connection connection=ConnectionFactory.createConnection(conf);
+      Table acl=connection.getTable(AccessControlLists.ACL_TABLE_NAME);
+      try {
+        BlockingRpcChannel service=acl.coprocessorService(HConstants.EMPTY_START_ROW);
+        AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+        ProtobufUtil.getUserPermissions(protocol);
+      }
+  finally {
+        acl.close();
+        connection.close();
       }
       return null;
     }
@@ -48,6 +71,8 @@
   verifyDenied(grantAction,USER_CREATE,USER_RW,USER_RO,USER_NONE);
   verifyAllowed(revokeAction,SUPERUSER,USER_ADMIN,USER_OWNER);
   verifyDenied(revokeAction,USER_CREATE,USER_RW,USER_RO,USER_NONE);
-  verifyAllowed(getPermissionsAction,SUPERUSER,USER_ADMIN,USER_OWNER);
-  verifyDenied(getPermissionsAction,USER_CREATE,USER_RW,USER_RO,USER_NONE);
+  verifyAllowed(getTablePermissionsAction,SUPERUSER,USER_ADMIN,USER_OWNER);
+  verifyDenied(getTablePermissionsAction,USER_CREATE,USER_RW,USER_RO,USER_NONE);
+  verifyAllowed(getGlobalPermissionsAction,SUPERUSER,USER_ADMIN);
+  verifyDeniedWithException(getGlobalPermissionsAction,USER_CREATE,USER_OWNER,USER_RW,USER_RO,USER_NONE);
 }

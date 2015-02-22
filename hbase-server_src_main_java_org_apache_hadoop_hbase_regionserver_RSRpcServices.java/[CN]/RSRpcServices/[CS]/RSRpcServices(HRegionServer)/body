@@ -11,19 +11,26 @@
 catch (  IllegalAccessException e) {
     throw new IllegalArgumentException(e);
   }
-  String hostname=rs.conf.get("hbase.regionserver.ipc.address",Strings.domainNamePointerToHostName(DNS.getDefaultHost(rs.conf.get("hbase.regionserver.dns.interface","default"),rs.conf.get("hbase.regionserver.dns.nameserver","default"))));
+  String hostname=getHostname(rs.conf);
+  boolean mode=rs.conf.getBoolean(HConstants.CLUSTER_DISTRIBUTED,HConstants.DEFAULT_CLUSTER_DISTRIBUTED);
+  if (mode == HConstants.CLUSTER_IS_DISTRIBUTED && hostname.equals(HConstants.LOCALHOST)) {
+    String msg="The hostname of regionserver cannot be set to localhost " + "in a fully-distributed setup because it won't be reachable. " + "See \"Getting Started\" for more information.";
+    LOG.fatal(msg);
+    throw new IOException(msg);
+  }
   int port=rs.conf.getInt(HConstants.REGIONSERVER_PORT,HConstants.DEFAULT_REGIONSERVER_PORT);
   InetSocketAddress initialIsa=new InetSocketAddress(hostname,port);
+  InetSocketAddress bindAddress=new InetSocketAddress(rs.conf.get("hbase.regionserver.ipc.address",hostname),port);
   if (initialIsa.getAddress() == null) {
     throw new IllegalArgumentException("Failed resolve of " + initialIsa);
   }
   priority=new AnnotationReadingPriorityFunction(this);
   String name=rs.getProcessName() + "/" + initialIsa.toString();
   ConnectionUtils.setServerSideHConnectionRetriesConfig(rs.conf,name,LOG);
-  rpcServer=new RpcServer(rs,name,getServices(),initialIsa,rs.conf,rpcSchedulerFactory.create(rs.conf,this));
+  rpcServer=new RpcServer(rs,name,getServices(),bindAddress,rs.conf,rpcSchedulerFactory.create(rs.conf,this,rs));
   scannerLeaseTimeoutPeriod=rs.conf.getInt(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,HConstants.DEFAULT_HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD);
   maxScannerResultSize=rs.conf.getLong(HConstants.HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE_KEY,HConstants.DEFAULT_HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE);
-  isa=rpcServer.getListenerAddress();
+  isa=new InetSocketAddress(initialIsa.getHostName(),rpcServer.getListenerAddress().getPort());
   rpcServer.setErrorHandler(this);
   rs.setName(name);
 }

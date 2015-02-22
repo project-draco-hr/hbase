@@ -1,16 +1,16 @@
 {
   LOG.info("** Before delete:");
   dumpMeta(htd.getTableName());
-  Map<HRegionInfo,ServerName> hris=tbl.getRegionLocations();
-  for (  Entry<HRegionInfo,ServerName> e : hris.entrySet()) {
-    HRegionInfo hri=e.getKey();
-    ServerName hsa=e.getValue();
+  List<HRegionLocation> locations=tbl.getAllRegionLocations();
+  for (  HRegionLocation location : locations) {
+    HRegionInfo hri=location.getRegionInfo();
+    ServerName hsa=location.getServerName();
     if (Bytes.compareTo(hri.getStartKey(),startKey) == 0 && Bytes.compareTo(hri.getEndKey(),endKey) == 0 && hri.getReplicaId() == replicaId) {
       LOG.info("RegionName: " + hri.getRegionNameAsString());
       byte[] deleteRow=hri.getRegionName();
       if (unassign) {
         LOG.info("Undeploying region " + hri + " from server "+ hsa);
-        undeployRegion(new HBaseAdmin(conf),hsa,hri);
+        undeployRegion(connection,hsa,hri);
       }
       if (regionInfoOnly) {
         LOG.info("deleting hdfs .regioninfo data: " + hri.toString() + hsa.toString());
@@ -31,10 +31,11 @@
         HBaseFsck.debugLsr(conf,p);
       }
       if (metaRow) {
-        HTable meta=new HTable(conf,TableName.META_TABLE_NAME,executorService);
-        Delete delete=new Delete(deleteRow);
-        meta.delete(delete);
-      }
+        try (Table meta=connection.getTable(TableName.META_TABLE_NAME,tableExecutorService)){
+          Delete delete=new Delete(deleteRow);
+          meta.delete(delete);
+        }
+       }
     }
     LOG.info(hri.toString() + hsa.toString());
   }

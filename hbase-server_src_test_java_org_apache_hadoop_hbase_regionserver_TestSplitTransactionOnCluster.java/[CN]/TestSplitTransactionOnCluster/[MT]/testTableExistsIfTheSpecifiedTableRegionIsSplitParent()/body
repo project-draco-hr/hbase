@@ -1,15 +1,15 @@
 {
   final TableName tableName=TableName.valueOf("testTableExistsIfTheSpecifiedTableRegionIsSplitParent");
-  HTable t=createTableAndWait(tableName.getName(),Bytes.toBytes("cf"));
+  Table t=createTableAndWait(tableName,Bytes.toBytes("cf"));
   List<HRegion> regions=null;
   try {
     regions=cluster.getRegions(tableName);
     int regionServerIndex=cluster.getServerWith(regions.get(0).getRegionName());
     HRegionServer regionServer=cluster.getRegionServer(regionServerIndex);
-    insertData(tableName.getName(),admin,t);
+    insertData(tableName,admin,t);
     admin.setBalancerRunning(false,true);
     cluster.getMaster().setCatalogJanitorEnabled(false);
-    boolean tableExists=MetaTableAccessor.tableExists(regionServer.getShortCircuitConnection(),tableName);
+    boolean tableExists=MetaTableAccessor.tableExists(regionServer.getConnection(),tableName);
     assertEquals("The specified table should present.",true,tableExists);
     final HRegion region=findSplittableRegion(regions);
     assertTrue("not able to find a splittable region",region != null);
@@ -20,12 +20,20 @@
     }
  catch (    IOException e) {
     }
-    tableExists=MetaTableAccessor.tableExists(regionServer.getShortCircuitConnection(),tableName);
+    tableExists=MetaTableAccessor.tableExists(regionServer.getConnection(),tableName);
     assertEquals("The specified table should present.",true,tableExists);
+    Map<String,RegionState> rit=cluster.getMaster().getAssignmentManager().getRegionStates().getRegionsInTransition();
+    assertTrue(rit.size() == 3);
+    cluster.getMaster().getAssignmentManager().regionOffline(st.getFirstDaughter());
+    cluster.getMaster().getAssignmentManager().regionOffline(st.getSecondDaughter());
+    cluster.getMaster().getAssignmentManager().regionOffline(region.getRegionInfo());
+    rit=cluster.getMaster().getAssignmentManager().getRegionStates().getRegionsInTransition();
+    assertTrue(rit.size() == 0);
   }
   finally {
     admin.setBalancerRunning(true,false);
     cluster.getMaster().setCatalogJanitorEnabled(true);
     t.close();
+    TESTING_UTIL.deleteTable(tableName);
   }
 }

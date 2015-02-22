@@ -1,0 +1,51 @@
+{
+  Path editsdir=WALSplitter.getRegionDirRecoveredEditsDir(regiondir);
+  long maxSeqId=0;
+  FileStatus[] files=null;
+  if (fs.exists(editsdir)) {
+    files=FSUtils.listStatus(fs,editsdir,new PathFilter(){
+      @Override public boolean accept(      Path p){
+        return isSequenceIdFile(p);
+      }
+    }
+);
+    if (files != null) {
+      for (      FileStatus status : files) {
+        String fileName=status.getPath().getName();
+        try {
+          Long tmpSeqId=Long.parseLong(fileName.substring(0,fileName.length() - SEQUENCE_ID_FILE_SUFFIX_LENGTH));
+          maxSeqId=Math.max(tmpSeqId,maxSeqId);
+        }
+ catch (        NumberFormatException ex) {
+          LOG.warn("Invalid SeqId File Name=" + fileName);
+        }
+      }
+    }
+  }
+  if (maxSeqId > newSeqId) {
+    newSeqId=maxSeqId;
+  }
+  newSeqId+=saftyBumper;
+  Path newSeqIdFile=new Path(editsdir,newSeqId + SEQUENCE_ID_FILE_SUFFIX);
+  if (newSeqId != maxSeqId) {
+    try {
+      if (!fs.createNewFile(newSeqIdFile) && !fs.exists(newSeqIdFile)) {
+        throw new IOException("Failed to create SeqId file:" + newSeqIdFile);
+      }
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Wrote region seqId=" + newSeqIdFile + " to file, newSeqId="+ newSeqId+ ", maxSeqId="+ maxSeqId);
+      }
+    }
+ catch (    FileAlreadyExistsException ignored) {
+    }
+  }
+  if (files != null) {
+    for (    FileStatus status : files) {
+      if (newSeqIdFile.equals(status.getPath())) {
+        continue;
+      }
+      fs.delete(status.getPath(),false);
+    }
+  }
+  return newSeqId;
+}

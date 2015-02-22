@@ -1,0 +1,26 @@
+{
+  TestRpcServer rpcServer=new TestRpcServer();
+  List<Cell> cells=new ArrayList<Cell>();
+  int count=3;
+  for (int i=0; i < count; i++)   cells.add(CELL);
+  try {
+    rpcServer.start();
+    InetSocketAddress address=rpcServer.getListenerAddress();
+    MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
+    EchoRequestProto param=EchoRequestProto.newBuilder().setMessage("hello").build();
+    PayloadCarryingRpcController pcrc=new PayloadCarryingRpcController(CellUtil.createCellScanner(cells));
+    BlockingRpcChannel channel=client.createBlockingRpcChannel(ServerName.valueOf(address.getHostName(),address.getPort(),System.currentTimeMillis()),User.getCurrent(),0);
+    channel.callBlockingMethod(md,pcrc,param,md.getOutputType().toProto());
+    CellScanner cellScanner=pcrc.cellScanner();
+    int index=0;
+    while (cellScanner.advance()) {
+      assertTrue(CELL.equals(cellScanner.current()));
+      index++;
+    }
+    assertEquals(count,index);
+  }
+  finally {
+    client.close();
+    rpcServer.stop();
+  }
+}

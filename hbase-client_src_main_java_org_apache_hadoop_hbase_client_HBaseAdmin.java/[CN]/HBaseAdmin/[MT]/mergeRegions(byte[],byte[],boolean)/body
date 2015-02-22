@@ -1,23 +1,19 @@
 {
-  MasterKeepAliveConnection master=connection.getKeepAliveMasterService();
-  try {
-    DispatchMergingRegionsRequest request=RequestConverter.buildDispatchMergingRegionsRequest(encodedNameOfRegionA,encodedNameOfRegionB,forcible);
-    master.dispatchMergingRegions(null,request);
-  }
- catch (  ServiceException se) {
-    IOException ioe=ProtobufUtil.getRemoteException(se);
-    if (ioe instanceof UnknownRegionException) {
-      throw (UnknownRegionException)ioe;
+  Pair<HRegionInfo,ServerName> pair=getRegion(encodedNameOfRegionA);
+  if (pair != null && pair.getFirst().getReplicaId() != HRegionInfo.DEFAULT_REPLICA_ID)   throw new IllegalArgumentException("Can't invoke merge on non-default regions directly");
+  pair=getRegion(encodedNameOfRegionB);
+  if (pair != null && pair.getFirst().getReplicaId() != HRegionInfo.DEFAULT_REPLICA_ID)   throw new IllegalArgumentException("Can't invoke merge on non-default regions directly");
+  executeCallable(new MasterCallable<Void>(getConnection()){
+    @Override public Void call(    int callTimeout) throws ServiceException {
+      try {
+        DispatchMergingRegionsRequest request=RequestConverter.buildDispatchMergingRegionsRequest(encodedNameOfRegionA,encodedNameOfRegionB,forcible);
+        master.dispatchMergingRegions(null,request);
+      }
+ catch (      DeserializationException de) {
+        LOG.error("Could not parse destination server name: " + de);
+      }
+      return null;
     }
-    if (ioe instanceof MergeRegionException) {
-      throw (MergeRegionException)ioe;
-    }
-    LOG.error("Unexpected exception: " + se + " from calling HMaster.dispatchMergingRegions");
   }
-catch (  DeserializationException de) {
-    LOG.error("Could not parse destination server name: " + de);
-  }
- finally {
-    master.close();
-  }
+);
 }

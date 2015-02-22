@@ -1,0 +1,38 @@
+{
+  boolean doCreateWriter=false;
+  if (currentWriter == null) {
+    sanityCheckLeft(left,cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
+    doCreateWriter=true;
+  }
+ else   if (lastRowInCurrentWriter != null && !comparator.matchingRows(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),lastRowInCurrentWriter,0,lastRowInCurrentWriter.length)) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Stopping to use a writer after [" + Bytes.toString(lastRowInCurrentWriter) + "] row; wrote out "+ cellsInCurrentWriter+ " kvs");
+    }
+    lastRowInCurrentWriter=null;
+    cellsInCurrentWriter=0;
+    cellsSeenInPrevious+=cellsSeen;
+    doCreateWriter=true;
+  }
+  if (doCreateWriter) {
+    byte[] boundary=existingWriters.isEmpty() ? left : cell.getRow();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Creating new writer starting at [" + Bytes.toString(boundary) + "]");
+    }
+    currentWriter=writerFactory.createWriter();
+    boundaries.add(boundary);
+    existingWriters.add(currentWriter);
+  }
+  currentWriter.append(cell);
+  lastCell=cell;
+  ++cellsInCurrentWriter;
+  cellsSeen=cellsInCurrentWriter;
+  if (this.sourceScanner != null) {
+    cellsSeen=Math.max(cellsSeen,this.sourceScanner.getEstimatedNumberOfKvsScanned() - cellsSeenInPrevious);
+  }
+  if (lastRowInCurrentWriter == null && existingWriters.size() < targetCount && cellsSeen >= targetCells) {
+    lastRowInCurrentWriter=cell.getRow();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Preparing to start a new writer after [" + Bytes.toString(lastRowInCurrentWriter) + "] row; observed "+ cellsSeen+ " kvs and wrote out "+ cellsInCurrentWriter+ " kvs");
+    }
+  }
+}

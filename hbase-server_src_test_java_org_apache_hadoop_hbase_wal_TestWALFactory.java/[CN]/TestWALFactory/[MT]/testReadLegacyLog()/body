@@ -1,0 +1,57 @@
+{
+  final int columnCount=5;
+  final int recordCount=5;
+  final TableName tableName=TableName.valueOf("tablename");
+  final byte[] row=Bytes.toBytes("row");
+  long timestamp=System.currentTimeMillis();
+  Path path=new Path(dir,"tempwal");
+  SequenceFileLogWriter sflw=null;
+  WAL.Reader reader=null;
+  try {
+    HRegionInfo hri=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
+    HTableDescriptor htd=new HTableDescriptor(tableName);
+    fs.mkdirs(dir);
+    sflw=new SequenceFileLogWriter();
+    sflw.init(fs,path,conf,false);
+    for (int i=0; i < recordCount; ++i) {
+      WALKey key=new HLogKey(hri.getEncodedNameAsBytes(),tableName,i,timestamp,HConstants.DEFAULT_CLUSTER_ID);
+      WALEdit edit=new WALEdit();
+      for (int j=0; j < columnCount; ++j) {
+        if (i == 0) {
+          htd.addFamily(new HColumnDescriptor("column" + j));
+        }
+        String value=i + "" + j;
+        edit.add(new KeyValue(row,row,row,timestamp,Bytes.toBytes(value)));
+      }
+      sflw.append(new WAL.Entry(key,edit));
+    }
+    sflw.sync();
+    sflw.close();
+    reader=wals.createReader(fs,path);
+    assertTrue(reader instanceof SequenceFileLogReader);
+    for (int i=0; i < recordCount; ++i) {
+      WAL.Entry entry=reader.next();
+      assertNotNull(entry);
+      assertEquals(columnCount,entry.getEdit().size());
+      assertArrayEquals(hri.getEncodedNameAsBytes(),entry.getKey().getEncodedRegionName());
+      assertEquals(tableName,entry.getKey().getTablename());
+      int idx=0;
+      for (      Cell val : entry.getEdit().getCells()) {
+        assertTrue(Bytes.equals(row,val.getRow()));
+        String value=i + "" + idx;
+        assertArrayEquals(Bytes.toBytes(value),val.getValue());
+        idx++;
+      }
+    }
+    WAL.Entry entry=reader.next();
+    assertNull(entry);
+  }
+  finally {
+    if (sflw != null) {
+      sflw.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  if (shouldCloseConnection.get())   return;
+  Call call=null;
+  boolean expectedCall=false;
+  try {
+    int totalSize=in.readInt();
+    ResponseHeader responseHeader=ResponseHeader.parseDelimitedFrom(in);
+    int id=responseHeader.getCallId();
+    call=calls.remove(id);
+    expectedCall=(call != null && !call.done);
+    if (!expectedCall) {
+      int readSoFar=IPCUtil.getTotalSizeWhenWrittenDelimited(responseHeader);
+      int whatIsLeftToRead=totalSize - readSoFar;
+      IOUtils.skipFully(in,whatIsLeftToRead);
+      return;
+    }
+    if (responseHeader.hasException()) {
+      ExceptionResponse exceptionResponse=responseHeader.getException();
+      RemoteException re=createRemoteException(exceptionResponse);
+      call.setException(re);
+      if (isFatalConnectionException(exceptionResponse)) {
+        markClosed(re);
+      }
+    }
+ else {
+      Message value=null;
+      if (call.responseDefaultType != null) {
+        Builder builder=call.responseDefaultType.newBuilderForType();
+        builder.mergeDelimitedFrom(in);
+        value=builder.build();
+      }
+      CellScanner cellBlockScanner=null;
+      if (responseHeader.hasCellBlockMeta()) {
+        int size=responseHeader.getCellBlockMeta().getLength();
+        byte[] cellBlock=new byte[size];
+        IOUtils.readFully(this.in,cellBlock,0,cellBlock.length);
+        cellBlockScanner=ipcUtil.createCellScanner(this.codec,this.compressor,cellBlock);
+      }
+      call.setResponse(value,cellBlockScanner);
+    }
+  }
+ catch (  IOException e) {
+    if (expectedCall)     call.setException(e);
+    if (e instanceof SocketTimeoutException) {
+      if (LOG.isTraceEnabled())       LOG.trace("ignored",e);
+    }
+ else {
+      markClosed(e);
+    }
+  }
+ finally {
+    cleanupCalls(false);
+  }
+}

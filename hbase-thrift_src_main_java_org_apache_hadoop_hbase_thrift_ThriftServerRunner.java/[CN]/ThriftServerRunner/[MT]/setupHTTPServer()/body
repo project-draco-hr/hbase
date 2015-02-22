@@ -1,0 +1,38 @@
+{
+  TProtocolFactory protocolFactory=new TBinaryProtocol.Factory();
+  TProcessor processor=new Hbase.Processor<Hbase.Iface>(handler);
+  TServlet thriftHttpServlet=new ThriftHttpServlet(processor,protocolFactory,realUser,conf,hbaseHandler,securityEnabled,doAsEnabled);
+  httpServer=new Server();
+  Context context=new Context(httpServer,"/",Context.SESSIONS);
+  context.setContextPath("/");
+  String httpPath="/*";
+  httpServer.setHandler(context);
+  context.addServlet(new ServletHolder(thriftHttpServlet),httpPath);
+  Connector connector=new SelectChannelConnector();
+  if (conf.getBoolean(THRIFT_SSL_ENABLED,false)) {
+    SslSelectChannelConnector sslConnector=new SslSelectChannelConnector();
+    String keystore=conf.get(THRIFT_SSL_KEYSTORE_STORE);
+    String password=HBaseConfiguration.getPassword(conf,THRIFT_SSL_KEYSTORE_PASSWORD,null);
+    String keyPassword=HBaseConfiguration.getPassword(conf,THRIFT_SSL_KEYSTORE_KEYPASSWORD,password);
+    sslConnector.setKeystore(keystore);
+    sslConnector.setPassword(password);
+    sslConnector.setKeyPassword(keyPassword);
+    connector=sslConnector;
+  }
+  String host=getBindAddress(conf).getHostAddress();
+  connector.setPort(listenPort);
+  connector.setHost(host);
+  httpServer.addConnector(connector);
+  if (doAsEnabled) {
+    ProxyUsers.refreshSuperUserGroupsConfiguration(conf);
+  }
+  int minThreads=conf.getInt(HTTP_MIN_THREADS,2);
+  int maxThreads=conf.getInt(HTTP_MAX_THREADS,100);
+  QueuedThreadPool threadPool=new QueuedThreadPool(maxThreads);
+  threadPool.setMinThreads(minThreads);
+  httpServer.setThreadPool(threadPool);
+  httpServer.setSendServerVersion(false);
+  httpServer.setSendDateHeader(false);
+  httpServer.setStopAtShutdown(true);
+  LOG.info("Starting Thrift HTTP Server on " + Integer.toString(listenPort));
+}

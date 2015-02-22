@@ -1,0 +1,38 @@
+{
+  boolean bypass=false;
+  if (this.coprocessors == null || this.coprocessors.isEmpty())   return bypass;
+  ObserverContext<WALCoprocessorEnvironment> ctx=null;
+  for (  WALEnvironment env : coprocessors) {
+    if (env.getInstance() instanceof WALObserver) {
+      final WALObserver observer=(WALObserver)env.getInstance();
+      ctx=ObserverContext.createAndPrepare(env,ctx);
+      Thread currentThread=Thread.currentThread();
+      ClassLoader cl=currentThread.getContextClassLoader();
+      try {
+        currentThread.setContextClassLoader(env.getClassLoader());
+        if (env.useLegacyPre) {
+          if (logKey instanceof HLogKey) {
+            observer.preWALWrite(ctx,info,(HLogKey)logKey,logEdit);
+          }
+ else {
+            legacyWarning(observer.getClass(),"There are wal keys present that are not HLogKey.");
+          }
+        }
+ else {
+          observer.preWALWrite(ctx,info,logKey,logEdit);
+        }
+      }
+ catch (      Throwable e) {
+        handleCoprocessorThrowable(env,e);
+      }
+ finally {
+        currentThread.setContextClassLoader(cl);
+      }
+      bypass|=ctx.shouldBypass();
+      if (ctx.shouldComplete()) {
+        break;
+      }
+    }
+  }
+  return bypass;
+}

@@ -1,19 +1,34 @@
 {
   TableName tableName=this.hTableDescriptor.getTableName();
   LOG.info("Create table " + tableName);
+  HMaster master=((HMaster)this.server);
   try {
-    MasterCoprocessorHost cpHost=((HMaster)this.server).getMasterCoprocessorHost();
+    final MasterCoprocessorHost cpHost=master.getMasterCoprocessorHost();
     if (cpHost != null) {
       cpHost.preCreateTableHandler(this.hTableDescriptor,this.newRegions);
     }
     handleCreateTable(tableName);
     completed(null);
     if (cpHost != null) {
-      cpHost.postCreateTableHandler(this.hTableDescriptor,this.newRegions);
+      this.activeUser.runAs(new PrivilegedExceptionAction<Void>(){
+        @Override public Void run() throws Exception {
+          cpHost.postCreateTableHandler(hTableDescriptor,newRegions);
+          return null;
+        }
+      }
+);
     }
   }
  catch (  Throwable e) {
     LOG.error("Error trying to create the table " + tableName,e);
+    if (master.isInitialized()) {
+      try {
+        ((HMaster)this.server).getMasterQuotaManager().removeTableFromNamespaceQuota(hTableDescriptor.getTableName());
+      }
+ catch (      IOException e1) {
+        LOG.error("Error trying to update namespace quota " + e1);
+      }
+    }
     completed(e);
   }
 }

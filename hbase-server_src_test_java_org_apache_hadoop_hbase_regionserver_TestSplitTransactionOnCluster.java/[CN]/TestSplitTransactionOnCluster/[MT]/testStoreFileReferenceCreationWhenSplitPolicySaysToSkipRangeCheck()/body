@@ -1,0 +1,26 @@
+{
+  final TableName tableName=TableName.valueOf("testStoreFileReferenceCreationWhenSplitPolicySaysToSkipRangeCheck");
+  try {
+    HTableDescriptor htd=new HTableDescriptor(tableName);
+    htd.addFamily(new HColumnDescriptor("f"));
+    htd.setRegionSplitPolicyClassName(CustomSplitPolicy.class.getName());
+    admin.createTable(htd);
+    List<HRegion> regions=awaitTableRegions(tableName);
+    HRegion region=regions.get(0);
+    for (int i=3; i < 9; i++) {
+      Put p=new Put(Bytes.toBytes("row" + i));
+      p.add(Bytes.toBytes("f"),Bytes.toBytes("q"),Bytes.toBytes("value" + i));
+      region.put(p);
+    }
+    region.flushcache();
+    Store store=region.getStore(Bytes.toBytes("f"));
+    Collection<StoreFile> storefiles=store.getStorefiles();
+    assertEquals(storefiles.size(),1);
+    assertFalse(region.hasReferences());
+    Path referencePath=region.getRegionFileSystem().splitStoreFile(region.getRegionInfo(),"f",storefiles.iterator().next(),Bytes.toBytes("row1"),false,region.getSplitPolicy());
+    assertNotNull(referencePath);
+  }
+  finally {
+    TESTING_UTIL.deleteTable(tableName);
+  }
+}

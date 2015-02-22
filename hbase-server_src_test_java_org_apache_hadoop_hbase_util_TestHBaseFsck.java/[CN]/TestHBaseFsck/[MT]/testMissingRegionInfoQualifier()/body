@@ -1,15 +1,16 @@
 {
+  Connection connection=ConnectionFactory.createConnection(conf);
   TableName table=TableName.valueOf("testMissingRegionInfoQualifier");
   try {
     setupTable(table);
     final List<Delete> deletes=new LinkedList<Delete>();
-    HTable meta=new HTable(conf,HTableDescriptor.META_TABLEDESC.getTableName());
-    MetaScanner.metaScan(conf,new MetaScanner.MetaScannerVisitor(){
+    Table meta=connection.getTable(TableName.META_TABLE_NAME,hbfsckExecutorService);
+    MetaScanner.metaScan(connection,new MetaScanner.MetaScannerVisitor(){
       @Override public boolean processRow(      Result rowResult) throws IOException {
-        HRegionInfo hri=MetaScanner.getHRegionInfo(rowResult);
+        HRegionInfo hri=MetaTableAccessor.getHRegionInfo(rowResult);
         if (hri != null && !hri.getTable().isSystemTable()) {
           Delete delete=new Delete(rowResult.getRow());
-          delete.deleteColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+          delete.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
           deletes.add(delete);
         }
         return true;
@@ -28,6 +29,7 @@
     assertFalse(hbck.getErrors().getErrorList().contains(ERROR_CODE.EMPTY_META_CELL));
   }
   finally {
-    deleteTable(table);
+    cleanupTable(table);
   }
+  connection.close();
 }

@@ -1,0 +1,29 @@
+{
+  if (!enabled(admin.getConfiguration())) {
+    LOG.info("Region size calculation disabled.");
+    return;
+  }
+  LOG.info("Calculating region sizes for table \"" + regionLocator.getName() + "\".");
+  List<HRegionLocation> tableRegionInfos=regionLocator.getAllRegionLocations();
+  Set<byte[]> tableRegions=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+  for (  HRegionLocation regionInfo : tableRegionInfos) {
+    tableRegions.add(regionInfo.getRegionInfo().getRegionName());
+  }
+  ClusterStatus clusterStatus=admin.getClusterStatus();
+  Collection<ServerName> servers=clusterStatus.getServers();
+  final long megaByte=1024L * 1024L;
+  for (  ServerName serverName : servers) {
+    ServerLoad serverLoad=clusterStatus.getLoad(serverName);
+    for (    RegionLoad regionLoad : serverLoad.getRegionsLoad().values()) {
+      byte[] regionId=regionLoad.getName();
+      if (tableRegions.contains(regionId)) {
+        long regionSizeBytes=regionLoad.getStorefileSizeMB() * megaByte;
+        sizeMap.put(regionId,regionSizeBytes);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Region " + regionLoad.getNameAsString() + " has size "+ regionSizeBytes);
+        }
+      }
+    }
+  }
+  LOG.debug("Region sizes calculated");
+}

@@ -1,17 +1,38 @@
 {
   if (table == null) {
+    initialize();
+  }
+  if (getTable() == null) {
     throw new IOException("Cannot create a record reader because of a" + " previous error. Please look at the previous logs lines from" + " the task's full log for more details.");
   }
   TableSplit tSplit=(TableSplit)split;
   LOG.info("Input split length: " + StringUtils.humanReadableInt(tSplit.getLength()) + " bytes.");
-  TableRecordReader trr=this.tableRecordReader;
-  if (trr == null) {
-    trr=new TableRecordReader();
-  }
+  final TableRecordReader trr=this.tableRecordReader != null ? this.tableRecordReader : new TableRecordReader();
   Scan sc=new Scan(this.scan);
   sc.setStartRow(tSplit.getStartRow());
   sc.setStopRow(tSplit.getEndRow());
   trr.setScan(sc);
-  trr.setHTable(table);
-  return trr;
+  trr.setTable(getTable());
+  return new RecordReader<ImmutableBytesWritable,Result>(){
+    @Override public void close() throws IOException {
+      trr.close();
+      closeTable();
+    }
+    @Override public ImmutableBytesWritable getCurrentKey() throws IOException, InterruptedException {
+      return trr.getCurrentKey();
+    }
+    @Override public Result getCurrentValue() throws IOException, InterruptedException {
+      return trr.getCurrentValue();
+    }
+    @Override public float getProgress() throws IOException, InterruptedException {
+      return trr.getProgress();
+    }
+    @Override public void initialize(    InputSplit inputsplit,    TaskAttemptContext context) throws IOException, InterruptedException {
+      trr.initialize(inputsplit,context);
+    }
+    @Override public boolean nextKeyValue() throws IOException, InterruptedException {
+      return trr.nextKeyValue();
+    }
+  }
+;
 }

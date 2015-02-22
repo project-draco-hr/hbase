@@ -1,0 +1,42 @@
+{
+  UserProvider userProvider=UserProvider.instantiate(conf);
+  boolean securityEnabled=userProvider.isHadoopSecurityEnabled() && userProvider.isHBaseSecurityEnabled();
+  if (!securityEnabled)   return null;
+  String host=null;
+  try {
+    host=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.client.dns.interface","default"),conf.get("hbase.client.dns.nameserver","default")));
+    userProvider.login("hbase.client.keytab.file","hbase.client.kerberos.principal",host);
+  }
+ catch (  UnknownHostException e) {
+    LOG.error("Error resolving host name");
+    throw e;
+  }
+catch (  IOException e) {
+    LOG.error("Error while trying to perform the initial login");
+    throw e;
+  }
+  final UserGroupInformation ugi=userProvider.getCurrent().getUGI();
+  Stoppable stoppable=new Stoppable(){
+    private volatile boolean isStopped=false;
+    @Override public void stop(    String why){
+      isStopped=true;
+    }
+    @Override public boolean isStopped(){
+      return isStopped;
+    }
+  }
+;
+  final int CHECK_TGT_INTERVAL=30 * 1000;
+  ScheduledChore refreshCredentials=new ScheduledChore("RefreshCredentials",stoppable,CHECK_TGT_INTERVAL){
+    @Override protected void chore(){
+      try {
+        ugi.checkTGTAndReloginFromKeytab();
+      }
+ catch (      IOException e) {
+        LOG.info("Got exception while trying to refresh credentials ");
+      }
+    }
+  }
+;
+  return refreshCredentials;
+}

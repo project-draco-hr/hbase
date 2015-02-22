@@ -1,0 +1,34 @@
+{
+  StringBuilder refsSb=null;
+  if (refs.isEmpty())   return refsSb;
+  refsSb=new StringBuilder();
+  String comma="";
+  TableName tn=getTableName(context.getConfiguration());
+  try (Table t=this.connection.getTable(tn)){
+    for (    byte[] ref : refs) {
+      Result r=t.get(new Get(ref));
+      List<Cell> cells=r.listCells();
+      String ts=(cells != null && !cells.isEmpty()) ? new java.util.Date(cells.get(0).getTimestamp()).toString() : "";
+      byte[] b=r.getValue(FAMILY_NAME,COLUMN_CLIENT);
+      String jobStr=(b != null && b.length > 0) ? Bytes.toString(b) : "";
+      b=r.getValue(FAMILY_NAME,COLUMN_COUNT);
+      long count=(b != null && b.length > 0) ? Bytes.toLong(b) : -1;
+      b=r.getValue(FAMILY_NAME,COLUMN_PREV);
+      String refRegionLocation="";
+      String keyRegionLocation="";
+      if (b != null && b.length > 0) {
+        try (RegionLocator rl=this.connection.getRegionLocator(tn)){
+          HRegionLocation hrl=rl.getRegionLocation(b);
+          if (hrl != null)           refRegionLocation=hrl.toString();
+          hrl=rl.getRegionLocation(key.getBytes());
+          if (hrl != null)           keyRegionLocation=hrl.toString();
+        }
+       }
+      LOG.error("Extras on ref without a def, ref=" + Bytes.toStringBinary(ref) + ", refPrevEqualsKey="+ (Bytes.compareTo(key.getBytes(),0,key.getLength(),b,0,b.length) == 0)+ ", key="+ Bytes.toStringBinary(key.getBytes(),0,key.getLength())+ ", ref row date="+ ts+ ", jobStr="+ jobStr+ ", ref row count="+ count+ ", ref row regionLocation="+ refRegionLocation+ ", key row regionLocation="+ keyRegionLocation);
+      refsSb.append(comma);
+      comma=",";
+      refsSb.append(Bytes.toStringBinary(ref));
+    }
+  }
+   return refsSb;
+}

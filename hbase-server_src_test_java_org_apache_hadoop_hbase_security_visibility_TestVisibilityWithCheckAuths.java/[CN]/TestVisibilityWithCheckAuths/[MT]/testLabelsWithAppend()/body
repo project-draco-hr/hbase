@@ -11,17 +11,18 @@
   }
 ;
   SUPERUSER.runAs(action);
-  TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
-  HTable table=null;
+  final TableName tableName=TableName.valueOf(TEST_NAME.getMethodName());
+  Table table=null;
   try {
     table=TEST_UTIL.createTable(tableName,fam);
     final byte[] row1=Bytes.toBytes("row1");
     final byte[] val=Bytes.toBytes("a");
     PrivilegedExceptionAction<Void> actiona=new PrivilegedExceptionAction<Void>(){
       @Override public Void run() throws Exception {
-        HTable table=null;
+        Connection connection=ConnectionFactory.createConnection(conf);
+        Table table=null;
         try {
-          table=new HTable(conf,TEST_NAME.getMethodName());
+          table=connection.getTable(tableName);
           Put put=new Put(row1);
           put.add(fam,qual,HConstants.LATEST_TIMESTAMP,val);
           put.setCellVisibility(new CellVisibility(TOPSECRET));
@@ -29,6 +30,7 @@
         }
   finally {
           table.close();
+          connection.close();
         }
         return null;
       }
@@ -37,15 +39,17 @@
     USER.runAs(actiona);
     actiona=new PrivilegedExceptionAction<Void>(){
       @Override public Void run() throws Exception {
-        HTable table=null;
+        Connection connection=ConnectionFactory.createConnection(conf);
+        Table table=null;
         try {
-          table=new HTable(conf,TEST_NAME.getMethodName());
+          table=TEST_UTIL.getConnection().getTable(tableName);
           Append append=new Append(row1);
           append.add(fam,qual,Bytes.toBytes("b"));
           table.append(append);
         }
   finally {
           table.close();
+          connection.close();
         }
         return null;
       }
@@ -54,9 +58,11 @@
     USER.runAs(actiona);
     actiona=new PrivilegedExceptionAction<Void>(){
       @Override public Void run() throws Exception {
-        HTable table=null;
+        Table table=null;
+        Connection connection=null;
         try {
-          table=new HTable(conf,TEST_NAME.getMethodName());
+          connection=ConnectionFactory.createConnection(conf);
+          table=connection.getTable(tableName);
           Append append=new Append(row1);
           append.add(fam,qual,Bytes.toBytes("c"));
           append.setCellVisibility(new CellVisibility(PUBLIC));
@@ -67,7 +73,12 @@
           assertTrue(t.getMessage().contains("AccessDeniedException"));
         }
  finally {
-          table.close();
+          if (table != null) {
+            table.close();
+          }
+          if (connection != null) {
+            connection.close();
+          }
         }
         return null;
       }

@@ -1,0 +1,51 @@
+{
+  List<RetriesExhaustedException.ThrowableWithExtraContext> exceptions=new ArrayList<RetriesExhaustedException.ThrowableWithExtraContext>();
+  this.globalStartTime=EnvironmentEdgeManager.currentTime();
+  context.clear();
+  for (int tries=0; ; tries++) {
+    long expectedSleep;
+    try {
+      callable.prepare(tries != 0);
+      interceptor.intercept(context.prepare(callable,tries));
+      return callable.call(getRemainingTime(callTimeout));
+    }
+ catch (    PreemptiveFastFailException e) {
+      throw e;
+    }
+catch (    Throwable t) {
+      ExceptionUtil.rethrowIfInterrupt(t);
+      if (tries > startLogErrorsCnt) {
+        LOG.info("Call exception, tries=" + tries + ", retries="+ retries+ ", started="+ (EnvironmentEdgeManager.currentTime() - this.globalStartTime)+ " ms ago, "+ "cancelled="+ cancelled.get()+ ", msg="+ callable.getExceptionMessageAdditionalDetail());
+      }
+      interceptor.handleFailure(context,t);
+      t=translateException(t);
+      callable.throwable(t,retries != 1);
+      RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(t,EnvironmentEdgeManager.currentTime(),toString());
+      exceptions.add(qt);
+      if (tries >= retries - 1) {
+        throw new RetriesExhaustedException(tries,exceptions);
+      }
+      expectedSleep=callable.sleep(pause,tries + 1);
+      long duration=singleCallDuration(expectedSleep);
+      if (duration > callTimeout) {
+        String msg="callTimeout=" + callTimeout + ", callDuration="+ duration+ ": "+ callable.getExceptionMessageAdditionalDetail();
+        throw (SocketTimeoutException)(new SocketTimeoutException(msg).initCause(t));
+      }
+    }
+ finally {
+      interceptor.updateFailureInfo(context);
+    }
+    try {
+      if (expectedSleep > 0) {
+synchronized (cancelled) {
+          if (cancelled.get())           return null;
+          cancelled.wait(expectedSleep);
+        }
+      }
+      if (cancelled.get())       return null;
+    }
+ catch (    InterruptedException e) {
+      throw new InterruptedIOException("Interrupted after " + tries + " tries  on "+ retries);
+    }
+  }
+}

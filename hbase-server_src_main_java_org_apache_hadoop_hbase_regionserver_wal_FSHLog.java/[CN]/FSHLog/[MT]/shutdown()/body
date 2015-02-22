@@ -1,0 +1,36 @@
+{
+  if (shutdown.compareAndSet(false,true)) {
+    try {
+      closeBarrier.stopAndDrainOps();
+    }
+ catch (    InterruptedException e) {
+      LOG.error("Exception while waiting for cache flushes and log rolls",e);
+      Thread.currentThread().interrupt();
+    }
+    if (this.disruptor != null) {
+      long timeoutms=conf.getLong("hbase.wal.disruptor.shutdown.timeout.ms",60000);
+      try {
+        this.disruptor.shutdown(timeoutms,TimeUnit.MILLISECONDS);
+      }
+ catch (      TimeoutException e) {
+        LOG.warn("Timed out bringing down disruptor after " + timeoutms + "ms; forcing halt "+ "(It is a problem if this is NOT an ABORT! -- DATALOSS!!!!)");
+        this.disruptor.halt();
+        this.disruptor.shutdown();
+      }
+    }
+    if (this.appendExecutor != null)     this.appendExecutor.shutdown();
+    if (!this.listeners.isEmpty()) {
+      for (      WALActionsListener i : this.listeners) {
+        i.logCloseRequested();
+      }
+    }
+    this.closed=true;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Closing WAL writer in " + FSUtils.getPath(fullPathLogDir));
+    }
+    if (this.writer != null) {
+      this.writer.close();
+      this.writer=null;
+    }
+  }
+}

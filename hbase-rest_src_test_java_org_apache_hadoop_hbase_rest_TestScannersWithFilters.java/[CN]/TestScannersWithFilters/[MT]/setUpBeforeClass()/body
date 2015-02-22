@@ -1,0 +1,75 @@
+{
+  TEST_UTIL.startMiniCluster(3);
+  REST_TEST_UTIL.startServletContainer(TEST_UTIL.getConfiguration());
+  context=JAXBContext.newInstance(CellModel.class,CellSetModel.class,RowModel.class,ScannerModel.class);
+  marshaller=context.createMarshaller();
+  unmarshaller=context.createUnmarshaller();
+  client=new Client(new Cluster().add("localhost",REST_TEST_UTIL.getServletPort()));
+  Admin admin=TEST_UTIL.getHBaseAdmin();
+  if (!admin.tableExists(TABLE)) {
+    HTableDescriptor htd=new HTableDescriptor(TABLE);
+    htd.addFamily(new HColumnDescriptor(FAMILIES[0]));
+    htd.addFamily(new HColumnDescriptor(FAMILIES[1]));
+    admin.createTable(htd);
+    Table table=TEST_UTIL.getConnection().getTable(TABLE);
+    for (    byte[] ROW : ROWS_ONE) {
+      Put p=new Put(ROW);
+      p.setDurability(Durability.SKIP_WAL);
+      for (      byte[] QUALIFIER : QUALIFIERS_ONE) {
+        p.add(FAMILIES[0],QUALIFIER,VALUES[0]);
+      }
+      table.put(p);
+    }
+    for (    byte[] ROW : ROWS_TWO) {
+      Put p=new Put(ROW);
+      p.setDurability(Durability.SKIP_WAL);
+      for (      byte[] QUALIFIER : QUALIFIERS_TWO) {
+        p.add(FAMILIES[1],QUALIFIER,VALUES[1]);
+      }
+      table.put(p);
+    }
+    for (    byte[] ROW : ROWS_ONE) {
+      Put p=new Put(ROW);
+      p.setDurability(Durability.SKIP_WAL);
+      for (      byte[] QUALIFIER : QUALIFIERS_ONE) {
+        p.add(FAMILIES[1],QUALIFIER,VALUES[0]);
+      }
+      table.put(p);
+    }
+    for (    byte[] ROW : ROWS_TWO) {
+      Put p=new Put(ROW);
+      p.setDurability(Durability.SKIP_WAL);
+      for (      byte[] QUALIFIER : QUALIFIERS_TWO) {
+        p.add(FAMILIES[0],QUALIFIER,VALUES[1]);
+      }
+      table.put(p);
+    }
+    for (    byte[] ROW : ROWS_ONE) {
+      Delete d=new Delete(ROW);
+      d.deleteColumns(FAMILIES[0],QUALIFIERS_ONE[1]);
+      d.deleteColumns(FAMILIES[1],QUALIFIERS_ONE[1]);
+      table.delete(d);
+    }
+    for (    byte[] ROW : ROWS_TWO) {
+      Delete d=new Delete(ROW);
+      d.deleteColumns(FAMILIES[0],QUALIFIERS_TWO[1]);
+      d.deleteColumns(FAMILIES[1],QUALIFIERS_TWO[1]);
+      table.delete(d);
+    }
+    colsPerRow-=2;
+    for (    byte[] QUALIFIER : QUALIFIERS_ONE) {
+      Delete d=new Delete(ROWS_ONE[1]);
+      d.deleteColumns(FAMILIES[0],QUALIFIER);
+      d.deleteColumns(FAMILIES[1],QUALIFIER);
+      table.delete(d);
+    }
+    for (    byte[] QUALIFIER : QUALIFIERS_TWO) {
+      Delete d=new Delete(ROWS_TWO[1]);
+      d.deleteColumns(FAMILIES[0],QUALIFIER);
+      d.deleteColumns(FAMILIES[1],QUALIFIER);
+      table.delete(d);
+    }
+    numRows-=2;
+    table.close();
+  }
+}

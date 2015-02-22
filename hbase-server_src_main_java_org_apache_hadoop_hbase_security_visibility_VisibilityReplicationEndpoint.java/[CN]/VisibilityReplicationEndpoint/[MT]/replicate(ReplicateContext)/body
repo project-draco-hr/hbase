@@ -1,0 +1,46 @@
+{
+  if (!delegator.canReplicateToSameCluster()) {
+    List<Entry> entries=replicateContext.getEntries();
+    List<Tag> visTags=new ArrayList<Tag>();
+    List<Tag> nonVisTags=new ArrayList<Tag>();
+    List<Entry> newEntries=new ArrayList<Entry>(entries.size());
+    for (    Entry entry : entries) {
+      WALEdit newEdit=new WALEdit();
+      ArrayList<Cell> cells=entry.getEdit().getCells();
+      for (      Cell cell : cells) {
+        if (cell.getTagsLength() > 0) {
+          visTags.clear();
+          nonVisTags.clear();
+          Byte serializationFormat=VisibilityUtils.extractAndPartitionTags(cell,visTags,nonVisTags);
+          if (!visTags.isEmpty()) {
+            try {
+              byte[] modifiedVisExpression=visibilityLabelsService.encodeVisibilityForReplication(visTags,serializationFormat);
+              if (modifiedVisExpression != null) {
+                nonVisTags.add(new Tag(TagType.STRING_VIS_TAG_TYPE,modifiedVisExpression));
+              }
+            }
+ catch (            Exception ioe) {
+              LOG.error("Exception while reading the visibility labels from the cell. The replication " + "would happen as per the existing format and not as " + "string type for the cell " + cell + ".",ioe);
+              newEdit.add(cell);
+              continue;
+            }
+            Cell newCell=new TagRewriteCell(cell,Tag.fromList(nonVisTags));
+            newEdit.add(newCell);
+          }
+ else {
+            newEdit.add(cell);
+          }
+        }
+ else {
+          newEdit.add(cell);
+        }
+      }
+      newEntries.add(new Entry(entry.getKey(),newEdit));
+    }
+    replicateContext.setEntries(newEntries);
+    return delegator.replicate(replicateContext);
+  }
+ else {
+    return delegator.replicate(replicateContext);
+  }
+}

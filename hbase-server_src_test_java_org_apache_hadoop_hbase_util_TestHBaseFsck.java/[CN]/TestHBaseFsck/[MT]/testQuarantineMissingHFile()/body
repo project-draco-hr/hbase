@@ -1,14 +1,12 @@
 {
   TableName table=TableName.valueOf(name.getMethodName());
-  ExecutorService exec=new ScheduledThreadPoolExecutor(10);
   final FileSystem fs=FileSystem.get(conf);
-  HBaseFsck hbck=new HBaseFsck(conf,exec){
+  HBaseFsck hbck=new HBaseFsck(conf,hbfsckExecutorService){
     @Override public HFileCorruptionChecker createHFileCorruptionChecker(    boolean sidelineCorruptHFiles) throws IOException {
       return new HFileCorruptionChecker(conf,executor,sidelineCorruptHFiles){
-        boolean attemptedFirstHFile=false;
+        AtomicBoolean attemptedFirstHFile=new AtomicBoolean(false);
         @Override protected void checkHFile(        Path p) throws IOException {
-          if (!attemptedFirstHFile) {
-            attemptedFirstHFile=true;
+          if (attemptedFirstHFile.compareAndSet(false,true)) {
             assertTrue(fs.delete(p,true));
           }
           super.checkHFile(p);
@@ -19,4 +17,5 @@
   }
 ;
   doQuarantineTest(table,hbck,4,0,0,0,1);
+  hbck.close();
 }

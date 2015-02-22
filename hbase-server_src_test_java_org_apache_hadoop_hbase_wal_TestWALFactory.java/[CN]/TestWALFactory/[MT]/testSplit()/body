@@ -1,0 +1,37 @@
+{
+  final TableName tableName=TableName.valueOf(currentTest.getMethodName());
+  final byte[] rowName=tableName.getName();
+  final Path logdir=new Path(hbaseDir,DefaultWALProvider.getWALDirectoryName(currentTest.getMethodName()));
+  Path oldLogDir=new Path(hbaseDir,HConstants.HREGION_OLDLOGDIR_NAME);
+  final int howmany=3;
+  HRegionInfo[] infos=new HRegionInfo[3];
+  Path tabledir=FSUtils.getTableDir(hbaseDir,tableName);
+  fs.mkdirs(tabledir);
+  for (int i=0; i < howmany; i++) {
+    infos[i]=new HRegionInfo(tableName,Bytes.toBytes("" + i),Bytes.toBytes("" + (i + 1)),false);
+    fs.mkdirs(new Path(tabledir,infos[i].getEncodedName()));
+    LOG.info("allo " + new Path(tabledir,infos[i].getEncodedName()).toString());
+  }
+  HTableDescriptor htd=new HTableDescriptor(tableName);
+  htd.addFamily(new HColumnDescriptor("column"));
+  final AtomicLong sequenceId=new AtomicLong(1);
+  for (int ii=0; ii < howmany; ii++) {
+    for (int i=0; i < howmany; i++) {
+      final WAL log=wals.getWAL(infos[i].getEncodedNameAsBytes());
+      for (int j=0; j < howmany; j++) {
+        WALEdit edit=new WALEdit();
+        byte[] family=Bytes.toBytes("column");
+        byte[] qualifier=Bytes.toBytes(Integer.toString(j));
+        byte[] column=Bytes.toBytes("column:" + Integer.toString(j));
+        edit.add(new KeyValue(rowName,family,qualifier,System.currentTimeMillis(),column));
+        LOG.info("Region " + i + ": "+ edit);
+        log.append(htd,infos[i],new WALKey(infos[i].getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),edit,sequenceId,true,null);
+      }
+      log.sync();
+      log.rollWriter();
+    }
+  }
+  wals.shutdown();
+  List<Path> splits=WALSplitter.split(hbaseDir,logdir,oldLogDir,fs,conf,wals);
+  verifySplits(splits,howmany);
+}

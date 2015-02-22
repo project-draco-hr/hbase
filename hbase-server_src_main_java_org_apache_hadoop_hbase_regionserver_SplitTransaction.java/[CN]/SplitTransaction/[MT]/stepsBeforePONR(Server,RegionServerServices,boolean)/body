@@ -2,9 +2,9 @@
   if (services != null && !services.reportRegionStateTransition(TransitionCode.READY_TO_SPLIT,parent.getRegionInfo(),hri_a,hri_b)) {
     throw new IOException("Failed to get ok from master to split " + parent.getRegionNameAsString());
   }
-  this.journal.add(JournalEntry.SET_SPLITTING);
+  this.journal.add(new JournalEntry(JournalEntryType.SET_SPLITTING));
   this.parent.getRegionFileSystem().createSplitsDir();
-  this.journal.add(JournalEntry.CREATE_SPLIT_DIR);
+  this.journal.add(new JournalEntry(JournalEntryType.CREATE_SPLIT_DIR));
   Map<byte[],List<StoreFile>> hstoreFilesToSplit=null;
   Exception exceptionToThrow=null;
   try {
@@ -17,7 +17,7 @@
     exceptionToThrow=closedByOtherException;
   }
   if (exceptionToThrow != closedByOtherException) {
-    this.journal.add(JournalEntry.CLOSED_PARENT_REGION);
+    this.journal.add(new JournalEntry(JournalEntryType.CLOSED_PARENT_REGION));
   }
   if (exceptionToThrow != null) {
     if (exceptionToThrow instanceof IOException)     throw (IOException)exceptionToThrow;
@@ -26,11 +26,15 @@
   if (!testing) {
     services.removeFromOnlineRegions(this.parent,null);
   }
-  this.journal.add(JournalEntry.OFFLINED_PARENT);
-  splitStoreFiles(hstoreFilesToSplit);
-  this.journal.add(JournalEntry.STARTED_REGION_A_CREATION);
+  this.journal.add(new JournalEntry(JournalEntryType.OFFLINED_PARENT));
+  Pair<Integer,Integer> expectedReferences=splitStoreFiles(hstoreFilesToSplit);
+  this.journal.add(new JournalEntry(JournalEntryType.STARTED_REGION_A_CREATION));
+  assertReferenceFileCount(expectedReferences.getFirst(),this.parent.getRegionFileSystem().getSplitsDir(this.hri_a));
   HRegion a=this.parent.createDaughterRegionFromSplits(this.hri_a);
-  this.journal.add(JournalEntry.STARTED_REGION_B_CREATION);
+  assertReferenceFileCount(expectedReferences.getFirst(),new Path(this.parent.getRegionFileSystem().getTableDir(),this.hri_a.getEncodedName()));
+  this.journal.add(new JournalEntry(JournalEntryType.STARTED_REGION_B_CREATION));
+  assertReferenceFileCount(expectedReferences.getSecond(),this.parent.getRegionFileSystem().getSplitsDir(this.hri_b));
   HRegion b=this.parent.createDaughterRegionFromSplits(this.hri_b);
+  assertReferenceFileCount(expectedReferences.getSecond(),new Path(this.parent.getRegionFileSystem().getTableDir(),this.hri_b.getEncodedName()));
   return new PairOfSameType<HRegion>(a,b);
 }

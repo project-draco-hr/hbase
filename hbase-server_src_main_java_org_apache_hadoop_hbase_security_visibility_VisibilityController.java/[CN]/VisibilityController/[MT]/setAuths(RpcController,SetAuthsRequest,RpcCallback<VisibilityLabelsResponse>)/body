@@ -5,13 +5,15 @@
     setExceptionResults(auths.size(),new VisibilityControllerNotReadyException("VisibilityController not yet initialized!"),response);
   }
  else {
+    byte[] user=request.getUser().toByteArray();
+    List<byte[]> labelAuths=new ArrayList<byte[]>(auths.size());
     try {
       checkCallingUserAuth();
-      List<byte[]> labelAuths=new ArrayList<byte[]>(auths.size());
       for (      ByteString authBS : auths) {
         labelAuths.add(authBS.toByteArray());
       }
-      OperationStatus[] opStatus=this.visibilityLabelService.setAuths(request.getUser().toByteArray(),labelAuths);
+      OperationStatus[] opStatus=this.visibilityLabelService.setAuths(user,labelAuths);
+      logResult(true,"setAuths","Setting authorization for labels allowed",user,labelAuths,null);
       RegionActionResult successResult=RegionActionResult.newBuilder().build();
       for (      OperationStatus status : opStatus) {
         if (status.getOperationStatusCode() == SUCCESS) {
@@ -24,7 +26,12 @@
         }
       }
     }
- catch (    IOException e) {
+ catch (    AccessDeniedException e) {
+      logResult(false,"setAuths",e.getMessage(),user,labelAuths,null);
+      LOG.error("User is not having required permissions to set authorization",e);
+      setExceptionResults(auths.size(),e,response);
+    }
+catch (    IOException e) {
       LOG.error(e);
       setExceptionResults(auths.size(),e,response);
     }

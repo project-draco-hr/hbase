@@ -14,12 +14,18 @@
       LOG.warn("Null reader for " + file.getPath());
       continue;
     }
-    long keyCount=(r.getBloomFilterType() == store.getFamily().getBloomFilterType()) ? r.getFilterEntries() : r.getEntries();
+    long keyCount=r.getEntries();
     fd.maxKeyCount+=keyCount;
     Map<byte[],byte[]> fileInfo=r.loadFileInfo();
-    byte tmp[]=fileInfo.get(HFileWriterV2.MAX_MEMSTORE_TS_KEY);
-    if (tmp != null) {
-      fd.maxMVCCReadpoint=Math.max(fd.maxMVCCReadpoint,Bytes.toLong(tmp));
+    byte tmp[]=null;
+    if (r.isBulkLoaded()) {
+      fd.maxMVCCReadpoint=Math.max(fd.maxMVCCReadpoint,r.getSequenceID());
+    }
+ else {
+      tmp=fileInfo.get(HFileWriterV2.MAX_MEMSTORE_TS_KEY);
+      if (tmp != null) {
+        fd.maxMVCCReadpoint=Math.max(fd.maxMVCCReadpoint,Bytes.toLong(tmp));
+      }
     }
     tmp=fileInfo.get(FileInfo.MAX_TAGS_LEN);
     if (tmp != null) {
@@ -46,7 +52,7 @@
       fd.latestPutTs=trt.getMaximumTimestamp();
     }
     if (LOG.isDebugEnabled()) {
-      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ StringUtils.humanReadableInt(r.length())+ ", encoding="+ r.getHFileReader().getDataBlockEncoding()+ ", seqNum="+ seqNum+ (allFiles ? ", earliestPutTs=" + earliestPutTs : ""));
+      LOG.debug("Compacting " + file + ", keycount="+ keyCount+ ", bloomtype="+ r.getBloomFilterType().toString()+ ", size="+ TraditionalBinaryPrefix.long2String(r.length(),"",1)+ ", encoding="+ r.getHFileReader().getDataBlockEncoding()+ ", seqNum="+ seqNum+ (allFiles ? ", earliestPutTs=" + earliestPutTs : ""));
     }
   }
   return fd;

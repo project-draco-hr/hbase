@@ -4,15 +4,14 @@
   conf.setBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,true);
   conf.setInt(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,30 * 1024);
   conf.setInt("hbase.hstore.compactionThreshold",3);
-  conf.setInt("hfile.format.version",3);
   startCluster(NUM_RS);
   final AtomicLong sequenceId=new AtomicLong(100);
   final int NUM_REGIONS_TO_CREATE=40;
-  final int NUM_LOG_LINES=1000;
+  final int NUM_LOG_LINES=2000;
   master.balanceSwitch(false);
   List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
   final ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"table-creation",null);
-  HTable ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE);
+  Table ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE);
   List<HRegionInfo> regions=null;
   HRegionServer hrs=null;
   for (int i=0; i < NUM_RS; i++) {
@@ -53,14 +52,15 @@
   long timeStamp=System.currentTimeMillis();
   HTableDescriptor htd=new HTableDescriptor(tableName);
   htd.addFamily(new HColumnDescriptor(family));
+  final WAL wal=hrs.getWAL(curRegionInfo);
   for (int i=0; i < NUM_LOG_LINES; i+=1) {
     WALEdit e=new WALEdit();
     value++;
     e.add(new KeyValue(row,family,qualifier,timeStamp,Bytes.toBytes(value)));
-    hrs.getWAL().append(curRegionInfo,tableName,e,System.currentTimeMillis(),htd,sequenceId);
+    wal.append(htd,curRegionInfo,new HLogKey(curRegionInfo.getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),e,sequenceId,true,null);
   }
-  hrs.getWAL().sync();
-  hrs.getWAL().close();
+  wal.sync();
+  wal.shutdown();
   this.abortRSAndWaitForRecovery(hrs,zkw,NUM_REGIONS_TO_CREATE);
   LOG.info("Verification Starts...");
   Get g=new Get(row);

@@ -1,21 +1,26 @@
 {
   int actionsRemaining=actionsByServer.size();
   for (  Map.Entry<ServerName,MultiAction<Row>> e : actionsByServer.entrySet()) {
-    final ServerName server=e.getKey();
-    final MultiAction<Row> multiAction=e.getValue();
+    ServerName server=e.getKey();
+    MultiAction<Row> multiAction=e.getValue();
     incTaskCounters(multiAction.getRegions(),server);
-    Runnable runnable=Trace.wrap("AsyncProcess.sendMultiAction",new SingleServerRequestRunnable(multiAction,numAttempt,server));
-    if ((--actionsRemaining == 0) && reuseThread) {
-      runnable.run();
+    Collection<? extends Runnable> runnables=getNewMultiActionRunnable(server,multiAction,numAttempt);
+    if (runnables.size() > actionsRemaining) {
+      actionsRemaining=runnables.size();
     }
- else {
-      try {
-        pool.submit(runnable);
+    for (    Runnable runnable : runnables) {
+      if ((--actionsRemaining == 0) && reuseThread) {
+        runnable.run();
       }
- catch (      RejectedExecutionException ree) {
-        decTaskCounters(multiAction.getRegions(),server);
-        LOG.warn("#" + id + ", the task was rejected by the pool. This is unexpected."+ " Server is "+ server.getServerName(),ree);
-        receiveGlobalFailure(multiAction,server,numAttempt,ree);
+ else {
+        try {
+          pool.submit(runnable);
+        }
+ catch (        RejectedExecutionException ree) {
+          decTaskCounters(multiAction.getRegions(),server);
+          LOG.warn("#" + id + ", the task was rejected by the pool. This is unexpected."+ " Server is "+ server.getServerName(),ree);
+          receiveGlobalFailure(multiAction,server,numAttempt,ree);
+        }
       }
     }
   }

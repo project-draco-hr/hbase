@@ -1,0 +1,32 @@
+{
+  assert(labelsRegion != null || systemCall);
+  if (systemCall || labelsRegion == null) {
+    return this.labelsCache.getUserAuths(Bytes.toString(user));
+  }
+  Scan s=new Scan();
+  if (user != null && user.length > 0) {
+    s.addColumn(LABELS_TABLE_FAMILY,user);
+  }
+  Filter filter=VisibilityUtils.createVisibilityLabelFilter(this.labelsRegion,new Authorizations(SYSTEM_LABEL));
+  s.setFilter(filter);
+  ArrayList<String> auths=new ArrayList<String>();
+  RegionScanner scanner=this.labelsRegion.getScanner(s);
+  try {
+    List<Cell> results=new ArrayList<Cell>(1);
+    while (true) {
+      scanner.next(results);
+      if (results.isEmpty())       break;
+      Cell cell=results.get(0);
+      int ordinal=Bytes.toInt(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
+      String label=this.labelsCache.getLabel(ordinal);
+      if (label != null) {
+        auths.add(label);
+      }
+      results.clear();
+    }
+  }
+  finally {
+    scanner.close();
+  }
+  return auths;
+}

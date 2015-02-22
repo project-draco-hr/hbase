@@ -1,0 +1,36 @@
+{
+  TableName tableName=TableName.valueOf("testBulkLoadNativeHFile");
+  long l=System.currentTimeMillis();
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  createTable(admin,tableName);
+  Scan scan=createScan();
+  final Table table=init(admin,l,scan,tableName);
+  final Path hfilePath=writeToHFile(l,"/temp/testBulkLoadNativeHFile/","/temp/testBulkLoadNativeHFile/col/file",true);
+  Configuration conf=TEST_UTIL.getConfiguration();
+  conf.setBoolean("hbase.mapreduce.bulkload.assign.sequenceNumbers",true);
+  final LoadIncrementalHFiles bulkload=new LoadIncrementalHFiles(conf);
+  bulkload.doBulkLoad(hfilePath,(HTable)table);
+  ResultScanner scanner=table.getScanner(scan);
+  Result result=scanner.next();
+  result=scanAfterBulkLoad(scanner,result,"version2");
+  Put put0=new Put(Bytes.toBytes("row1"));
+  put0.add(new KeyValue(Bytes.toBytes("row1"),Bytes.toBytes("col"),Bytes.toBytes("q"),l,Bytes.toBytes("version3")));
+  table.put(put0);
+  admin.flush(tableName);
+  scanner=table.getScanner(scan);
+  result=scanner.next();
+  while (result != null) {
+    List<Cell> cells=result.getColumnCells(Bytes.toBytes("col"),Bytes.toBytes("q"));
+    for (    Cell _c : cells) {
+      if (Bytes.toString(_c.getRow()).equals("row1")) {
+        System.out.println(Bytes.toString(_c.getRow()));
+        System.out.println(Bytes.toString(_c.getQualifier()));
+        System.out.println(Bytes.toString(_c.getValue()));
+        Assert.assertEquals("version3",Bytes.toString(_c.getValue()));
+      }
+    }
+    result=scanner.next();
+  }
+  scanner.close();
+  table.close();
+}

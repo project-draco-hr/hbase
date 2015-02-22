@@ -1,11 +1,11 @@
 {
-  String tableName="testBulkLoadWithParallelScan";
+  TableName tableName=TableName.valueOf("testBulkLoadWithParallelScan");
   final long l=System.currentTimeMillis();
-  HBaseAdmin admin=new HBaseAdmin(TEST_UTIL.getConfiguration());
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
   createTable(admin,tableName);
   Scan scan=createScan();
-  final HTable table=init(admin,l,scan,tableName);
-  final Path hfilePath=writeToHFile(l,"/temp/testBulkLoadWithParallelScan/","/temp/testBulkLoadWithParallelScan/col/file");
+  final Table table=init(admin,l,scan,tableName);
+  final Path hfilePath=writeToHFile(l,"/temp/testBulkLoadWithParallelScan/","/temp/testBulkLoadWithParallelScan/col/file",false);
   Configuration conf=TEST_UTIL.getConfiguration();
   conf.setBoolean("hbase.mapreduce.bulkload.assign.sequenceNumbers",true);
   final LoadIncrementalHFiles bulkload=new LoadIncrementalHFiles(conf);
@@ -17,8 +17,7 @@
         Put put1=new Put(Bytes.toBytes("row5"));
         put1.add(new KeyValue(Bytes.toBytes("row5"),Bytes.toBytes("col"),Bytes.toBytes("q"),l,Bytes.toBytes("version0")));
         table.put(put1);
-        table.flushCommits();
-        bulkload.doBulkLoad(hfilePath,table);
+        bulkload.doBulkLoad(hfilePath,(HTable)table);
         latch.countDown();
       }
  catch (      TableNotFoundException e) {
@@ -31,5 +30,6 @@ catch (      IOException e) {
   latch.await();
   Result result=scanner.next();
   scanAfterBulkLoad(scanner,result,"version1");
+  scanner.close();
   table.close();
 }

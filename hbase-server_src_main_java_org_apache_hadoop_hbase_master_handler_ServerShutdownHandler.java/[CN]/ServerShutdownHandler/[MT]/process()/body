@@ -3,21 +3,24 @@
   final ServerName serverName=this.serverName;
   try {
     AssignmentManager am=services.getAssignmentManager();
+    ServerManager serverManager=services.getServerManager();
     if (isCarryingMeta() || !am.isFailoverCleanupDone()) {
-      this.services.getServerManager().processDeadServer(serverName,this.shouldSplitHlog);
+      serverManager.processDeadServer(serverName,this.shouldSplitWal);
       return;
     }
     Set<HRegionInfo> hris=null;
-    while (!this.server.isStopped()) {
-      try {
-        server.getMetaTableLocator().waitMetaRegionLocation(server.getZooKeeper());
-        hris=am.getRegionStates().getServerRegions(serverName);
-        break;
+    try {
+      server.getMetaTableLocator().waitMetaRegionLocation(server.getZooKeeper());
+      if (BaseLoadBalancer.tablesOnMaster(server.getConfiguration())) {
+        while (!this.server.isStopped() && serverManager.countOfRegionServers() < 2) {
+          Thread.sleep(100);
+        }
       }
- catch (      InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw (InterruptedIOException)new InterruptedIOException().initCause(e);
-      }
+      hris=am.getRegionStates().getServerRegions(serverName);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw (InterruptedIOException)new InterruptedIOException().initCause(e);
     }
     if (this.server.isStopped()) {
       throw new IOException("Server is stopped");
@@ -25,14 +28,14 @@
     this.services.getMasterFileSystem().setLogRecoveryMode();
     boolean distributedLogReplay=(this.services.getMasterFileSystem().getLogRecoveryMode() == RecoveryMode.LOG_REPLAY);
     try {
-      if (this.shouldSplitHlog) {
-        LOG.info("Splitting logs for " + serverName + " before assignment.");
+      if (this.shouldSplitWal) {
         if (distributedLogReplay) {
-          LOG.info("Mark regions in recovery before assignment.");
+          LOG.info("Mark regions in recovery for crashed server " + serverName + " before assignment; regions="+ hris);
           MasterFileSystem mfs=this.services.getMasterFileSystem();
           mfs.prepareLogReplay(serverName,hris);
         }
  else {
+          LOG.info("Splitting logs for " + serverName + " before assignment; region count="+ (hris == null ? 0 : hris.size()));
           this.services.getMasterFileSystem().splitLog(serverName);
         }
         am.getRegionStates().logSplit(serverName);
@@ -44,9 +47,17 @@
  catch (    IOException ioe) {
       resubmit(serverName,ioe);
     }
+    List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
+    int replicaCount=services.getConfiguration().getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM);
+    for (int i=1; i < replicaCount; i++) {
+      HRegionInfo metaHri=RegionReplicaUtil.getRegionInfoForReplica(HRegionInfo.FIRST_META_REGIONINFO,i);
+      if (am.isCarryingMetaReplica(serverName,metaHri)) {
+        LOG.info("Reassigning meta replica" + metaHri + " that was on "+ serverName);
+        toAssignRegions.add(metaHri);
+      }
+    }
     List<HRegionInfo> regionsInTransition=am.processServerShutdown(serverName);
     LOG.info("Reassigning " + ((hris == null) ? 0 : hris.size()) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (and "+ regionsInTransition.size()+ " regions(s) that were opening on this server)");
-    List<HRegionInfo> toAssignRegions=new ArrayList<HRegionInfo>();
     toAssignRegions.addAll(regionsInTransition);
     if (hris != null && !hris.isEmpty()) {
       RegionStates regionStates=am.getRegionStates();
@@ -70,16 +81,16 @@
                 continue;
               }
               LOG.info("Reassigning region with rs = " + rit);
-              regionStates.updateRegionState(hri,State.OFFLINE);
+              regionStates.updateRegionState(hri,RegionState.State.OFFLINE);
             }
- else             if (regionStates.isRegionInState(hri,State.SPLITTING_NEW,State.MERGING_NEW)) {
-              regionStates.updateRegionState(hri,State.OFFLINE);
+ else             if (regionStates.isRegionInState(hri,RegionState.State.SPLITTING_NEW,RegionState.State.MERGING_NEW)) {
+              regionStates.updateRegionState(hri,RegionState.State.OFFLINE);
             }
             toAssignRegions.add(hri);
           }
  else           if (rit != null) {
-            if ((rit.isPendingCloseOrClosing() || rit.isOffline()) && am.getTableStateManager().isTableState(hri.getTable(),ZooKeeperProtos.Table.State.DISABLED,ZooKeeperProtos.Table.State.DISABLING) || am.getReplicasToClose().contains(hri)) {
-              regionStates.updateRegionState(hri,State.OFFLINE);
+            if ((rit.isClosing() || rit.isFailedClose() || rit.isOffline()) && am.getTableStateManager().isTableState(hri.getTable(),TableState.State.DISABLED,TableState.State.DISABLING) || am.getReplicasToClose().contains(hri)) {
+              regionStates.updateRegionState(hri,RegionState.State.OFFLINE);
               am.offlineDisabledRegion(hri);
             }
  else {
@@ -99,7 +110,12 @@
       LOG.error("Caught " + ie + " during round-robin assignment");
       throw (InterruptedIOException)new InterruptedIOException().initCause(ie);
     }
-    if (this.shouldSplitHlog && distributedLogReplay) {
+catch (    IOException ioe) {
+      LOG.info("Caught " + ioe + " during region assignment, will retry");
+      serverManager.processDeadServer(serverName,this.shouldSplitWal && distributedLogReplay);
+      return;
+    }
+    if (this.shouldSplitWal && distributedLogReplay) {
       for (      HRegionInfo hri : toAssignRegions) {
         try {
           if (!am.waitOnRegionToClearRegionsInTransition(hri,regionAssignmentWaitTimeout)) {

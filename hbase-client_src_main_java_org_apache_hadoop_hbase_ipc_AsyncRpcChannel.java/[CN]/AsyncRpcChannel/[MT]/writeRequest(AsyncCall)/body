@@ -1,0 +1,37 @@
+{
+  try {
+    if (shouldCloseConnection) {
+      return;
+    }
+    final RPCProtos.RequestHeader.Builder requestHeaderBuilder=RPCProtos.RequestHeader.newBuilder();
+    requestHeaderBuilder.setCallId(call.id).setMethodName(call.method.getName()).setRequestParam(call.param != null);
+    if (Trace.isTracing()) {
+      Span s=Trace.currentSpan();
+      requestHeaderBuilder.setTraceInfo(TracingProtos.RPCTInfo.newBuilder().setParentId(s.getSpanId()).setTraceId(s.getTraceId()));
+    }
+    ByteBuffer cellBlock=client.buildCellBlock(call.controller.cellScanner());
+    if (cellBlock != null) {
+      final RPCProtos.CellBlockMeta.Builder cellBlockBuilder=RPCProtos.CellBlockMeta.newBuilder();
+      cellBlockBuilder.setLength(cellBlock.limit());
+      requestHeaderBuilder.setCellBlockMeta(cellBlockBuilder.build());
+    }
+    if (call.controller.getPriority() != 0) {
+      requestHeaderBuilder.setPriority(call.controller.getPriority());
+    }
+    RPCProtos.RequestHeader rh=requestHeaderBuilder.build();
+    int totalSize=IPCUtil.getTotalSizeWhenWrittenDelimited(rh,call.param);
+    if (cellBlock != null) {
+      totalSize+=cellBlock.remaining();
+    }
+    ByteBuf b=channel.alloc().directBuffer(4 + totalSize);
+    try (ByteBufOutputStream out=new ByteBufOutputStream(b)){
+      IPCUtil.write(out,rh,call.param,cellBlock);
+    }
+     channel.writeAndFlush(b).addListener(new CallWriteListener(this,call));
+  }
+ catch (  IOException e) {
+    if (!shouldCloseConnection) {
+      close(e);
+    }
+  }
+}

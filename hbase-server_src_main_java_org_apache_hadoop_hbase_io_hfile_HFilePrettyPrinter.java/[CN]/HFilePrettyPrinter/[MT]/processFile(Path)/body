@@ -1,10 +1,11 @@
 {
   if (verbose)   System.out.println("Scanning -> " + file);
-  FileSystem fs=file.getFileSystem(conf);
+  FileSystem fs=file.getFileSystem(getConf());
   if (!fs.exists(file)) {
     System.err.println("ERROR, file doesnt exist: " + file);
+    System.exit(-2);
   }
-  HFile.Reader reader=HFile.createReader(fs,file,new CacheConfig(conf),conf);
+  HFile.Reader reader=HFile.createReader(fs,file,new CacheConfig(getConf()),getConf());
   Map<byte[],byte[]> fileInfo=reader.loadFileInfo();
   KeyValueStatsCollector fileStats=null;
   if (verbose || printKey || checkRow|| checkFamily|| printStats) {
@@ -22,9 +23,22 @@
   if (shouldPrintMeta) {
     printMeta(reader,fileInfo);
   }
-  if (printBlocks) {
+  if (printBlockIndex) {
     System.out.println("Block Index:");
     System.out.println(reader.getDataBlockIndexReader());
+  }
+  if (printBlockHeaders) {
+    System.out.println("Block Headers:");
+    FSDataInputStreamWrapper fsdis=new FSDataInputStreamWrapper(fs,file);
+    long fileSize=fs.getFileStatus(file).getLen();
+    FixedFileTrailer trailer=FixedFileTrailer.readFromStream(fsdis.getStream(false),fileSize);
+    long offset=trailer.getFirstDataBlockOffset(), max=trailer.getLastDataBlockOffset();
+    HFileBlock block;
+    while (offset <= max) {
+      block=reader.readBlock(offset,-1,false,false,false,false,null,null);
+      offset+=block.getOnDiskSizeWithHeader();
+      System.out.println(block);
+    }
   }
   if (printStats) {
     fileStats.finish();

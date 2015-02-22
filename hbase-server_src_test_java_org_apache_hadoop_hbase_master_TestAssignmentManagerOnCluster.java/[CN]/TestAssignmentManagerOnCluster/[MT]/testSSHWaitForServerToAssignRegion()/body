@@ -1,0 +1,41 @@
+{
+  TableName table=TableName.valueOf("testSSHWaitForServerToAssignRegion");
+  MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+  boolean startAServer=false;
+  try {
+    HTableDescriptor desc=new HTableDescriptor(table);
+    desc.addFamily(new HColumnDescriptor(FAMILY));
+    admin.createTable(desc);
+    HMaster master=cluster.getMaster();
+    final ServerManager serverManager=master.getServerManager();
+    MyLoadBalancer.countRegionServers=Integer.valueOf(serverManager.countOfRegionServers());
+    HRegionServer rs=TEST_UTIL.getRSForFirstRegionInTable(table);
+    assertNotNull("First region should be assigned",rs);
+    final ServerName serverName=rs.getServerName();
+    int counter=MyLoadBalancer.counter.get() + 5;
+    cluster.killRegionServer(serverName);
+    startAServer=true;
+    cluster.waitForRegionServerToStop(serverName,-1);
+    while (counter > MyLoadBalancer.counter.get()) {
+      Thread.sleep(1000);
+    }
+    cluster.startRegionServer();
+    startAServer=false;
+    TEST_UTIL.waitFor(120000,1000,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return serverManager.isServerDead(serverName) && !serverManager.areDeadServersInProgress();
+      }
+    }
+);
+    TEST_UTIL.waitUntilNoRegionsInTransition(300000);
+    rs=TEST_UTIL.getRSForFirstRegionInTable(table);
+    assertTrue("First region should be re-assigned to a different server",rs != null && !serverName.equals(rs.getServerName()));
+  }
+  finally {
+    MyLoadBalancer.countRegionServers=null;
+    TEST_UTIL.deleteTable(table);
+    if (startAServer) {
+      cluster.startRegionServer();
+    }
+  }
+}

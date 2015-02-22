@@ -1,0 +1,72 @@
+{
+  servlet.getMetrics().incrementRequests(1);
+  if (servlet.isReadOnly()) {
+    servlet.getMetrics().incrementFailedPutRequests(1);
+    return Response.status(Response.Status.FORBIDDEN).type(MIMETYPE_TEXT).entity("Forbidden" + CRLF).build();
+  }
+  if (CHECK_PUT.equalsIgnoreCase(check)) {
+    return checkAndPut(model);
+  }
+ else   if (CHECK_DELETE.equalsIgnoreCase(check)) {
+    return checkAndDelete(model);
+  }
+ else   if (check != null && check.length() > 0) {
+    return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Invalid check value '" + check + "'"+ CRLF).build();
+  }
+  Table table=null;
+  try {
+    List<RowModel> rows=model.getRows();
+    List<Put> puts=new ArrayList<Put>();
+    for (    RowModel row : rows) {
+      byte[] key=row.getKey();
+      if (key == null) {
+        key=rowspec.getRow();
+      }
+      if (key == null) {
+        servlet.getMetrics().incrementFailedPutRequests(1);
+        return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Row key not specified." + CRLF).build();
+      }
+      Put put=new Put(key);
+      int i=0;
+      for (      CellModel cell : row.getCells()) {
+        byte[] col=cell.getColumn();
+        if (col == null)         try {
+          col=rowspec.getColumns()[i++];
+        }
+ catch (        ArrayIndexOutOfBoundsException e) {
+          col=null;
+        }
+        if (col == null) {
+          servlet.getMetrics().incrementFailedPutRequests(1);
+          return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request: Column found to be null." + CRLF).build();
+        }
+        byte[][] parts=KeyValue.parseColumn(col);
+        if (parts.length != 2) {
+          return Response.status(Response.Status.BAD_REQUEST).type(MIMETYPE_TEXT).entity("Bad request" + CRLF).build();
+        }
+        put.addImmutable(parts[0],parts[1],cell.getTimestamp(),cell.getValue());
+      }
+      puts.add(put);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("PUT " + put.toString());
+      }
+    }
+    table=servlet.getTable(tableResource.getName());
+    table.put(puts);
+    ResponseBuilder response=Response.ok();
+    servlet.getMetrics().incrementSucessfulPutRequests(1);
+    return response.build();
+  }
+ catch (  Exception e) {
+    servlet.getMetrics().incrementFailedPutRequests(1);
+    return processException(e);
+  }
+ finally {
+    if (table != null)     try {
+      table.close();
+    }
+ catch (    IOException ioe) {
+      LOG.debug("Exception received while closing the table",ioe);
+    }
+  }
+}

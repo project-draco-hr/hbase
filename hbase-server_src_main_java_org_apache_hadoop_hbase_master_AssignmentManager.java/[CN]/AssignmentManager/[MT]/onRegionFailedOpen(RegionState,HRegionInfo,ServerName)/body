@@ -1,0 +1,40 @@
+{
+  if (current == null || !current.isOpeningOrFailedOpenOnServer(serverName)) {
+    return hri.getShortNameToLog() + " is not opening on " + serverName;
+  }
+  if (current.isFailedOpen()) {
+    return null;
+  }
+  String encodedName=hri.getEncodedName();
+  AtomicInteger failedOpenCount=failedOpenTracker.get(encodedName);
+  if (failedOpenCount == null) {
+    failedOpenCount=new AtomicInteger();
+    failedOpenTracker.put(encodedName,failedOpenCount);
+  }
+  if (failedOpenCount.incrementAndGet() >= maximumAttempts && !hri.isMetaRegion()) {
+    regionStates.updateRegionState(hri,State.FAILED_OPEN);
+    failedOpenTracker.remove(encodedName);
+  }
+ else {
+    if (hri.isMetaRegion() && failedOpenCount.get() >= maximumAttempts) {
+      LOG.warn("Failed to open the hbase:meta region " + hri.getRegionNameAsString() + " after"+ failedOpenCount.get()+ " retries. Continue retrying.");
+    }
+    RegionState regionState=regionStates.updateRegionState(hri,State.CLOSED);
+    if (regionState != null) {
+      if (getTableStateManager().isTableState(hri.getTable(),TableState.State.DISABLED,TableState.State.DISABLING) || replicasToClose.contains(hri)) {
+        offlineDisabledRegion(hri);
+        return null;
+      }
+      regionStates.updateRegionState(hri,RegionState.State.CLOSED);
+      removeClosedRegion(hri);
+      try {
+        getRegionPlan(hri,true);
+      }
+ catch (      HBaseIOException e) {
+        LOG.warn("Failed to get region plan",e);
+      }
+      invokeAssign(hri);
+    }
+  }
+  return null;
+}

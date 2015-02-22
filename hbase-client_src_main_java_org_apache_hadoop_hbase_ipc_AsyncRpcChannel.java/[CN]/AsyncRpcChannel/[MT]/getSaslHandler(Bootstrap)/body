@@ -1,0 +1,24 @@
+{
+  return new SaslClientHandler(authMethod,token,serverPrincipal,client.fallbackAllowed,client.conf.get("hbase.rpc.protection",SaslUtil.QualityOfProtection.AUTHENTICATION.name().toLowerCase()),new SaslClientHandler.SaslExceptionHandler(){
+    @Override public void handle(    int retryCount,    Random random,    Throwable cause){
+      try {
+        handleSaslConnectionFailure(retryCount,cause,ticket.getUGI());
+        AsyncRpcClient.WHEEL_TIMER.newTimeout(new TimerTask(){
+          @Override public void run(          Timeout timeout) throws Exception {
+            connect(bootstrap);
+          }
+        }
+,random.nextInt(reloginMaxBackoff) + 1,TimeUnit.MILLISECONDS);
+      }
+ catch (      IOException|InterruptedException e) {
+        close(e);
+      }
+    }
+  }
+,new SaslClientHandler.SaslSuccessfulConnectHandler(){
+    @Override public void onSuccess(    Channel channel){
+      startHBaseConnection(channel);
+    }
+  }
+);
+}

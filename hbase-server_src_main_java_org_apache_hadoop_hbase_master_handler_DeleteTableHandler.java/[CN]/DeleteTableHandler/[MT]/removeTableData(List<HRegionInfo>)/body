@@ -1,36 +1,41 @@
 {
-  LOG.debug("Deleting regions from META");
-  MetaTableAccessor.deleteRegions(this.server.getShortCircuitConnection(),regions);
-  MasterFileSystem mfs=this.masterServices.getMasterFileSystem();
-  Path tempTableDir=mfs.moveTableToTemp(tableName);
-  FileSystem fs=mfs.getFileSystem();
-  for (  HRegionInfo hri : regions) {
-    LOG.debug("Archiving region " + hri.getRegionNameAsString() + " from FS");
-    HFileArchiver.archiveRegion(fs,mfs.getRootDir(),tempTableDir,HRegion.getRegionDir(tempTableDir,hri.getEncodedName()));
-  }
-  HColumnDescriptor[] hcds=hTableDescriptor.getColumnFamilies();
-  boolean hasMob=false;
-  for (  HColumnDescriptor hcd : hcds) {
-    if (hcd.isMobEnabled()) {
-      hasMob=true;
-      break;
+  try {
+    LOG.debug("Deleting regions from META");
+    MetaTableAccessor.deleteRegions(this.server.getConnection(),regions);
+    MasterFileSystem mfs=this.masterServices.getMasterFileSystem();
+    Path tempTableDir=mfs.moveTableToTemp(tableName);
+    FileSystem fs=mfs.getFileSystem();
+    for (    HRegionInfo hri : regions) {
+      LOG.debug("Archiving region " + hri.getRegionNameAsString() + " from FS");
+      HFileArchiver.archiveRegion(fs,mfs.getRootDir(),tempTableDir,HRegion.getRegionDir(tempTableDir,hri.getEncodedName()));
     }
-  }
-  Path mobTableDir=null;
-  if (hasMob) {
-    mobTableDir=FSUtils.getTableDir(new Path(mfs.getRootDir(),MobConstants.MOB_DIR_NAME),tableName);
-    Path regionDir=new Path(mobTableDir,MobUtils.getMobRegionInfo(tableName).getEncodedName());
-    if (fs.exists(regionDir)) {
-      HFileArchiver.archiveRegion(fs,mfs.getRootDir(),mobTableDir,regionDir);
+    HColumnDescriptor[] hcds=hTableDescriptor.getColumnFamilies();
+    boolean hasMob=false;
+    for (    HColumnDescriptor hcd : hcds) {
+      if (hcd.isMobEnabled()) {
+        hasMob=true;
+        break;
+      }
     }
-  }
-  if (!fs.delete(tempTableDir,true)) {
-    LOG.error("Couldn't delete " + tempTableDir);
-  }
-  if (hasMob && mobTableDir != null && fs.exists(mobTableDir)) {
-    if (!fs.delete(mobTableDir,true)) {
-      LOG.error("Couldn't delete " + mobTableDir);
+    Path mobTableDir=null;
+    if (hasMob) {
+      mobTableDir=FSUtils.getTableDir(new Path(mfs.getRootDir(),MobConstants.MOB_DIR_NAME),tableName);
+      Path regionDir=new Path(mobTableDir,MobUtils.getMobRegionInfo(tableName).getEncodedName());
+      if (fs.exists(regionDir)) {
+        HFileArchiver.archiveRegion(fs,mfs.getRootDir(),mobTableDir,regionDir);
+      }
     }
+    if (!fs.delete(tempTableDir,true)) {
+      LOG.error("Couldn't delete " + tempTableDir);
+    }
+    if (hasMob && mobTableDir != null && fs.exists(mobTableDir)) {
+      if (!fs.delete(mobTableDir,true)) {
+        LOG.error("Couldn't delete " + mobTableDir);
+      }
+    }
+    LOG.debug("Table '" + tableName + "' archived!");
   }
-  LOG.debug("Table '" + tableName + "' archived!");
+  finally {
+    cleanupTableState();
+  }
 }

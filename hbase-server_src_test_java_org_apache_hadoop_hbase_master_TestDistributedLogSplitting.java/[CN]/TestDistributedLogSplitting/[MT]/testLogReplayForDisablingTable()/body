@@ -6,8 +6,8 @@
   final int NUM_LOG_LINES=1000;
   List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
   final ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"table-creation",null);
-  HTable disablingHT=installTable(zkw,"disableTable","family",NUM_REGIONS_TO_CREATE);
-  HTable ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE,NUM_REGIONS_TO_CREATE);
+  Table disablingHT=installTable(zkw,"disableTable","family",NUM_REGIONS_TO_CREATE);
+  Table ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE,NUM_REGIONS_TO_CREATE);
   master.balanceSwitch(false);
   List<HRegionInfo> regions=null;
   HRegionServer hrs=null;
@@ -48,10 +48,11 @@
       it.remove();
     }
   }
-  makeHLog(hrs.getWAL(),regions,"disableTable","family",NUM_LOG_LINES,100,false);
-  makeHLog(hrs.getWAL(),regions,"table","family",NUM_LOG_LINES,100);
+  makeWAL(hrs,regions,"disableTable","family",NUM_LOG_LINES,100,false);
+  makeWAL(hrs,regions,"table","family",NUM_LOG_LINES,100);
   LOG.info("Disabling table\n");
   TEST_UTIL.getHBaseAdmin().disableTable(TableName.valueOf("disableTable"));
+  TEST_UTIL.waitTableDisabled(TableName.valueOf("disableTable").getName());
   LOG.info("Aborting region server: " + hrs.getServerName());
   hrs.abort("testing");
   TEST_UTIL.waitFor(120000,200,new Waiter.Predicate<Exception>(){
@@ -79,13 +80,21 @@
   Path rootdir=FSUtils.getRootDir(conf);
   Path tdir=FSUtils.getTableDir(rootdir,TableName.valueOf("disableTable"));
   for (  HRegionInfo hri : regions) {
-    Path editsdir=HLogUtil.getRegionDirRecoveredEditsDir(HRegion.getRegionDir(tdir,hri.getEncodedName()));
+    Path editsdir=WALSplitter.getRegionDirRecoveredEditsDir(HRegion.getRegionDir(tdir,hri.getEncodedName()));
     LOG.debug("checking edits dir " + editsdir);
     if (!fs.exists(editsdir))     continue;
-    FileStatus[] files=fs.listStatus(editsdir);
+    FileStatus[] files=fs.listStatus(editsdir,new PathFilter(){
+      @Override public boolean accept(      Path p){
+        if (WALSplitter.isSequenceIdFile(p)) {
+          return false;
+        }
+        return true;
+      }
+    }
+);
     if (files != null) {
       for (      FileStatus file : files) {
-        int c=countHLog(file.getPath(),fs,conf);
+        int c=countWAL(file.getPath(),fs,conf);
         count+=c;
         LOG.info(c + " edits in " + file.getPath());
       }
@@ -96,7 +105,7 @@
   LOG.info("Verify replayed edits");
   assertEquals(NUM_LOG_LINES,TEST_UTIL.countRows(ht));
   for (  HRegionInfo hri : regions) {
-    Path editsdir=HLogUtil.getRegionDirRecoveredEditsDir(HRegion.getRegionDir(tdir,hri.getEncodedName()));
+    Path editsdir=WALSplitter.getRegionDirRecoveredEditsDir(HRegion.getRegionDir(tdir,hri.getEncodedName()));
     fs.delete(editsdir,true);
   }
   disablingHT.close();

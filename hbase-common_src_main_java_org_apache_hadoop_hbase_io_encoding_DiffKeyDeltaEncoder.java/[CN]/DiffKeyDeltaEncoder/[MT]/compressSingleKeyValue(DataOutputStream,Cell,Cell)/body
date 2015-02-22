@@ -1,0 +1,88 @@
+{
+  byte flag=0;
+  int kLength=KeyValueUtil.keyLength(cell);
+  int vLength=cell.getValueLength();
+  long timestamp;
+  long diffTimestamp=0;
+  int diffTimestampFitsInBytes=0;
+  int timestampFitsInBytes;
+  int commonPrefix=0;
+  if (prevCell == null) {
+    timestamp=cell.getTimestamp();
+    if (timestamp < 0) {
+      flag|=FLAG_TIMESTAMP_SIGN;
+      timestamp=-timestamp;
+    }
+    timestampFitsInBytes=ByteBufferUtils.longFitsIn(timestamp);
+    flag|=(timestampFitsInBytes - 1) << SHIFT_TIMESTAMP_LENGTH;
+    byte familyLength=cell.getFamilyLength();
+    out.write(familyLength);
+    out.write(cell.getFamilyArray(),cell.getFamilyOffset(),familyLength);
+  }
+ else {
+    int preKeyLength=KeyValueUtil.keyLength(prevCell);
+    commonPrefix=CellUtil.findCommonPrefixInFlatKey(cell,prevCell,true,false);
+    if (kLength == preKeyLength) {
+      flag|=FLAG_SAME_KEY_LENGTH;
+    }
+    if (vLength == prevCell.getValueLength()) {
+      flag|=FLAG_SAME_VALUE_LENGTH;
+    }
+    if (cell.getTypeByte() == prevCell.getTypeByte()) {
+      flag|=FLAG_SAME_TYPE;
+    }
+    timestamp=cell.getTimestamp();
+    diffTimestamp=prevCell.getTimestamp() - timestamp;
+    boolean negativeTimestamp=timestamp < 0;
+    if (negativeTimestamp) {
+      timestamp=-timestamp;
+    }
+    timestampFitsInBytes=ByteBufferUtils.longFitsIn(timestamp);
+    boolean minusDiffTimestamp=diffTimestamp < 0;
+    if (minusDiffTimestamp) {
+      diffTimestamp=-diffTimestamp;
+    }
+    diffTimestampFitsInBytes=ByteBufferUtils.longFitsIn(diffTimestamp);
+    if (diffTimestampFitsInBytes < timestampFitsInBytes) {
+      flag|=(diffTimestampFitsInBytes - 1) << SHIFT_TIMESTAMP_LENGTH;
+      flag|=FLAG_TIMESTAMP_IS_DIFF;
+      if (minusDiffTimestamp) {
+        flag|=FLAG_TIMESTAMP_SIGN;
+      }
+    }
+ else {
+      flag|=(timestampFitsInBytes - 1) << SHIFT_TIMESTAMP_LENGTH;
+      if (negativeTimestamp) {
+        flag|=FLAG_TIMESTAMP_SIGN;
+      }
+    }
+  }
+  out.write(flag);
+  if ((flag & FLAG_SAME_KEY_LENGTH) == 0) {
+    ByteBufferUtils.putCompressedInt(out,kLength);
+  }
+  if ((flag & FLAG_SAME_VALUE_LENGTH) == 0) {
+    ByteBufferUtils.putCompressedInt(out,vLength);
+  }
+  ByteBufferUtils.putCompressedInt(out,commonPrefix);
+  short rLen=cell.getRowLength();
+  if (commonPrefix < rLen + KeyValue.ROW_LENGTH_SIZE) {
+    CellUtil.writeRowKeyExcludingCommon(cell,rLen,commonPrefix,out);
+    out.write(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+  }
+ else {
+    int commonQualPrefix=commonPrefix - (rLen + KeyValue.ROW_LENGTH_SIZE) - (cell.getFamilyLength() + KeyValue.FAMILY_LENGTH_SIZE);
+    out.write(cell.getQualifierArray(),cell.getQualifierOffset() + commonQualPrefix,cell.getQualifierLength() - commonQualPrefix);
+  }
+  if ((flag & FLAG_TIMESTAMP_IS_DIFF) == 0) {
+    ByteBufferUtils.putLong(out,timestamp,timestampFitsInBytes);
+  }
+ else {
+    ByteBufferUtils.putLong(out,diffTimestamp,diffTimestampFitsInBytes);
+  }
+  if ((flag & FLAG_SAME_TYPE) == 0) {
+    out.write(cell.getTypeByte());
+  }
+  out.write(cell.getValueArray(),cell.getValueOffset(),vLength);
+  return kLength + vLength + KeyValue.KEYVALUE_INFRASTRUCTURE_SIZE;
+}

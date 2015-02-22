@@ -1,0 +1,47 @@
+{
+  TEST_UTIL.startMiniCluster(3);
+  REST_TEST_UTIL.startServletContainer(TEST_UTIL.getConfiguration());
+  client=new Client(new Cluster().add("localhost",REST_TEST_UTIL.getServletPort()));
+  context=JAXBContext.newInstance(TableModel.class,TableInfoModel.class,TableListModel.class,TableRegionModel.class);
+  Admin admin=TEST_UTIL.getHBaseAdmin();
+  if (admin.tableExists(TABLE)) {
+    return;
+  }
+  HTableDescriptor htd=new HTableDescriptor(TABLE);
+  htd.addFamily(new HColumnDescriptor(COLUMN_FAMILY));
+  admin.createTable(htd);
+  HTable table=(HTable)TEST_UTIL.getConnection().getTable(TABLE);
+  byte[] k=new byte[3];
+  byte[][] famAndQf=KeyValue.parseColumn(Bytes.toBytes(COLUMN));
+  for (byte b1='a'; b1 < 'z'; b1++) {
+    for (byte b2='a'; b2 < 'z'; b2++) {
+      for (byte b3='a'; b3 < 'z'; b3++) {
+        k[0]=b1;
+        k[1]=b2;
+        k[2]=b3;
+        Put put=new Put(k);
+        put.setDurability(Durability.SKIP_WAL);
+        put.add(famAndQf[0],famAndQf[1],k);
+        table.put(put);
+      }
+    }
+  }
+  table.flushCommits();
+  Map<HRegionInfo,ServerName> m=table.getRegionLocations();
+  assertEquals(m.size(),1);
+  admin.split(TABLE);
+  long timeout=System.currentTimeMillis() + (15 * 1000);
+  while (System.currentTimeMillis() < timeout && m.size() != 2) {
+    try {
+      Thread.sleep(250);
+    }
+ catch (    InterruptedException e) {
+      LOG.warn(StringUtils.stringifyException(e));
+    }
+    m=table.getRegionLocations();
+  }
+  assertEquals(m.size(),2);
+  regionMap=m;
+  LOG.info("regions: " + regionMap);
+  table.close();
+}

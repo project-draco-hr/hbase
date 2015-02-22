@@ -1,0 +1,58 @@
+{
+  byte flag=0;
+  int kLength=KeyValueUtil.keyLength(cell);
+  int vLength=cell.getValueLength();
+  if (prevCell == null) {
+    out.write(flag);
+    ByteBufferUtils.putCompressedInt(out,kLength);
+    ByteBufferUtils.putCompressedInt(out,vLength);
+    ByteBufferUtils.putCompressedInt(out,0);
+    CellUtil.writeFlatKey(cell,out);
+    out.write(cell.getValueArray(),cell.getValueOffset(),cell.getValueLength());
+  }
+ else {
+    int preKeyLength=KeyValueUtil.keyLength(prevCell);
+    int preValLength=prevCell.getValueLength();
+    int commonPrefix=CellUtil.findCommonPrefixInFlatKey(cell,prevCell,true,false);
+    if (kLength == preKeyLength) {
+      flag|=FLAG_SAME_KEY_LENGTH;
+    }
+    if (vLength == prevCell.getValueLength()) {
+      flag|=FLAG_SAME_VALUE_LENGTH;
+    }
+    if (cell.getTypeByte() == prevCell.getTypeByte()) {
+      flag|=FLAG_SAME_TYPE;
+    }
+    byte[] curTsBuf=Bytes.toBytes(cell.getTimestamp());
+    int commonTimestampPrefix=findCommonTimestampPrefix(curTsBuf,Bytes.toBytes(prevCell.getTimestamp()));
+    flag|=commonTimestampPrefix << SHIFT_TIMESTAMP_LENGTH;
+    if (vLength == preValLength && Bytes.equals(cell.getValueArray(),cell.getValueOffset(),vLength,prevCell.getValueArray(),prevCell.getValueOffset(),preValLength)) {
+      flag|=FLAG_SAME_VALUE;
+    }
+    out.write(flag);
+    if ((flag & FLAG_SAME_KEY_LENGTH) == 0) {
+      ByteBufferUtils.putCompressedInt(out,kLength);
+    }
+    if ((flag & FLAG_SAME_VALUE_LENGTH) == 0) {
+      ByteBufferUtils.putCompressedInt(out,vLength);
+    }
+    ByteBufferUtils.putCompressedInt(out,commonPrefix);
+    short rLen=cell.getRowLength();
+    if (commonPrefix < rLen + KeyValue.ROW_LENGTH_SIZE) {
+      CellUtil.writeRowKeyExcludingCommon(cell,rLen,commonPrefix,out);
+      out.write(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
+    }
+ else {
+      int commonQualPrefix=commonPrefix - (rLen + KeyValue.ROW_LENGTH_SIZE) - (cell.getFamilyLength() + KeyValue.FAMILY_LENGTH_SIZE);
+      out.write(cell.getQualifierArray(),cell.getQualifierOffset() + commonQualPrefix,cell.getQualifierLength() - commonQualPrefix);
+    }
+    out.write(curTsBuf,commonTimestampPrefix,KeyValue.TIMESTAMP_SIZE - commonTimestampPrefix);
+    if ((flag & FLAG_SAME_TYPE) == 0) {
+      out.write(cell.getTypeByte());
+    }
+    if ((flag & FLAG_SAME_VALUE) == 0) {
+      out.write(cell.getValueArray(),cell.getValueOffset(),vLength);
+    }
+  }
+  return kLength + vLength + KeyValue.KEYVALUE_INFRASTRUCTURE_SIZE;
+}

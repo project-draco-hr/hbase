@@ -2,37 +2,37 @@
   Configuration conf=util.getConfiguration();
   conf.setInt("hbase.hstore.compaction.min",2);
   generateRandomStartKeys(5);
-  try {
-    util.startMiniCluster();
+  util.startMiniCluster();
+  try (Connection conn=ConnectionFactory.createConnection(conf);Admin admin=conn.getAdmin()){
     Path testDir=util.getDataTestDirOnTestFS("testExcludeMinorCompaction");
     final FileSystem fs=util.getDFSCluster().getFileSystem();
-    HBaseAdmin admin=new HBaseAdmin(conf);
-    HTable table=util.createTable(TABLE_NAME,FAMILIES);
+    Table table=util.createTable(TABLE_NAME,FAMILIES);
     assertEquals("Should start with empty table",0,util.countRows(table));
     final Path storePath=new Path(FSUtils.getTableDir(FSUtils.getRootDir(conf),TABLE_NAME),new Path(admin.getTableRegions(TABLE_NAME).get(0).getEncodedName(),Bytes.toString(FAMILIES[0])));
     assertEquals(0,fs.listStatus(storePath).length);
     Put p=new Put(Bytes.toBytes("test"));
     p.add(FAMILIES[0],Bytes.toBytes("1"),Bytes.toBytes("1"));
     table.put(p);
-    admin.flush(TABLE_NAME.getName());
+    admin.flush(TABLE_NAME);
     assertEquals(1,util.countRows(table));
     quickPoll(new Callable<Boolean>(){
-      public Boolean call() throws Exception {
+      @Override public Boolean call() throws Exception {
         return fs.listStatus(storePath).length == 1;
       }
     }
 ,5000);
     conf.setBoolean("hbase.mapreduce.hfileoutputformat.compaction.exclude",true);
     util.startMiniMapReduceCluster();
-    runIncrementalPELoad(conf,table,testDir);
-    new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
+    RegionLocator regionLocator=conn.getRegionLocator(TABLE_NAME);
+    runIncrementalPELoad(conf,table.getTableDescriptor(),regionLocator,testDir);
+    new LoadIncrementalHFiles(conf).doBulkLoad(testDir,admin,table,regionLocator);
     int expectedRows=NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
     assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows + 1,util.countRows(table));
     assertEquals(2,fs.listStatus(storePath).length);
-    admin.compact(TABLE_NAME.getName());
+    admin.compact(TABLE_NAME);
     try {
       quickPoll(new Callable<Boolean>(){
-        public Boolean call() throws Exception {
+        @Override public Boolean call() throws Exception {
           return fs.listStatus(storePath).length == 1;
         }
       }
@@ -41,9 +41,9 @@
     }
  catch (    AssertionError ae) {
     }
-    admin.majorCompact(TABLE_NAME.getName());
+    admin.majorCompact(TABLE_NAME);
     quickPoll(new Callable<Boolean>(){
-      public Boolean call() throws Exception {
+      @Override public Boolean call() throws Exception {
         return fs.listStatus(storePath).length == 1;
       }
     }

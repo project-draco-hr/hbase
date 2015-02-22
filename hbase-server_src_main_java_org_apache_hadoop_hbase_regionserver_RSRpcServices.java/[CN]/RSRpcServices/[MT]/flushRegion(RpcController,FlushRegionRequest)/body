@@ -6,21 +6,27 @@
     LOG.info("Flushing " + region.getRegionNameAsString());
     boolean shouldFlush=true;
     if (request.hasIfOlderThanTs()) {
-      shouldFlush=region.getLastFlushTime() < request.getIfOlderThanTs();
+      shouldFlush=region.getEarliestFlushTimeForAllStores() < request.getIfOlderThanTs();
     }
     FlushRegionResponse.Builder builder=FlushRegionResponse.newBuilder();
     if (shouldFlush) {
-      boolean result=region.flushcache().isCompactionNeeded();
+      long startTime=EnvironmentEdgeManager.currentTime();
+      HRegion.FlushResult flushResult=region.flushcache();
+      if (flushResult.isFlushSucceeded()) {
+        long endTime=EnvironmentEdgeManager.currentTime();
+        regionServer.metricsRegionServer.updateFlushTime(endTime - startTime);
+      }
+      boolean result=flushResult.isCompactionNeeded();
       if (result) {
         regionServer.compactSplitThread.requestSystemCompaction(region,"Compaction through user triggered flush");
       }
       builder.setFlushed(result);
     }
-    builder.setLastFlushTime(region.getLastFlushTime());
+    builder.setLastFlushTime(region.getEarliestFlushTimeForAllStores());
     return builder.build();
   }
  catch (  DroppedSnapshotException ex) {
-    regionServer.abort("Replay of HLog required. Forcing server shutdown",ex);
+    regionServer.abort("Replay of WAL required. Forcing server shutdown",ex);
     throw new ServiceException(ex);
   }
 catch (  IOException ie) {
