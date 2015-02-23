@@ -1,0 +1,49 @@
+{
+  LOG.info("Running ingest");
+  LOG.info("Cluster size:" + util.getHBaseClusterInterface().getClusterStatus().getServersSize());
+  Threads.sleep(getConf().getInt("hbase.region.replica.replication.cache.disabledAndDroppedTables.expiryMs",5000) + 1000);
+  long start=System.currentTimeMillis();
+  String runtimeKey=String.format(RUN_TIME_KEY,this.getClass().getSimpleName());
+  long runtime=util.getConfiguration().getLong(runtimeKey,defaultRunTime);
+  long startKey=0;
+  long numKeys=getNumKeys(keysPerServerPerIter);
+  while (System.currentTimeMillis() - start < 0.9 * runtime) {
+    LOG.info("Intended run time: " + (runtime / 60000) + " min, left:"+ ((runtime - (System.currentTimeMillis() - start)) / 60000)+ " min");
+    int verifyPercent=100;
+    int updatePercent=20;
+    int ret=-1;
+    int regionReplicaId=conf.getInt(String.format("%s.%s",TEST_NAME,LoadTestTool.OPT_REGION_REPLICA_ID),1);
+    List<String> args=Lists.newArrayList(getArgsForLoadTestTool("","",startKey,numKeys));
+    args.add("-write");
+    args.add(String.format("%d:%d:%d",colsPerKey,recordSize,writeThreads));
+    args.add("-" + LoadTestTool.OPT_MULTIPUT);
+    args.add("-writer");
+    args.add(DelayingMultiThreadedWriter.class.getName());
+    args.add("-read");
+    args.add(String.format("%d:%d",verifyPercent,readThreads));
+    args.add("-" + LoadTestTool.OPT_REGION_REPLICA_ID);
+    args.add(String.valueOf(regionReplicaId));
+    ret=loadTool.run(args.toArray(new String[args.size()]));
+    if (0 != ret) {
+      String errorMsg="Load failed with error code " + ret;
+      LOG.error(errorMsg);
+      Assert.fail(errorMsg);
+    }
+    args=Lists.newArrayList(getArgsForLoadTestTool("","",startKey,numKeys));
+    args.add("-update");
+    args.add(String.format("%s:%s:1",updatePercent,writeThreads));
+    args.add("-updater");
+    args.add(DelayingMultiThreadedUpdater.class.getName());
+    args.add("-read");
+    args.add(String.format("%d:%d",verifyPercent,readThreads));
+    args.add("-" + LoadTestTool.OPT_REGION_REPLICA_ID);
+    args.add(String.valueOf(regionReplicaId));
+    ret=loadTool.run(args.toArray(new String[args.size()]));
+    if (0 != ret) {
+      String errorMsg="Load failed with error code " + ret;
+      LOG.error(errorMsg);
+      Assert.fail(errorMsg);
+    }
+    startKey+=numKeys;
+  }
+}
