@@ -3,7 +3,7 @@
 synchronized (writestate) {
     try {
       if (flush.getFlushSequenceNumber() < lastReplayedOpenRegionSeqId) {
-        LOG.warn("Skipping replaying flush event :" + TextFormat.shortDebugString(flush) + " because its sequence id is smaller than this regions lastReplayedOpenRegionSeqId "+ " of "+ lastReplayedOpenRegionSeqId);
+        LOG.warn(getRegionInfo().getEncodedName() + " : " + "Skipping replaying flush event :"+ TextFormat.shortDebugString(flush)+ " because its sequence id is smaller than this regions lastReplayedOpenRegionSeqId "+ " of "+ lastReplayedOpenRegionSeqId);
         return;
       }
       if (writestate.flushing) {
@@ -18,17 +18,18 @@ synchronized (writestate) {
           writestate.flushing=false;
         }
  else         if (flush.getFlushSequenceNumber() < prepareFlushResult.flushOpSeqId) {
-          LOG.warn("Received a flush commit marker with smaller seqId: " + flush.getFlushSequenceNumber() + " than what we have prepared with seqId: "+ prepareFlushResult.flushOpSeqId+ ". Picking up new file, but not dropping"+ "  prepared memstore snapshot");
+          LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a flush commit marker with smaller seqId: "+ flush.getFlushSequenceNumber()+ " than what we have prepared with seqId: "+ prepareFlushResult.flushOpSeqId+ ". Picking up new file, but not dropping"+ "  prepared memstore snapshot");
           replayFlushInStores(flush,prepareFlushResult,false);
         }
  else {
-          LOG.warn("Received a flush commit marker with larger seqId: " + flush.getFlushSequenceNumber() + " than what we have prepared with seqId: "+ prepareFlushResult.flushOpSeqId+ ". Picking up new file and dropping prepared"+ " memstore snapshot");
+          LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a flush commit marker with larger seqId: "+ flush.getFlushSequenceNumber()+ " than what we have prepared with seqId: "+ prepareFlushResult.flushOpSeqId+ ". Picking up new file and dropping prepared"+ " memstore snapshot");
           replayFlushInStores(flush,prepareFlushResult,true);
           this.addAndGetGlobalMemstoreSize(-prepareFlushResult.totalFlushableSize);
           dropMemstoreContentsForSeqId(flush.getFlushSequenceNumber(),null);
           this.prepareFlushResult=null;
           writestate.flushing=false;
         }
+        this.setReadsEnabled(true);
       }
  else {
         LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a flush commit marker with seqId:"+ flush.getFlushSequenceNumber()+ ", but no previous prepared snapshot was found");

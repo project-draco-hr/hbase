@@ -1,0 +1,22 @@
+{
+  try (Connection connection=ConnectionFactory.createConnection(HTU.getConfiguration());Table table=connection.getTable(htd.getTableName())){
+    HTU.loadNumericRows(table,fam,0,1000);
+    verifyNumericRowsWithTimeout(table,fam,0,1000,1,30000);
+    verifyNumericRowsWithTimeout(table,fam,0,1000,2,30000);
+    boolean aborted=false;
+    for (    RegionServerThread rs : HTU.getMiniHBaseCluster().getRegionServerThreads()) {
+      for (      HRegion r : rs.getRegionServer().getOnlineRegions(htd.getTableName())) {
+        if (r.getRegionInfo().getReplicaId() == 1) {
+          LOG.info("Aborting region server hosting secondary region replica");
+          rs.getRegionServer().abort("for test");
+          aborted=true;
+        }
+      }
+    }
+    assertTrue(aborted);
+    Threads.sleep(5000);
+    HTU.verifyNumericRows(table,fam,0,1000,1);
+    HTU.verifyNumericRows(table,fam,0,1000,2);
+  }
+   HTU.getMiniHBaseCluster().startRegionServer();
+}
