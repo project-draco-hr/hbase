@@ -1,22 +1,28 @@
 {
-  String effectiveUser=realUser.getShortUserName();
+  String effectiveUser=request.getRemoteUser();
   if (securityEnabled) {
     try {
       effectiveUser=doKerberosAuth(request);
+      response.addHeader(WWW_AUTHENTICATE,NEGOTIATE + " " + outToken);
     }
  catch (    HttpAuthenticationException e) {
       LOG.error("Kerberos Authentication failed",e);
       response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+      response.addHeader(WWW_AUTHENTICATE,NEGOTIATE);
       response.getWriter().println("Authentication Error: " + e.getMessage());
       return;
     }
   }
   String doAsUserFromQuery=request.getHeader("doAs");
+  if (effectiveUser == null) {
+    effectiveUser=realUser.getShortUserName();
+  }
   if (doAsUserFromQuery != null) {
     if (!doAsEnabled) {
       throw new ServletException("Support for proxyuser is not configured");
     }
-    UserGroupInformation ugi=UserGroupInformation.createProxyUser(doAsUserFromQuery,realUser);
+    UserGroupInformation remoteUser=UserGroupInformation.createRemoteUser(effectiveUser);
+    UserGroupInformation ugi=UserGroupInformation.createProxyUser(doAsUserFromQuery,remoteUser);
     try {
       ProxyUsers.authorize(ugi,request.getRemoteAddr(),conf);
     }
