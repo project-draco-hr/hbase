@@ -6,31 +6,35 @@
   LOG.debug("Creating references for hfiles");
   Path mobRegionPath=MobUtils.getMobRegionPath(conf,regionInfo.getTable());
   for (  HColumnDescriptor hcd : hcds) {
-    if (hcd.isMobEnabled()) {
-      Object familyData=visitor.familyOpen(regionData,hcd.getName());
-      monitor.rethrowException();
-      Path storePath=MobUtils.getMobFamilyPath(mobRegionPath,hcd.getNameAsString());
-      try {
-        if (fs.exists(storePath)) {
-          FileStatus[] stats=fs.listStatus(storePath);
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Adding snapshot references for " + stats.length + " hfiles");
-          }
-          for (int i=0, fz=stats.length; i < fz; i++) {
-            FileStatus stat=stats[i];
-            monitor.rethrowException();
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Adding reference for file (" + (i + 1) + "/"+ fz+ "): "+ stat.getPath());
-            }
-            StoreFileInfo mobStoreFileInfo=new StoreFileInfo(conf,fs,stat);
-            visitor.storeFile(regionData,familyData,mobStoreFileInfo);
-          }
-        }
-      }
- catch (      FileNotFoundException e) {
-      }
-      visitor.familyClose(regionData,familyData);
+    if (!hcd.isMobEnabled()) {
+      continue;
     }
+    Object familyData=visitor.familyOpen(regionData,hcd.getName());
+    monitor.rethrowException();
+    Path storePath=MobUtils.getMobFamilyPath(mobRegionPath,hcd.getNameAsString());
+    if (!fs.exists(storePath)) {
+      continue;
+    }
+    FileStatus[] stats=fs.listStatus(storePath);
+    if (stats == null) {
+      continue;
+    }
+    List<StoreFileInfo> storeFiles=new ArrayList<StoreFileInfo>();
+    for (    FileStatus stat : stats) {
+      storeFiles.add(new StoreFileInfo(conf,fs,stat));
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Adding snapshot references for " + storeFiles + " hfiles");
+    }
+    for (int i=0, sz=storeFiles.size(); i < sz; i++) {
+      StoreFileInfo storeFile=storeFiles.get(i);
+      monitor.rethrowException();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Adding reference for file (" + (i + 1) + "/"+ sz+ "): "+ storeFile.getPath());
+      }
+      visitor.storeFile(regionData,familyData,storeFile);
+    }
+    visitor.familyClose(regionData,familyData);
   }
   visitor.regionClose(regionData);
 }
