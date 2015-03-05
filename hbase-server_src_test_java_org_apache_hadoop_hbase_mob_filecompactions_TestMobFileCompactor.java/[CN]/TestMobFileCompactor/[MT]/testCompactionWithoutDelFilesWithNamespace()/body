@@ -1,0 +1,36 @@
+{
+  resetConf();
+  NamespaceDescriptor namespaceDescriptor=NamespaceDescriptor.create("ns").build();
+  String tableNameAsString="ns:testCompactionWithoutDelFilesWithNamespace";
+  admin.createNamespace(namespaceDescriptor);
+  TableName tableName=TableName.valueOf(tableNameAsString);
+  HColumnDescriptor hcd1=new HColumnDescriptor(family1);
+  hcd1.setMobEnabled(true);
+  hcd1.setMobThreshold(0L);
+  hcd1.setMaxVersions(4);
+  HColumnDescriptor hcd2=new HColumnDescriptor(family2);
+  hcd2.setMobEnabled(true);
+  hcd2.setMobThreshold(0L);
+  hcd2.setMaxVersions(4);
+  HTableDescriptor desc=new HTableDescriptor(tableName);
+  desc.addFamily(hcd1);
+  desc.addFamily(hcd2);
+  admin.createTable(desc,getSplitKeys());
+  HTable table=new HTable(conf,tableName);
+  table.setAutoFlush(false,false);
+  int count=4;
+  loadData(admin,table,tableName,count,rowNumPerFile);
+  int rowNumPerRegion=count * rowNumPerFile;
+  assertEquals("Before compaction: mob rows count",regionNum * rowNumPerRegion,countMobRows(table));
+  assertEquals("Before compaction: mob file count",regionNum * count,countFiles(tableName,true,family1));
+  assertEquals("Before compaction: del file count",0,countFiles(tableName,false,family1));
+  MobFileCompactor compactor=new PartitionedMobFileCompactor(conf,fs,tableName,hcd1,pool);
+  compactor.compact();
+  assertEquals("After compaction: mob rows count",regionNum * rowNumPerRegion,countMobRows(table));
+  assertEquals("After compaction: mob file count",regionNum,countFiles(tableName,true,family1));
+  assertEquals("After compaction: del file count",0,countFiles(tableName,false,family1));
+  table.close();
+  admin.disableTable(tableName);
+  admin.deleteTable(tableName);
+  admin.deleteNamespace("ns");
+}
