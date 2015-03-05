@@ -1,45 +1,24 @@
 {
   try {
-    String className=master.getConfiguration().get(MobConstants.MOB_FILE_COMPACTOR_CLASS_KEY,PartitionedMobFileCompactor.class.getName());
     TableDescriptors htds=master.getTableDescriptors();
     Map<String,HTableDescriptor> map=htds.getAll();
     for (    HTableDescriptor htd : map.values()) {
-      for (      HColumnDescriptor hcd : htd.getColumnFamilies()) {
-        if (!hcd.isMobEnabled()) {
-          continue;
-        }
-        MobFileCompactor compactor=null;
-        try {
-          compactor=ReflectionUtils.instantiateWithCustomCtor(className,new Class[]{Configuration.class,FileSystem.class,TableName.class,HColumnDescriptor.class,ExecutorService.class},new Object[]{master.getConfiguration(),master.getFileSystem(),htd.getTableName(),hcd,pool});
-        }
- catch (        Exception e) {
-          throw new IOException("Unable to load configured mob file compactor '" + className + "'",e);
-        }
-        boolean tableLocked=false;
-        TableLock lock=null;
-        try {
-          if (tableLockManager != null) {
-            lock=tableLockManager.writeLock(MobUtils.getTableLockName(htd.getTableName()),"Run MobFileCompactChore");
-            lock.acquire();
+      boolean reported=false;
+      try {
+        for (        HColumnDescriptor hcd : htd.getColumnFamilies()) {
+          if (!hcd.isMobEnabled()) {
+            continue;
           }
-          tableLocked=true;
-          compactor.compact();
-        }
- catch (        LockTimeoutException e) {
-          LOG.info("Fail to acquire the lock because of timeout, maybe a major compaction or an" + " ExpiredMobFileCleanerChore is running",e);
-        }
-catch (        Exception e) {
-          LOG.error("Fail to compact the mob files for the column " + hcd.getNameAsString() + " in the table "+ htd.getNameAsString(),e);
-        }
- finally {
-          if (lock != null && tableLocked) {
-            try {
-              lock.release();
-            }
- catch (            IOException e) {
-              LOG.error("Fail to release the write lock for the table " + htd.getNameAsString(),e);
-            }
+          if (!reported) {
+            master.reportMobFileCompactionStart(htd.getTableName());
+            reported=true;
           }
+          MobUtils.doMobFileCompaction(master.getConfiguration(),master.getFileSystem(),htd.getTableName(),hcd,pool,tableLockManager,false);
+        }
+      }
+  finally {
+        if (reported) {
+          master.reportMobFileCompactionEnd(htd.getTableName());
         }
       }
     }
