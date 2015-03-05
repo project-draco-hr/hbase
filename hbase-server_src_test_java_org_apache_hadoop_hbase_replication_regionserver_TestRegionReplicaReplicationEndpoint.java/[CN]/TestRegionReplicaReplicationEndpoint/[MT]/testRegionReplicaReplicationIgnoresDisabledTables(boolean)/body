@@ -12,15 +12,16 @@
   HTU.getHBaseAdmin().createTable(htd);
   ReplicationAdmin admin=new ReplicationAdmin(HTU.getConfiguration());
   admin.disablePeer(ServerRegionReplicaUtil.getReplicationPeerId());
-  HConnection connection=HConnectionManager.createConnection(HTU.getConfiguration());
+  Connection connection=ConnectionFactory.createConnection(HTU.getConfiguration());
   Table table=connection.getTable(tableName);
   Table tableToBeDisabled=connection.getTable(toBeDisabledTable);
   HTU.loadNumericRows(tableToBeDisabled,HBaseTestingUtility.fam1,6000,7000);
   AtomicLong skippedEdits=new AtomicLong();
   RegionReplicaReplicationEndpoint.RegionReplicaOutputSink sink=mock(RegionReplicaReplicationEndpoint.RegionReplicaOutputSink.class);
   when(sink.getSkippedEditsCounter()).thenReturn(skippedEdits);
-  RegionReplicaReplicationEndpoint.RegionReplicaSinkWriter sinkWriter=new RegionReplicaReplicationEndpoint.RegionReplicaSinkWriter(sink,(ClusterConnection)connection,Executors.newSingleThreadExecutor(),1000);
-  HRegionLocation hrl=connection.locateRegion(toBeDisabledTable,HConstants.EMPTY_BYTE_ARRAY);
+  RegionReplicaReplicationEndpoint.RegionReplicaSinkWriter sinkWriter=new RegionReplicaReplicationEndpoint.RegionReplicaSinkWriter(sink,(ClusterConnection)connection,Executors.newSingleThreadExecutor(),Integer.MAX_VALUE);
+  RegionLocator rl=connection.getRegionLocator(toBeDisabledTable);
+  HRegionLocation hrl=rl.getRegionLocation(HConstants.EMPTY_BYTE_ARRAY);
   byte[] encodedRegionName=hrl.getRegionInfo().getEncodedNameAsBytes();
   Entry entry=new Entry(new WALKey(encodedRegionName,toBeDisabledTable,1),new WALEdit());
   HTU.getHBaseAdmin().disableTable(toBeDisabledTable);
@@ -32,11 +33,12 @@
   try {
     HTU.loadNumericRows(table,HBaseTestingUtility.fam1,0,1000);
     admin.enablePeer(ServerRegionReplicaUtil.getReplicationPeerId());
-    verifyReplication(tableName,regionReplication,0,6000);
+    verifyReplication(tableName,regionReplication,0,1000);
   }
   finally {
     admin.close();
     table.close();
+    rl.close();
     tableToBeDisabled.close();
     HTU.deleteTableIfAny(toBeDisabledTable);
     connection.close();
