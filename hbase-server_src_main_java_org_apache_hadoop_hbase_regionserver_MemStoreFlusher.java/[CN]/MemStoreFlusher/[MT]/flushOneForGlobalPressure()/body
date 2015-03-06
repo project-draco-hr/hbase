@@ -1,11 +1,13 @@
 {
   SortedMap<Long,HRegion> regionsBySize=server.getCopyOfOnlineRegionsSortedBySize();
   Set<HRegion> excludedRegions=new HashSet<HRegion>();
+  double secondaryMultiplier=ServerRegionReplicaUtil.getRegionReplicaStoreFileRefreshMultiplier(conf);
   boolean flushedOne=false;
   while (!flushedOne) {
     HRegion bestFlushableRegion=getBiggestMemstoreRegion(regionsBySize,excludedRegions,true);
     HRegion bestAnyRegion=getBiggestMemstoreRegion(regionsBySize,excludedRegions,false);
-    if (bestAnyRegion == null) {
+    HRegion bestRegionReplica=getBiggestMemstoreOfRegionReplica(regionsBySize,excludedRegions);
+    if (bestAnyRegion == null && bestRegionReplica == null) {
       LOG.error("Above memory mark but there are no flushable regions!");
       return false;
     }
@@ -24,12 +26,22 @@
         regionToFlush=bestFlushableRegion;
       }
     }
-    Preconditions.checkState(regionToFlush.memstoreSize.get() > 0);
-    LOG.info("Flush of region " + regionToFlush + " due to global heap pressure. "+ "Total Memstore size="+ humanReadableInt(server.getRegionServerAccounting().getGlobalMemstoreSize())+ ", Region memstore size="+ humanReadableInt(regionToFlush.memstoreSize.get()));
-    flushedOne=flushRegion(regionToFlush,true,true);
-    if (!flushedOne) {
-      LOG.info("Excluding unflushable region " + regionToFlush + " - trying to find a different region to flush.");
-      excludedRegions.add(regionToFlush);
+    Preconditions.checkState((regionToFlush != null && regionToFlush.memstoreSize.get() > 0) || (bestRegionReplica != null && bestRegionReplica.memstoreSize.get() > 0));
+    if (regionToFlush == null || (bestRegionReplica != null && ServerRegionReplicaUtil.isRegionReplicaStoreFileRefreshEnabled(conf) && (bestRegionReplica.memstoreSize.get() > secondaryMultiplier * regionToFlush.memstoreSize.get()))) {
+      LOG.info("Refreshing storefiles of region " + regionToFlush + " due to global heap pressure. memstore size="+ StringUtils.humanReadableInt(server.getRegionServerAccounting().getGlobalMemstoreSize()));
+      flushedOne=refreshStoreFilesAndReclaimMemory(bestRegionReplica);
+      if (!flushedOne) {
+        LOG.info("Excluding secondary region " + regionToFlush + " - trying to find a different region to refresh files.");
+        excludedRegions.add(bestRegionReplica);
+      }
+    }
+ else {
+      LOG.info("Flush of region " + regionToFlush + " due to global heap pressure. "+ "Total Memstore size="+ humanReadableInt(server.getRegionServerAccounting().getGlobalMemstoreSize())+ ", Region memstore size="+ humanReadableInt(regionToFlush.memstoreSize.get()));
+      flushedOne=flushRegion(regionToFlush,true,true);
+      if (!flushedOne) {
+        LOG.info("Excluding unflushable region " + regionToFlush + " - trying to find a different region to flush.");
+        excludedRegions.add(regionToFlush);
+      }
     }
   }
   return true;
