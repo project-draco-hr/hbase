@@ -1,47 +1,7 @@
 {
-  if (conf.getBoolean(HConstants.HBASE_CONFIG_READ_ZOOKEEPER_CONFIG,false)) {
-    LOG.warn("Parsing ZooKeeper's " + HConstants.ZOOKEEPER_CONFIG_NAME + " file for ZK properties "+ "has been deprecated. Please instead place all ZK related HBase "+ "configuration under the hbase-site.xml, using prefixes "+ "of the form '"+ HConstants.ZK_CFG_PROPERTY_PREFIX+ "', and "+ "set property '"+ HConstants.HBASE_CONFIG_READ_ZOOKEEPER_CONFIG+ "' to false");
-    ClassLoader cl=HQuorumPeer.class.getClassLoader();
-    final InputStream inputStream=cl.getResourceAsStream(HConstants.ZOOKEEPER_CONFIG_NAME);
-    if (inputStream != null) {
-      try {
-        return parseZooCfg(conf,inputStream);
-      }
- catch (      IOException e) {
-        LOG.warn("Cannot read " + HConstants.ZOOKEEPER_CONFIG_NAME + ", loading from XML files",e);
-      }
-    }
-  }
- else {
-    if (LOG.isTraceEnabled()) {
-      LOG.trace("Skipped reading ZK properties file '" + HConstants.ZOOKEEPER_CONFIG_NAME + "' since '"+ HConstants.HBASE_CONFIG_READ_ZOOKEEPER_CONFIG+ "' was not set to true");
-    }
-  }
-  Properties zkProperties=new Properties();
-synchronized (conf) {
-    for (    Entry<String,String> entry : conf) {
-      String key=entry.getKey();
-      if (key.startsWith(HConstants.ZK_CFG_PROPERTY_PREFIX)) {
-        String zkKey=key.substring(HConstants.ZK_CFG_PROPERTY_PREFIX_LEN);
-        String value=entry.getValue();
-        if (value.contains(VARIABLE_START)) {
-          value=conf.get(key);
-        }
-        zkProperties.put(zkKey,value);
-      }
-    }
-  }
-  if (zkProperties.getProperty(HConstants.CLIENT_PORT_STR) == null) {
-    zkProperties.put(HConstants.CLIENT_PORT_STR,HConstants.DEFAULT_ZOOKEPER_CLIENT_PORT);
-  }
-  int peerPort=conf.getInt("hbase.zookeeper.peerport",2888);
-  int leaderPort=conf.getInt("hbase.zookeeper.leaderport",3888);
-  final String[] serverHosts=conf.getStrings(HConstants.ZOOKEEPER_QUORUM,HConstants.LOCALHOST);
-  for (int i=0; i < serverHosts.length; ++i) {
-    String serverHost=serverHosts[i];
-    String address=serverHost + ":" + peerPort+ ":"+ leaderPort;
-    String key="server." + i;
-    zkProperties.put(key,address);
+  Properties zkProperties=makeZKPropsFromZooCfg(conf);
+  if (zkProperties == null) {
+    zkProperties=makeZKPropsFromHbaseConfig(conf);
   }
   return zkProperties;
 }

@@ -5,9 +5,25 @@
       DefaultMetricsSystem.setMiniClusterMode(true);
       final MiniZooKeeperCluster zooKeeperCluster=new MiniZooKeeperCluster(conf);
       File zkDataPath=new File(conf.get(HConstants.ZOOKEEPER_DATA_DIR));
-      int zkClientPort=conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT,0);
+      int zkClientPort=0;
+      String zkserver=conf.get(HConstants.ZOOKEEPER_QUORUM);
+      if (zkserver != null) {
+        String[] zkservers=zkserver.split(",");
+        if (zkservers.length > 1) {
+          String errorMsg="Could not start ZK with " + zkservers.length + " ZK servers in local mode deployment. Aborting as clients (e.g. shell) will not "+ "be able to find this ZK quorum.";
+          System.err.println(errorMsg);
+          throw new IOException(errorMsg);
+        }
+        String[] parts=zkservers[0].split(":");
+        if (parts.length == 2) {
+          zkClientPort=Integer.parseInt(parts[1]);
+        }
+      }
       if (zkClientPort == 0) {
-        throw new IOException("No config value for " + HConstants.ZOOKEEPER_CLIENT_PORT);
+        zkClientPort=conf.getInt(HConstants.ZOOKEEPER_CLIENT_PORT,0);
+        if (zkClientPort == 0) {
+          throw new IOException("No config value for " + HConstants.ZOOKEEPER_CLIENT_PORT);
+        }
       }
       zooKeeperCluster.setDefaultClientPort(zkClientPort);
       ZKUtil.loginServer(conf,"hbase.zookeeper.server.keytab.file","hbase.zookeeper.server.kerberos.principal",null);
