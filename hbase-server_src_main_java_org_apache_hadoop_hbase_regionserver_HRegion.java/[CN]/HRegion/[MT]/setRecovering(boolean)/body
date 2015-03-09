@@ -1,5 +1,31 @@
 {
   boolean wasRecovering=this.isRecovering;
+  if (wal != null && getRegionServerServices() != null && !writestate.readOnly && wasRecovering && !newState) {
+    boolean forceFlush=getTableDesc().getRegionReplication() > 1;
+    MonitoredTask status=TaskMonitor.get().createStatus("Flushing region " + this + " because recovery is finished");
+    try {
+      if (forceFlush) {
+        internalFlushcache(status);
+      }
+      status.setStatus("Writing region open event marker to WAL because recovery is finished");
+      try {
+        long seqId=openSeqNum;
+        if (wal != null) {
+          seqId=getNextSequenceId(wal);
+        }
+        writeRegionOpenMarker(wal,seqId);
+      }
+ catch (      IOException e) {
+        LOG.warn(getRegionInfo().getEncodedName() + " : was not able to write region opening " + "event to WAL, continueing",e);
+      }
+    }
+ catch (    IOException ioe) {
+      LOG.warn(getRegionInfo().getEncodedName() + " : was not able to flush " + "event to WAL, continueing",ioe);
+    }
+ finally {
+      status.cleanup();
+    }
+  }
   this.isRecovering=newState;
   if (wasRecovering && !isRecovering) {
     coprocessorHost.postLogReplay();

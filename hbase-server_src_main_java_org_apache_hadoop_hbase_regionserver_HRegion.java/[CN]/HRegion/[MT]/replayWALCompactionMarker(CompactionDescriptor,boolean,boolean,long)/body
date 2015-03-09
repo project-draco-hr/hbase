@@ -1,22 +1,32 @@
 {
   checkTargetRegion(compaction.getEncodedRegionName().toByteArray(),"Compaction marker from WAL ",compaction);
-  if (replaySeqId < lastReplayedOpenRegionSeqId) {
-    LOG.warn(getRegionInfo().getEncodedName() + " : " + "Skipping replaying compaction event :"+ TextFormat.shortDebugString(compaction)+ " because its sequence id is smaller than this regions lastReplayedOpenRegionSeqId "+ " of "+ lastReplayedOpenRegionSeqId);
-    return;
-  }
-  if (LOG.isDebugEnabled()) {
-    LOG.debug(getRegionInfo().getEncodedName() + " : " + "Replaying compaction marker "+ TextFormat.shortDebugString(compaction));
-  }
-  startRegionOperation(Operation.REPLAY_EVENT);
-  try {
-    Store store=this.getStore(compaction.getFamilyName().toByteArray());
-    if (store == null) {
-      LOG.warn(getRegionInfo().getEncodedName() + " : " + "Found Compaction WAL edit for deleted family:"+ Bytes.toString(compaction.getFamilyName().toByteArray()));
+synchronized (writestate) {
+    if (replaySeqId < lastReplayedOpenRegionSeqId) {
+      LOG.warn(getRegionInfo().getEncodedName() + " : " + "Skipping replaying compaction event :"+ TextFormat.shortDebugString(compaction)+ " because its sequence id "+ replaySeqId+ " is smaller than this regions "+ "lastReplayedOpenRegionSeqId of "+ lastReplayedOpenRegionSeqId);
       return;
     }
-    store.replayCompactionMarker(compaction,pickCompactionFiles,removeFiles);
-  }
+    if (replaySeqId < lastReplayedCompactionSeqId) {
+      LOG.warn(getRegionInfo().getEncodedName() + " : " + "Skipping replaying compaction event :"+ TextFormat.shortDebugString(compaction)+ " because its sequence id "+ replaySeqId+ " is smaller than this regions "+ "lastReplayedCompactionSeqId of "+ lastReplayedCompactionSeqId);
+      return;
+    }
+ else {
+      lastReplayedCompactionSeqId=replaySeqId;
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(getRegionInfo().getEncodedName() + " : " + "Replaying compaction marker "+ TextFormat.shortDebugString(compaction)+ " with seqId="+ replaySeqId+ " and lastReplayedOpenRegionSeqId="+ lastReplayedOpenRegionSeqId);
+    }
+    startRegionOperation(Operation.REPLAY_EVENT);
+    try {
+      Store store=this.getStore(compaction.getFamilyName().toByteArray());
+      if (store == null) {
+        LOG.warn(getRegionInfo().getEncodedName() + " : " + "Found Compaction WAL edit for deleted family:"+ Bytes.toString(compaction.getFamilyName().toByteArray()));
+        return;
+      }
+      store.replayCompactionMarker(compaction,pickCompactionFiles,removeFiles);
+      logRegionFiles();
+    }
   finally {
-    closeRegionOperation(Operation.REPLAY_EVENT);
+      closeRegionOperation(Operation.REPLAY_EVENT);
+    }
   }
 }
