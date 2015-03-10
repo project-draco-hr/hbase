@@ -59,7 +59,7 @@
       this.scanMetrics.sumOfMillisSecBetweenNexts.addAndGet(currentTime - lastNext);
     }
     lastNext=currentTime;
-    List<Result> resultsToAddToCache=getResultsToAddToCache(values);
+    List<Result> resultsToAddToCache=getResultsToAddToCache(values,callable.isHeartbeatMessage());
     if (!resultsToAddToCache.isEmpty()) {
       for (      Result rs : resultsToAddToCache) {
         cache.add(rs);
@@ -70,9 +70,15 @@
         this.lastResult=rs;
       }
     }
+    if (callable.isHeartbeatMessage() && cache.size() > 0) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Heartbeat message received and cache contains Results." + " Breaking out of scan loop");
+      }
+      break;
+    }
     if (null != values && values.length > 0 && callable.hasMoreResultsContext()) {
       serverHasMoreResults=callable.getServerHasMoreResults() & partialResults.isEmpty();
     }
   }
- while (remainingResultSize > 0 && countdown > 0 && !serverHasMoreResults && (!partialResults.isEmpty() || possiblyNextScanner(countdown,values == null)));
+ while (doneWithRegion(remainingResultSize,countdown,serverHasMoreResults) && (!partialResults.isEmpty() || possiblyNextScanner(countdown,values == null)));
 }

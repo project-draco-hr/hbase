@@ -129,19 +129,32 @@
 synchronized (scanner) {
               boolean stale=(region.getRegionInfo().getReplicaId() != 0);
               boolean clientHandlesPartials=request.hasClientHandlesPartials() && request.getClientHandlesPartials();
+              boolean clientHandlesHeartbeats=request.hasClientHandlesHeartbeats() && request.getClientHandlesHeartbeats();
               boolean serverGuaranteesOrderOfPartials=currentScanResultSize == 0;
               boolean allowPartialResults=clientHandlesPartials && serverGuaranteesOrderOfPartials && !isSmallScan;
               boolean moreRows=false;
+              boolean allowHeartbeatMessages=clientHandlesHeartbeats && allowPartialResults;
+              long timeLimit=-1;
+              if (allowHeartbeatMessages && (scannerLeaseTimeoutPeriod > 0 || rpcTimeout > 0)) {
+                long timeLimitDelta;
+                if (scannerLeaseTimeoutPeriod > 0 && rpcTimeout > 0) {
+                  timeLimitDelta=Math.min(scannerLeaseTimeoutPeriod,rpcTimeout);
+                }
+ else {
+                  timeLimitDelta=scannerLeaseTimeoutPeriod > 0 ? scannerLeaseTimeoutPeriod : rpcTimeout;
+                }
+                timeLimitDelta=Math.max(timeLimitDelta / 2,minimumScanTimeLimitDelta);
+                timeLimit=System.currentTimeMillis() + timeLimitDelta;
+              }
               final LimitScope sizeScope=allowPartialResults ? LimitScope.BETWEEN_CELLS : LimitScope.BETWEEN_ROWS;
+              final LimitScope timeScope=allowHeartbeatMessages ? LimitScope.BETWEEN_CELLS : LimitScope.BETWEEN_ROWS;
               ScannerContext.Builder contextBuilder=ScannerContext.newBuilder(true);
               contextBuilder.setSizeLimit(sizeScope,maxResultSize);
               contextBuilder.setBatchLimit(scanner.getBatch());
+              contextBuilder.setTimeLimit(timeScope,timeLimit);
               ScannerContext scannerContext=contextBuilder.build();
+              boolean limitReached=false;
               while (i < rows) {
-                if (scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS)) {
-                  builder.setMoreResultsInRegion(true);
-                  break;
-                }
                 scannerContext.setBatchProgress(0);
                 moreRows=scanner.nextRaw(values,scannerContext);
                 if (!values.isEmpty()) {
@@ -152,12 +165,22 @@ synchronized (scanner) {
                   results.add(Result.create(values,null,stale,partial));
                   i++;
                 }
-                if (!moreRows) {
+                boolean sizeLimitReached=scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS);
+                boolean timeLimitReached=scannerContext.checkTimeLimit(LimitScope.BETWEEN_ROWS);
+                boolean rowLimitReached=i >= rows;
+                limitReached=sizeLimitReached || timeLimitReached || rowLimitReached;
+                if (limitReached || !moreRows) {
+                  if (LOG.isTraceEnabled()) {
+                    LOG.trace("Done scanning. limitReached: " + limitReached + " moreRows: "+ moreRows+ " scannerContext: "+ scannerContext);
+                  }
+                  if (moreRows) {
+                    builder.setHeartbeatMessage(timeLimitReached);
+                  }
                   break;
                 }
                 values.clear();
               }
-              if (scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS) || i >= rows || moreRows) {
+              if (limitReached || moreRows) {
                 builder.setMoreResultsInRegion(true);
               }
  else {
