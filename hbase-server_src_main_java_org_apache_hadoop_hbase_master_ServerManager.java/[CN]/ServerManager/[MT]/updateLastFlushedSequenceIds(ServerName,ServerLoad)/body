@@ -4,12 +4,20 @@
     byte[] encodedRegionName=Bytes.toBytes(HRegionInfo.encodeRegionName(entry.getKey()));
     Long existingValue=flushedSequenceIdByRegion.get(encodedRegionName);
     long l=entry.getValue().getCompleteSequenceId();
-    if (existingValue != null) {
-      if (l != -1 && l < existingValue) {
-        LOG.warn("RegionServer " + sn + " indicates a last flushed sequence id ("+ entry.getValue()+ ") that is less than the previous last flushed sequence id ("+ existingValue+ ") for region "+ Bytes.toString(entry.getKey())+ " Ignoring.");
-        continue;
+    if (existingValue == null || (l != HConstants.NO_SEQNUM && l > existingValue)) {
+      flushedSequenceIdByRegion.put(encodedRegionName,l);
+    }
+ else     if (l != HConstants.NO_SEQNUM && l < existingValue) {
+      LOG.warn("RegionServer " + sn + " indicates a last flushed sequence id ("+ l+ ") that is less than the previous last flushed sequence id ("+ existingValue+ ") for region "+ Bytes.toString(entry.getKey())+ " Ignoring.");
+    }
+    ConcurrentNavigableMap<byte[],Long> storeFlushedSequenceId=getOrCreateStoreFlushedSequenceId(encodedRegionName);
+    for (    StoreSequenceId storeSeqId : entry.getValue().getStoreCompleteSequenceId()) {
+      byte[] family=storeSeqId.getFamilyName().toByteArray();
+      existingValue=storeFlushedSequenceId.get(family);
+      l=storeSeqId.getSequenceId();
+      if (existingValue == null || (l != HConstants.NO_SEQNUM && l > existingValue.longValue())) {
+        storeFlushedSequenceId.put(family,l);
       }
     }
-    flushedSequenceIdByRegion.put(encodedRegionName,l);
   }
 }
