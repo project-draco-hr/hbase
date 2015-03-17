@@ -1,41 +1,16 @@
 {
   fs=hfofDir.getFileSystem(getConf());
-  if (!fs.exists(hfofDir)) {
-    throw new FileNotFoundException("HFileOutputFormat dir " + hfofDir + " not found");
-  }
-  FileStatus[] familyDirStatuses=fs.listStatus(hfofDir);
-  if (familyDirStatuses == null) {
-    throw new FileNotFoundException("No families found in " + hfofDir);
-  }
-  for (  FileStatus stat : familyDirStatuses) {
-    if (!stat.isDirectory()) {
-      LOG.warn("Skipping non-directory " + stat.getPath());
-      continue;
+  visitBulkHFiles(fs,hfofDir,new BulkHFileVisitor<byte[]>(){
+    @Override public byte[] bulkFamily(    final byte[] familyName){
+      return familyName;
     }
-    Path familyDir=stat.getPath();
-    byte[] family=familyDir.getName().getBytes();
-    FileStatus[] hfileStatuses=fs.listStatus(familyDir);
-    for (    FileStatus hfileStatus : hfileStatuses) {
-      if (!hfileStatus.isFile()) {
-        LOG.warn("Skipping non-file " + hfileStatus);
-        continue;
-      }
-      long length=hfileStatus.getLen();
-      Path hfile=hfileStatus.getPath();
-      String fileName=hfile.getName();
-      if (fileName.startsWith("_"))       continue;
-      if (StoreFileInfo.isReference(fileName)) {
-        LOG.warn("Skipping reference " + fileName);
-        continue;
-      }
-      if (HFileLink.isHFileLink(fileName)) {
-        LOG.warn("Skipping HFileLink " + fileName);
-        continue;
-      }
+    @Override public void bulkHFile(    final byte[] family,    final FileStatus hfile) throws IOException {
+      long length=hfile.getLen();
       if (length > getConf().getLong(HConstants.HREGION_MAX_FILESIZE,HConstants.DEFAULT_MAX_FILE_SIZE)) {
-        LOG.warn("Trying to bulk load hfile " + hfofDir.toString() + " with size: "+ length+ " bytes can be problematic as it may lead to oversplitting.");
+        LOG.warn("Trying to bulk load hfile " + hfile.getPath() + " with size: "+ length+ " bytes can be problematic as it may lead to oversplitting.");
       }
-      ret.add(new LoadQueueItem(family,hfile));
+      ret.add(new LoadQueueItem(family,hfile.getPath()));
     }
   }
+);
 }

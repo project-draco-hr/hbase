@@ -1,40 +1,25 @@
 {
-  Path hfofDir=new Path(dirPath);
-  FileSystem fs=hfofDir.getFileSystem(getConf());
-  if (!fs.exists(hfofDir)) {
-    throw new FileNotFoundException("HFileOutputFormat dir " + hfofDir + " not found");
-  }
-  FileStatus[] familyDirStatuses=fs.listStatus(hfofDir);
-  if (familyDirStatuses == null) {
-    throw new FileNotFoundException("No families found in " + hfofDir);
-  }
-  HTableDescriptor htd=new HTableDescriptor(tableName);
-  HColumnDescriptor hcd;
-  byte[][] keys;
-  TreeMap<byte[],Integer> map=new TreeMap<byte[],Integer>(Bytes.BYTES_COMPARATOR);
-  for (  FileStatus stat : familyDirStatuses) {
-    if (!stat.isDirectory()) {
-      LOG.warn("Skipping non-directory " + stat.getPath());
-      continue;
+  final Path hfofDir=new Path(dirPath);
+  final FileSystem fs=hfofDir.getFileSystem(getConf());
+  final HTableDescriptor htd=new HTableDescriptor(tableName);
+  final TreeMap<byte[],Integer> map=new TreeMap<byte[],Integer>(Bytes.BYTES_COMPARATOR);
+  visitBulkHFiles(fs,hfofDir,new BulkHFileVisitor<HColumnDescriptor>(){
+    @Override public HColumnDescriptor bulkFamily(    final byte[] familyName){
+      HColumnDescriptor hcd=new HColumnDescriptor(familyName);
+      htd.addFamily(hcd);
+      return hcd;
     }
-    Path familyDir=stat.getPath();
-    byte[] family=familyDir.getName().getBytes();
-    hcd=new HColumnDescriptor(family);
-    htd.addFamily(hcd);
-    Path[] hfiles=FileUtil.stat2Paths(fs.listStatus(familyDir));
-    for (    Path hfile : hfiles) {
-      String fileName=hfile.getName();
-      if (fileName.startsWith("_") || StoreFileInfo.isReference(fileName) || HFileLink.isHFileLink(fileName))       continue;
+    @Override public void bulkHFile(    final HColumnDescriptor hcd,    final FileStatus hfileStatus) throws IOException {
+      Path hfile=hfileStatus.getPath();
       HFile.Reader reader=HFile.createReader(fs,hfile,new CacheConfig(getConf()),getConf());
-      final byte[] first, last;
       try {
         if (hcd.getCompressionType() != reader.getFileContext().getCompression()) {
           hcd.setCompressionType(reader.getFileContext().getCompression());
           LOG.info("Setting compression " + hcd.getCompressionType().name() + " for family "+ hcd.toString());
         }
         reader.loadFileInfo();
-        first=reader.getFirstRowKey();
-        last=reader.getLastRowKey();
+        byte[] first=reader.getFirstRowKey();
+        byte[] last=reader.getLastRowKey();
         LOG.info("Trying to figure out region boundaries hfile=" + hfile + " first="+ Bytes.toStringBinary(first)+ " last="+ Bytes.toStringBinary(last));
         Integer value=map.containsKey(first) ? map.get(first) : 0;
         map.put(first,value + 1);
@@ -46,7 +31,8 @@
       }
     }
   }
-  keys=LoadIncrementalHFiles.inferBoundaries(map);
+);
+  byte[][] keys=LoadIncrementalHFiles.inferBoundaries(map);
   this.hbAdmin.createTable(htd,keys);
   LOG.info("Table " + tableName + " is available!!");
 }
