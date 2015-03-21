@@ -2,20 +2,18 @@
   long start=System.currentTimeMillis();
   log("blocking until region is split:" + Bytes.toStringBinary(regionName));
   HRegionInfo daughterA=null, daughterB=null;
-  Connection connection=ConnectionFactory.createConnection(conf);
-  Table metaTable=connection.getTable(TableName.META_TABLE_NAME);
-  try {
+  try (Connection conn=ConnectionFactory.createConnection(conf);Table metaTable=conn.getTable(TableName.META_TABLE_NAME)){
     Result result=null;
     HRegionInfo region=null;
     while ((System.currentTimeMillis() - start) < timeout) {
-      result=getRegionRow(metaTable,regionName);
+      result=metaTable.get(new Get(regionName));
       if (result == null) {
         break;
       }
-      region=HRegionInfo.getHRegionInfo(result);
+      region=MetaTableAccessor.getHRegionInfo(result);
       if (region.isSplitParent()) {
         log("found parent region: " + region.toString());
-        PairOfSameType<HRegionInfo> pair=HRegionInfo.getDaughterRegions(result);
+        PairOfSameType<HRegionInfo> pair=MetaTableAccessor.getDaughterRegions(result);
         daughterA=pair.getFirst();
         daughterB=pair.getSecond();
         break;
@@ -27,17 +25,13 @@
     }
     if (waitForDaughters) {
       long rem=timeout - (System.currentTimeMillis() - start);
-      blockUntilRegionIsInMeta(metaTable,rem,daughterA);
+      blockUntilRegionIsInMeta(conn,rem,daughterA);
       rem=timeout - (System.currentTimeMillis() - start);
-      blockUntilRegionIsInMeta(metaTable,rem,daughterB);
+      blockUntilRegionIsInMeta(conn,rem,daughterB);
       rem=timeout - (System.currentTimeMillis() - start);
       blockUntilRegionIsOpened(conf,rem,daughterA);
       rem=timeout - (System.currentTimeMillis() - start);
       blockUntilRegionIsOpened(conf,rem,daughterB);
     }
   }
-  finally {
-    IOUtils.closeQuietly(metaTable);
-    IOUtils.closeQuietly(connection);
-  }
-}
+ }
