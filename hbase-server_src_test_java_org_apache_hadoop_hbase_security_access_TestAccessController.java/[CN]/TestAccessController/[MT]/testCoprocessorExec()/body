@@ -10,24 +10,18 @@
   grantOnTable(TEST_UTIL,userA.getShortName(),TEST_TABLE.getTableName(),null,null,Permission.Action.EXEC);
   AccessTestAction execEndpointAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      Table t=TEST_UTIL.getConnection().getTable(TEST_TABLE.getTableName());
-      try {
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(TEST_TABLE.getTableName())){
         BlockingRpcChannel service=t.coprocessorService(HConstants.EMPTY_BYTE_ARRAY);
         PingCoprocessor.newBlockingStub(service).noop(null,NoopRequest.newBuilder().build());
       }
-  finally {
-        t.close();
-      }
-      return null;
+       return null;
     }
   }
 ;
-  verifyDenied(execEndpointAction,userB);
-  verifyAllowed(execEndpointAction,userA);
-  String namespace="testCoprocessorExec";
-  NamespaceDescriptor desc=NamespaceDescriptor.create(namespace).build();
-  TEST_UTIL.getMiniHBaseCluster().getMaster().createNamespace(desc);
+  String namespace=TEST_TABLE.getTableName().getNamespaceAsString();
   grantOnNamespace(TEST_UTIL,userB.getShortName(),namespace,Permission.Action.EXEC);
   verifyAllowed(execEndpointAction,userA,userB);
-  TEST_UTIL.getMiniHBaseCluster().getMaster().deleteNamespace(namespace);
+  revokeFromNamespace(TEST_UTIL,userB.getShortName(),namespace,Permission.Action.EXEC);
+  verifyDenied(execEndpointAction,userB);
+  verifyAllowed(execEndpointAction,userA);
 }

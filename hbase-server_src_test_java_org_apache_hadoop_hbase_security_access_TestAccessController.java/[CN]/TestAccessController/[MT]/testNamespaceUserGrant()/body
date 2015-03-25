@@ -1,21 +1,15 @@
 {
   AccessTestAction getAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      Table t=TEST_UTIL.getConnection().getTable(TEST_TABLE.getTableName());
-      try {
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(TEST_TABLE.getTableName())){
         return t.get(new Get(TEST_ROW));
       }
-  finally {
-        t.close();
-      }
-    }
+     }
   }
 ;
-  verifyDenied(getAction,USER_NONE);
-  String namespace="testNamespaceUserGrant";
-  NamespaceDescriptor desc=NamespaceDescriptor.create(namespace).build();
-  TEST_UTIL.getMiniHBaseCluster().getMaster().createNamespace(desc);
+  String namespace=TEST_TABLE.getTableName().getNamespaceAsString();
   grantOnNamespace(TEST_UTIL,USER_NONE.getShortName(),namespace,Permission.Action.READ);
   verifyAllowed(getAction,USER_NONE);
-  TEST_UTIL.getMiniHBaseCluster().getMaster().deleteNamespace(namespace);
+  revokeFromNamespace(TEST_UTIL,USER_NONE.getShortName(),namespace,Permission.Action.READ);
+  verifyDenied(getAction,USER_NONE);
 }
