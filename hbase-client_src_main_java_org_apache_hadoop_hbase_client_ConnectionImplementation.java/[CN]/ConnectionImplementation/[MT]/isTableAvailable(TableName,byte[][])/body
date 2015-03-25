@@ -1,0 +1,54 @@
+{
+  try {
+    if (!isTableEnabled(tableName)) {
+      LOG.debug("Table " + tableName + " not enabled");
+      return false;
+    }
+    ClusterConnection connection=ConnectionManager.getConnectionInternal(getConfiguration());
+    List<Pair<HRegionInfo,ServerName>> locations=MetaTableAccessor.getTableRegionsAndLocations(connection,tableName,true);
+    int notDeployed=0;
+    int regionCount=0;
+    for (    Pair<HRegionInfo,ServerName> pair : locations) {
+      HRegionInfo info=pair.getFirst();
+      if (pair.getSecond() == null) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Table " + tableName + " has not deployed region "+ pair.getFirst().getEncodedName());
+        }
+        notDeployed++;
+      }
+ else       if (splitKeys != null && !Bytes.equals(info.getStartKey(),HConstants.EMPTY_BYTE_ARRAY)) {
+        for (        byte[] splitKey : splitKeys) {
+          if (Bytes.equals(info.getStartKey(),splitKey)) {
+            regionCount++;
+            break;
+          }
+        }
+      }
+ else {
+        regionCount++;
+      }
+    }
+    if (notDeployed > 0) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Table " + tableName + " has "+ notDeployed+ " regions");
+      }
+      return false;
+    }
+ else     if (splitKeys != null && regionCount != splitKeys.length + 1) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Table " + tableName + " expected to have "+ (splitKeys.length + 1)+ " regions, but only "+ regionCount+ " available");
+      }
+      return false;
+    }
+ else {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Table " + tableName + " should be available");
+      }
+      return true;
+    }
+  }
+ catch (  TableNotFoundException tnfe) {
+    LOG.warn("Table " + tableName + " not enabled, it is not exists");
+    return false;
+  }
+}
