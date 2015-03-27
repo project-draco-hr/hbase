@@ -4,19 +4,25 @@
   MemoryUsage mu=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
   LruBlockCache l1=getL1(conf,mu);
   if (blockCacheDisabled)   return null;
-  BucketCache l2=getL2(conf,mu);
+  BlockCache l2=getL2(conf,mu);
   if (l2 == null) {
     GLOBAL_BLOCK_CACHE_INSTANCE=l1;
   }
  else {
+    boolean useExternal=conf.getBoolean(EXTERNAL_BLOCKCACHE_KEY,EXTERNAL_BLOCKCACHE_DEFAULT);
     boolean combinedWithLru=conf.getBoolean(BUCKET_CACHE_COMBINED_KEY,DEFAULT_BUCKET_CACHE_COMBINED);
-    if (combinedWithLru) {
-      GLOBAL_BLOCK_CACHE_INSTANCE=new CombinedBlockCache(l1,l2);
+    if (useExternal) {
+      GLOBAL_BLOCK_CACHE_INSTANCE=new InclusiveCombinedBlockCache(l1,l2);
     }
  else {
-      l1.setVictimCache(l2);
-      GLOBAL_BLOCK_CACHE_INSTANCE=l1;
+      if (combinedWithLru) {
+        GLOBAL_BLOCK_CACHE_INSTANCE=new CombinedBlockCache(l1,l2);
+      }
+ else {
+        GLOBAL_BLOCK_CACHE_INSTANCE=l1;
+      }
     }
+    l1.setVictimCache(l2);
   }
   return GLOBAL_BLOCK_CACHE_INSTANCE;
 }
