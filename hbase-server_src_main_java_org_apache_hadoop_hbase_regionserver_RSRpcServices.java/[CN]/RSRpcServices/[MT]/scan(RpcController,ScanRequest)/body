@@ -127,12 +127,14 @@ synchronized (scanner) {
               boolean clientHandlesPartials=request.hasClientHandlesPartials() && request.getClientHandlesPartials();
               boolean serverGuaranteesOrderOfPartials=currentScanResultSize == 0;
               boolean enforceMaxResultSizeAtCellLevel=clientHandlesPartials && serverGuaranteesOrderOfPartials && !isSmallScan;
+              NextState state=null;
               while (i < rows) {
                 if (currentScanResultSize >= maxResultSize) {
+                  builder.setMoreResultsInRegion(true);
                   break;
                 }
                 final long remainingResultSize=enforceMaxResultSizeAtCellLevel ? maxResultSize - currentScanResultSize : -1;
-                NextState state=scanner.nextRaw(values,scanner.getBatch(),remainingResultSize);
+                state=scanner.nextRaw(values,scanner.getBatch(),remainingResultSize);
                 if (!NextState.isValidState(state)) {
                   throw new IOException("NextState returned from call to nextRaw was invalid");
                 }
@@ -153,6 +155,12 @@ synchronized (scanner) {
                   break;
                 }
                 values.clear();
+              }
+              if (null != state && (currentScanResultSize >= maxResultSize || i >= rows || state.hasMoreValues())) {
+                builder.setMoreResultsInRegion(true);
+              }
+ else {
+                builder.setMoreResultsInRegion(false);
               }
             }
             region.readRequestsCount.add(i);

@@ -1,0 +1,73 @@
+{
+  final int NUM_ROWS=1000 * 1000, NUM_COLS=10;
+  final TableName TABLENAME=TableName.valueOf("testScannerSeesAllRecords");
+  List<byte[]> qualifiers=new ArrayList<>();
+  for (int i=1; i <= 10; i++) {
+    qualifiers.add(Bytes.toBytes(Integer.toString(i)));
+  }
+  HColumnDescriptor hcd=new HColumnDescriptor(FAMILY);
+  HTableDescriptor desc=new HTableDescriptor(TABLENAME);
+  desc.addFamily(hcd);
+  byte[][] splits=new byte[9][2];
+  for (int i=1; i < 10; i++) {
+    int split=48 + i;
+    splits[i - 1][0]=(byte)(split >>> 8);
+    splits[i - 1][0]=(byte)(split);
+  }
+  TEST_UTIL.getHBaseAdmin().createTable(desc,splits);
+  Connection conn=TEST_UTIL.getConnection();
+  try (Table table=conn.getTable(TABLENAME)){
+    List<Put> puts=new LinkedList<>();
+    for (int i=0; i < NUM_ROWS; i++) {
+      Put p=new Put(Bytes.toBytes(Integer.toString(i)));
+      for (int j=0; j < NUM_COLS; j++) {
+        byte[] value=new byte[50];
+        Bytes.random(value);
+        p.addColumn(FAMILY,Bytes.toBytes(Integer.toString(j)),value);
+      }
+      puts.add(p);
+      if (puts.size() == 1000) {
+        Object[] results=new Object[1000];
+        try {
+          table.batch(puts,results);
+        }
+ catch (        IOException e) {
+          LOG.error("Failed to write data",e);
+          LOG.debug("Errors: " + Arrays.toString(results));
+        }
+        puts.clear();
+      }
+    }
+    if (puts.size() > 0) {
+      Object[] results=new Object[puts.size()];
+      try {
+        table.batch(puts,results);
+      }
+ catch (      IOException e) {
+        LOG.error("Failed to write data",e);
+        LOG.debug("Errors: " + Arrays.toString(results));
+      }
+    }
+    TEST_UTIL.getHBaseAdmin().flush(TABLENAME);
+    TreeSet<Integer> rows=new TreeSet<>();
+    long rowsObserved=0l;
+    long entriesObserved=0l;
+    Scan s=new Scan();
+    s.addFamily(FAMILY);
+    s.setMaxResultSize(-1);
+    s.setBatch(-1);
+    s.setCaching(500);
+    ResultScanner scanner=table.getScanner(s);
+    for (    Result result : scanner) {
+      rowsObserved++;
+      String row=new String(result.getRow());
+      rows.add(Integer.parseInt(row));
+      while (result.advance()) {
+        entriesObserved++;
+      }
+    }
+    assertEquals(NUM_ROWS,rowsObserved);
+    assertEquals(NUM_ROWS * NUM_COLS,entriesObserved);
+  }
+   conn.close();
+}

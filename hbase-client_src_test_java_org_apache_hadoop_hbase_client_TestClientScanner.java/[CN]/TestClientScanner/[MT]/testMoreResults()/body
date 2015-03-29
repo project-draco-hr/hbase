@@ -1,0 +1,60 @@
+{
+  final Result[] results1=new Result[1];
+  KeyValue kv1=new KeyValue("row".getBytes(),"cf".getBytes(),"cq".getBytes(),1,Type.Maximum);
+  results1[0]=Result.create(new Cell[]{kv1});
+  final Result[] results2=new Result[1];
+  KeyValue kv2=new KeyValue("row2".getBytes(),"cf".getBytes(),"cq".getBytes(),1,Type.Maximum);
+  results2[0]=Result.create(new Cell[]{kv2});
+  RpcRetryingCaller<Result[]> caller=Mockito.mock(RpcRetryingCaller.class);
+  Mockito.when(rpcFactory.<Result[]>newCaller()).thenReturn(caller);
+  Mockito.when(caller.callWithoutRetries(Mockito.any(RetryingCallable.class),Mockito.anyInt())).thenAnswer(new Answer<Result[]>(){
+    private int count=0;
+    @Override public Result[] answer(    InvocationOnMock invocation) throws Throwable {
+      ScannerCallableWithReplicas callable=invocation.getArgumentAt(0,ScannerCallableWithReplicas.class);
+switch (count) {
+case 0:
+case 3:
+        count++;
+      return null;
+case 1:
+    count++;
+  callable.setHasMoreResultsContext(true);
+callable.setServerHasMoreResults(true);
+return results1;
+case 2:
+count++;
+callable.setHasMoreResultsContext(true);
+callable.setServerHasMoreResults(false);
+return results2;
+default :
+throw new RuntimeException("Expected only 2 invocations");
+}
+}
+}
+);
+scan.setCaching(100);
+scan.setMaxResultSize(1000 * 1000);
+try (MockClientScanner scanner=new MockClientScanner(conf,scan,TableName.valueOf("table"),clusterConn,rpcFactory,controllerFactory,pool,Integer.MAX_VALUE)){
+Mockito.verify(caller).callWithoutRetries(Mockito.any(RetryingCallable.class),Mockito.anyInt());
+InOrder inOrder=Mockito.inOrder(caller);
+scanner.loadCache();
+inOrder.verify(caller,Mockito.times(2)).callWithoutRetries(Mockito.any(RetryingCallable.class),Mockito.anyInt());
+assertEquals(1,scanner.cache.size());
+Result r=scanner.cache.poll();
+assertNotNull(r);
+CellScanner cs=r.cellScanner();
+assertTrue(cs.advance());
+assertEquals(kv1,cs.current());
+assertFalse(cs.advance());
+scanner.setRpcFinished(true);
+inOrder=Mockito.inOrder(caller);
+scanner.loadCache();
+inOrder.verify(caller,Mockito.times(3)).callWithoutRetries(Mockito.any(RetryingCallable.class),Mockito.anyInt());
+r=scanner.cache.poll();
+assertNotNull(r);
+cs=r.cellScanner();
+assertTrue(cs.advance());
+assertEquals(kv2,cs.current());
+assertFalse(cs.advance());
+}
+ }
