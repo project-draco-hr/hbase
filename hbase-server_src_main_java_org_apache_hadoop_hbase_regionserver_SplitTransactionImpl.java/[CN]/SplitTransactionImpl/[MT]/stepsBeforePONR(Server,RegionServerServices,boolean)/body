@@ -1,0 +1,40 @@
+{
+  if (services != null && !services.reportRegionStateTransition(TransitionCode.READY_TO_SPLIT,parent.getRegionInfo(),hri_a,hri_b)) {
+    throw new IOException("Failed to get ok from master to split " + parent.getRegionInfo().getRegionNameAsString());
+  }
+  transition(SplitTransactionPhase.SET_SPLITTING);
+  this.parent.getRegionFileSystem().createSplitsDir();
+  transition(SplitTransactionPhase.CREATE_SPLIT_DIR);
+  Map<byte[],List<StoreFile>> hstoreFilesToSplit=null;
+  Exception exceptionToThrow=null;
+  try {
+    hstoreFilesToSplit=this.parent.close(false);
+  }
+ catch (  Exception e) {
+    exceptionToThrow=e;
+  }
+  if (exceptionToThrow == null && hstoreFilesToSplit == null) {
+    exceptionToThrow=closedByOtherException;
+  }
+  if (exceptionToThrow != closedByOtherException) {
+    transition(SplitTransactionPhase.CLOSED_PARENT_REGION);
+  }
+  if (exceptionToThrow != null) {
+    if (exceptionToThrow instanceof IOException)     throw (IOException)exceptionToThrow;
+    throw new IOException(exceptionToThrow);
+  }
+  if (!testing) {
+    services.removeFromOnlineRegions(this.parent,null);
+  }
+  transition(SplitTransactionPhase.OFFLINED_PARENT);
+  Pair<Integer,Integer> expectedReferences=splitStoreFiles(hstoreFilesToSplit);
+  transition(SplitTransactionPhase.STARTED_REGION_A_CREATION);
+  assertReferenceFileCount(expectedReferences.getFirst(),this.parent.getRegionFileSystem().getSplitsDir(this.hri_a));
+  HRegion a=this.parent.createDaughterRegionFromSplits(this.hri_a);
+  assertReferenceFileCount(expectedReferences.getFirst(),new Path(this.parent.getRegionFileSystem().getTableDir(),this.hri_a.getEncodedName()));
+  transition(SplitTransactionPhase.STARTED_REGION_B_CREATION);
+  assertReferenceFileCount(expectedReferences.getSecond(),this.parent.getRegionFileSystem().getSplitsDir(this.hri_b));
+  HRegion b=this.parent.createDaughterRegionFromSplits(this.hri_b);
+  assertReferenceFileCount(expectedReferences.getSecond(),new Path(this.parent.getRegionFileSystem().getTableDir(),this.hri_b.getEncodedName()));
+  return new PairOfSameType<Region>(a,b);
+}

@@ -1,0 +1,60 @@
+{
+  this.server=server;
+  this.rsServices=services;
+  if (this.parent.getCoprocessorHost() != null) {
+    this.parent.getCoprocessorHost().preRollBackSplit();
+  }
+  boolean result=true;
+  ListIterator<JournalEntry> iterator=this.journal.listIterator(this.journal.size());
+  while (iterator.hasPrevious()) {
+    JournalEntry je=iterator.previous();
+    transition(je.getPhase(),true);
+switch (je.getPhase()) {
+case SET_SPLITTING:
+      if (services != null && !services.reportRegionStateTransition(TransitionCode.SPLIT_REVERTED,parent.getRegionInfo(),hri_a,hri_b)) {
+        return false;
+      }
+    break;
+case CREATE_SPLIT_DIR:
+  this.parent.writestate.writesEnabled=true;
+this.parent.getRegionFileSystem().cleanupSplitsDir();
+break;
+case CLOSED_PARENT_REGION:
+try {
+this.parent.initialize();
+}
+ catch (IOException e) {
+LOG.error("Failed rollbacking CLOSED_PARENT_REGION of region " + parent.getRegionInfo().getRegionNameAsString(),e);
+throw new RuntimeException(e);
+}
+break;
+case STARTED_REGION_A_CREATION:
+this.parent.getRegionFileSystem().cleanupDaughterRegion(this.hri_a);
+break;
+case STARTED_REGION_B_CREATION:
+this.parent.getRegionFileSystem().cleanupDaughterRegion(this.hri_b);
+break;
+case OFFLINED_PARENT:
+if (services != null) services.addToOnlineRegions(this.parent);
+break;
+case PONR:
+return false;
+case STARTED:
+case PREPARED:
+case BEFORE_PRE_SPLIT_HOOK:
+case AFTER_PRE_SPLIT_HOOK:
+case BEFORE_POST_SPLIT_HOOK:
+case AFTER_POST_SPLIT_HOOK:
+case OPENED_REGION_A:
+case OPENED_REGION_B:
+case COMPLETED:
+break;
+default :
+throw new RuntimeException("Unhandled journal entry: " + je);
+}
+}
+if (this.parent.getCoprocessorHost() != null) {
+this.parent.getCoprocessorHost().postRollBackSplit();
+}
+return result;
+}
