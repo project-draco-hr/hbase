@@ -1,0 +1,39 @@
+{
+  boolean stopped=server != null && server.isStopped();
+  boolean stopping=services != null && services.isStopping();
+  if (stopped || stopping) {
+    LOG.info("Not opening daughters " + b.getRegionInfo().getRegionNameAsString() + " and "+ a.getRegionInfo().getRegionNameAsString()+ " because stopping="+ stopping+ ", stopped="+ stopped);
+  }
+ else {
+    DaughterOpener aOpener=new DaughterOpener(server,(HRegion)a);
+    DaughterOpener bOpener=new DaughterOpener(server,(HRegion)b);
+    aOpener.start();
+    bOpener.start();
+    try {
+      aOpener.join();
+      if (aOpener.getException() == null) {
+        journal.add(new JournalEntry(JournalEntryType.OPENED_REGION_A));
+      }
+      bOpener.join();
+      if (bOpener.getException() == null) {
+        journal.add(new JournalEntry(JournalEntryType.OPENED_REGION_B));
+      }
+    }
+ catch (    InterruptedException e) {
+      throw (InterruptedIOException)new InterruptedIOException().initCause(e);
+    }
+    if (aOpener.getException() != null) {
+      throw new IOException("Failed " + aOpener.getName(),aOpener.getException());
+    }
+    if (bOpener.getException() != null) {
+      throw new IOException("Failed " + bOpener.getName(),bOpener.getException());
+    }
+    if (services != null) {
+      if (!services.reportRegionStateTransition(TransitionCode.SPLIT,parent.getRegionInfo(),hri_a,hri_b)) {
+        throw new IOException("Failed to report split region to master: " + parent.getRegionInfo().getShortNameToLog());
+      }
+      services.addToOnlineRegions(b);
+      services.addToOnlineRegions(a);
+    }
+  }
+}
