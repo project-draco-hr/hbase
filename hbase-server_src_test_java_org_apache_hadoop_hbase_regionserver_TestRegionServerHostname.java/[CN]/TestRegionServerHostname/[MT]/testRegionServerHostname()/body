@@ -1,0 +1,31 @@
+{
+  final int NUM_MASTERS=1;
+  final int NUM_RS=1;
+  Enumeration<NetworkInterface> netInterfaceList=NetworkInterface.getNetworkInterfaces();
+  while (netInterfaceList.hasMoreElements()) {
+    NetworkInterface ni=netInterfaceList.nextElement();
+    Enumeration<InetAddress> addrList=ni.getInetAddresses();
+    while (addrList.hasMoreElements()) {
+      InetAddress addr=addrList.nextElement();
+      if (addr.isLoopbackAddress() || addr.isLinkLocalAddress() || addr.isMulticastAddress()) {
+        continue;
+      }
+      String hostName=addr.getHostName();
+      LOG.info("Found " + hostName + " on "+ ni);
+      TEST_UTIL.getConfiguration().set(HRegionServer.HOSTNAME_KEY,hostName);
+      TEST_UTIL.startMiniCluster(NUM_MASTERS,NUM_RS);
+      try {
+        ZooKeeperWatcher zkw=TEST_UTIL.getZooKeeperWatcher();
+        List<String> servers=ZKUtil.listChildrenNoWatch(zkw,zkw.rsZNode);
+        assertTrue(servers.size() == NUM_RS + 1);
+        for (        String server : servers) {
+          assertTrue(server.startsWith(hostName + ","));
+        }
+        zkw.close();
+      }
+  finally {
+        TEST_UTIL.shutdownMiniCluster();
+      }
+    }
+  }
+}
