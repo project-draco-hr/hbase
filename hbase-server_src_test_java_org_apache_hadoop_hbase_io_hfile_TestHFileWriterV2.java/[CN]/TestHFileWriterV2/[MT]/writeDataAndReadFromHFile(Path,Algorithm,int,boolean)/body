@@ -1,6 +1,6 @@
 {
   HFileContext context=new HFileContextBuilder().withBlockSize(4096).withCompression(compressAlgo).build();
-  HFile.Writer writer=new HFileWriterFactory(conf,new CacheConfig(conf)).withPath(fs,hfilePath).withFileContext(context).create();
+  HFileWriterV2 writer=(HFileWriterV2)new HFileWriterV2.WriterFactoryV2(conf,new CacheConfig(conf)).withPath(fs,hfilePath).withFileContext(context).create();
   Random rand=new Random(9713312);
   List<KeyValue> keyValues=new ArrayList<KeyValue>(entryCount);
   for (int i=0; i < entryCount; ++i) {
@@ -17,6 +17,7 @@
   FSDataInputStream fsdis=fs.open(hfilePath);
   long fileSize=fs.getFileStatus(hfilePath).getLen();
   FixedFileTrailer trailer=FixedFileTrailer.readFromStream(fsdis,fileSize);
+  assertEquals(2,trailer.getMajorVersion());
   assertEquals(entryCount,trailer.getEntryCount());
   HFileContext meta=new HFileContextBuilder().withHBaseCheckSum(true).withIncludesMvcc(false).withIncludesTags(false).withCompression(compressAlgo).build();
   HFileBlock.FSReader blockReader=new HFileBlock.FSReaderImpl(fsdis,fileSize,meta);
@@ -32,7 +33,7 @@
   metaBlockIndexReader.readRootIndex(blockIter.nextBlockWithBlockType(BlockType.ROOT_INDEX).getByteStream(),trailer.getMetaIndexCount());
   FileInfo fileInfo=new FileInfo();
   fileInfo.read(blockIter.nextBlockWithBlockType(BlockType.FILE_INFO).getByteStream());
-  byte[] keyValueFormatVersion=fileInfo.get(HFileWriterImpl.KEY_VALUE_VERSION);
+  byte[] keyValueFormatVersion=fileInfo.get(HFileWriterV2.KEY_VALUE_VERSION);
   boolean includeMemstoreTS=keyValueFormatVersion != null && Bytes.toInt(keyValueFormatVersion) > 0;
   int entriesRead=0;
   int blocksRead=0;
