@@ -1,0 +1,39 @@
+{
+  TableName tableName=getTableName(source.getConfiguration());
+  ClusterID[] clusters={source,sink};
+  for (  ClusterID cluster : clusters) {
+    Admin admin=cluster.getConnection().getAdmin();
+    if (admin.tableExists(tableName)) {
+      if (admin.isTableEnabled(tableName)) {
+        admin.disableTable(tableName);
+      }
+      Set<ServerName> regionServers=new TreeSet<>();
+      for (      HRegionLocation rl : cluster.getConnection().getRegionLocator(tableName).getAllRegionLocations()) {
+        regionServers.add(rl.getServerName());
+      }
+      for (      ServerName server : regionServers) {
+        source.getConnection().getAdmin().rollWALWriter(server);
+      }
+      admin.deleteTable(tableName);
+    }
+  }
+  Generator generator=new Generator();
+  generator.setConf(source.getConfiguration());
+  generator.createSchema();
+  if (!source.equals(sink)) {
+    ReplicationAdmin replicationAdmin=new ReplicationAdmin(source.getConfiguration());
+    for (    String oldPeer : replicationAdmin.listPeerConfigs().keySet()) {
+      replicationAdmin.removePeer(oldPeer);
+    }
+    ReplicationPeerConfig peerConfig=new ReplicationPeerConfig();
+    peerConfig.setClusterKey(sink.toString());
+    HashMap<TableName,ArrayList<String>> toReplicate=new HashMap<>();
+    toReplicate.put(tableName,new ArrayList<String>(0));
+    replicationAdmin.addPeer("TestPeer",peerConfig,toReplicate);
+    replicationAdmin.enableTableRep(tableName);
+    replicationAdmin.close();
+  }
+  for (  ClusterID cluster : clusters) {
+    cluster.closeConnection();
+  }
+}
