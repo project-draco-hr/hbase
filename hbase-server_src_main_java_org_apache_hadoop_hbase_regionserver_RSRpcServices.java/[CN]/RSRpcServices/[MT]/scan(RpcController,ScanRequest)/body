@@ -130,34 +130,37 @@ synchronized (scanner) {
               boolean stale=(region.getRegionInfo().getReplicaId() != 0);
               boolean clientHandlesPartials=request.hasClientHandlesPartials() && request.getClientHandlesPartials();
               boolean serverGuaranteesOrderOfPartials=currentScanResultSize == 0;
-              boolean allowPartialResults=clientHandlesPartials && serverGuaranteesOrderOfPartials && !isSmallScan;
-              boolean moreRows=false;
-              final LimitScope sizeScope=allowPartialResults ? LimitScope.BETWEEN_CELLS : LimitScope.BETWEEN_ROWS;
-              ScannerContext.Builder contextBuilder=ScannerContext.newBuilder(true);
-              contextBuilder.setSizeLimit(sizeScope,maxResultSize);
-              contextBuilder.setBatchLimit(scanner.getBatch());
-              ScannerContext scannerContext=contextBuilder.build();
+              boolean enforceMaxResultSizeAtCellLevel=clientHandlesPartials && serverGuaranteesOrderOfPartials && !isSmallScan;
+              NextState state=null;
               while (i < rows) {
-                if (scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS)) {
+                if (currentScanResultSize >= maxResultSize) {
                   builder.setMoreResultsInRegion(true);
                   break;
                 }
-                scannerContext.setBatchProgress(0);
-                moreRows=scanner.nextRaw(values,scannerContext);
+                final long remainingResultSize=enforceMaxResultSizeAtCellLevel ? maxResultSize - currentScanResultSize : -1;
+                state=scanner.nextRaw(values,scanner.getBatch(),remainingResultSize);
+                if (!NextState.isValidState(state)) {
+                  throw new IOException("NextState returned from call to nextRaw was invalid");
+                }
                 if (!values.isEmpty()) {
+                  boolean skipResultSizeCalculation=state.hasResultSizeEstimate();
+                  if (skipResultSizeCalculation)                   currentScanResultSize+=state.getResultSize();
                   for (                  Cell cell : values) {
                     totalCellSize+=CellUtil.estimatedSerializedSizeOf(cell);
+                    if (!skipResultSizeCalculation) {
+                      currentScanResultSize+=CellUtil.estimatedHeapSizeOfWithoutTags(cell);
+                    }
                   }
-                  final boolean partial=scannerContext.partialResultFormed();
+                  final boolean partial=state != null && state.sizeLimitReached();
                   results.add(Result.create(values,null,stale,partial));
                   i++;
                 }
-                if (!moreRows) {
+                if (!NextState.hasMoreValues(state)) {
                   break;
                 }
                 values.clear();
               }
-              if (scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS) || i >= rows || moreRows) {
+              if (null != state && (currentScanResultSize >= maxResultSize || i >= rows || state.hasMoreValues())) {
                 builder.setMoreResultsInRegion(true);
               }
  else {

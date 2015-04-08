@@ -1,0 +1,117 @@
+{
+  lock.lock();
+  try {
+    if (checkReseek()) {
+      return NextState.makeState(NextState.State.MORE_VALUES,0);
+    }
+    if (this.heap == null) {
+      close();
+      return NextState.makeState(NextState.State.NO_MORE_VALUES,0);
+    }
+    Cell peeked=this.heap.peek();
+    if (peeked == null) {
+      close();
+      return NextState.makeState(NextState.State.NO_MORE_VALUES,0);
+    }
+    byte[] row=peeked.getRowArray();
+    int offset=peeked.getRowOffset();
+    short length=peeked.getRowLength();
+    if ((limit < 0 && remainingResultSize < 0) || matcher.row == null || !Bytes.equals(row,offset,length,matcher.row,matcher.rowOffset,matcher.rowLength)) {
+      this.countPerRow=0;
+      matcher.setRow(row,offset,length);
+    }
+    Cell cell;
+    KeyValue.KVComparator comparator=store != null ? store.getComparator() : null;
+    int count=0;
+    long totalBytesRead=0;
+    long totalHeapSize=0;
+    LOOP:     while ((cell=this.heap.peek()) != null) {
+      if (prevCell != cell)       ++kvsScanned;
+      checkScanOrder(prevCell,cell,comparator);
+      prevCell=cell;
+      ScanQueryMatcher.MatchCode qcode=matcher.match(cell);
+      qcode=optimize(qcode,cell);
+switch (qcode) {
+case INCLUDE:
+case INCLUDE_AND_SEEK_NEXT_ROW:
+case INCLUDE_AND_SEEK_NEXT_COL:
+        Filter f=matcher.getFilter();
+      if (f != null) {
+        cell=f.transformCell(cell);
+      }
+    this.countPerRow++;
+  if (storeLimit > -1 && this.countPerRow > (storeLimit + storeOffset)) {
+    if (!matcher.moreRowsMayExistAfter(cell)) {
+      return NextState.makeState(NextState.State.NO_MORE_VALUES,totalHeapSize);
+    }
+    seekToNextRow(cell);
+    break LOOP;
+  }
+if (this.countPerRow > storeOffset) {
+  outResult.add(cell);
+  count++;
+  totalBytesRead+=CellUtil.estimatedSerializedSizeOf(cell);
+  totalHeapSize+=CellUtil.estimatedHeapSizeOfWithoutTags(cell);
+  if (totalBytesRead > maxRowSize) {
+    throw new RowTooBigException("Max row size allowed: " + maxRowSize + ", but the row is bigger than that.");
+  }
+}
+if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_ROW) {
+if (!matcher.moreRowsMayExistAfter(cell)) {
+  return NextState.makeState(NextState.State.NO_MORE_VALUES,totalHeapSize);
+}
+seekToNextRow(cell);
+}
+ else if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_COL) {
+seekAsDirection(matcher.getKeyForNextColumn(cell));
+}
+ else {
+this.heap.next();
+}
+if (limit > 0 && (count == limit)) {
+break LOOP;
+}
+if (remainingResultSize > 0 && (totalHeapSize >= remainingResultSize)) {
+break LOOP;
+}
+continue;
+case DONE:
+return NextState.makeState(NextState.State.MORE_VALUES,totalHeapSize);
+case DONE_SCAN:
+close();
+return NextState.makeState(NextState.State.NO_MORE_VALUES,totalHeapSize);
+case SEEK_NEXT_ROW:
+if (!matcher.moreRowsMayExistAfter(cell)) {
+return NextState.makeState(NextState.State.NO_MORE_VALUES,totalHeapSize);
+}
+seekToNextRow(cell);
+break;
+case SEEK_NEXT_COL:
+seekAsDirection(matcher.getKeyForNextColumn(cell));
+break;
+case SKIP:
+this.heap.next();
+break;
+case SEEK_NEXT_USING_HINT:
+Cell nextKV=matcher.getNextKeyHint(cell);
+if (nextKV != null) {
+seekAsDirection(nextKV);
+}
+ else {
+heap.next();
+}
+break;
+default :
+throw new RuntimeException("UNEXPECTED");
+}
+}
+if (count > 0) {
+return NextState.makeState(NextState.State.MORE_VALUES,totalHeapSize);
+}
+close();
+return NextState.makeState(NextState.State.NO_MORE_VALUES,totalHeapSize);
+}
+  finally {
+lock.unlock();
+}
+}
