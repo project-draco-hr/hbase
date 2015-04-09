@@ -1,0 +1,28 @@
+{
+  final TableName tableName=TableName.valueOf("testDisableTableMultipleTimes");
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  MasterProcedureTestingUtility.createTable(procExec,tableName,null,"f1","f2");
+  long procId1=procExec.submitProcedure(new DisableTableProcedure(procExec.getEnvironment(),tableName,false));
+  ProcedureTestingUtility.waitProcedure(procExec,procId1);
+  ProcedureTestingUtility.assertProcNotFailed(procExec,procId1);
+  MasterProcedureTestingUtility.validateTableIsDisabled(UTIL.getHBaseCluster().getMaster(),tableName);
+  long procId2=procExec.submitProcedure(new DisableTableProcedure(procExec.getEnvironment(),tableName,false));
+  ProcedureTestingUtility.waitProcedure(procExec,procId2);
+  ProcedureResult result=procExec.getResult(procId2);
+  assertTrue(result.isFailed());
+  LOG.debug("Disable failed with exception: " + result.getException());
+  assertTrue(result.getException().getCause() instanceof TableNotEnabledException);
+  try {
+    final ProcedurePrepareLatch prepareLatch=new ProcedurePrepareLatch.CompatibilityLatch();
+    long procId3=procExec.submitProcedure(new DisableTableProcedure(procExec.getEnvironment(),tableName,false,prepareLatch));
+    prepareLatch.await();
+    Assert.fail("Disable should throw exception through latch.");
+  }
+ catch (  TableNotEnabledException tnee) {
+    LOG.debug("Disable failed with expected exception.");
+  }
+  long procId4=procExec.submitProcedure(new DisableTableProcedure(procExec.getEnvironment(),tableName,true));
+  ProcedureTestingUtility.waitProcedure(procExec,procId4);
+  ProcedureTestingUtility.assertProcNotFailed(procExec,procId4);
+  MasterProcedureTestingUtility.validateTableIsDisabled(UTIL.getHBaseCluster().getMaster(),tableName);
+}

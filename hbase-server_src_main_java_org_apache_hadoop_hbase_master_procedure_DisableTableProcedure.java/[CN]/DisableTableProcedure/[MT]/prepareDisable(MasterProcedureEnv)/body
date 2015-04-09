@@ -1,0 +1,21 @@
+{
+  boolean canTableBeDisabled=true;
+  if (tableName.equals(TableName.META_TABLE_NAME)) {
+    setFailure("master-disable-table",new ConstraintException("Cannot disable catalog table"));
+    canTableBeDisabled=false;
+  }
+ else   if (!MetaTableAccessor.tableExists(env.getMasterServices().getConnection(),tableName)) {
+    setFailure("master-disable-table",new TableNotFoundException(tableName));
+    canTableBeDisabled=false;
+  }
+ else   if (!skipTableStateCheck) {
+    TableStateManager tsm=env.getMasterServices().getAssignmentManager().getTableStateManager();
+    if (!tsm.getTableState(tableName).equals(TableState.State.ENABLED)) {
+      LOG.info("Table " + tableName + " isn't enabled; skipping disable");
+      setFailure("master-disable-table",new TableNotEnabledException(tableName));
+      canTableBeDisabled=false;
+    }
+  }
+  ProcedurePrepareLatch.releaseLatch(syncLatch,this);
+  return canTableBeDisabled;
+}
