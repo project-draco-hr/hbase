@@ -1,82 +1,20 @@
 {
+  Future<Void> future=createTableAsyncV2(desc,splitKeys);
   try {
-    createTableAsync(desc,splitKeys);
+    future.get(syncWaitTimeout,TimeUnit.MILLISECONDS);
   }
- catch (  SocketTimeoutException ste) {
-    LOG.warn("Creating " + desc.getTableName() + " took too long",ste);
+ catch (  InterruptedException e) {
+    throw new InterruptedIOException("Interrupted when waiting" + " for table to be enabled; meta scan was done");
   }
-  int numRegs=(splitKeys == null ? 1 : splitKeys.length + 1) * desc.getRegionReplication();
-  int prevRegCount=0;
-  boolean tableWasEnabled=false;
-  for (int tries=0; tries < this.numRetries * this.retryLongerMultiplier; ++tries) {
-    if (tableWasEnabled) {
-      final AtomicInteger actualRegCount=new AtomicInteger(0);
-      MetaTableAccessor.Visitor visitor=new MetaTableAccessor.Visitor(){
-        @Override public boolean visit(        Result rowResult) throws IOException {
-          RegionLocations list=MetaTableAccessor.getRegionLocations(rowResult);
-          if (list == null) {
-            LOG.warn("No serialized HRegionInfo in " + rowResult);
-            return true;
-          }
-          HRegionLocation l=list.getRegionLocation();
-          if (l == null) {
-            return true;
-          }
-          if (!l.getRegionInfo().getTable().equals(desc.getTableName())) {
-            return false;
-          }
-          if (l.getRegionInfo().isOffline() || l.getRegionInfo().isSplit())           return true;
-          HRegionLocation[] locations=list.getRegionLocations();
-          for (          HRegionLocation location : locations) {
-            if (location == null)             continue;
-            ServerName serverName=location.getServerName();
-            if (serverName != null && serverName.getHostAndPort() != null) {
-              actualRegCount.incrementAndGet();
-            }
-          }
-          return true;
-        }
-      }
-;
-      MetaTableAccessor.scanMetaForTableRegions(connection,visitor,desc.getTableName());
-      if (actualRegCount.get() < numRegs) {
-        if (tries == this.numRetries * this.retryLongerMultiplier - 1) {
-          throw new RegionOfflineException("Only " + actualRegCount.get() + " of "+ numRegs+ " regions are online; retries exhausted.");
-        }
-        try {
-          Thread.sleep(getPauseTime(tries));
-        }
- catch (        InterruptedException e) {
-          throw new InterruptedIOException("Interrupted when opening" + " regions; " + actualRegCount.get() + " of "+ numRegs+ " regions processed so far");
-        }
-        if (actualRegCount.get() > prevRegCount) {
-          prevRegCount=actualRegCount.get();
-          tries=-1;
-        }
-      }
- else {
-        return;
-      }
+catch (  TimeoutException e) {
+    throw new TimeoutIOException(e);
+  }
+catch (  ExecutionException e) {
+    if (e.getCause() instanceof IOException) {
+      throw (IOException)e.getCause();
     }
  else {
-      try {
-        tableWasEnabled=isTableAvailable(desc.getTableName());
-      }
- catch (      TableNotFoundException tnfe) {
-        LOG.debug("Table " + desc.getTableName() + " was not enabled, sleeping, still "+ numRetries+ " retries left");
-      }
-      if (tableWasEnabled) {
-        tries=-1;
-      }
- else {
-        try {
-          Thread.sleep(getPauseTime(tries));
-        }
- catch (        InterruptedException e) {
-          throw new InterruptedIOException("Interrupted when waiting" + " for table to be enabled; meta scan was done");
-        }
-      }
+      throw new IOException(e.getCause());
     }
   }
-  throw new TableNotEnabledException("Retries exhausted while still waiting for table: " + desc.getTableName() + " to be enabled");
 }

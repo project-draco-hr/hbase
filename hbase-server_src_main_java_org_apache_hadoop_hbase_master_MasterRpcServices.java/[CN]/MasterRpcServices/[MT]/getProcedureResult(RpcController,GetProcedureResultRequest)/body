@@ -1,0 +1,36 @@
+{
+  LOG.debug("Checking to see if procedure is done procId=" + request.getProcId());
+  try {
+    master.checkInitialized();
+    GetProcedureResultResponse.Builder builder=GetProcedureResultResponse.newBuilder();
+    Pair<ProcedureResult,Procedure> v=master.getMasterProcedureExecutor().getResultOrProcedure(request.getProcId());
+    if (v.getFirst() != null) {
+      ProcedureResult result=v.getFirst();
+      builder.setState(GetProcedureResultResponse.State.FINISHED);
+      builder.setStartTime(result.getStartTime());
+      builder.setLastUpdate(result.getLastUpdate());
+      if (result.isFailed()) {
+        builder.setException(result.getException().convert());
+      }
+      if (result.hasResultData()) {
+        builder.setResult(ByteStringer.wrap(result.getResult()));
+      }
+      master.getMasterProcedureExecutor().removeResult(request.getProcId());
+    }
+ else {
+      Procedure proc=v.getSecond();
+      if (proc == null) {
+        builder.setState(GetProcedureResultResponse.State.NOT_FOUND);
+      }
+ else {
+        builder.setState(GetProcedureResultResponse.State.RUNNING);
+        builder.setStartTime(proc.getStartTime());
+        builder.setLastUpdate(proc.getLastUpdate());
+      }
+    }
+    return builder.build();
+  }
+ catch (  IOException e) {
+    throw new ServiceException(e);
+  }
+}

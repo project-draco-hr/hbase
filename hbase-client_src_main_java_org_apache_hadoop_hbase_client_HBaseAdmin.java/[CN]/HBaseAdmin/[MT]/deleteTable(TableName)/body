@@ -1,40 +1,20 @@
 {
-  boolean tableExists=true;
-  executeCallable(new MasterCallable<Void>(getConnection()){
-    @Override public Void call(    int callTimeout) throws ServiceException {
-      DeleteTableRequest req=RequestConverter.buildDeleteTableRequest(tableName);
-      master.deleteTable(null,req);
-      return null;
-    }
+  Future<Void> future=deleteTableAsyncV2(tableName);
+  try {
+    future.get(syncWaitTimeout,TimeUnit.MILLISECONDS);
   }
-);
-  int failures=0;
-  for (int tries=0; tries < (this.numRetries * this.retryLongerMultiplier); tries++) {
-    try {
-      tableExists=tableExists(tableName);
-      if (!tableExists)       break;
+ catch (  InterruptedException e) {
+    throw new InterruptedIOException("Interrupted when waiting for table to be deleted");
+  }
+catch (  TimeoutException e) {
+    throw new TimeoutIOException(e);
+  }
+catch (  ExecutionException e) {
+    if (e.getCause() instanceof IOException) {
+      throw (IOException)e.getCause();
     }
- catch (    IOException ex) {
-      failures++;
-      if (failures >= numRetries - 1) {
-        if (ex instanceof RemoteException) {
-          throw ((RemoteException)ex).unwrapRemoteException();
-        }
  else {
-          throw ex;
-        }
-      }
-    }
-    try {
-      Thread.sleep(getPauseTime(tries));
-    }
- catch (    InterruptedException e) {
-      throw new InterruptedIOException("Interrupted when waiting" + " for table to be deleted");
+      throw new IOException(e.getCause());
     }
   }
-  if (tableExists) {
-    throw new IOException("Retries exhausted, it took too long to wait" + " for the table " + tableName + " to be deleted.");
-  }
-  this.connection.clearRegionCache(tableName);
-  LOG.info("Deleted " + tableName);
 }
