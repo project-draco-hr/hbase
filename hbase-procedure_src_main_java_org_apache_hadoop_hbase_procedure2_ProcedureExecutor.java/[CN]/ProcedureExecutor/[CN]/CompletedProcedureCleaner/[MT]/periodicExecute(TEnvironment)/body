@@ -1,0 +1,19 @@
+{
+  if (completed.isEmpty()) {
+    LOG.debug("no completed procedures to cleanup");
+    return;
+  }
+  final long evictTtl=conf.getInt(EVICT_TTL_CONF_KEY,DEFAULT_EVICT_TTL);
+  final long evictAckTtl=conf.getInt(EVICT_ACKED_TTL_CONF_KEY,DEFAULT_ACKED_EVICT_TTL);
+  long now=EnvironmentEdgeManager.currentTime();
+  Iterator<Map.Entry<Long,ProcedureResult>> it=completed.entrySet().iterator();
+  while (it.hasNext() && store.isRunning()) {
+    Map.Entry<Long,ProcedureResult> entry=it.next();
+    ProcedureResult result=entry.getValue();
+    if ((result.hasClientAckTime() && (now - result.getClientAckTime()) >= evictAckTtl) || (now - result.getLastUpdate()) >= evictTtl) {
+      LOG.debug("Evict completed procedure " + entry.getKey());
+      store.delete(entry.getKey());
+      it.remove();
+    }
+  }
+}

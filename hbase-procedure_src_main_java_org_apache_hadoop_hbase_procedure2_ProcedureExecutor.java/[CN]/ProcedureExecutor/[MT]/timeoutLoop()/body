@@ -1,0 +1,29 @@
+{
+  while (isRunning()) {
+    Procedure proc=waitingTimeout.poll();
+    if (proc == null)     continue;
+    if (proc.getTimeRemaining() > 100) {
+      waitingTimeout.add(proc);
+      continue;
+    }
+    if (proc instanceof CompletedProcedureCleaner) {
+      try {
+        ((CompletedProcedureCleaner)proc).periodicExecute(getEnvironment());
+      }
+ catch (      Throwable e) {
+        LOG.error("ignoring CompletedProcedureCleaner exception: " + e.getMessage(),e);
+      }
+      proc.setStartTime(EnvironmentEdgeManager.currentTime());
+      waitingTimeout.add(proc);
+      continue;
+    }
+    if (proc.setTimeoutFailure()) {
+      long rootProcId=Procedure.getRootProcedureId(procedures,proc);
+      RootProcedureState procStack=rollbackStack.get(rootProcId);
+      procStack.abort();
+      store.update(proc);
+      runnables.addFront(proc);
+      continue;
+    }
+  }
+}
