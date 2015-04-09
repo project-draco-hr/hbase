@@ -1,0 +1,41 @@
+{
+  final ProcedureStore masterStore=getMasterProcedureExecutor().getStore();
+  assertTrue("expected WALStore for this test",masterStore instanceof WALProcedureStore);
+  HMaster firstMaster=UTIL.getHBaseCluster().getMaster();
+  final CountDownLatch masterStoreAbort=new CountDownLatch(1);
+  masterStore.registerListener(new ProcedureStore.ProcedureStoreListener(){
+    @Override public void abortProcess(){
+      LOG.debug("Abort store of Master");
+      masterStoreAbort.countDown();
+    }
+  }
+);
+  HMaster backupMaster3=Mockito.mock(HMaster.class);
+  Mockito.doReturn(firstMaster.getConfiguration()).when(backupMaster3).getConfiguration();
+  Mockito.doReturn(true).when(backupMaster3).isActiveMaster();
+  final WALProcedureStore backupStore3=new WALProcedureStore(firstMaster.getConfiguration(),firstMaster.getMasterFileSystem().getFileSystem(),((WALProcedureStore)masterStore).getLogDir(),new MasterProcedureEnv.WALStoreLeaseRecovery(backupMaster3));
+  final CountDownLatch backupStore3Abort=new CountDownLatch(1);
+  backupStore3.registerListener(new ProcedureStore.ProcedureStoreListener(){
+    @Override public void abortProcess(){
+      LOG.debug("Abort store of backupMaster3");
+      backupStore3Abort.countDown();
+      backupStore3.stop(true);
+    }
+  }
+);
+  backupStore3.start(1);
+  backupStore3.recoverLease();
+  HTableDescriptor htd=MasterProcedureTestingUtility.createHTD(TableName.valueOf("mtb"),"f");
+  HRegionInfo[] regions=ModifyRegionUtils.createHRegionInfos(htd,null);
+  LOG.debug("submit proc");
+  getMasterProcedureExecutor().submitProcedure(new CreateTableProcedure(getMasterProcedureExecutor().getEnvironment(),htd,regions));
+  LOG.debug("wait master store abort");
+  masterStoreAbort.await();
+  LOG.debug("wait backup master to startup");
+  waitBackupMaster(UTIL,firstMaster);
+  assertEquals(true,firstMaster.isStopped());
+  LOG.debug("wait the store to abort");
+  backupStore3.getStoreTracker().setDeleted(1,false);
+  backupStore3.delete(1);
+  backupStore3Abort.await();
+}

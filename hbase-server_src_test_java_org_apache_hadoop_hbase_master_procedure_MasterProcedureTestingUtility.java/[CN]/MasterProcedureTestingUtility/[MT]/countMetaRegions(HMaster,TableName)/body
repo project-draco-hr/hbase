@@ -1,0 +1,32 @@
+{
+  final AtomicInteger actualRegCount=new AtomicInteger(0);
+  final MetaTableAccessor.Visitor visitor=new MetaTableAccessor.Visitor(){
+    @Override public boolean visit(    Result rowResult) throws IOException {
+      RegionLocations list=MetaTableAccessor.getRegionLocations(rowResult);
+      if (list == null) {
+        LOG.warn("No serialized HRegionInfo in " + rowResult);
+        return true;
+      }
+      HRegionLocation l=list.getRegionLocation();
+      if (l == null) {
+        return true;
+      }
+      if (!l.getRegionInfo().getTable().equals(tableName)) {
+        return false;
+      }
+      if (l.getRegionInfo().isOffline() || l.getRegionInfo().isSplit())       return true;
+      HRegionLocation[] locations=list.getRegionLocations();
+      for (      HRegionLocation location : locations) {
+        if (location == null)         continue;
+        ServerName serverName=location.getServerName();
+        if (serverName != null && serverName.getHostAndPort() != null) {
+          actualRegCount.incrementAndGet();
+        }
+      }
+      return true;
+    }
+  }
+;
+  MetaTableAccessor.scanMetaForTableRegions(master.getConnection(),visitor,tableName);
+  return actualRegCount.get();
+}
