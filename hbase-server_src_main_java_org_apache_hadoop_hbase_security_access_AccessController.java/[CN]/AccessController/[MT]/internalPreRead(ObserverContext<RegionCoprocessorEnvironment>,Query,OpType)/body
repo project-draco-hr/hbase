@@ -27,32 +27,35 @@ cfVsMaxVersions.put(new SimpleMutableByteRange(hcd.getName()),hcd.getMaxVersions
 if (!authResult.isAllowed()) {
 if (!cellFeaturesEnabled || compatibleEarlyTermination) {
 if (hasFamilyQualifierPermission(user,Action.READ,env,families)) {
-Filter ourFilter=new AccessControlFilter(authManager,user,table,AccessControlFilter.Strategy.CHECK_TABLE_AND_CF_ONLY,cfVsMaxVersions);
-if (filter != null) {
-ourFilter=new FilterList(FilterList.Operator.MUST_PASS_ALL,Lists.newArrayList(ourFilter,filter));
-}
 authResult.setAllowed(true);
 authResult.setReason("Access allowed with filter");
+if (authorizationEnabled) {
+Filter ourFilter=new AccessControlFilter(authManager,user,table,AccessControlFilter.Strategy.CHECK_TABLE_AND_CF_ONLY,cfVsMaxVersions);
+if (filter != null) {
+  ourFilter=new FilterList(FilterList.Operator.MUST_PASS_ALL,Lists.newArrayList(ourFilter,filter));
+}
 switch (opType) {
 case GET:
 case EXISTS:
-((Get)query).setFilter(ourFilter);
+  ((Get)query).setFilter(ourFilter);
 break;
 case SCAN:
 ((Scan)query).setFilter(ourFilter);
 break;
 default :
 throw new RuntimeException("Unhandled operation " + opType);
+}
 }
 }
 }
  else {
+authResult.setAllowed(true);
+authResult.setReason("Access allowed with filter");
+if (authorizationEnabled) {
 Filter ourFilter=new AccessControlFilter(authManager,user,table,AccessControlFilter.Strategy.CHECK_CELL_DEFAULT,cfVsMaxVersions);
 if (filter != null) {
 ourFilter=new FilterList(FilterList.Operator.MUST_PASS_ALL,Lists.newArrayList(ourFilter,filter));
 }
-authResult.setAllowed(true);
-authResult.setReason("Access allowed with filter");
 switch (opType) {
 case GET:
 case EXISTS:
@@ -66,8 +69,9 @@ throw new RuntimeException("Unhandled operation " + opType);
 }
 }
 }
+}
 logResult(authResult);
-if (!authResult.isAllowed()) {
+if (authorizationEnabled && !authResult.isAllowed()) {
 throw new AccessDeniedException("Insufficient permissions (table=" + table + ", action=READ)");
 }
 }
