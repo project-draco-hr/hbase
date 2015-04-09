@@ -1,0 +1,25 @@
+{
+  final TableName tableName=TableName.valueOf("testModifyTableAddCF");
+  final String cf2="cf2";
+  final String cf3="cf3";
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  MasterProcedureTestingUtility.createTable(procExec,tableName,null,"cf1",cf2,cf3);
+  HTableDescriptor currentHtd=UTIL.getHBaseAdmin().getTableDescriptor(tableName);
+  assertEquals(3,currentHtd.getFamiliesKeys().size());
+  HTableDescriptor htd=new HTableDescriptor(UTIL.getHBaseAdmin().getTableDescriptor(tableName));
+  htd.removeFamily(cf2.getBytes());
+  long procId=ProcedureTestingUtility.submitAndWait(procExec,new ModifyTableProcedure(procExec.getEnvironment(),htd));
+  ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId));
+  currentHtd=UTIL.getHBaseAdmin().getTableDescriptor(tableName);
+  assertEquals(2,currentHtd.getFamiliesKeys().size());
+  assertFalse(currentHtd.hasFamily(cf2.getBytes()));
+  UTIL.getHBaseAdmin().disableTable(tableName);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  HTableDescriptor htd2=new HTableDescriptor(UTIL.getHBaseAdmin().getTableDescriptor(tableName));
+  htd2.removeFamily(cf3.getBytes());
+  long procId2=ProcedureTestingUtility.submitAndWait(procExec,new ModifyTableProcedure(procExec.getEnvironment(),htd2));
+  ProcedureTestingUtility.assertProcNotFailed(procExec.getResult(procId2));
+  currentHtd=UTIL.getHBaseAdmin().getTableDescriptor(tableName);
+  assertEquals(1,currentHtd.getFamiliesKeys().size());
+  assertFalse(currentHtd.hasFamily(cf3.getBytes()));
+}
