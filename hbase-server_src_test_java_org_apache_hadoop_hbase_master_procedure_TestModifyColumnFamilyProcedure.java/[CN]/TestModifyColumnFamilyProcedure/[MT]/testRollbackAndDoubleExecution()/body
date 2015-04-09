@@ -1,0 +1,15 @@
+{
+  final TableName tableName=TableName.valueOf("testRollbackAndDoubleExecution");
+  final String cf3="cf3";
+  final HColumnDescriptor columnDescriptor=new HColumnDescriptor(cf3);
+  int oldBlockSize=columnDescriptor.getBlocksize();
+  int newBlockSize=4 * oldBlockSize;
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  MasterProcedureTestingUtility.createTable(procExec,tableName,null,"f1","f2",cf3);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  columnDescriptor.setBlocksize(newBlockSize);
+  long procId=procExec.submitProcedure(new ModifyColumnFamilyProcedure(procExec.getEnvironment(),tableName,columnDescriptor));
+  int numberOfSteps=ModifyColumnFamilyState.values().length - 2;
+  MasterProcedureTestingUtility.testRollbackAndDoubleExecution(procExec,procId,numberOfSteps,ModifyColumnFamilyState.values());
+}
