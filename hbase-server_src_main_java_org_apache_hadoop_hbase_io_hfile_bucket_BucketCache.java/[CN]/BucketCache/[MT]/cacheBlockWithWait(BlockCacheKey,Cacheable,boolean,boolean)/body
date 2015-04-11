@@ -1,21 +1,26 @@
 {
-  if (!cacheEnabled)   return;
-  if (backingMap.containsKey(cacheKey) || ramCache.containsKey(cacheKey))   return;
+  if (!cacheEnabled) {
+    return;
+  }
+  if (backingMap.containsKey(cacheKey)) {
+    return;
+  }
   RAMQueueEntry re=new RAMQueueEntry(cacheKey,cachedItem,accessCount.incrementAndGet(),inMemory);
-  ramCache.put(cacheKey,re);
+  if (ramCache.putIfAbsent(cacheKey,re) != null) {
+    return;
+  }
   int queueNum=(cacheKey.hashCode() & 0x7FFFFFFF) % writerQueues.size();
   BlockingQueue<RAMQueueEntry> bq=writerQueues.get(queueNum);
-  boolean successfulAddition=bq.offer(re);
-  if (!successfulAddition && wait) {
-synchronized (cacheWaitSignals[queueNum]) {
-      try {
-        successfulAddition=bq.offer(re);
-        if (!successfulAddition)         cacheWaitSignals[queueNum].wait(DEFAULT_CACHE_WAIT_TIME);
-      }
- catch (      InterruptedException ie) {
-        Thread.currentThread().interrupt();
-      }
+  boolean successfulAddition=false;
+  if (wait) {
+    try {
+      successfulAddition=bq.offer(re,DEFAULT_CACHE_WAIT_TIME,TimeUnit.MILLISECONDS);
     }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+ else {
     successfulAddition=bq.offer(re);
   }
   if (!successfulAddition) {

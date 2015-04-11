@@ -1,5 +1,7 @@
 {
-  if (entries.isEmpty())   return;
+  if (entries.isEmpty()) {
+    return;
+  }
   final int size=entries.size();
   BucketEntry[] bucketEntries=new BucketEntry[size];
   int index=0;
@@ -58,6 +60,23 @@ catch (    IOException ioex) {
     RAMQueueEntry ramCacheEntry=ramCache.remove(key);
     if (ramCacheEntry != null) {
       heapSize.addAndGet(-1 * entries.get(i).getData().heapSize());
+    }
+ else     if (bucketEntries[i] != null) {
+      IdLock.Entry lockEntry=null;
+      try {
+        lockEntry=offsetLock.getLockEntry(bucketEntries[i].offset());
+        if (backingMap.remove(key,bucketEntries[i])) {
+          blockEvicted(key,bucketEntries[i],false);
+        }
+      }
+ catch (      IOException e) {
+        LOG.warn("failed to free space for " + key,e);
+      }
+ finally {
+        if (lockEntry != null) {
+          offsetLock.releaseLockEntry(lockEntry);
+        }
+      }
     }
   }
   long used=bucketAllocator.getUsedSize();
