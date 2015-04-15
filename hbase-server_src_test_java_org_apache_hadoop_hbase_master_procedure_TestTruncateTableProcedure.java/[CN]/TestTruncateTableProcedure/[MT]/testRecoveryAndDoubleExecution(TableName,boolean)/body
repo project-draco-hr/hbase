@@ -1,0 +1,26 @@
+{
+  final String[] families=new String[]{"f1","f2"};
+  final byte[][] splitKeys=new byte[][]{Bytes.toBytes("a"),Bytes.toBytes("b"),Bytes.toBytes("c")};
+  HRegionInfo[] regions=MasterProcedureTestingUtility.createTable(getMasterProcedureExecutor(),tableName,splitKeys,families);
+  MasterProcedureTestingUtility.loadData(UTIL.getConnection(),tableName,100,splitKeys,families);
+  assertEquals(100,UTIL.countRows(tableName));
+  UTIL.getHBaseAdmin().disableTable(tableName);
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  long procId=procExec.submitProcedure(new TruncateTableProcedure(procExec.getEnvironment(),tableName,preserveSplits));
+  MasterProcedureTestingUtility.testRecoveryAndDoubleExecution(procExec,procId,7,TruncateTableState.values());
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,false);
+  UTIL.waitUntilAllRegionsAssigned(tableName);
+  if (preserveSplits) {
+    assertEquals(1 + splitKeys.length,UTIL.getHBaseAdmin().getTableRegions(tableName).size());
+  }
+ else {
+    regions=UTIL.getHBaseAdmin().getTableRegions(tableName).toArray(new HRegionInfo[1]);
+    assertEquals(1,regions.length);
+  }
+  MasterProcedureTestingUtility.validateTableCreation(UTIL.getHBaseCluster().getMaster(),tableName,regions,families);
+  assertEquals(0,UTIL.countRows(tableName));
+  MasterProcedureTestingUtility.loadData(UTIL.getConnection(),tableName,50,splitKeys,families);
+  assertEquals(50,UTIL.countRows(tableName));
+}
