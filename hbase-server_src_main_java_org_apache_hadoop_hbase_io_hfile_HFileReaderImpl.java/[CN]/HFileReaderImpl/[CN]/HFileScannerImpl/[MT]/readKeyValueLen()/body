@@ -1,18 +1,14 @@
 {
-  blockBuffer.mark();
-  currKeyLen=blockBuffer.getInt();
-  currValueLen=blockBuffer.getInt();
-  if (currKeyLen < 0 || currValueLen < 0 || currKeyLen > blockBuffer.limit() || currValueLen > blockBuffer.limit()) {
-    throw new IllegalStateException("Invalid currKeyLen " + currKeyLen + " or currValueLen "+ currValueLen+ ". Block offset: "+ block.getOffset()+ ", block length: "+ blockBuffer.limit()+ ", position: "+ blockBuffer.position()+ " (without header).");
+  int p=blockBuffer.position() + blockBuffer.arrayOffset();
+  long ll=Bytes.toLong(blockBuffer.array(),p);
+  this.currKeyLen=(int)(ll >> Integer.SIZE);
+  this.currValueLen=(int)(Bytes.MASK_FOR_LOWER_INT_IN_LONG ^ ll);
+  checkKeyValueLen();
+  p+=(Bytes.SIZEOF_LONG + currKeyLen + currValueLen);
+  if (reader.getFileContext().isIncludesTags()) {
+    this.currTagsLen=Bytes.toShort(blockBuffer.array(),p);
+    checkTagsLen();
+    p+=(Bytes.SIZEOF_SHORT + currTagsLen);
   }
-  ByteBufferUtils.skip(blockBuffer,currKeyLen + currValueLen);
-  if (this.reader.getFileContext().isIncludesTags()) {
-    currTagsLen=((blockBuffer.get() & 0xff) << 8) ^ (blockBuffer.get() & 0xff);
-    if (currTagsLen < 0 || currTagsLen > blockBuffer.limit()) {
-      throw new IllegalStateException("Invalid currTagsLen " + currTagsLen + ". Block offset: "+ block.getOffset()+ ", block length: "+ blockBuffer.limit()+ ", position: "+ blockBuffer.position()+ " (without header).");
-    }
-    ByteBufferUtils.skip(blockBuffer,currTagsLen);
-  }
-  readMvccVersion();
-  blockBuffer.reset();
+  readMvccVersion(p);
 }
