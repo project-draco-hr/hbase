@@ -1,23 +1,14 @@
 {
-  ZooKeeperWatcher zk=new ZooKeeperWatcher(TEST_UTIL.getConfiguration(),"testMasterAddressTrackerFromZK",null);
-  ZKUtil.createAndFailSilent(zk,zk.baseZNode);
-  MasterAddressTracker addressTracker=new MasterAddressTracker(zk,null);
-  addressTracker.start();
-  assertFalse(addressTracker.hasMaster());
-  zk.registerListener(addressTracker);
-  NodeCreationListener listener=new NodeCreationListener(zk,zk.getMasterAddressZNode());
-  zk.registerListener(listener);
-  String host="localhost";
-  int port=1234;
-  int infoPort=1235;
-  ServerName sn=ServerName.valueOf(host,port,System.currentTimeMillis());
-  LOG.info("Creating master node");
-  MasterAddressTracker.setMasterAddress(zk,zk.getMasterAddressZNode(),sn,infoPort);
-  LOG.info("Waiting for master address manager to be notified");
-  listener.waitForCreation();
-  LOG.info("Master node created");
-  assertTrue(addressTracker.hasMaster());
-  ServerName pulledAddress=addressTracker.getMasterAddress();
-  assertTrue(pulledAddress.equals(sn));
-  assertEquals(infoPort,addressTracker.getMasterInfoPort());
+  final int infoPort=1235;
+  final ServerName sn=ServerName.valueOf("localhost",1234,System.currentTimeMillis());
+  final MasterAddressTracker addressTracker=setupMasterTracker(sn,infoPort);
+  try {
+    assertTrue(addressTracker.hasMaster());
+    ServerName pulledAddress=addressTracker.getMasterAddress();
+    assertTrue(pulledAddress.equals(sn));
+    assertEquals(infoPort,addressTracker.getMasterInfoPort());
+  }
+  finally {
+    assertTrue("Couldn't clean up master",MasterAddressTracker.deleteIfEquals(addressTracker.getWatcher(),sn.toString()));
+  }
 }
