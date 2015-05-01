@@ -1,0 +1,17 @@
+{
+  final TableName tableName=TableName.valueOf("testRecoveryAndDoubleExecutionOffline");
+  final String cf3="cf3";
+  final HColumnDescriptor columnDescriptor=new HColumnDescriptor(cf3);
+  int oldBlockSize=columnDescriptor.getBlocksize();
+  int newBlockSize=4 * oldBlockSize;
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  MasterProcedureTestingUtility.createTable(procExec,tableName,null,"f1","f2",cf3);
+  UTIL.getHBaseAdmin().disableTable(tableName);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  columnDescriptor.setBlocksize(newBlockSize);
+  long procId=procExec.submitProcedure(new ModifyColumnFamilyProcedure(procExec.getEnvironment(),tableName,columnDescriptor));
+  int numberOfSteps=ModifyColumnFamilyState.values().length;
+  MasterProcedureTestingUtility.testRecoveryAndDoubleExecution(procExec,procId,numberOfSteps,ModifyColumnFamilyState.values());
+  MasterProcedureTestingUtility.validateColumnFamilyModification(UTIL.getHBaseCluster().getMaster(),tableName,cf3,columnDescriptor);
+}

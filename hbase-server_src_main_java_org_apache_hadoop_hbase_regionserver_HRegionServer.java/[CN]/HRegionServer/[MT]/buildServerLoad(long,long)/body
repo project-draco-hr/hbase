@@ -1,6 +1,6 @@
 {
-  MetricsRegionServerWrapper regionServerWrapper=this.metricsRegionServer.getRegionServerWrapper();
-  Collection<HRegion> regions=getOnlineRegionsLocalContext();
+  MetricsRegionServerWrapper regionServerWrapper=metricsRegionServer.getRegionServerWrapper();
+  Collection<Region> regions=getOnlineRegionsLocalContext();
   MemoryUsage memory=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
   ClusterStatusProtos.ServerLoad.Builder serverLoad=ClusterStatusProtos.ServerLoad.newBuilder();
   serverLoad.setNumberOfRequests((int)regionServerWrapper.getRequestsPerSecond());
@@ -13,7 +13,7 @@
   }
   RegionLoad.Builder regionLoadBldr=RegionLoad.newBuilder();
   RegionSpecifier.Builder regionSpecifier=RegionSpecifier.newBuilder();
-  for (  HRegion region : regions) {
+  for (  Region region : regions) {
     serverLoad.addRegionLoads(createRegionLoad(region,regionLoadBldr,regionSpecifier));
     for (    String coprocessor : getWAL(region.getRegionInfo()).getCoprocessorHost().getCoprocessors()) {
       serverLoad.addCoprocessors(Coprocessor.newBuilder().setName(coprocessor).build());
@@ -26,6 +26,16 @@
   }
  else {
     serverLoad.setInfoServerPort(-1);
+  }
+  ReplicationSourceService rsources=getReplicationSourceService();
+  if (rsources != null) {
+    ReplicationLoad rLoad=rsources.refreshAndGetReplicationLoad();
+    if (rLoad != null) {
+      serverLoad.setReplLoadSink(rLoad.getReplicationLoadSink());
+      for (      ClusterStatusProtos.ReplicationLoadSource rLS : rLoad.getReplicationLoadSourceList()) {
+        serverLoad.addReplLoadSource(rLS);
+      }
+    }
   }
   return serverLoad.build();
 }

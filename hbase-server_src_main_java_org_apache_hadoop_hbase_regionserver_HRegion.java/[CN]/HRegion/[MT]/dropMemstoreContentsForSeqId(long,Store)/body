@@ -1,0 +1,26 @@
+{
+  long totalFreedSize=0;
+  this.updatesLock.writeLock().lock();
+  try {
+    mvcc.waitForPreviousTransactionsComplete();
+    long currentSeqId=getSequenceId().get();
+    if (seqId >= currentSeqId) {
+      LOG.info(getRegionInfo().getEncodedName() + " : " + "Dropping memstore contents as well since replayed flush seqId: "+ seqId+ " is greater than current seqId:"+ currentSeqId);
+      if (store == null) {
+        for (        Store s : stores.values()) {
+          totalFreedSize+=doDropStoreMemstoreContentsForSeqId(s,currentSeqId);
+        }
+      }
+ else {
+        totalFreedSize+=doDropStoreMemstoreContentsForSeqId(store,currentSeqId);
+      }
+    }
+ else {
+      LOG.info(getRegionInfo().getEncodedName() + " : " + "Not dropping memstore contents since replayed flush seqId: "+ seqId+ " is smaller than current seqId:"+ currentSeqId);
+    }
+  }
+  finally {
+    this.updatesLock.writeLock().unlock();
+  }
+  return totalFreedSize;
+}

@@ -1,0 +1,43 @@
+{
+  final KeyValue kv1=new KeyValue("row1".getBytes(),"cf".getBytes(),"cq".getBytes(),1,Type.Maximum), kv2=new KeyValue("row2".getBytes(),"cf".getBytes(),"cq".getBytes(),1,Type.Maximum), kv3=new KeyValue("row3".getBytes(),"cf".getBytes(),"cq".getBytes(),1,Type.Maximum);
+  ScannerCallableWithReplicas callableWithReplicas=Mockito.mock(ScannerCallableWithReplicas.class);
+  @SuppressWarnings("unchecked") RpcRetryingCaller<Result[]> caller=Mockito.mock(RpcRetryingCaller.class);
+  Mockito.when(rpcFactory.<Result[]>newCaller()).thenReturn(caller);
+  SmallScannerCallableFactory factory=getFactory(callableWithReplicas);
+  try (ClientSmallScanner css=new ClientSmallScanner(conf,scan,TableName.valueOf("table"),clusterConn,rpcFactory,controllerFactory,pool,Integer.MAX_VALUE)){
+    css.setScannerCallableFactory(factory);
+    Mockito.when(caller.callWithoutRetries(callableWithReplicas,css.getScannerTimeout())).thenAnswer(new Answer<Result[]>(){
+      int count=0;
+      @Override public Result[] answer(      InvocationOnMock invocation){
+        Result[] results;
+        if (0 == count) {
+          results=new Result[]{Result.create(new Cell[]{kv1}),Result.create(new Cell[]{kv2})};
+        }
+ else         if (1 == count) {
+          results=new Result[]{Result.create(new Cell[]{kv3})};
+        }
+ else {
+          results=new Result[0];
+        }
+        count++;
+        return results;
+      }
+    }
+);
+    Mockito.when(callableWithReplicas.hasMoreResultsContext()).thenReturn(true);
+    Mockito.when(callableWithReplicas.getServerHasMoreResults()).thenAnswer(createTrueThenFalseAnswer());
+    HRegionInfo regionInfo=Mockito.mock(HRegionInfo.class);
+    Mockito.when(callableWithReplicas.getHRegionInfo()).thenReturn(regionInfo);
+    Mockito.when(regionInfo.getEndKey()).thenReturn(HConstants.EMPTY_BYTE_ARRAY);
+    css.loadCache();
+    List<Result> results=css.cache;
+    assertEquals(3,results.size());
+    for (int i=1; i <= 3; i++) {
+      Result result=results.get(i - 1);
+      byte[] row=result.getRow();
+      assertEquals("row" + i,new String(row,StandardCharsets.UTF_8));
+      assertEquals(1,result.getMap().size());
+    }
+    assertTrue(css.closed);
+  }
+ }

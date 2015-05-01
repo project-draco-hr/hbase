@@ -1,0 +1,48 @@
+{
+  final AssignmentManager assignmentManager=env.getMasterServices().getAssignmentManager();
+  final MasterServices masterServices=env.getMasterServices();
+  final ServerManager serverManager=masterServices.getServerManager();
+  boolean done=false;
+  List<Pair<HRegionInfo,ServerName>> tableRegionsAndLocations;
+  if (TableName.META_TABLE_NAME.equals(tableName)) {
+    tableRegionsAndLocations=new MetaTableLocator().getMetaRegionsAndLocations(masterServices.getZooKeeper());
+  }
+ else {
+    tableRegionsAndLocations=MetaTableAccessor.getTableRegionsAndLocations(masterServices.getConnection(),tableName);
+  }
+  int countOfRegionsInTable=tableRegionsAndLocations.size();
+  Map<HRegionInfo,ServerName> regionsToAssign=regionsToAssignWithServerName(env,tableRegionsAndLocations);
+  List<HRegionInfo> unrecordedReplicas=AssignmentManager.replicaRegionsNotRecordedInMeta(new HashSet<HRegionInfo>(regionsToAssign.keySet()),masterServices);
+  Map<ServerName,List<HRegionInfo>> srvToUnassignedRegs=assignmentManager.getBalancer().roundRobinAssignment(unrecordedReplicas,serverManager.getOnlineServersList());
+  if (srvToUnassignedRegs != null) {
+    for (    Map.Entry<ServerName,List<HRegionInfo>> entry : srvToUnassignedRegs.entrySet()) {
+      for (      HRegionInfo h : entry.getValue()) {
+        regionsToAssign.put(h,entry.getKey());
+      }
+    }
+  }
+  int offlineRegionsCount=regionsToAssign.size();
+  LOG.info("Table '" + tableName + "' has "+ countOfRegionsInTable+ " regions, of which "+ offlineRegionsCount+ " are offline.");
+  if (offlineRegionsCount == 0) {
+    return true;
+  }
+  List<ServerName> onlineServers=serverManager.createDestinationServersList();
+  Map<ServerName,List<HRegionInfo>> bulkPlan=env.getMasterServices().getAssignmentManager().getBalancer().retainAssignment(regionsToAssign,onlineServers);
+  if (bulkPlan != null) {
+    LOG.info("Bulk assigning " + offlineRegionsCount + " region(s) across "+ bulkPlan.size()+ " server(s), retainAssignment=true");
+    BulkAssigner ba=new GeneralBulkAssigner(masterServices,bulkPlan,assignmentManager,true);
+    try {
+      if (ba.bulkAssign()) {
+        done=true;
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Enable operation was interrupted when enabling table '" + tableName + "'");
+      Thread.currentThread().interrupt();
+    }
+  }
+ else {
+    LOG.info("Balancer was unable to find suitable servers for table " + tableName + ", leaving unassigned");
+  }
+  return done;
+}

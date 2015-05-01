@@ -8,7 +8,7 @@
       return ReplicateWALEntryResponse.newBuilder().build();
     }
     ByteString regionName=entries.get(0).getKey().getEncodedRegionName();
-    HRegion region=regionServer.getRegionByEncodedName(regionName.toStringUtf8());
+    Region region=regionServer.getRegionByEncodedName(regionName.toStringUtf8());
     RegionCoprocessorHost coprocessorHost=ServerRegionReplicaUtil.isDefaultReplica(region.getRegionInfo()) ? region.getCoprocessorHost() : null;
     List<Pair<WALKey,WALEdit>> walEntries=new ArrayList<Pair<WALKey,WALEdit>>();
     boolean isPrimary=RegionReplicaUtil.isDefaultReplica(region.getRegionInfo());
@@ -17,7 +17,7 @@
       if (!regionName.equals(entry.getKey().getEncodedRegionName())) {
         throw new NotServingRegionException("Replay request contains entries from multiple " + "regions. First region:" + regionName.toStringUtf8() + " , other region:"+ entry.getKey().getEncodedRegionName());
       }
-      if (regionServer.nonceManager != null) {
+      if (regionServer.nonceManager != null && isPrimary) {
         long nonceGroup=entry.getKey().hasNonceGroup() ? entry.getKey().getNonceGroup() : HConstants.NO_NONCE;
         long nonce=entry.getKey().hasNonce() ? entry.getKey().getNonce() : HConstants.NO_NONCE;
         regionServer.nonceManager.reportOperationFromWal(nonceGroup,nonce,entry.getKey().getWriteTime());
@@ -40,10 +40,13 @@
         }
       }
     }
-    region.syncWal();
+    WAL wal=getWAL(region);
+    if (wal != null) {
+      wal.sync();
+    }
     if (coprocessorHost != null) {
-      for (      Pair<WALKey,WALEdit> wal : walEntries) {
-        coprocessorHost.postWALRestore(region.getRegionInfo(),wal.getFirst(),wal.getSecond());
+      for (      Pair<WALKey,WALEdit> entry : walEntries) {
+        coprocessorHost.postWALRestore(region.getRegionInfo(),entry.getFirst(),entry.getSecond());
       }
     }
     return ReplicateWALEntryResponse.newBuilder().build();

@@ -1,0 +1,42 @@
+{
+  byte[] name=r.getRegionInfo().getRegionName();
+  int stores=0;
+  int storefiles=0;
+  int storeUncompressedSizeMB=0;
+  int storefileSizeMB=0;
+  int memstoreSizeMB=(int)(r.getMemstoreSize() / 1024 / 1024);
+  int storefileIndexSizeMB=0;
+  int rootIndexSizeKB=0;
+  int totalStaticIndexSizeKB=0;
+  int totalStaticBloomSizeKB=0;
+  long totalCompactingKVs=0;
+  long currentCompactedKVs=0;
+  List<Store> storeList=r.getStores();
+  stores+=storeList.size();
+  for (  Store store : storeList) {
+    storefiles+=store.getStorefilesCount();
+    storeUncompressedSizeMB+=(int)(store.getStoreSizeUncompressed() / 1024 / 1024);
+    storefileSizeMB+=(int)(store.getStorefilesSize() / 1024 / 1024);
+    storefileIndexSizeMB+=(int)(store.getStorefilesIndexSize() / 1024 / 1024);
+    CompactionProgress progress=store.getCompactionProgress();
+    if (progress != null) {
+      totalCompactingKVs+=progress.totalCompactingKVs;
+      currentCompactedKVs+=progress.currentCompactedKVs;
+    }
+    rootIndexSizeKB+=(int)(store.getStorefilesIndexSize() / 1024);
+    totalStaticIndexSizeKB+=(int)(store.getTotalStaticIndexSize() / 1024);
+    totalStaticBloomSizeKB+=(int)(store.getTotalStaticBloomSize() / 1024);
+  }
+  float dataLocality=r.getHDFSBlocksDistribution().getBlockLocalityIndex(serverName.getHostname());
+  if (regionLoadBldr == null) {
+    regionLoadBldr=RegionLoad.newBuilder();
+  }
+  if (regionSpecifier == null) {
+    regionSpecifier=RegionSpecifier.newBuilder();
+  }
+  regionSpecifier.setType(RegionSpecifierType.REGION_NAME);
+  regionSpecifier.setValue(ByteStringer.wrap(name));
+  regionLoadBldr.setRegionSpecifier(regionSpecifier.build()).setStores(stores).setStorefiles(storefiles).setStoreUncompressedSizeMB(storeUncompressedSizeMB).setStorefileSizeMB(storefileSizeMB).setMemstoreSizeMB(memstoreSizeMB).setStorefileIndexSizeMB(storefileIndexSizeMB).setRootIndexSizeKB(rootIndexSizeKB).setTotalStaticIndexSizeKB(totalStaticIndexSizeKB).setTotalStaticBloomSizeKB(totalStaticBloomSizeKB).setReadRequestsCount(r.getReadRequestsCount()).setWriteRequestsCount(r.getWriteRequestsCount()).setTotalCompactingKVs(totalCompactingKVs).setCurrentCompactedKVs(currentCompactedKVs).setDataLocality(dataLocality).setLastMajorCompactionTs(r.getOldestHfileTs(true));
+  ((HRegion)r).setCompleteSequenceId(regionLoadBldr);
+  return regionLoadBldr.build();
+}

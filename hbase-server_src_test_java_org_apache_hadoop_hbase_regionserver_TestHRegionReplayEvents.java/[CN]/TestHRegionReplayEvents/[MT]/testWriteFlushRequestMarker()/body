@@ -1,0 +1,25 @@
+{
+  FlushResultImpl result=(FlushResultImpl)((HRegion)primaryRegion).flushcache(true,false);
+  assertNotNull(result);
+  assertEquals(result.result,FlushResultImpl.Result.CANNOT_FLUSH_MEMSTORE_EMPTY);
+  assertFalse(result.wroteFlushWalMarker);
+  result=(FlushResultImpl)((HRegion)primaryRegion).flushcache(true,true);
+  assertNotNull(result);
+  assertEquals(result.result,FlushResultImpl.Result.CANNOT_FLUSH_MEMSTORE_EMPTY);
+  assertTrue(result.wroteFlushWalMarker);
+  List<FlushDescriptor> flushes=Lists.newArrayList();
+  reader=createWALReaderForPrimary();
+  while (true) {
+    WAL.Entry entry=reader.next();
+    if (entry == null) {
+      break;
+    }
+    FlushDescriptor flush=WALEdit.getFlushDescriptor(entry.getEdit().getCells().get(0));
+    if (flush != null) {
+      flushes.add(flush);
+    }
+  }
+  assertEquals(1,flushes.size());
+  assertNotNull(flushes.get(0));
+  assertEquals(FlushDescriptor.FlushAction.CANNOT_FLUSH,flushes.get(0).getAction());
+}

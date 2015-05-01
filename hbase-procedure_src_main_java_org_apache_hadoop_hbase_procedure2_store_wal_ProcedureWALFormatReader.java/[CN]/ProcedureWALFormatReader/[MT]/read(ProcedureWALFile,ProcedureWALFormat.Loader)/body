@@ -1,0 +1,51 @@
+{
+  FSDataInputStream stream=log.getStream();
+  try {
+    boolean hasMore=true;
+    while (hasMore) {
+      ProcedureWALEntry entry=ProcedureWALFormat.readEntry(stream);
+      if (entry == null) {
+        LOG.warn("nothing left to decode. exiting with missing EOF");
+        hasMore=false;
+        break;
+      }
+switch (entry.getType()) {
+case INIT:
+        readInitEntry(entry);
+      break;
+case INSERT:
+    readInsertEntry(entry);
+  break;
+case UPDATE:
+case COMPACT:
+readUpdateEntry(entry);
+break;
+case DELETE:
+readDeleteEntry(entry);
+break;
+case EOF:
+hasMore=false;
+break;
+default :
+throw new CorruptedWALProcedureStoreException("Invalid entry: " + entry);
+}
+}
+}
+ catch (IOException e) {
+LOG.error("got an exception while reading the procedure WAL: " + log,e);
+loader.markCorruptedWAL(log,e);
+}
+if (localProcedures.isEmpty()) {
+LOG.info("No active entry found in state log " + log + ". removing it");
+loader.removeLog(log);
+}
+ else {
+Iterator<Map.Entry<Long,ProcedureProtos.Procedure>> itd=localProcedures.entrySet().iterator();
+while (itd.hasNext()) {
+Map.Entry<Long,ProcedureProtos.Procedure> entry=itd.next();
+itd.remove();
+Procedure proc=Procedure.convert(entry.getValue());
+procedures.put(entry.getKey(),proc);
+}
+}
+}

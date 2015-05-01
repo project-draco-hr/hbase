@@ -1,18 +1,20 @@
 {
-  SortedMap<Long,HRegion> regionsBySize=server.getCopyOfOnlineRegionsSortedBySize();
-  Set<HRegion> excludedRegions=new HashSet<HRegion>();
+  SortedMap<Long,Region> regionsBySize=server.getCopyOfOnlineRegionsSortedBySize();
+  Set<Region> excludedRegions=new HashSet<Region>();
+  double secondaryMultiplier=ServerRegionReplicaUtil.getRegionReplicaStoreFileRefreshMultiplier(conf);
   boolean flushedOne=false;
   while (!flushedOne) {
-    HRegion bestFlushableRegion=getBiggestMemstoreRegion(regionsBySize,excludedRegions,true);
-    HRegion bestAnyRegion=getBiggestMemstoreRegion(regionsBySize,excludedRegions,false);
-    if (bestAnyRegion == null) {
+    Region bestFlushableRegion=getBiggestMemstoreRegion(regionsBySize,excludedRegions,true);
+    Region bestAnyRegion=getBiggestMemstoreRegion(regionsBySize,excludedRegions,false);
+    Region bestRegionReplica=getBiggestMemstoreOfRegionReplica(regionsBySize,excludedRegions);
+    if (bestAnyRegion == null && bestRegionReplica == null) {
       LOG.error("Above memory mark but there are no flushable regions!");
       return false;
     }
-    HRegion regionToFlush;
-    if (bestFlushableRegion != null && bestAnyRegion.memstoreSize.get() > 2 * bestFlushableRegion.memstoreSize.get()) {
+    Region regionToFlush;
+    if (bestFlushableRegion != null && bestAnyRegion.getMemstoreSize() > 2 * bestFlushableRegion.getMemstoreSize()) {
       if (LOG.isDebugEnabled()) {
-        LOG.debug("Under global heap pressure: " + "Region " + bestAnyRegion.getRegionNameAsString() + " has too many "+ "store files, but is "+ TraditionalBinaryPrefix.long2String(bestAnyRegion.memstoreSize.get(),"",1)+ " vs best flushable region's "+ TraditionalBinaryPrefix.long2String(bestFlushableRegion.memstoreSize.get(),"",1)+ ". Choosing the bigger.");
+        LOG.debug("Under global heap pressure: " + "Region " + bestAnyRegion.getRegionInfo().getRegionNameAsString() + " has too many "+ "store files, but is "+ TraditionalBinaryPrefix.long2String(bestAnyRegion.getMemstoreSize(),"",1)+ " vs best flushable region's "+ TraditionalBinaryPrefix.long2String(bestFlushableRegion.getMemstoreSize(),"",1)+ ". Choosing the bigger.");
       }
       regionToFlush=bestAnyRegion;
     }
@@ -24,12 +26,22 @@
         regionToFlush=bestFlushableRegion;
       }
     }
-    Preconditions.checkState(regionToFlush.memstoreSize.get() > 0);
-    LOG.info("Flush of region " + regionToFlush + " due to global heap pressure");
-    flushedOne=flushRegion(regionToFlush,true,true);
-    if (!flushedOne) {
-      LOG.info("Excluding unflushable region " + regionToFlush + " - trying to find a different region to flush.");
-      excludedRegions.add(regionToFlush);
+    Preconditions.checkState((regionToFlush != null && regionToFlush.getMemstoreSize() > 0) || (bestRegionReplica != null && bestRegionReplica.getMemstoreSize() > 0));
+    if (regionToFlush == null || (bestRegionReplica != null && ServerRegionReplicaUtil.isRegionReplicaStoreFileRefreshEnabled(conf) && (bestRegionReplica.getMemstoreSize() > secondaryMultiplier * regionToFlush.getMemstoreSize()))) {
+      LOG.info("Refreshing storefiles of region " + regionToFlush + " due to global heap pressure. memstore size="+ StringUtils.humanReadableInt(server.getRegionServerAccounting().getGlobalMemstoreSize()));
+      flushedOne=refreshStoreFilesAndReclaimMemory(bestRegionReplica);
+      if (!flushedOne) {
+        LOG.info("Excluding secondary region " + regionToFlush + " - trying to find a different region to refresh files.");
+        excludedRegions.add(bestRegionReplica);
+      }
+    }
+ else {
+      LOG.info("Flush of region " + regionToFlush + " due to global heap pressure. "+ "Total Memstore size="+ humanReadableInt(server.getRegionServerAccounting().getGlobalMemstoreSize())+ ", Region memstore size="+ humanReadableInt(regionToFlush.getMemstoreSize()));
+      flushedOne=flushRegion(regionToFlush,true,true);
+      if (!flushedOne) {
+        LOG.info("Excluding unflushable region " + regionToFlush + " - trying to find a different region to flush.");
+        excludedRegions.add(regionToFlush);
+      }
     }
   }
   return true;

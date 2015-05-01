@@ -1,0 +1,52 @@
+{
+  if (ServerRegionReplicaUtil.isDefaultReplica(this.getRegionInfo())) {
+    return false;
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug(getRegionInfo().getEncodedName() + " : " + "Refreshing store files to see whether we can free up memstore");
+  }
+  long totalFreedSize=0;
+  long smallestSeqIdInStores=Long.MAX_VALUE;
+  startRegionOperation();
+  try {
+synchronized (writestate) {
+      for (      Store store : getStores()) {
+        long maxSeqIdBefore=store.getMaxSequenceId();
+        store.refreshStoreFiles();
+        long storeSeqId=store.getMaxSequenceId();
+        if (storeSeqId < smallestSeqIdInStores) {
+          smallestSeqIdInStores=storeSeqId;
+        }
+        if (storeSeqId > maxSeqIdBefore) {
+          if (writestate.flushing) {
+            if (this.prepareFlushResult.flushOpSeqId <= storeSeqId) {
+              StoreFlushContext ctx=this.prepareFlushResult.storeFlushCtxs == null ? null : this.prepareFlushResult.storeFlushCtxs.get(store.getFamily().getName());
+              if (ctx != null) {
+                long snapshotSize=store.getFlushableSize();
+                ctx.abort();
+                this.addAndGetGlobalMemstoreSize(-snapshotSize);
+                this.prepareFlushResult.storeFlushCtxs.remove(store.getFamily().getName());
+                totalFreedSize+=snapshotSize;
+              }
+            }
+          }
+          totalFreedSize+=dropMemstoreContentsForSeqId(storeSeqId,store);
+        }
+      }
+      dropPrepareFlushIfPossible();
+      for (      Store s : getStores()) {
+        getMVCC().advanceMemstoreReadPointIfNeeded(s.getMaxMemstoreTS());
+      }
+      if (this.lastReplayedOpenRegionSeqId < smallestSeqIdInStores) {
+        this.lastReplayedOpenRegionSeqId=smallestSeqIdInStores;
+      }
+    }
+synchronized (this) {
+      notifyAll();
+    }
+    return totalFreedSize > 0;
+  }
+  finally {
+    closeRegionOperation();
+  }
+}

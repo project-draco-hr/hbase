@@ -1,0 +1,78 @@
+{
+  Result[] values=null;
+  long remainingResultSize=maxScannerResultSize;
+  int countdown=this.caching;
+  callable.setCaching(this.caching);
+  boolean retryAfterOutOfOrderException=true;
+  boolean serverHasMoreResults=false;
+  do {
+    try {
+      values=call(callable,caller,scannerTimeout);
+      if (values == null && callable.switchedToADifferentReplica()) {
+        clearPartialResults();
+        this.currentRegion=callable.getHRegionInfo();
+        continue;
+      }
+      retryAfterOutOfOrderException=true;
+    }
+ catch (    DoNotRetryIOException e) {
+      clearPartialResults();
+      if (e instanceof UnknownScannerException) {
+        long timeout=lastNext + scannerTimeout;
+        if (timeout < System.currentTimeMillis()) {
+          long elapsed=System.currentTimeMillis() - lastNext;
+          ScannerTimeoutException ex=new ScannerTimeoutException(elapsed + "ms passed since the last invocation, " + "timeout is currently set to "+ scannerTimeout);
+          ex.initCause(e);
+          throw ex;
+        }
+      }
+ else {
+        Throwable cause=e.getCause();
+        if ((cause != null && cause instanceof NotServingRegionException) || (cause != null && cause instanceof RegionServerStoppedException) || e instanceof OutOfOrderScannerNextException) {
+        }
+ else {
+          throw e;
+        }
+      }
+      if (this.lastResult != null) {
+        if (scan.isReversed()) {
+          scan.setStartRow(createClosestRowBefore(lastResult.getRow()));
+        }
+ else {
+          scan.setStartRow(Bytes.add(lastResult.getRow(),new byte[1]));
+        }
+      }
+      if (e instanceof OutOfOrderScannerNextException) {
+        if (retryAfterOutOfOrderException) {
+          retryAfterOutOfOrderException=false;
+        }
+ else {
+          throw new DoNotRetryIOException("Failed after retry of " + "OutOfOrderScannerNextException: was there a rpc timeout?",e);
+        }
+      }
+      this.currentRegion=null;
+      callable=null;
+      continue;
+    }
+    long currentTime=System.currentTimeMillis();
+    if (this.scanMetrics != null) {
+      this.scanMetrics.sumOfMillisSecBetweenNexts.addAndGet(currentTime - lastNext);
+    }
+    lastNext=currentTime;
+    List<Result> resultsToAddToCache=getResultsToAddToCache(values);
+    if (!resultsToAddToCache.isEmpty()) {
+      for (      Result rs : resultsToAddToCache) {
+        cache.add(rs);
+        for (        Cell cell : rs.rawCells()) {
+          remainingResultSize-=CellUtil.estimatedHeapSizeOf(cell);
+        }
+        countdown--;
+        this.lastResult=rs;
+      }
+    }
+    if (null != values && values.length > 0 && callable.hasMoreResultsContext()) {
+      serverHasMoreResults=callable.getServerHasMoreResults() & partialResults.isEmpty();
+    }
+  }
+ while (remainingResultSize > 0 && countdown > 0 && !serverHasMoreResults && (!partialResults.isEmpty() || possiblyNextScanner(countdown,values == null)));
+}

@@ -1,29 +1,55 @@
 {
   if (disabledAndDroppedTables.getIfPresent(tableName) != null) {
-    sink.getSkippedEditsCounter().incrementAndGet();
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Skipping " + entries.size() + " entries because table "+ tableName+ " is cached as a disabled or dropped table");
+      for (      Entry entry : entries) {
+        LOG.trace("Skipping : " + entry);
+      }
+    }
+    sink.getSkippedEditsCounter().addAndGet(entries.size());
     return;
   }
   RegionLocations locations=null;
-  try {
-    locations=getRegionLocations(connection,tableName,row,true,0);
-    if (locations == null) {
-      throw new HBaseIOException("Cannot locate locations for " + tableName + ", row:"+ Bytes.toStringBinary(row));
+  boolean useCache=true;
+  while (true) {
+    try {
+      locations=RegionReplicaReplayCallable.getRegionLocations(connection,tableName,row,useCache,0);
+      if (locations == null) {
+        throw new HBaseIOException("Cannot locate locations for " + tableName + ", row:"+ Bytes.toStringBinary(row));
+      }
     }
-  }
- catch (  TableNotFoundException e) {
-    disabledAndDroppedTables.put(tableName,Boolean.TRUE);
-    sink.getSkippedEditsCounter().addAndGet(entries.size());
-    return;
+ catch (    TableNotFoundException e) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Skipping " + entries.size() + " entries because table "+ tableName+ " is dropped. Adding table to cache.");
+        for (        Entry entry : entries) {
+          LOG.trace("Skipping : " + entry);
+        }
+      }
+      disabledAndDroppedTables.put(tableName,Boolean.TRUE);
+      sink.getSkippedEditsCounter().addAndGet(entries.size());
+      return;
+    }
+    HRegionLocation primaryLocation=locations.getDefaultRegionLocation();
+    if (!Bytes.equals(primaryLocation.getRegionInfo().getEncodedNameAsBytes(),encodedRegionName)) {
+      if (useCache) {
+        useCache=false;
+        continue;
+      }
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Skipping " + entries.size() + " entries in table "+ tableName+ " because located region "+ primaryLocation.getRegionInfo().getEncodedName()+ " is different than the original region "+ Bytes.toStringBinary(encodedRegionName)+ " from WALEdit");
+        for (        Entry entry : entries) {
+          LOG.trace("Skipping : " + entry);
+        }
+      }
+      sink.getSkippedEditsCounter().addAndGet(entries.size());
+      return;
+    }
+    break;
   }
   if (locations.size() == 1) {
     return;
   }
-  ArrayList<Future<ReplicateWALEntryResponse>> tasks=new ArrayList<Future<ReplicateWALEntryResponse>>(2);
-  HRegionLocation primaryLocation=locations.getDefaultRegionLocation();
-  if (!Bytes.equals(primaryLocation.getRegionInfo().getEncodedNameAsBytes(),encodedRegionName)) {
-    sink.getSkippedEditsCounter().addAndGet(entries.size());
-    return;
-  }
+  ArrayList<Future<ReplicateWALEntryResponse>> tasks=new ArrayList<Future<ReplicateWALEntryResponse>>(locations.size() - 1);
   for (int replicaId=0; replicaId < locations.size(); replicaId++) {
     HRegionLocation location=locations.getRegionLocation(replicaId);
     if (!RegionReplicaUtil.isDefaultReplica(replicaId)) {
@@ -45,6 +71,12 @@ catch (    ExecutionException e) {
       Throwable cause=e.getCause();
       if (cause instanceof IOException) {
         if (cause instanceof TableNotFoundException || connection.isTableDisabled(tableName)) {
+          if (LOG.isTraceEnabled()) {
+            LOG.trace("Skipping " + entries.size() + " entries in table "+ tableName+ " because received exception for dropped or disabled table",cause);
+            for (            Entry entry : entries) {
+              LOG.trace("Skipping : " + entry);
+            }
+          }
           disabledAndDroppedTables.put(tableName,Boolean.TRUE);
           if (!tasksCancelled) {
             sink.getSkippedEditsCounter().addAndGet(entries.size());

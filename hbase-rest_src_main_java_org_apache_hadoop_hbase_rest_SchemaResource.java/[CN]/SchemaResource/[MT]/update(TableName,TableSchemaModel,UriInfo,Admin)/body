@@ -1,0 +1,35 @@
+{
+  if (servlet.isReadOnly()) {
+    return Response.status(Response.Status.FORBIDDEN).type(MIMETYPE_TEXT).entity("Forbidden" + CRLF).build();
+  }
+  try {
+    HTableDescriptor htd=admin.getTableDescriptor(name);
+    admin.disableTable(name);
+    try {
+      for (      ColumnSchemaModel family : model.getColumns()) {
+        HColumnDescriptor hcd=new HColumnDescriptor(family.getName());
+        for (        Map.Entry<QName,Object> e : family.getAny().entrySet()) {
+          hcd.setValue(e.getKey().getLocalPart(),e.getValue().toString());
+        }
+        if (htd.hasFamily(hcd.getName())) {
+          admin.modifyColumn(name,hcd);
+        }
+ else {
+          admin.addColumn(name,hcd);
+        }
+      }
+    }
+ catch (    IOException e) {
+      return Response.status(Response.Status.SERVICE_UNAVAILABLE).type(MIMETYPE_TEXT).entity("Unavailable" + CRLF).build();
+    }
+ finally {
+      admin.enableTable(TableName.valueOf(tableResource.getName()));
+    }
+    servlet.getMetrics().incrementSucessfulPutRequests(1);
+    return Response.ok().build();
+  }
+ catch (  Exception e) {
+    servlet.getMetrics().incrementFailedPutRequests(1);
+    return processException(e);
+  }
+}

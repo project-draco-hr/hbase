@@ -1,0 +1,30 @@
+{
+  final Region[] regions=new Region[regionReplication];
+  for (int i=0; i < NB_SERVERS; i++) {
+    HRegionServer rs=HTU.getMiniHBaseCluster().getRegionServer(i);
+    List<Region> onlineRegions=rs.getOnlineRegions(tableName);
+    for (    Region region : onlineRegions) {
+      regions[region.getRegionInfo().getReplicaId()]=region;
+    }
+  }
+  for (  Region region : regions) {
+    assertNotNull(region);
+  }
+  for (int i=1; i < regionReplication; i++) {
+    final Region region=regions[i];
+    Waiter.waitFor(HTU.getConfiguration(),90000,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        LOG.info("verifying replication for region replica:" + region.getRegionInfo());
+        try {
+          HTU.verifyNumericRows(region,HBaseTestingUtility.fam1,startRow,endRow,present);
+        }
+ catch (        Throwable ex) {
+          LOG.warn("Verification from secondary region is not complete yet",ex);
+          return false;
+        }
+        return true;
+      }
+    }
+);
+  }
+}

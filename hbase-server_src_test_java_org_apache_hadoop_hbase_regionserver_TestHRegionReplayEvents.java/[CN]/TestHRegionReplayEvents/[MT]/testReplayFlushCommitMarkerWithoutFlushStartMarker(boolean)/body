@@ -1,0 +1,62 @@
+{
+  putDataWithFlushes(primaryRegion,100,100,droppableMemstore ? 0 : 100);
+  int numRows=droppableMemstore ? 100 : 200;
+  reader=createWALReaderForPrimary();
+  LOG.info("-- Replaying edits and flush events in secondary");
+  FlushDescriptor commitFlushDesc=null;
+  int lastReplayed=0;
+  while (true) {
+    WAL.Entry entry=reader.next();
+    if (entry == null) {
+      break;
+    }
+    FlushDescriptor flushDesc=WALEdit.getFlushDescriptor(entry.getEdit().getCells().get(0));
+    if (flushDesc != null) {
+      if (flushDesc.getAction() == FlushAction.START_FLUSH) {
+      }
+ else       if (flushDesc.getAction() == FlushAction.COMMIT_FLUSH) {
+        commitFlushDesc=flushDesc;
+      }
+      verifyData(secondaryRegion,0,lastReplayed + 1,cq,families);
+    }
+ else {
+      lastReplayed=replayEdit(secondaryRegion,entry);
+    }
+  }
+  verifyData(secondaryRegion,0,numRows,cq,families);
+  int expectedStoreFileCount=0;
+  for (  Store s : secondaryRegion.getStores()) {
+    assertEquals(expectedStoreFileCount,s.getStorefilesCount());
+  }
+  long regionMemstoreSize=secondaryRegion.getMemstoreSize();
+  assertNull(secondaryRegion.getPrepareFlushResult());
+  assertTrue(commitFlushDesc.getFlushSequenceNumber() > 0);
+  for (  Store store : secondaryRegion.getStores()) {
+    assertTrue(store.getMaxSequenceId() <= secondaryRegion.getSequenceId().get());
+  }
+  LOG.info("-- Replaying flush commit in secondary" + commitFlushDesc);
+  secondaryRegion.replayWALFlushCommitMarker(commitFlushDesc);
+  expectedStoreFileCount++;
+  for (  Store s : secondaryRegion.getStores()) {
+    assertEquals(expectedStoreFileCount,s.getStorefilesCount());
+  }
+  Store store=secondaryRegion.getStore(Bytes.toBytes("cf1"));
+  long newFlushableSize=store.getFlushableSize();
+  if (droppableMemstore) {
+    assertTrue(newFlushableSize == 0);
+  }
+ else {
+    assertTrue(newFlushableSize > 0);
+  }
+  long newRegionMemstoreSize=secondaryRegion.getMemstoreSize();
+  if (droppableMemstore) {
+    assertTrue(0 == newRegionMemstoreSize);
+  }
+ else {
+    assertTrue(regionMemstoreSize == newRegionMemstoreSize);
+  }
+  LOG.info("-- Verifying edits from secondary");
+  verifyData(secondaryRegion,0,numRows,cq,families);
+  LOG.info("-- Verifying edits from primary.");
+  verifyData(primaryRegion,0,numRows,cq,families);
+}

@@ -1,0 +1,22 @@
+{
+  if (!MetaTableAccessor.tableExists(env.getMasterServices().getConnection(),getTableName())) {
+    throw new TableNotFoundException(getTableName());
+  }
+  this.unmodifiedHTableDescriptor=env.getMasterServices().getTableDescriptors().get(getTableName());
+  if (env.getMasterServices().getAssignmentManager().getTableStateManager().isTableState(getTableName(),TableState.State.ENABLED)) {
+    if (!MasterDDLOperationHelper.isOnlineSchemaChangeAllowed(env)) {
+      throw new TableNotDisabledException(getTableName());
+    }
+    if (modifiedHTableDescriptor.getRegionReplication() != unmodifiedHTableDescriptor.getRegionReplication()) {
+      throw new IOException("REGION_REPLICATION change is not supported for enabled tables");
+    }
+  }
+  final Set<byte[]> oldFamilies=unmodifiedHTableDescriptor.getFamiliesKeys();
+  final Set<byte[]> newFamilies=modifiedHTableDescriptor.getFamiliesKeys();
+  for (  byte[] familyName : oldFamilies) {
+    if (!newFamilies.contains(familyName)) {
+      this.deleteColumnFamilyInModify=true;
+      break;
+    }
+  }
+}

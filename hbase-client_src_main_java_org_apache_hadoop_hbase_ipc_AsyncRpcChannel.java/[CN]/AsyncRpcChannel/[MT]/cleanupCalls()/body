@@ -1,0 +1,31 @@
+{
+  List<AsyncCall> toCleanup=new ArrayList<AsyncCall>();
+  long currentTime=EnvironmentEdgeManager.currentTime();
+  long nextCleanupTaskDelay=-1L;
+synchronized (pendingCalls) {
+    for (Iterator<AsyncCall> iter=pendingCalls.values().iterator(); iter.hasNext(); ) {
+      AsyncCall call=iter.next();
+      long timeout=call.getRpcTimeout();
+      if (timeout > 0) {
+        if (currentTime - call.getStartTime() >= timeout) {
+          iter.remove();
+          toCleanup.add(call);
+        }
+ else {
+          if (nextCleanupTaskDelay < 0 || timeout < nextCleanupTaskDelay) {
+            nextCleanupTaskDelay=timeout;
+          }
+        }
+      }
+    }
+    if (nextCleanupTaskDelay > 0) {
+      cleanupTimer=client.newTimeout(timeoutTask,nextCleanupTaskDelay,TimeUnit.MILLISECONDS);
+    }
+ else {
+      cleanupTimer=null;
+    }
+  }
+  for (  AsyncCall call : toCleanup) {
+    call.setFailed(new CallTimeoutException("Call id=" + call.id + ", waitTime="+ (currentTime - call.getStartTime())+ ", rpcTimeout="+ call.getRpcTimeout()));
+  }
+}

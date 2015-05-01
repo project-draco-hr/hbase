@@ -1,12 +1,25 @@
 {
   if (hbckLockCleanup.compareAndSet(true,false)) {
-    IOUtils.closeStream(hbckOutFd);
-    try {
-      FSUtils.delete(FSUtils.getCurrentFileSystem(getConf()),HBCK_LOCK_PATH,true);
+    RetryCounter retryCounter=lockFileRetryCounterFactory.create();
+    do {
+      try {
+        IOUtils.closeStream(hbckOutFd);
+        FSUtils.delete(FSUtils.getCurrentFileSystem(getConf()),HBCK_LOCK_PATH,true);
+        return;
+      }
+ catch (      IOException ioe) {
+        LOG.info("Failed to delete " + HBCK_LOCK_PATH + ", try="+ (retryCounter.getAttemptTimes() + 1)+ " of "+ retryCounter.getMaxAttempts());
+        LOG.debug("Failed to delete " + HBCK_LOCK_PATH,ioe);
+        try {
+          retryCounter.sleepUntilNextRetry();
+        }
+ catch (        InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          LOG.warn("Interrupted while deleting lock file" + HBCK_LOCK_PATH);
+          return;
+        }
+      }
     }
- catch (    IOException ioe) {
-      LOG.warn("Failed to delete " + HBCK_LOCK_PATH);
-      LOG.debug(ioe);
-    }
+ while (retryCounter.shouldRetry());
   }
 }

@@ -1,0 +1,64 @@
+{
+  long flushSeqId=flush.getFlushSequenceNumber();
+  HashSet<Store> storesToFlush=new HashSet<Store>();
+  for (  StoreFlushDescriptor storeFlush : flush.getStoreFlushesList()) {
+    byte[] family=storeFlush.getFamilyName().toByteArray();
+    Store store=getStore(family);
+    if (store == null) {
+      LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a flush start marker from primary, but the family is not found. Ignoring"+ " StoreFlushDescriptor:"+ TextFormat.shortDebugString(storeFlush));
+      continue;
+    }
+    storesToFlush.add(store);
+  }
+  MonitoredTask status=TaskMonitor.get().createStatus("Preparing flush " + this);
+synchronized (writestate) {
+    try {
+      if (flush.getFlushSequenceNumber() < lastReplayedOpenRegionSeqId) {
+        LOG.warn(getRegionInfo().getEncodedName() + " : " + "Skipping replaying flush event :"+ TextFormat.shortDebugString(flush)+ " because its sequence id is smaller than this regions lastReplayedOpenRegionSeqId "+ " of "+ lastReplayedOpenRegionSeqId);
+        return null;
+      }
+      if (numMutationsWithoutWAL.get() > 0) {
+        numMutationsWithoutWAL.set(0);
+        dataInMemoryWithoutWAL.set(0);
+      }
+      if (!writestate.flushing) {
+        PrepareFlushResult prepareResult=internalPrepareFlushCache(null,flushSeqId,storesToFlush,status,false);
+        if (prepareResult.result == null) {
+          this.writestate.flushing=true;
+          this.prepareFlushResult=prepareResult;
+          status.markComplete("Flush prepare successful");
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(getRegionInfo().getEncodedName() + " : " + " Prepared flush with seqId:"+ flush.getFlushSequenceNumber());
+          }
+        }
+ else {
+          if (prepareResult.getResult().getResult() == FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY) {
+            this.writestate.flushing=true;
+            this.prepareFlushResult=prepareResult;
+            if (LOG.isDebugEnabled()) {
+              LOG.debug(getRegionInfo().getEncodedName() + " : " + " Prepared empty flush with seqId:"+ flush.getFlushSequenceNumber());
+            }
+          }
+          status.abort("Flush prepare failed with " + prepareResult.result);
+        }
+        return prepareResult;
+      }
+ else {
+        if (flush.getFlushSequenceNumber() == this.prepareFlushResult.flushOpSeqId) {
+          LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a flush prepare marker with the same seqId: "+ +flush.getFlushSequenceNumber()+ " before clearing the previous one with seqId: "+ prepareFlushResult.flushOpSeqId+ ". Ignoring");
+        }
+ else         if (flush.getFlushSequenceNumber() < this.prepareFlushResult.flushOpSeqId) {
+          LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a flush prepare marker with a smaller seqId: "+ +flush.getFlushSequenceNumber()+ " before clearing the previous one with seqId: "+ prepareFlushResult.flushOpSeqId+ ". Ignoring");
+        }
+ else {
+          LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a flush prepare marker with a larger seqId: "+ +flush.getFlushSequenceNumber()+ " before clearing the previous one with seqId: "+ prepareFlushResult.flushOpSeqId+ ". Ignoring");
+        }
+      }
+    }
+  finally {
+      status.cleanup();
+      writestate.notifyAll();
+    }
+  }
+  return null;
+}

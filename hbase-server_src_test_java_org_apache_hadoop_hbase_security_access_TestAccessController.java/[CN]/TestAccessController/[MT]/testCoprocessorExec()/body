@@ -1,7 +1,7 @@
 {
   for (  JVMClusterUtil.RegionServerThread thread : TEST_UTIL.getMiniHBaseCluster().getRegionServerThreads()) {
     HRegionServer rs=thread.getRegionServer();
-    for (    HRegion region : rs.getOnlineRegions(TEST_TABLE.getTableName())) {
+    for (    Region region : rs.getOnlineRegions(TEST_TABLE.getTableName())) {
       region.getCoprocessorHost().load(PingCoprocessor.class,Coprocessor.PRIORITY_USER,conf);
     }
   }
@@ -10,20 +10,18 @@
   grantOnTable(TEST_UTIL,userA.getShortName(),TEST_TABLE.getTableName(),null,null,Permission.Action.EXEC);
   AccessTestAction execEndpointAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      Table t=TEST_UTIL.getConnection().getTable(TEST_TABLE.getTableName());
-      try {
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(TEST_TABLE.getTableName())){
         BlockingRpcChannel service=t.coprocessorService(HConstants.EMPTY_BYTE_ARRAY);
         PingCoprocessor.newBlockingStub(service).noop(null,NoopRequest.newBuilder().build());
       }
-  finally {
-        t.close();
-      }
-      return null;
+       return null;
     }
   }
 ;
+  String namespace=TEST_TABLE.getTableName().getNamespaceAsString();
+  grantOnNamespace(TEST_UTIL,userB.getShortName(),namespace,Permission.Action.EXEC);
+  verifyAllowed(execEndpointAction,userA,userB);
+  revokeFromNamespace(TEST_UTIL,userB.getShortName(),namespace,Permission.Action.EXEC);
   verifyDenied(execEndpointAction,userB);
   verifyAllowed(execEndpointAction,userA);
-  grantOnNamespace(TEST_UTIL,userB.getShortName(),TEST_TABLE.getTableName().getNamespaceAsString(),Permission.Action.EXEC);
-  verifyAllowed(execEndpointAction,userA,userB);
 }

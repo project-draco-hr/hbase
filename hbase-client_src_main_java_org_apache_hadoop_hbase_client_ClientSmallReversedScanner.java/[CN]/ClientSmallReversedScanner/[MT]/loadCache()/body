@@ -1,0 +1,32 @@
+{
+  Result[] values=null;
+  long remainingResultSize=maxScannerResultSize;
+  int countdown=this.caching;
+  boolean currentRegionDone=false;
+  while (remainingResultSize > 0 && countdown > 0 && nextScanner(countdown,values == null,currentRegionDone)) {
+    values=this.caller.callWithoutRetries(smallScanCallable,scannerTimeout);
+    this.currentRegion=smallScanCallable.getHRegionInfo();
+    long currentTime=System.currentTimeMillis();
+    if (this.scanMetrics != null) {
+      this.scanMetrics.sumOfMillisSecBetweenNexts.addAndGet(currentTime - lastNext);
+    }
+    lastNext=currentTime;
+    if (values != null && values.length > 0) {
+      for (int i=0; i < values.length; i++) {
+        Result rs=values[i];
+        cache.add(rs);
+        for (        Cell cell : rs.rawCells()) {
+          remainingResultSize-=CellUtil.estimatedHeapSizeOf(cell);
+        }
+        countdown--;
+        this.lastResult=rs;
+      }
+    }
+    if (smallScanCallable.hasMoreResultsContext()) {
+      currentRegionDone=!smallScanCallable.getServerHasMoreResults();
+    }
+ else {
+      currentRegionDone=countdown > 0;
+    }
+  }
+}

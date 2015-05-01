@@ -1,24 +1,20 @@
 {
-  disableTableAsync(tableName);
-  boolean disabled=false;
-  for (int tries=0; tries < (this.numRetries * this.retryLongerMultiplier); tries++) {
-    disabled=isTableDisabled(tableName);
-    if (disabled) {
-      break;
+  Future<Void> future=disableTableAsyncV2(tableName);
+  try {
+    future.get(syncWaitTimeout,TimeUnit.MILLISECONDS);
+  }
+ catch (  InterruptedException e) {
+    throw new InterruptedIOException("Interrupted when waiting for table to be disabled");
+  }
+catch (  TimeoutException e) {
+    throw new TimeoutIOException(e);
+  }
+catch (  ExecutionException e) {
+    if (e.getCause() instanceof IOException) {
+      throw (IOException)e.getCause();
     }
-    long sleep=getPauseTime(tries);
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Sleeping= " + sleep + "ms, waiting for all regions to be "+ "disabled in "+ tableName);
-    }
-    try {
-      Thread.sleep(sleep);
-    }
- catch (    InterruptedException e) {
-      throw (InterruptedIOException)new InterruptedIOException("Interrupted").initCause(e);
+ else {
+      throw new IOException(e.getCause());
     }
   }
-  if (!disabled) {
-    throw new RegionException("Retries exhausted, it took too long to wait" + " for the table " + tableName + " to be disabled.");
-  }
-  LOG.info("Disabled " + tableName);
 }

@@ -5,17 +5,15 @@
   final byte[] qualifier=Bytes.toBytes("q");
   Admin admin=TEST_UTIL.getHBaseAdmin();
   if (admin.tableExists(tableName)) {
-    admin.disableTable(tableName);
-    admin.deleteTable(tableName);
+    deleteTable(TEST_UTIL,tableName);
   }
   HTableDescriptor htd=new HTableDescriptor(tableName);
   htd.addFamily(new HColumnDescriptor(family1));
   htd.addFamily(new HColumnDescriptor(family2));
   htd.setOwner(USER_OWNER);
-  admin.createTable(htd);
-  TEST_UTIL.waitUntilAllRegionsAssigned(tableName);
+  createTable(TEST_UTIL,htd);
   List<UserPermission> perms;
-  Table acl=TEST_UTIL.getConnection().getTable(AccessControlLists.ACL_TABLE_NAME);
+  Table acl=systemUserConnection.getTable(AccessControlLists.ACL_TABLE_NAME);
   try {
     BlockingRpcChannel service=acl.coprocessorService(tableName.getName());
     AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -31,7 +29,7 @@
   UserPermission up=new UserPermission(userName,tableName,family1,qualifier,Permission.Action.READ);
   assertFalse("User should not be granted permission: " + up.toString(),hasFoundUserPermission(up,perms));
   grantOnTable(TEST_UTIL,user.getShortName(),tableName,family1,qualifier,Permission.Action.READ);
-  acl=TEST_UTIL.getConnection().getTable(AccessControlLists.ACL_TABLE_NAME);
+  acl=systemUserConnection.getTable(AccessControlLists.ACL_TABLE_NAME);
   try {
     BlockingRpcChannel service=acl.coprocessorService(tableName.getName());
     AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -45,7 +43,7 @@
   upToVerify=new UserPermission(userName,tableName,family1,qualifier,Permission.Action.WRITE);
   assertFalse("User should not be granted permission: " + upToVerify.toString(),hasFoundUserPermission(upToVerify,perms));
   grantOnTable(TEST_UTIL,user.getShortName(),tableName,family1,qualifier,Permission.Action.WRITE,Permission.Action.READ);
-  acl=TEST_UTIL.getConnection().getTable(AccessControlLists.ACL_TABLE_NAME);
+  acl=systemUserConnection.getTable(AccessControlLists.ACL_TABLE_NAME);
   try {
     BlockingRpcChannel service=acl.coprocessorService(tableName.getName());
     AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -57,7 +55,7 @@
   upToVerify=new UserPermission(userName,tableName,family1,qualifier,Permission.Action.WRITE,Permission.Action.READ);
   assertTrue("User should be granted permission: " + upToVerify.toString(),hasFoundUserPermission(upToVerify,perms));
   revokeFromTable(TEST_UTIL,user.getShortName(),tableName,family1,qualifier,Permission.Action.WRITE,Permission.Action.READ);
-  acl=TEST_UTIL.getConnection().getTable(AccessControlLists.ACL_TABLE_NAME);
+  acl=systemUserConnection.getTable(AccessControlLists.ACL_TABLE_NAME);
   try {
     BlockingRpcChannel service=acl.coprocessorService(tableName.getName());
     AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -71,7 +69,7 @@
   User newOwner=User.createUserForTesting(conf,"new_owner",new String[]{});
   htd.setOwner(newOwner);
   admin.modifyTable(tableName,htd);
-  acl=TEST_UTIL.getConnection().getTable(AccessControlLists.ACL_TABLE_NAME);
+  acl=systemUserConnection.getTable(AccessControlLists.ACL_TABLE_NAME);
   try {
     BlockingRpcChannel service=acl.coprocessorService(tableName.getName());
     AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
@@ -82,5 +80,5 @@
   }
   UserPermission newOwnerperm=new UserPermission(Bytes.toBytes(newOwner.getName()),tableName,null,Action.values());
   assertTrue("New owner should have all permissions on table",hasFoundUserPermission(newOwnerperm,perms));
-  admin.deleteTable(tableName);
+  deleteTable(TEST_UTIL,tableName);
 }

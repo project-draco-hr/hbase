@@ -1,0 +1,16 @@
+{
+  final TableName tableName=TableName.valueOf("testDeleteDeletedTable");
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  HRegionInfo[] regions=MasterProcedureTestingUtility.createTable(procExec,tableName,null,"f");
+  UTIL.getHBaseAdmin().disableTable(tableName);
+  long procId1=procExec.submitProcedure(new DeleteTableProcedure(procExec.getEnvironment(),tableName));
+  long procId2=procExec.submitProcedure(new DeleteTableProcedure(procExec.getEnvironment(),tableName));
+  ProcedureTestingUtility.waitProcedure(procExec,procId1);
+  ProcedureTestingUtility.waitProcedure(procExec,procId2);
+  ProcedureTestingUtility.assertProcNotFailed(procExec,procId1);
+  MasterProcedureTestingUtility.validateTableDeletion(UTIL.getHBaseCluster().getMaster(),tableName,regions,"f");
+  ProcedureResult result=procExec.getResult(procId2);
+  assertTrue(result.isFailed());
+  LOG.debug("Delete failed with exception: " + result.getException());
+  assertTrue(result.getException().getCause() instanceof TableNotFoundException);
+}

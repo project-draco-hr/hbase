@@ -1,0 +1,44 @@
+{
+  if (isTraceEnabled()) {
+    LOG.trace(this + " execute state=" + state);
+  }
+  try {
+switch (state) {
+case DELETE_COLUMN_FAMILY_PREPARE:
+      prepareDelete(env);
+    setNextState(DeleteColumnFamilyState.DELETE_COLUMN_FAMILY_PRE_OPERATION);
+  break;
+case DELETE_COLUMN_FAMILY_PRE_OPERATION:
+preDelete(env,state);
+setNextState(DeleteColumnFamilyState.DELETE_COLUMN_FAMILY_UPDATE_TABLE_DESCRIPTOR);
+break;
+case DELETE_COLUMN_FAMILY_UPDATE_TABLE_DESCRIPTOR:
+updateTableDescriptor(env);
+setNextState(DeleteColumnFamilyState.DELETE_COLUMN_FAMILY_DELETE_FS_LAYOUT);
+break;
+case DELETE_COLUMN_FAMILY_DELETE_FS_LAYOUT:
+deleteFromFs(env);
+setNextState(DeleteColumnFamilyState.DELETE_COLUMN_FAMILY_POST_OPERATION);
+break;
+case DELETE_COLUMN_FAMILY_POST_OPERATION:
+postDelete(env,state);
+setNextState(DeleteColumnFamilyState.DELETE_COLUMN_FAMILY_REOPEN_ALL_REGIONS);
+break;
+case DELETE_COLUMN_FAMILY_REOPEN_ALL_REGIONS:
+reOpenAllRegionsIfTableIsOnline(env);
+return Flow.NO_MORE_STATE;
+default :
+throw new UnsupportedOperationException(this + " unhandled state=" + state);
+}
+}
+ catch (InterruptedException|IOException e) {
+if (!isRollbackSupported(state)) {
+LOG.warn("Error trying to delete the column family " + getColumnFamilyName() + " from table "+ tableName+ "(in state="+ state+ ")",e);
+}
+ else {
+LOG.error("Error trying to delete the column family " + getColumnFamilyName() + " from table "+ tableName+ "(in state="+ state+ ")",e);
+setFailure("master-delete-column-family",e);
+}
+}
+return Flow.HAS_MORE_STATE;
+}

@@ -1,0 +1,28 @@
+{
+  if (running.getAndSet(true)) {
+    LOG.warn("Already running");
+    return;
+  }
+  threads=new Thread[numThreads + 1];
+  LOG.info("Starting procedure executor threads=" + threads.length);
+  for (int i=0; i < numThreads; ++i) {
+    threads[i]=new Thread("ProcedureExecutorThread-" + i){
+      @Override public void run(){
+        execLoop();
+      }
+    }
+;
+  }
+  threads[numThreads]=new Thread("ProcedureExecutorTimeoutThread"){
+    @Override public void run(){
+      timeoutLoop();
+    }
+  }
+;
+  store.recoverLease();
+  load();
+  for (int i=0; i < threads.length; ++i) {
+    threads[i].start();
+  }
+  waitingTimeout.add(new CompletedProcedureCleaner(conf,store,completed));
+}

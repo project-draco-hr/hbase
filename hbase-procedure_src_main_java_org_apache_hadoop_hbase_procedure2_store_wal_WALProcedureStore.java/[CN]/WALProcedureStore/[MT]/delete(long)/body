@@ -1,0 +1,30 @@
+{
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("delete " + procId);
+  }
+  ByteSlot slot=acquireSlot();
+  long logId=-1;
+  try {
+    ProcedureWALFormat.writeDelete(slot,procId);
+    logId=pushData(slot);
+  }
+ catch (  IOException e) {
+    LOG.fatal("Unable to serialize the procedure: " + procId,e);
+    throw new RuntimeException(e);
+  }
+ finally {
+    releaseSlot(slot);
+  }
+  boolean removeOldLogs=false;
+synchronized (storeTracker) {
+    if (logId == flushLogId) {
+      storeTracker.delete(procId);
+      if (storeTracker.isEmpty()) {
+        removeOldLogs=rollWriterOrDie(logId + 1);
+      }
+    }
+  }
+  if (removeOldLogs) {
+    removeAllLogs(logId);
+  }
+}

@@ -1,0 +1,13 @@
+{
+  final TableName tableName=TableName.valueOf("testRollbackRetriableFailure");
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  final byte[][] splitKeys=new byte[][]{Bytes.toBytes("a"),Bytes.toBytes("b"),Bytes.toBytes("c")};
+  HTableDescriptor htd=MasterProcedureTestingUtility.createHTD(tableName,"f1","f2");
+  HRegionInfo[] regions=ModifyRegionUtils.createHRegionInfos(htd,splitKeys);
+  long procId=procExec.submitProcedure(new FaultyCreateTableProcedure(procExec.getEnvironment(),htd,regions));
+  MasterProcedureTestingUtility.testRollbackRetriableFailure(procExec,procId,4,CreateTableState.values());
+  MasterProcedureTestingUtility.validateTableDeletion(UTIL.getHBaseCluster().getMaster(),tableName,regions,"f1","f2");
+  resetProcExecutorTestingKillFlag();
+  testSimpleCreate(tableName,splitKeys);
+}

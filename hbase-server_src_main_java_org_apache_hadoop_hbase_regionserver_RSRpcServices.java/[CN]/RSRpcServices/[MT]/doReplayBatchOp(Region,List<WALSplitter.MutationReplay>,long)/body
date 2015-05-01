@@ -1,0 +1,60 @@
+{
+  long before=EnvironmentEdgeManager.currentTime();
+  boolean batchContainsPuts=false, batchContainsDelete=false;
+  try {
+    for (Iterator<WALSplitter.MutationReplay> it=mutations.iterator(); it.hasNext(); ) {
+      WALSplitter.MutationReplay m=it.next();
+      if (m.type == MutationType.PUT) {
+        batchContainsPuts=true;
+      }
+ else {
+        batchContainsDelete=true;
+      }
+      NavigableMap<byte[],List<Cell>> map=m.mutation.getFamilyCellMap();
+      List<Cell> metaCells=map.get(WALEdit.METAFAMILY);
+      if (metaCells != null && !metaCells.isEmpty()) {
+        for (        Cell metaCell : metaCells) {
+          CompactionDescriptor compactionDesc=WALEdit.getCompaction(metaCell);
+          boolean isDefaultReplica=RegionReplicaUtil.isDefaultReplica(region.getRegionInfo());
+          HRegion hRegion=(HRegion)region;
+          if (compactionDesc != null) {
+            hRegion.replayWALCompactionMarker(compactionDesc,!isDefaultReplica,isDefaultReplica,replaySeqId);
+            continue;
+          }
+          FlushDescriptor flushDesc=WALEdit.getFlushDescriptor(metaCell);
+          if (flushDesc != null && !isDefaultReplica) {
+            hRegion.replayWALFlushMarker(flushDesc,replaySeqId);
+            continue;
+          }
+          RegionEventDescriptor regionEvent=WALEdit.getRegionEventDescriptor(metaCell);
+          if (regionEvent != null && !isDefaultReplica) {
+            hRegion.replayWALRegionEventMarker(regionEvent);
+            continue;
+          }
+          BulkLoadDescriptor bulkLoadEvent=WALEdit.getBulkLoadDescriptor(metaCell);
+          if (bulkLoadEvent != null) {
+            hRegion.replayWALBulkLoadEventMarker(bulkLoadEvent);
+            continue;
+          }
+        }
+        it.remove();
+      }
+    }
+    requestCount.add(mutations.size());
+    if (!region.getRegionInfo().isMetaTable()) {
+      regionServer.cacheFlusher.reclaimMemStoreMemory();
+    }
+    return region.batchReplay(mutations.toArray(new WALSplitter.MutationReplay[mutations.size()]),replaySeqId);
+  }
+  finally {
+    if (regionServer.metricsRegionServer != null) {
+      long after=EnvironmentEdgeManager.currentTime();
+      if (batchContainsPuts) {
+        regionServer.metricsRegionServer.updatePut(after - before);
+      }
+      if (batchContainsDelete) {
+        regionServer.metricsRegionServer.updateDelete(after - before);
+      }
+    }
+  }
+}

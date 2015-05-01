@@ -5,27 +5,21 @@
   final byte[] qualifier=Bytes.toBytes("q");
   Admin admin=TEST_UTIL.getHBaseAdmin();
   if (admin.tableExists(tableName)) {
-    admin.disableTable(tableName);
-    admin.deleteTable(tableName);
+    deleteTable(TEST_UTIL,tableName);
   }
   HTableDescriptor htd=new HTableDescriptor(tableName);
   htd.addFamily(new HColumnDescriptor(family1));
   htd.addFamily(new HColumnDescriptor(family2));
-  admin.createTable(htd);
-  TEST_UTIL.waitUntilAllRegionsAssigned(tableName);
+  createTable(TEST_UTIL,htd);
   User user=User.createUserForTesting(TEST_UTIL.getConfiguration(),"user",new String[0]);
   AccessTestAction getQualifierAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
       Get g=new Get(TEST_ROW);
       g.addColumn(family1,qualifier);
-      Table t=TEST_UTIL.getConnection().getTable(tableName);
-      try {
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(tableName)){
         t.get(g);
       }
-  finally {
-        t.close();
-      }
-      return null;
+       return null;
     }
   }
 ;
@@ -33,14 +27,10 @@
     @Override public Object run() throws Exception {
       Put p=new Put(TEST_ROW);
       p.add(family1,qualifier,Bytes.toBytes("v1"));
-      Table t=TEST_UTIL.getConnection().getTable(tableName);
-      try {
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(tableName)){
         t.put(p);
       }
-  finally {
-        t.close();
-      }
-      return null;
+       return null;
     }
   }
 ;
@@ -48,14 +38,10 @@
     @Override public Object run() throws Exception {
       Delete d=new Delete(TEST_ROW);
       d.deleteColumn(family1,qualifier);
-      Table t=TEST_UTIL.getConnection().getTable(tableName);
-      try {
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(tableName)){
         t.delete(d);
       }
-  finally {
-        t.close();
-      }
-      return null;
+       return null;
     }
   }
 ;
@@ -79,6 +65,5 @@
   verifyDenied(user,getQualifierAction);
   verifyDenied(user,putQualifierAction);
   verifyDenied(user,deleteQualifierAction);
-  admin.disableTable(tableName);
-  admin.deleteTable(tableName);
+  deleteTable(TEST_UTIL,tableName);
 }

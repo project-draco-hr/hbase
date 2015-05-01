@@ -29,11 +29,12 @@
     }
     requestCount.increment();
     int ttl=0;
-    HRegion region=null;
+    Region region=null;
     RegionScanner scanner=null;
     RegionScannerHolder rsh=null;
     boolean moreResults=true;
     boolean closeScanner=false;
+    boolean isSmallScan=false;
     ScanResponse.Builder builder=ScanResponse.newBuilder();
     if (request.hasCloseScanner()) {
       closeScanner=request.getCloseScanner();
@@ -63,8 +64,12 @@
       if (!isLoadingCfsOnDemandSet) {
         scan.setLoadColumnFamiliesOnDemand(region.isLoadingCfsOnDemandDefault());
       }
-      scan.getAttribute(Scan.SCAN_ATTRIBUTES_METRICS_ENABLE);
-      region.prepareScanner(scan);
+      isSmallScan=scan.isSmall();
+      if (!scan.hasFamilies()) {
+        for (        byte[] family : region.getTableDesc().getFamiliesKeys()) {
+          scan.addFamily(family);
+        }
+      }
       if (region.getCoprocessorHost() != null) {
         scanner=region.getCoprocessorHost().preScannerOpen(scan);
       }
@@ -94,17 +99,17 @@
       }
       try {
         lease=regionServer.leases.removeLease(scannerName);
-        List<Result> results=new ArrayList<Result>(rows);
-        long currentScanResultSize=0;
+        List<Result> results=new ArrayList<Result>();
         long totalCellSize=0;
+        long currentScanResultSize=0;
         boolean done=false;
         if (region != null && region.getCoprocessorHost() != null) {
           Boolean bypass=region.getCoprocessorHost().preScannerNext(scanner,results,rows);
           if (!results.isEmpty()) {
             for (            Result r : results) {
               for (              Cell cell : r.rawCells()) {
-                currentScanResultSize+=CellUtil.estimatedHeapSizeOf(cell);
                 totalCellSize+=CellUtil.estimatedSerializedSizeOf(cell);
+                currentScanResultSize+=CellUtil.estimatedHeapSizeOfWithoutTags(cell);
               }
             }
           }
@@ -123,17 +128,28 @@
             int i=0;
 synchronized (scanner) {
               boolean stale=(region.getRegionInfo().getReplicaId() != 0);
+              boolean clientHandlesPartials=request.hasClientHandlesPartials() && request.getClientHandlesPartials();
+              boolean serverGuaranteesOrderOfPartials=currentScanResultSize == 0;
+              boolean allowPartialResults=clientHandlesPartials && serverGuaranteesOrderOfPartials && !isSmallScan;
+              boolean moreRows=false;
+              final LimitScope sizeScope=allowPartialResults ? LimitScope.BETWEEN_CELLS : LimitScope.BETWEEN_ROWS;
+              ScannerContext.Builder contextBuilder=ScannerContext.newBuilder(true);
+              contextBuilder.setSizeLimit(sizeScope,maxResultSize);
+              contextBuilder.setBatchLimit(scanner.getBatch());
+              ScannerContext scannerContext=contextBuilder.build();
               while (i < rows) {
-                if ((maxScannerResultSize < Long.MAX_VALUE) && (currentScanResultSize >= maxResultSize)) {
+                if (scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS)) {
+                  builder.setMoreResultsInRegion(true);
                   break;
                 }
-                boolean moreRows=scanner.nextRaw(values);
+                scannerContext.setBatchProgress(0);
+                moreRows=scanner.nextRaw(values,scannerContext);
                 if (!values.isEmpty()) {
                   for (                  Cell cell : values) {
-                    currentScanResultSize+=CellUtil.estimatedHeapSizeOf(cell);
                     totalCellSize+=CellUtil.estimatedSerializedSizeOf(cell);
                   }
-                  results.add(Result.create(values,null,stale));
+                  final boolean partial=scannerContext.partialResultFormed();
+                  results.add(Result.create(values,null,stale,partial));
                   i++;
                 }
                 if (!moreRows) {
@@ -141,9 +157,18 @@ synchronized (scanner) {
                 }
                 values.clear();
               }
+              if (scannerContext.checkSizeLimit(LimitScope.BETWEEN_ROWS) || i >= rows || moreRows) {
+                builder.setMoreResultsInRegion(true);
+              }
+ else {
+                builder.setMoreResultsInRegion(false);
+              }
             }
-            region.readRequestsCount.add(i);
+            region.updateReadRequestsCount(i);
             region.getMetrics().updateScanNext(totalCellSize);
+            if (regionServer.metricsRegionServer != null) {
+              regionServer.metricsRegionServer.updateScannerNext(totalCellSize);
+            }
           }
   finally {
             region.closeRegionOperation();

@@ -1,0 +1,30 @@
+{
+  inSync.set(false);
+  while (running.get()) {
+    lock.lock();
+    try {
+      if (slotIndex == 0) {
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Waiting for data. flushed=" + StringUtils.humanSize(totalSynced));
+        }
+        waitCond.await();
+        if (slotIndex == 0) {
+          continue;
+        }
+      }
+      slotCond.await(syncWaitMsec,TimeUnit.MILLISECONDS);
+      inSync.set(true);
+      totalSynced+=syncSlots();
+      slotIndex=0;
+      inSync.set(false);
+      syncCond.signalAll();
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      sendAbortProcessSignal();
+    }
+ finally {
+      lock.unlock();
+    }
+  }
+}

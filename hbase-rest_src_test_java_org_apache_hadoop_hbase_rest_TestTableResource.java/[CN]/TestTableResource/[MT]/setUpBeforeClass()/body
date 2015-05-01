@@ -10,9 +10,9 @@
   HTableDescriptor htd=new HTableDescriptor(TABLE);
   htd.addFamily(new HColumnDescriptor(COLUMN_FAMILY));
   admin.createTable(htd);
-  HTable table=(HTable)TEST_UTIL.getConnection().getTable(TABLE);
   byte[] k=new byte[3];
   byte[][] famAndQf=KeyValue.parseColumn(Bytes.toBytes(COLUMN));
+  List<Put> puts=new ArrayList<>();
   for (byte b1='a'; b1 < 'z'; b1++) {
     for (byte b2='a'; b2 < 'z'; b2++) {
       for (byte b3='a'; b3 < 'z'; b3++) {
@@ -22,12 +22,16 @@
         Put put=new Put(k);
         put.setDurability(Durability.SKIP_WAL);
         put.add(famAndQf[0],famAndQf[1],k);
-        table.put(put);
+        puts.add(put);
       }
     }
   }
-  table.flushCommits();
-  Map<HRegionInfo,ServerName> m=table.getRegionLocations();
+  Connection connection=TEST_UTIL.getConnection();
+  Table table=connection.getTable(TABLE);
+  table.put(puts);
+  table.close();
+  RegionLocator regionLocator=connection.getRegionLocator(TABLE);
+  List<HRegionLocation> m=regionLocator.getAllRegionLocations();
   assertEquals(m.size(),1);
   admin.split(TABLE);
   long timeout=System.currentTimeMillis() + (15 * 1000);
@@ -38,10 +42,10 @@
  catch (    InterruptedException e) {
       LOG.warn(StringUtils.stringifyException(e));
     }
-    m=table.getRegionLocations();
+    m=regionLocator.getAllRegionLocations();
   }
   assertEquals(m.size(),2);
   regionMap=m;
   LOG.info("regions: " + regionMap);
-  table.close();
+  regionLocator.close();
 }

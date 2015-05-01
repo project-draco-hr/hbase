@@ -1,0 +1,53 @@
+{
+  if (isTraceEnabled()) {
+    LOG.trace(this + " execute state=" + state);
+  }
+  try {
+switch (state) {
+case MODIFY_TABLE_PREPARE:
+      prepareModify(env);
+    setNextState(ModifyTableState.MODIFY_TABLE_PRE_OPERATION);
+  break;
+case MODIFY_TABLE_PRE_OPERATION:
+preModify(env,state);
+setNextState(ModifyTableState.MODIFY_TABLE_UPDATE_TABLE_DESCRIPTOR);
+break;
+case MODIFY_TABLE_UPDATE_TABLE_DESCRIPTOR:
+updateTableDescriptor(env);
+setNextState(ModifyTableState.MODIFY_TABLE_REMOVE_REPLICA_COLUMN);
+break;
+case MODIFY_TABLE_REMOVE_REPLICA_COLUMN:
+updateReplicaColumnsIfNeeded(env,unmodifiedHTableDescriptor,modifiedHTableDescriptor);
+if (deleteColumnFamilyInModify) {
+setNextState(ModifyTableState.MODIFY_TABLE_DELETE_FS_LAYOUT);
+}
+ else {
+setNextState(ModifyTableState.MODIFY_TABLE_POST_OPERATION);
+}
+break;
+case MODIFY_TABLE_DELETE_FS_LAYOUT:
+deleteFromFs(env,unmodifiedHTableDescriptor,modifiedHTableDescriptor);
+setNextState(ModifyTableState.MODIFY_TABLE_POST_OPERATION);
+break;
+case MODIFY_TABLE_POST_OPERATION:
+postModify(env,state);
+setNextState(ModifyTableState.MODIFY_TABLE_REOPEN_ALL_REGIONS);
+break;
+case MODIFY_TABLE_REOPEN_ALL_REGIONS:
+reOpenAllRegionsIfTableIsOnline(env);
+return Flow.NO_MORE_STATE;
+default :
+throw new UnsupportedOperationException("unhandled state=" + state);
+}
+}
+ catch (InterruptedException|IOException e) {
+if (!isRollbackSupported(state)) {
+LOG.warn("Error trying to modify table=" + getTableName() + " state="+ state,e);
+}
+ else {
+LOG.error("Error trying to modify table=" + getTableName() + " state="+ state,e);
+setFailure("master-modify-table",e);
+}
+}
+return Flow.HAS_MORE_STATE;
+}

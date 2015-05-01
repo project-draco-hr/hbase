@@ -1,0 +1,36 @@
+{
+  GetProcedureResultRequest request=GetProcedureResultRequest.newBuilder().setProcId(procId).build();
+  int tries=0;
+  IOException serviceEx=null;
+  while (EnvironmentEdgeManager.currentTime() < deadlineTs) {
+    GetProcedureResultResponse response=null;
+    try {
+      response=getProcedureResult(request);
+    }
+ catch (    IOException e) {
+      serviceEx=unwrapException(e);
+      LOG.warn("failed to get the procedure result procId=" + procId,serviceEx);
+      if (serviceEx instanceof DoNotRetryIOException) {
+        LOG.warn("Proc-v2 is unsupported on this master: " + serviceEx.getMessage(),serviceEx);
+        procResultFound=false;
+        return null;
+      }
+    }
+    if (response != null && response.getState() != GetProcedureResultResponse.State.RUNNING) {
+      procResultFound=response.getState() != GetProcedureResultResponse.State.NOT_FOUND;
+      return convertResult(response);
+    }
+    try {
+      Thread.sleep(getAdmin().getPauseTime(tries++));
+    }
+ catch (    InterruptedException e) {
+      throw new InterruptedException("Interrupted while waiting for the result of proc " + procId);
+    }
+  }
+  if (serviceEx != null) {
+    throw serviceEx;
+  }
+ else {
+    throw new TimeoutException("The procedure " + procId + " is still running");
+  }
+}

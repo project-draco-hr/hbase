@@ -1,0 +1,49 @@
+{
+  boolean done=false;
+  LOG.info("Bucketing regions by region server...");
+  List<HRegionLocation> regionLocations=null;
+  Connection connection=env.getMasterServices().getConnection();
+  try (RegionLocator locator=connection.getRegionLocator(tableName)){
+    regionLocations=locator.getAllRegionLocations();
+  }
+   NavigableMap<HRegionInfo,ServerName> hri2Sn=new TreeMap<HRegionInfo,ServerName>();
+  for (  HRegionLocation location : regionLocations) {
+    hri2Sn.put(location.getRegionInfo(),location.getServerName());
+  }
+  TreeMap<ServerName,List<HRegionInfo>> serverToRegions=Maps.newTreeMap();
+  List<HRegionInfo> reRegions=new ArrayList<HRegionInfo>();
+  for (  HRegionInfo hri : regionInfoList) {
+    ServerName sn=hri2Sn.get(hri);
+    if (null == sn) {
+      LOG.info("Skip " + hri);
+      continue;
+    }
+    if (!serverToRegions.containsKey(sn)) {
+      LinkedList<HRegionInfo> hriList=Lists.newLinkedList();
+      serverToRegions.put(sn,hriList);
+    }
+    reRegions.add(hri);
+    serverToRegions.get(sn).add(hri);
+  }
+  LOG.info("Reopening " + reRegions.size() + " regions on "+ serverToRegions.size()+ " region servers.");
+  AssignmentManager am=env.getMasterServices().getAssignmentManager();
+  am.setRegionsToReopen(reRegions);
+  BulkReOpen bulkReopen=new BulkReOpen(env.getMasterServices(),serverToRegions,am);
+  while (true) {
+    try {
+      if (bulkReopen.bulkReOpen()) {
+        done=true;
+        break;
+      }
+ else {
+        LOG.warn("Timeout before reopening all regions");
+      }
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Reopen was interrupted");
+      Thread.currentThread().interrupt();
+      break;
+    }
+  }
+  return done;
+}

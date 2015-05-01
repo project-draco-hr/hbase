@@ -1,0 +1,123 @@
+{
+  if (this.rsServices != null && this.rsServices.isAborted()) {
+    throw new IOException("Aborting flush because server is aborted...");
+  }
+  final long startTime=EnvironmentEdgeManager.currentTime();
+  if (this.memstoreSize.get() <= 0) {
+    MultiVersionConsistencyControl.WriteEntry w=null;
+    this.updatesLock.writeLock().lock();
+    try {
+      if (this.memstoreSize.get() <= 0) {
+        if (wal != null) {
+          w=mvcc.beginMemstoreInsert();
+          long flushOpSeqId=getNextSequenceId(wal);
+          FlushResult flushResult=new FlushResultImpl(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,flushOpSeqId,"Nothing to flush",writeFlushRequestMarkerToWAL(wal,writeFlushWalMarker));
+          w.setWriteNumber(flushOpSeqId);
+          mvcc.waitForPreviousTransactionsComplete(w);
+          w=null;
+          return new PrepareFlushResult(flushResult,myseqid);
+        }
+ else {
+          return new PrepareFlushResult(new FlushResultImpl(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,"Nothing to flush",false),myseqid);
+        }
+      }
+    }
+  finally {
+      this.updatesLock.writeLock().unlock();
+      if (w != null) {
+        mvcc.advanceMemstore(w);
+      }
+    }
+  }
+  if (LOG.isInfoEnabled()) {
+    LOG.info("Started memstore flush for " + this + ", current region memstore size "+ StringUtils.byteDesc(this.memstoreSize.get())+ ", and "+ storesToFlush.size()+ "/"+ stores.size()+ " column families' memstores are being flushed."+ ((wal != null) ? "" : "; wal is null, using passed sequenceid=" + myseqid));
+    if (this.stores.size() > storesToFlush.size()) {
+      for (      Store store : storesToFlush) {
+        LOG.info("Flushing Column Family: " + store.getColumnFamilyName() + " which was occupying "+ StringUtils.byteDesc(store.getMemStoreSize())+ " of memstore.");
+      }
+    }
+  }
+  MultiVersionConsistencyControl.WriteEntry w=null;
+  status.setStatus("Obtaining lock to block concurrent updates");
+  this.updatesLock.writeLock().lock();
+  status.setStatus("Preparing to flush by snapshotting stores in " + getRegionInfo().getEncodedName());
+  long totalFlushableSizeOfFlushableStores=0;
+  Set<byte[]> flushedFamilyNames=new HashSet<byte[]>();
+  for (  Store store : storesToFlush) {
+    flushedFamilyNames.add(store.getFamily().getName());
+  }
+  TreeMap<byte[],StoreFlushContext> storeFlushCtxs=new TreeMap<byte[],StoreFlushContext>(Bytes.BYTES_COMPARATOR);
+  TreeMap<byte[],List<Path>> committedFiles=new TreeMap<byte[],List<Path>>(Bytes.BYTES_COMPARATOR);
+  long flushOpSeqId=HConstants.NO_SEQNUM;
+  long flushedSeqId=HConstants.NO_SEQNUM;
+  byte[] encodedRegionName=getRegionInfo().getEncodedNameAsBytes();
+  long trxId=0;
+  try {
+    try {
+      w=mvcc.beginMemstoreInsert();
+      if (wal != null) {
+        if (!wal.startCacheFlush(encodedRegionName,flushedFamilyNames)) {
+          String msg="Flush will not be started for [" + this.getRegionInfo().getEncodedName() + "] - because the WAL is closing.";
+          status.setStatus(msg);
+          return new PrepareFlushResult(new FlushResultImpl(FlushResult.Result.CANNOT_FLUSH,msg,false),myseqid);
+        }
+        flushOpSeqId=getNextSequenceId(wal);
+        long oldestUnflushedSeqId=wal.getEarliestMemstoreSeqNum(encodedRegionName);
+        flushedSeqId=(oldestUnflushedSeqId == HConstants.NO_SEQNUM) ? flushOpSeqId : oldestUnflushedSeqId - 1;
+      }
+ else {
+        flushedSeqId=flushOpSeqId=myseqid;
+      }
+      for (      Store s : storesToFlush) {
+        totalFlushableSizeOfFlushableStores+=s.getFlushableSize();
+        storeFlushCtxs.put(s.getFamily().getName(),s.createFlushContext(flushOpSeqId));
+        committedFiles.put(s.getFamily().getName(),null);
+      }
+      if (wal != null && !writestate.readOnly) {
+        FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.START_FLUSH,getRegionInfo(),flushOpSeqId,committedFiles);
+        trxId=WALUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,false);
+      }
+      for (      StoreFlushContext flush : storeFlushCtxs.values()) {
+        flush.prepare();
+      }
+    }
+ catch (    IOException ex) {
+      if (wal != null) {
+        if (trxId > 0) {
+          try {
+            FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.ABORT_FLUSH,getRegionInfo(),flushOpSeqId,committedFiles);
+            WALUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,false);
+          }
+ catch (          Throwable t) {
+            LOG.warn("Received unexpected exception trying to write ABORT_FLUSH marker to WAL:" + StringUtils.stringifyException(t));
+          }
+        }
+        wal.abortCacheFlush(this.getRegionInfo().getEncodedNameAsBytes());
+        throw ex;
+      }
+    }
+ finally {
+      this.updatesLock.writeLock().unlock();
+    }
+    String s="Finished memstore snapshotting " + this + ", syncing WAL and waiting on mvcc, flushsize="+ totalFlushableSizeOfFlushableStores;
+    status.setStatus(s);
+    if (LOG.isTraceEnabled())     LOG.trace(s);
+    if (wal != null) {
+      try {
+        wal.sync();
+      }
+ catch (      IOException ioe) {
+        LOG.warn("Unexpected exception while wal.sync(), ignoring. Exception: " + StringUtils.stringifyException(ioe));
+      }
+    }
+    w.setWriteNumber(flushOpSeqId);
+    mvcc.waitForPreviousTransactionsComplete(w);
+    w=null;
+  }
+  finally {
+    if (w != null) {
+      mvcc.advanceMemstore(w);
+    }
+  }
+  return new PrepareFlushResult(storeFlushCtxs,committedFiles,startTime,flushOpSeqId,flushedSeqId,totalFlushableSizeOfFlushableStores);
+}

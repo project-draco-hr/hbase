@@ -1,0 +1,47 @@
+{
+  final AtomicInteger actualRegCount=new AtomicInteger(0);
+  final MetaTableAccessor.Visitor visitor=new MetaTableAccessor.Visitor(){
+    @Override public boolean visit(    Result rowResult) throws IOException {
+      RegionLocations list=MetaTableAccessor.getRegionLocations(rowResult);
+      if (list == null) {
+        LOG.warn("No serialized HRegionInfo in " + rowResult);
+        return true;
+      }
+      HRegionLocation l=list.getRegionLocation();
+      if (l == null) {
+        return true;
+      }
+      if (!l.getRegionInfo().getTable().equals(desc.getTableName())) {
+        return false;
+      }
+      if (l.getRegionInfo().isOffline() || l.getRegionInfo().isSplit())       return true;
+      HRegionLocation[] locations=list.getRegionLocations();
+      for (      HRegionLocation location : locations) {
+        if (location == null)         continue;
+        ServerName serverName=location.getServerName();
+        if (serverName != null && serverName.getHostAndPort() != null) {
+          actualRegCount.incrementAndGet();
+        }
+      }
+      return true;
+    }
+  }
+;
+  int tries=0;
+  IOException serverEx=null;
+  int numRegs=(splitKeys == null ? 1 : splitKeys.length + 1) * desc.getRegionReplication();
+  while (EnvironmentEdgeManager.currentTime() < deadlineTs) {
+    actualRegCount.set(0);
+    MetaTableAccessor.scanMetaForTableRegions(getAdmin().getConnection(),visitor,desc.getTableName());
+    if (actualRegCount.get() == numRegs) {
+      return;
+    }
+    try {
+      Thread.sleep(getAdmin().getPauseTime(tries++));
+    }
+ catch (    InterruptedException e) {
+      throw new InterruptedIOException("Interrupted when opening" + " regions; " + actualRegCount.get() + " of "+ numRegs+ " regions processed so far");
+    }
+  }
+  throw new TimeoutException("Only " + actualRegCount.get() + " of "+ numRegs+ " regions are online; retries exhausted.");
+}

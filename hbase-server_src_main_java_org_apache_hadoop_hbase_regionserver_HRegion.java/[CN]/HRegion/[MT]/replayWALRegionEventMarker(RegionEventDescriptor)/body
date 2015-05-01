@@ -1,0 +1,67 @@
+{
+  checkTargetRegion(regionEvent.getEncodedRegionName().toByteArray(),"RegionEvent marker from WAL ",regionEvent);
+  startRegionOperation(Operation.REPLAY_EVENT);
+  try {
+    if (ServerRegionReplicaUtil.isDefaultReplica(this.getRegionInfo())) {
+      return;
+    }
+    if (regionEvent.getEventType() == EventType.REGION_CLOSE) {
+      return;
+    }
+    if (regionEvent.getEventType() != EventType.REGION_OPEN) {
+      LOG.warn(getRegionInfo().getEncodedName() + " : " + "Unknown region event received, ignoring :"+ TextFormat.shortDebugString(regionEvent));
+      return;
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(getRegionInfo().getEncodedName() + " : " + "Replaying region open event marker "+ TextFormat.shortDebugString(regionEvent));
+    }
+synchronized (writestate) {
+      if (this.lastReplayedOpenRegionSeqId <= regionEvent.getLogSequenceNumber()) {
+        this.lastReplayedOpenRegionSeqId=regionEvent.getLogSequenceNumber();
+      }
+ else {
+        LOG.warn(getRegionInfo().getEncodedName() + " : " + "Skipping replaying region event :"+ TextFormat.shortDebugString(regionEvent)+ " because its sequence id is smaller than this regions lastReplayedOpenRegionSeqId "+ " of "+ lastReplayedOpenRegionSeqId);
+        return;
+      }
+      for (      StoreDescriptor storeDescriptor : regionEvent.getStoresList()) {
+        byte[] family=storeDescriptor.getFamilyName().toByteArray();
+        Store store=getStore(family);
+        if (store == null) {
+          LOG.warn(getRegionInfo().getEncodedName() + " : " + "Received a region open marker from primary, but the family is not found. "+ "Ignoring. StoreDescriptor:"+ storeDescriptor);
+          continue;
+        }
+        long storeSeqId=store.getMaxSequenceId();
+        List<String> storeFiles=storeDescriptor.getStoreFileList();
+        store.refreshStoreFiles(storeFiles);
+        if (store.getMaxSequenceId() != storeSeqId) {
+          lastStoreFlushTimeMap.put(store,EnvironmentEdgeManager.currentTime());
+        }
+        if (writestate.flushing) {
+          if (this.prepareFlushResult.flushOpSeqId <= regionEvent.getLogSequenceNumber()) {
+            StoreFlushContext ctx=this.prepareFlushResult.storeFlushCtxs == null ? null : this.prepareFlushResult.storeFlushCtxs.get(family);
+            if (ctx != null) {
+              long snapshotSize=store.getFlushableSize();
+              ctx.abort();
+              this.addAndGetGlobalMemstoreSize(-snapshotSize);
+              this.prepareFlushResult.storeFlushCtxs.remove(family);
+            }
+          }
+        }
+        dropMemstoreContentsForSeqId(regionEvent.getLogSequenceNumber(),store);
+        if (storeSeqId > this.maxFlushedSeqId) {
+          this.maxFlushedSeqId=storeSeqId;
+        }
+      }
+      dropPrepareFlushIfPossible();
+      getMVCC().advanceMemstoreReadPointIfNeeded(this.maxFlushedSeqId);
+      this.setReadsEnabled(true);
+synchronized (this) {
+        notifyAll();
+      }
+    }
+    logRegionFiles();
+  }
+  finally {
+    closeRegionOperation(Operation.REPLAY_EVENT);
+  }
+}

@@ -1,0 +1,46 @@
+{
+  Map<String,ReplicationPeerConfig> peers=listPeerConfigs();
+  if (peers == null || peers.size() <= 0) {
+    return null;
+  }
+  List<ReplicationPeer> validPeers=new ArrayList<ReplicationPeer>(peers.size());
+  for (  Entry<String,ReplicationPeerConfig> peerEntry : peers.entrySet()) {
+    String peerId=peerEntry.getKey();
+    String clusterKey=peerEntry.getValue().getClusterKey();
+    Configuration peerConf=new Configuration(this.connection.getConfiguration());
+    Stat s=null;
+    try {
+      ZKUtil.applyClusterKeyToConf(peerConf,clusterKey);
+      Pair<ReplicationPeerConfig,Configuration> pair=this.replicationPeers.getPeerConf(peerId);
+      ReplicationPeer peer=new ReplicationPeerZKImpl(peerConf,peerId,pair.getFirst());
+      s=zkw.getRecoverableZooKeeper().exists(peerConf.get(HConstants.ZOOKEEPER_ZNODE_PARENT),null);
+      if (null == s) {
+        LOG.info(peerId + ' ' + clusterKey+ " is invalid now.");
+        continue;
+      }
+      validPeers.add(peer);
+    }
+ catch (    ReplicationException e) {
+      LOG.warn("Failed to get valid replication peers. " + "Error connecting to peer cluster with peerId=" + peerId);
+      LOG.debug("Failure details to get valid replication peers.",e);
+      continue;
+    }
+catch (    KeeperException e) {
+      LOG.warn("Failed to get valid replication peers. KeeperException code=" + e.code().intValue());
+      LOG.debug("Failure details to get valid replication peers.",e);
+      continue;
+    }
+catch (    InterruptedException e) {
+      LOG.warn("Failed to get valid replication peers due to InterruptedException.");
+      LOG.debug("Failure details to get valid replication peers.",e);
+      Thread.currentThread().interrupt();
+      continue;
+    }
+catch (    IOException e) {
+      LOG.warn("Failed to get valid replication peers due to IOException.");
+      LOG.debug("Failure details to get valid replication peers.",e);
+      continue;
+    }
+  }
+  return validPeers;
+}

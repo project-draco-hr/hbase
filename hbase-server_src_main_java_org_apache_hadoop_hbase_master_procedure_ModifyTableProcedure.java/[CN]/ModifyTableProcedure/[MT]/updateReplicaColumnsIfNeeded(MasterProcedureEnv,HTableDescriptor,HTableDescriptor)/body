@@ -1,0 +1,20 @@
+{
+  final int oldReplicaCount=oldHTableDescriptor.getRegionReplication();
+  final int newReplicaCount=newHTableDescriptor.getRegionReplication();
+  if (newReplicaCount < oldReplicaCount) {
+    Set<byte[]> tableRows=new HashSet<byte[]>();
+    Connection connection=env.getMasterServices().getConnection();
+    Scan scan=MetaTableAccessor.getScanForTableName(connection,getTableName());
+    scan.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+    try (Table metaTable=connection.getTable(TableName.META_TABLE_NAME)){
+      ResultScanner resScanner=metaTable.getScanner(scan);
+      for (      Result result : resScanner) {
+        tableRows.add(result.getRow());
+      }
+      MetaTableAccessor.removeRegionReplicasFromMeta(tableRows,newReplicaCount,oldReplicaCount - newReplicaCount,connection);
+    }
+   }
+  if (newReplicaCount > 1 && oldReplicaCount <= 1) {
+    ServerRegionReplicaUtil.setupRegionReplicaReplication(env.getMasterConfiguration());
+  }
+}

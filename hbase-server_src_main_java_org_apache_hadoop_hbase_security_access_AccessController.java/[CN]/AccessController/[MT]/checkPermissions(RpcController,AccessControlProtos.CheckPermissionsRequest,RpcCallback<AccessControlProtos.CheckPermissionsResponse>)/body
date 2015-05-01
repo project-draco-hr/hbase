@@ -5,6 +5,7 @@
   }
   AccessControlProtos.CheckPermissionsResponse response=null;
   try {
+    User user=getActiveUser();
     TableName tableName=regionEnv.getRegion().getTableDesc().getTableName();
     for (    Permission permission : permissions) {
       if (permission instanceof TablePermission) {
@@ -24,12 +25,26 @@
               familyMap.put(tperm.getFamily(),null);
             }
           }
-          requirePermission("checkPermissions",action,regionEnv,familyMap);
+          AuthResult result=permissionGranted("checkPermissions",user,action,regionEnv,familyMap);
+          logResult(result);
+          if (!result.isAllowed()) {
+            throw new AccessDeniedException("Insufficient permissions (table=" + tableName + (familyMap.size() > 0 ? ", family: " + result.toFamilyString() : "")+ ", action="+ action.toString()+ ")");
+          }
         }
       }
  else {
         for (        Action action : permission.getActions()) {
-          requirePermission("checkPermissions",action);
+          AuthResult result;
+          if (authManager.authorize(user,action)) {
+            result=AuthResult.allow("checkPermissions","Global action allowed",user,action,null,null);
+          }
+ else {
+            result=AuthResult.deny("checkPermissions","Global action denied",user,action,null,null);
+          }
+          logResult(result);
+          if (!result.isAllowed()) {
+            throw new AccessDeniedException("Insufficient permissions (action=" + action.toString() + ")");
+          }
         }
       }
     }

@@ -1,0 +1,21 @@
+{
+  Preconditions.checkArgument(r instanceof HRegion,"r must be an HRegion");
+  rpcServices.checkOpen();
+  LOG.info("Post open deploy tasks for " + r.getRegionInfo().getRegionNameAsString());
+  for (  Store s : r.getStores()) {
+    if (s.hasReferences() || s.needsCompaction()) {
+      this.compactSplitThread.requestSystemCompaction(r,s,"Opening Region");
+    }
+  }
+  long openSeqNum=r.getOpenSeqNum();
+  if (openSeqNum == HConstants.NO_SEQNUM) {
+    LOG.error("No sequence number found when opening " + r.getRegionInfo().getRegionNameAsString());
+    openSeqNum=0;
+  }
+  updateRecoveringRegionLastFlushedSequenceId(r);
+  if (!reportRegionStateTransition(TransitionCode.OPENED,openSeqNum,r.getRegionInfo())) {
+    throw new IOException("Failed to report opened region to master: " + r.getRegionInfo().getRegionNameAsString());
+  }
+  triggerFlushInPrimaryRegion((HRegion)r);
+  LOG.debug("Finished post open deploy task for " + r.getRegionInfo().getRegionNameAsString());
+}

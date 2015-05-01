@@ -2,7 +2,8 @@
   if (numZooKeeperServers <= 0)   return -1;
   setupTestEnv();
   shutdown();
-  int tentativePort=selectClientPort();
+  int tentativePort=-1;
+  int currentClientPort;
   for (int i=0; i < numZooKeeperServers; i++) {
     File dir=new File(baseDir,"zookeeper_" + i).getAbsoluteFile();
     createDir(dir);
@@ -13,29 +14,44 @@
  else {
       tickTimeToUse=TICK_TIME;
     }
+    if (hasValidClientPortInList(i)) {
+      currentClientPort=clientPortList.get(i);
+    }
+ else {
+      tentativePort=selectClientPort(tentativePort);
+      currentClientPort=tentativePort;
+    }
     ZooKeeperServer server=new ZooKeeperServer(dir,dir,tickTimeToUse);
     NIOServerCnxnFactory standaloneServerFactory;
     while (true) {
       try {
         standaloneServerFactory=new NIOServerCnxnFactory();
-        standaloneServerFactory.configure(new InetSocketAddress(tentativePort),configuration.getInt(HConstants.ZOOKEEPER_MAX_CLIENT_CNXNS,1000));
+        standaloneServerFactory.configure(new InetSocketAddress(currentClientPort),configuration.getInt(HConstants.ZOOKEEPER_MAX_CLIENT_CNXNS,1000));
       }
  catch (      BindException e) {
-        LOG.debug("Failed binding ZK Server to client port: " + tentativePort,e);
-        if (defaultClientPort > 0)         return -1;
-        tentativePort=selectClientPort();
+        LOG.debug("Failed binding ZK Server to client port: " + currentClientPort,e);
+        if (hasValidClientPortInList(i)) {
+          return -1;
+        }
+        tentativePort=selectClientPort(tentativePort);
+        currentClientPort=tentativePort;
         continue;
       }
       break;
     }
     standaloneServerFactory.startup(server);
-    if (!waitForServerUp(tentativePort,CONNECTION_TIMEOUT)) {
+    if (!waitForServerUp(currentClientPort,CONNECTION_TIMEOUT)) {
       throw new IOException("Waiting for startup of standalone server");
     }
-    clientPortList.add(tentativePort);
+    if (clientPortList.size() <= i) {
+      clientPortList.add(currentClientPort);
+    }
+ else     if (clientPortList.get(i) <= 0) {
+      clientPortList.remove(i);
+      clientPortList.add(i,currentClientPort);
+    }
     standaloneServerFactoryList.add(standaloneServerFactory);
     zooKeeperServers.add(server);
-    tentativePort++;
   }
   activeZKServerIndex=0;
   started=true;

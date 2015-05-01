@@ -1,0 +1,21 @@
+{
+  final BlockCacheKey cacheKey=new BlockCacheKey("dummy",1L);
+  cacheAndWaitUntilFlushedToBucket(cache,cacheKey,new CacheTestUtils.ByteArrayCacheable(new byte[10]));
+  long lockId=cache.backingMap.get(cacheKey).offset();
+  IdLock.Entry lockEntry=cache.offsetLock.getLockEntry(lockId);
+  Thread evictThread=new Thread("evict-block"){
+    @Override public void run(){
+      cache.evictBlock(cacheKey);
+    }
+  }
+;
+  evictThread.start();
+  cache.offsetLock.waitForWaiters(lockId,1);
+  cache.blockEvicted(cacheKey,cache.backingMap.remove(cacheKey),true);
+  cacheAndWaitUntilFlushedToBucket(cache,cacheKey,new CacheTestUtils.ByteArrayCacheable(new byte[10]));
+  cache.offsetLock.releaseLockEntry(lockEntry);
+  evictThread.join();
+  assertEquals(1L,cache.getBlockCount());
+  assertTrue(cache.getCurrentSize() > 0L);
+  assertTrue("We should have a block!",cache.iterator().hasNext());
+}

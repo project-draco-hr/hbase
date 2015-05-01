@@ -1,0 +1,124 @@
+{
+  if (!results.isEmpty()) {
+    throw new IllegalArgumentException("First parameter should be an empty list");
+  }
+  if (scannerContext == null) {
+    throw new IllegalArgumentException("Scanner context cannot be null");
+  }
+  RpcCallContext rpcCall=RpcServer.getCurrentCall();
+  int initialBatchProgress=scannerContext.getBatchProgress();
+  long initialSizeProgress=scannerContext.getSizeProgress();
+  while (true) {
+    if (scannerContext.getKeepProgress()) {
+      scannerContext.setProgress(initialBatchProgress,initialSizeProgress);
+    }
+ else {
+      scannerContext.clearProgress();
+    }
+    if (rpcCall != null) {
+      long afterTime=rpcCall.disconnectSince();
+      if (afterTime >= 0) {
+        throw new CallerDisconnectedException("Aborting on region " + getRegionInfo().getRegionNameAsString() + ", call "+ this+ " after "+ afterTime+ " ms, since "+ "caller disconnected");
+      }
+    }
+    Cell current=this.storeHeap.peek();
+    byte[] currentRow=null;
+    int offset=0;
+    short length=0;
+    if (current != null) {
+      currentRow=current.getRowArray();
+      offset=current.getRowOffset();
+      length=current.getRowLength();
+    }
+    boolean stopRow=isStopRow(currentRow,offset,length);
+    boolean hasFilterRow=this.filter != null && this.filter.hasFilterRow();
+    if (hasFilterRow) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("filter#hasFilterRow is true which prevents partial results from being " + " formed. Changing scope of limits that may create partials");
+      }
+      scannerContext.setSizeLimitScope(LimitScope.BETWEEN_ROWS);
+    }
+    if (joinedContinuationRow == null) {
+      if (stopRow) {
+        if (hasFilterRow) {
+          filter.filterRowCells(results);
+        }
+        return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+      }
+      if (filterRowKey(currentRow,offset,length)) {
+        boolean moreRows=nextRow(currentRow,offset,length);
+        if (!moreRows) {
+          return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+        }
+        results.clear();
+        continue;
+      }
+      populateResult(results,this.storeHeap,scannerContext,currentRow,offset,length);
+      if (scannerContext.checkAnyLimitReached(LimitScope.BETWEEN_CELLS)) {
+        if (hasFilterRow) {
+          throw new IncompatibleFilterException("Filter whose hasFilterRow() returns true is incompatible with scans that must " + " stop mid-row because of a limit. ScannerContext:" + scannerContext);
+        }
+        return true;
+      }
+      Cell nextKv=this.storeHeap.peek();
+      stopRow=nextKv == null || isStopRow(nextKv.getRowArray(),nextKv.getRowOffset(),nextKv.getRowLength());
+      final boolean isEmptyRow=results.isEmpty();
+      FilterWrapper.FilterRowRetCode ret=FilterWrapper.FilterRowRetCode.NOT_CALLED;
+      if (hasFilterRow) {
+        ret=filter.filterRowCellsWithRet(results);
+        if (scannerContext.getKeepProgress()) {
+          scannerContext.setProgress(initialBatchProgress,initialSizeProgress);
+        }
+ else {
+          scannerContext.clearProgress();
+        }
+        scannerContext.incrementBatchProgress(results.size());
+        for (        Cell cell : results) {
+          scannerContext.incrementSizeProgress(CellUtil.estimatedHeapSizeOfWithoutTags(cell));
+        }
+      }
+      if ((isEmptyRow || ret == FilterWrapper.FilterRowRetCode.EXCLUDE) || filterRow()) {
+        results.clear();
+        boolean moreRows=nextRow(currentRow,offset,length);
+        if (!moreRows) {
+          return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+        }
+        if (!stopRow)         continue;
+        return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+      }
+      if (this.joinedHeap != null) {
+        Cell nextJoinedKv=joinedHeap.peek();
+        boolean mayHaveData=(nextJoinedKv != null && CellUtil.matchingRow(nextJoinedKv,currentRow,offset,length)) || (this.joinedHeap.requestSeek(KeyValueUtil.createFirstOnRow(currentRow,offset,length),true,true) && joinedHeap.peek() != null && CellUtil.matchingRow(joinedHeap.peek(),currentRow,offset,length));
+        if (mayHaveData) {
+          joinedContinuationRow=current;
+          populateFromJoinedHeap(results,scannerContext);
+          if (scannerContext.checkAnyLimitReached(LimitScope.BETWEEN_CELLS)) {
+            return true;
+          }
+        }
+      }
+    }
+ else {
+      populateFromJoinedHeap(results,scannerContext);
+      if (scannerContext.checkAnyLimitReached(LimitScope.BETWEEN_CELLS)) {
+        return true;
+      }
+    }
+    if (joinedContinuationRow != null) {
+      return scannerContext.setScannerState(NextState.MORE_VALUES).hasMoreValues();
+    }
+    if (results.isEmpty()) {
+      boolean moreRows=nextRow(currentRow,offset,length);
+      if (!moreRows) {
+        return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+      }
+      if (!stopRow)       continue;
+    }
+    if (stopRow) {
+      return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+    }
+ else {
+      return scannerContext.setScannerState(NextState.MORE_VALUES).hasMoreValues();
+    }
+  }
+}

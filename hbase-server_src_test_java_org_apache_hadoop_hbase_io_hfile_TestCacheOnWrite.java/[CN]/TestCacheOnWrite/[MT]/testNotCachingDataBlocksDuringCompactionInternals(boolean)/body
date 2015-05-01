@@ -1,15 +1,9 @@
 {
-  if (useTags) {
-    TEST_UTIL.getConfiguration().setInt("hfile.format.version",3);
-  }
- else {
-    TEST_UTIL.getConfiguration().setInt("hfile.format.version",2);
-  }
   final String table="CompactionCacheOnWrite";
   final String cf="myCF";
   final byte[] cfBytes=Bytes.toBytes(cf);
   final int maxVersions=3;
-  HRegion region=TEST_UTIL.createTestRegion(table,new HColumnDescriptor(cf).setCompressionType(compress).setBloomFilterType(BLOOM_TYPE).setMaxVersions(maxVersions).setDataBlockEncoding(encoder.getDataBlockEncoding()));
+  Region region=TEST_UTIL.createTestRegion(table,new HColumnDescriptor(cf).setCompressionType(compress).setBloomFilterType(BLOOM_TYPE).setMaxVersions(maxVersions).setDataBlockEncoding(encoder.getDataBlockEncoding()));
   int rowIdx=0;
   long ts=EnvironmentEdgeManager.currentTime();
   for (int iFile=0; iFile < 5; ++iFile) {
@@ -29,24 +23,22 @@
             p.add(kv);
           }
  else {
-            p.add(cfBytes,Bytes.toBytes(qualStr),ts++,Bytes.toBytes(valueStr));
+            p.addColumn(cfBytes,Bytes.toBytes(qualStr),ts++,Bytes.toBytes(valueStr));
           }
         }
       }
       p.setDurability(Durability.ASYNC_WAL);
       region.put(p);
     }
-    region.flushcache();
+    region.flush(true);
   }
-  LruBlockCache blockCache=(LruBlockCache)new CacheConfig(conf).getBlockCache();
-  blockCache.clearCache();
-  assertEquals(0,blockCache.getBlockTypeCountsForTest().size());
-  region.compactStores();
+  clearBlockCache(blockCache);
+  assertEquals(0,blockCache.getBlockCount());
+  region.compact(false);
   LOG.debug("compactStores() returned");
-  Map<BlockType,Integer> blockTypesInCache=blockCache.getBlockTypeCountsForTest();
-  LOG.debug("Block types in cache: " + blockTypesInCache);
-  assertNull(blockTypesInCache.get(BlockType.ENCODED_DATA));
-  assertNull(blockTypesInCache.get(BlockType.DATA));
-  region.close();
-  blockCache.shutdown();
+  for (  CachedBlock block : blockCache) {
+    assertNotEquals(BlockType.ENCODED_DATA,block.getBlockType());
+    assertNotEquals(BlockType.DATA,block.getBlockType());
+  }
+  ((HRegion)region).close();
 }

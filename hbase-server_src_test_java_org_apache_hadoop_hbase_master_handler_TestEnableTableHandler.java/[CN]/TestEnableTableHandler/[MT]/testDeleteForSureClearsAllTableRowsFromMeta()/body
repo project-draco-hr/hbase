@@ -1,27 +1,38 @@
 {
   final TableName tableName=TableName.valueOf("testDeleteForSureClearsAllTableRowsFromMeta");
-  final MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
-  final HMaster m=cluster.getMaster();
   final HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
   final HTableDescriptor desc=new HTableDescriptor(tableName);
   desc.addFamily(new HColumnDescriptor(FAMILYNAME));
-  admin.createTable(desc,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
-  Scan metaScannerForMyTable=MetaTableAccessor.getScanForTableName(tableName);
+  try {
+    createTable(TEST_UTIL,desc,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
+  }
+ catch (  Exception e) {
+    e.printStackTrace();
+    fail("Got an exception while creating " + tableName);
+  }
   try (Table metaTable=TEST_UTIL.getConnection().getTable(TableName.META_TABLE_NAME)){
-    try (ResultScanner scanner=metaTable.getScanner(metaScannerForMyTable)){
+    try (ResultScanner scanner=metaTable.getScanner(MetaTableAccessor.getScanForTableName(TEST_UTIL.getConnection(),tableName))){
       for (      Result result : scanner) {
         Delete d=new Delete(result.getRow());
         d.addColumn(HConstants.CATALOG_FAMILY,HConstants.REGIONINFO_QUALIFIER);
+        LOG.info("Mangled: " + d);
         metaTable.delete(d);
         break;
       }
     }
      admin.disableTable(tableName);
     TEST_UTIL.waitTableDisabled(tableName.getName());
-    admin.deleteTable(tableName);
+    try {
+      deleteTable(TEST_UTIL,tableName);
+    }
+ catch (    Exception e) {
+      e.printStackTrace();
+      fail("Got an exception while deleting " + tableName);
+    }
     int rowCount=0;
-    try (ResultScanner scanner=metaTable.getScanner(metaScannerForMyTable)){
+    try (ResultScanner scanner=metaTable.getScanner(MetaTableAccessor.getScanForTableName(TEST_UTIL.getConnection(),tableName))){
       for (      Result result : scanner) {
+        LOG.info("Found when none expected: " + result);
         rowCount++;
       }
     }

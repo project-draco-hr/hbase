@@ -1,0 +1,40 @@
+{
+  Scan scan=new Scan(startRow);
+  scan.setCaching(caching);
+  scan.setMaxResultSize(maxResultSize);
+  scan.setReversed(reversed);
+  scan.setSmall(small);
+  scan.setConsistency(consistency);
+  ResultScanner scanner=table.getScanner(scan);
+  Iterator<Result> iter=scanner.iterator();
+  HashMap<String,Boolean> map=new HashMap<String,Boolean>();
+  int rowCount=0;
+  int cellCount=0;
+  int countOfStale=0;
+  while (iter.hasNext()) {
+    rowCount++;
+    Result r=iter.next();
+    String row=new String(r.getRow());
+    if (map.containsKey(row)) {
+      throw new Exception("Unexpected scan result. Repeated row " + Bytes.toString(r.getRow()));
+    }
+    map.put(row,true);
+    for (    Cell cell : r.rawCells()) {
+      cellCount++;
+    }
+    if (!slowNext)     Assert.assertTrue(r.isStale() == staleExpected);
+    if (r.isStale())     countOfStale++;
+  }
+  Assert.assertTrue("Count of rows " + rowCount + " num rows expected "+ numRows,rowCount == numRows);
+  Assert.assertTrue("Count of cells: " + cellCount + " cells expected: "+ numRows * numCols,cellCount == (numRows * numCols));
+  if (slowNext) {
+    LOG.debug("Count of Stale " + countOfStale);
+    Assert.assertTrue(countOfStale > 1);
+    if (maxResultSize != Long.MAX_VALUE) {
+      Assert.assertTrue(countOfStale <= numRows);
+    }
+ else {
+      Assert.assertTrue(countOfStale < numRows);
+    }
+  }
+}

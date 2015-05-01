@@ -1,0 +1,13 @@
+{
+  final TableName tableName=TableName.valueOf("testRollbackAndDoubleExecution");
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  final byte[][] splitKeys=new byte[][]{Bytes.toBytes("a"),Bytes.toBytes("b"),Bytes.toBytes("c")};
+  MasterProcedureTestingUtility.createTable(procExec,tableName,splitKeys,"f1","f2");
+  UTIL.getHBaseAdmin().disableTable(tableName);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  long procId=procExec.submitProcedure(new EnableTableProcedure(procExec.getEnvironment(),tableName,false));
+  int numberOfSteps=EnableTableState.values().length - 2;
+  MasterProcedureTestingUtility.testRollbackAndDoubleExecution(procExec,procId,numberOfSteps,EnableTableState.values());
+  MasterProcedureTestingUtility.validateTableIsDisabled(UTIL.getHBaseCluster().getMaster(),tableName);
+}

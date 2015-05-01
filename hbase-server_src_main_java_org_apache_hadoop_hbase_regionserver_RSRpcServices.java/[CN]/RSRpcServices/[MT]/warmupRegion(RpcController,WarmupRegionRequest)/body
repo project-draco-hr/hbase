@@ -1,0 +1,29 @@
+{
+  RegionInfo regionInfo=request.getRegionInfo();
+  final HRegionInfo region=HRegionInfo.convert(regionInfo);
+  HTableDescriptor htd;
+  WarmupRegionResponse response=WarmupRegionResponse.getDefaultInstance();
+  try {
+    String encodedName=region.getEncodedName();
+    byte[] encodedNameBytes=region.getEncodedNameAsBytes();
+    final Region onlineRegion=regionServer.getFromOnlineRegions(encodedName);
+    if (onlineRegion != null) {
+      LOG.info("Region already online. Skipping warming up " + region);
+      return response;
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Warming up Region " + region.getRegionNameAsString());
+    }
+    htd=regionServer.tableDescriptors.get(region.getTable());
+    if (regionServer.getRegionsInTransitionInRS().containsKey(encodedNameBytes)) {
+      LOG.info("Region is in transition. Skipping warmup " + region);
+      return response;
+    }
+    HRegion.warmupHRegion(region,htd,regionServer.getWAL(region),regionServer.getConfiguration(),regionServer,null);
+  }
+ catch (  IOException ie) {
+    LOG.error("Failed warming up region " + region.getRegionNameAsString(),ie);
+    throw new ServiceException(ie);
+  }
+  return response;
+}

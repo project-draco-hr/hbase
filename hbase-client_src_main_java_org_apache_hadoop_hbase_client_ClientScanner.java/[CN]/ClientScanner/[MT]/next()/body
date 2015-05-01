@@ -3,75 +3,7 @@
     return null;
   }
   if (cache.size() == 0) {
-    Result[] values=null;
-    long remainingResultSize=maxScannerResultSize;
-    int countdown=this.caching;
-    callable.setCaching(this.caching);
-    boolean retryAfterOutOfOrderException=true;
-    do {
-      try {
-        values=call(callable,caller,scannerTimeout);
-        if (values == null && callable.switchedToADifferentReplica()) {
-          this.currentRegion=callable.getHRegionInfo();
-          continue;
-        }
-        retryAfterOutOfOrderException=true;
-      }
- catch (      DoNotRetryIOException e) {
-        if (e instanceof UnknownScannerException) {
-          long timeout=lastNext + scannerTimeout;
-          if (timeout < System.currentTimeMillis()) {
-            long elapsed=System.currentTimeMillis() - lastNext;
-            ScannerTimeoutException ex=new ScannerTimeoutException(elapsed + "ms passed since the last invocation, " + "timeout is currently set to "+ scannerTimeout);
-            ex.initCause(e);
-            throw ex;
-          }
-        }
- else {
-          Throwable cause=e.getCause();
-          if ((cause != null && cause instanceof NotServingRegionException) || (cause != null && cause instanceof RegionServerStoppedException) || e instanceof OutOfOrderScannerNextException) {
-          }
- else {
-            throw e;
-          }
-        }
-        if (this.lastResult != null) {
-          if (scan.isReversed()) {
-            scan.setStartRow(createClosestRowBefore(lastResult.getRow()));
-          }
- else {
-            scan.setStartRow(Bytes.add(lastResult.getRow(),new byte[1]));
-          }
-        }
-        if (e instanceof OutOfOrderScannerNextException) {
-          if (retryAfterOutOfOrderException) {
-            retryAfterOutOfOrderException=false;
-          }
- else {
-            throw new DoNotRetryIOException("Failed after retry of " + "OutOfOrderScannerNextException: was there a rpc timeout?",e);
-          }
-        }
-        this.currentRegion=null;
-        callable=null;
-        continue;
-      }
-      long currentTime=System.currentTimeMillis();
-      if (this.scanMetrics != null) {
-        this.scanMetrics.sumOfMillisSecBetweenNexts.addAndGet(currentTime - lastNext);
-      }
-      lastNext=currentTime;
-      if (values != null && values.length > 0) {
-        for (        Result rs : values) {
-          cache.add(rs);
-          for (          Cell cell : rs.rawCells()) {
-            remainingResultSize-=CellUtil.estimatedHeapSizeOf(cell);
-          }
-          countdown--;
-          this.lastResult=rs;
-        }
-      }
-    }
- while (remainingResultSize > 0 && countdown > 0 && possiblyNextScanner(countdown,values == null));
+    loadCache();
   }
   if (cache.size() > 0) {
     return cache.poll();
