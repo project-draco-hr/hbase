@@ -5,7 +5,7 @@
   HFileContext meta=new HFileContextBuilder().withHBaseCheckSum(true).withIncludesMvcc(includesMemstoreTS).withIncludesTags(useTags).withCompression(compr).build();
   HFileBlock.FSReader blockReader=new HFileBlock.FSReaderImpl(istream,fs.getFileStatus(path).getLen(),meta);
   BlockReaderWrapper brw=new BlockReaderWrapper(blockReader);
-  HFileBlockIndex.BlockIndexReader indexReader=new HFileBlockIndex.BlockIndexReader(KeyValue.RAW_COMPARATOR,numLevels,brw);
+  HFileBlockIndex.BlockIndexReader indexReader=new HFileBlockIndex.BlockIndexReader(CellComparator.COMPARATOR,numLevels,brw);
   indexReader.readRootIndex(blockReader.blockRange(rootIndexOffset,fileSize).nextBlockWithBlockType(BlockType.ROOT_INDEX),numRootEntries);
   long prevOffset=-1;
   int i=0;
@@ -15,8 +15,9 @@
   for (  byte[] key : keys) {
     assertTrue(key != null);
     assertTrue(indexReader != null);
-    HFileBlock b=indexReader.seekToDataBlock(new KeyValue.KeyOnlyKeyValue(key,0,key.length),null,true,true,false,null);
-    if (KeyValue.COMPARATOR.compareFlatKey(key,firstKeyInFile) < 0) {
+    KeyValue.KeyOnlyKeyValue keyOnlyKey=new KeyValue.KeyOnlyKeyValue(key,0,key.length);
+    HFileBlock b=indexReader.seekToDataBlock(keyOnlyKey,null,true,true,false,null);
+    if (CellComparator.COMPARATOR.compare(keyOnlyKey,firstKeyInFile,0,firstKeyInFile.length) < 0) {
       assertTrue(b == null);
       ++i;
       continue;

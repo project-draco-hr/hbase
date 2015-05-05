@@ -1,0 +1,34 @@
+{
+  int commonLength=KeyValue.ROW_LENGTH_SIZE + KeyValue.FAMILY_LENGTH_SIZE + rowlength;
+  int commonLengthWithTSAndType=KeyValue.TIMESTAMP_TYPE_SIZE + commonLength;
+  int lcolumnlength=left.getFamilyLength() + left.getQualifierLength();
+  int rcolumnlength=rlength - commonLengthWithTSAndType;
+  byte ltype=left.getTypeByte();
+  byte rtype=right[roffset + (rlength - 1)];
+  if (lcolumnlength == 0 && ltype == Type.Minimum.getCode()) {
+    return 1;
+  }
+  if (rcolumnlength == 0 && rtype == Type.Minimum.getCode()) {
+    return -1;
+  }
+  int lfamilyoffset=left.getFamilyOffset();
+  int rfamilyoffset=commonLength + roffset;
+  int lfamilylength=left.getFamilyLength();
+  int rfamilylength=right[rfamilyoffset - 1];
+  boolean sameFamilySize=(lfamilylength == rfamilylength);
+  if (!sameFamilySize) {
+    return compareFamilies(left,lfamilyoffset,lfamilylength,right,rfamilyoffset,rfamilylength);
+  }
+  int lQualOffset=left.getQualifierOffset();
+  int lQualLength=left.getQualifierLength();
+  int comparison=compareColumns(left,lfamilyoffset,lfamilylength,lQualOffset,lQualLength,right,rfamilyoffset,rfamilylength,rfamilyoffset + rfamilylength,(rcolumnlength - rfamilylength));
+  if (comparison != 0) {
+    return comparison;
+  }
+  long rtimestamp=Bytes.toLong(right,roffset + (rlength - KeyValue.TIMESTAMP_TYPE_SIZE));
+  int compare=compareTimestamps(left.getTimestamp(),rtimestamp);
+  if (compare != 0) {
+    return compare;
+  }
+  return (0xff & rtype) - (0xff & ltype);
+}

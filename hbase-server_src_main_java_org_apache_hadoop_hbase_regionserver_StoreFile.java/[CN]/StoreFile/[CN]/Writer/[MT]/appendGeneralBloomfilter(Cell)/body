@@ -4,10 +4,10 @@
     if (this.lastCell != null) {
 switch (bloomType) {
 case ROW:
-        newKey=!kvComparator.matchingRows(cell,lastCell);
+        newKey=!CellUtil.matchingRows(cell,lastCell);
       break;
 case ROWCOL:
-    newKey=!kvComparator.matchingRowColumn(cell,lastCell);
+    newKey=!CellUtil.matchingRowColumn(cell,lastCell);
   break;
 case NONE:
 newKey=false;
@@ -35,20 +35,23 @@ throw new IOException("Invalid Bloom filter type: " + bloomType + " (ROW or ROWC
 }
 generalBloomFilterWriter.add(bloomKey,bloomKeyOffset,bloomKeyLen);
 if (lastBloomKey != null) {
-int res=0;
+boolean res=false;
 if (bloomType == BloomType.ROW) {
-res=Bytes.BYTES_RAWCOMPARATOR.compare(bloomKey,bloomKeyOffset,bloomKeyLen,lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen);
+res=Bytes.BYTES_RAWCOMPARATOR.compare(bloomKey,bloomKeyOffset,bloomKeyLen,lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen) <= 0;
 }
  else {
-res=KeyValue.COMPARATOR.compareFlatKey(bloomKey,bloomKeyOffset,bloomKeyLen,lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen);
+res=(CellComparator.COMPARATOR.compare(lastBloomKeyOnlyKV,bloomKey,bloomKeyOffset,bloomKeyLen) >= 0);
 }
-if (res <= 0) {
+if (res) {
 throw new IOException("Non-increasing Bloom keys: " + Bytes.toStringBinary(bloomKey,bloomKeyOffset,bloomKeyLen) + " after "+ Bytes.toStringBinary(lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen));
 }
 }
 lastBloomKey=bloomKey;
 lastBloomKeyOffset=bloomKeyOffset;
 lastBloomKeyLen=bloomKeyLen;
+if (bloomType == BloomType.ROWCOL) {
+lastBloomKeyOnlyKV.setKey(bloomKey,bloomKeyOffset,bloomKeyLen);
+}
 this.lastCell=cell;
 }
 }
