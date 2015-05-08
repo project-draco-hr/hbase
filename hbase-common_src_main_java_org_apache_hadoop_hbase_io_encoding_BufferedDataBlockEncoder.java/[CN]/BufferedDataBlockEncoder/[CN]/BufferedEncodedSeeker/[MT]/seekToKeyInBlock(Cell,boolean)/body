@@ -6,39 +6,33 @@
   KeyValue.KeyOnlyKeyValue currentCell=new KeyValue.KeyOnlyKeyValue();
   do {
     int comp;
-    if (comparator != null) {
-      currentCell.setKey(current.keyBuffer,0,current.keyLength);
-      if (current.lastCommonPrefix != 0) {
-        rowCommonPrefix=Math.min(rowCommonPrefix,current.lastCommonPrefix - 2);
-      }
-      if (current.lastCommonPrefix <= 2) {
-        rowCommonPrefix=0;
-      }
-      rowCommonPrefix+=findCommonPrefixInRowPart(seekCell,currentCell,rowCommonPrefix);
-      comp=compareCommonRowPrefix(seekCell,currentCell,rowCommonPrefix);
+    currentCell.setKey(current.keyBuffer,0,current.keyLength);
+    if (current.lastCommonPrefix != 0) {
+      rowCommonPrefix=Math.min(rowCommonPrefix,current.lastCommonPrefix - 2);
+    }
+    if (current.lastCommonPrefix <= 2) {
+      rowCommonPrefix=0;
+    }
+    rowCommonPrefix+=findCommonPrefixInRowPart(seekCell,currentCell,rowCommonPrefix);
+    comp=compareCommonRowPrefix(seekCell,currentCell,rowCommonPrefix);
+    if (comp == 0) {
+      comp=compareTypeBytes(seekCell,currentCell);
       if (comp == 0) {
-        comp=compareTypeBytes(seekCell,currentCell);
+        familyCommonPrefix=Math.max(0,Math.min(familyCommonPrefix,current.lastCommonPrefix - (3 + currentCell.getRowLength())));
+        familyCommonPrefix+=findCommonPrefixInFamilyPart(seekCell,currentCell,familyCommonPrefix);
+        comp=compareCommonFamilyPrefix(seekCell,currentCell,familyCommonPrefix);
         if (comp == 0) {
-          familyCommonPrefix=Math.max(0,Math.min(familyCommonPrefix,current.lastCommonPrefix - (3 + currentCell.getRowLength())));
-          familyCommonPrefix+=findCommonPrefixInFamilyPart(seekCell,currentCell,familyCommonPrefix);
-          comp=compareCommonFamilyPrefix(seekCell,currentCell,familyCommonPrefix);
+          qualCommonPrefix=Math.max(0,Math.min(qualCommonPrefix,current.lastCommonPrefix - (3 + currentCell.getRowLength() + currentCell.getFamilyLength())));
+          qualCommonPrefix+=findCommonPrefixInQualifierPart(seekCell,currentCell,qualCommonPrefix);
+          comp=compareCommonQualifierPrefix(seekCell,currentCell,qualCommonPrefix);
           if (comp == 0) {
-            qualCommonPrefix=Math.max(0,Math.min(qualCommonPrefix,current.lastCommonPrefix - (3 + currentCell.getRowLength() + currentCell.getFamilyLength())));
-            qualCommonPrefix+=findCommonPrefixInQualifierPart(seekCell,currentCell,qualCommonPrefix);
-            comp=compareCommonQualifierPrefix(seekCell,currentCell,qualCommonPrefix);
+            comp=CellComparator.compareTimestamps(seekCell,currentCell);
             if (comp == 0) {
-              comp=CellComparator.compareTimestamps(seekCell,currentCell);
-              if (comp == 0) {
-                comp=(0xff & currentCell.getTypeByte()) - (0xff & seekCell.getTypeByte());
-              }
+              comp=(0xff & currentCell.getTypeByte()) - (0xff & seekCell.getTypeByte());
             }
           }
         }
       }
-    }
- else {
-      Cell r=new KeyValue.KeyOnlyKeyValue(current.keyBuffer,0,current.keyLength);
-      comp=comparator.compareKeyIgnoresMvcc(seekCell,r);
     }
     if (comp == 0) {
       if (seekBefore) {
