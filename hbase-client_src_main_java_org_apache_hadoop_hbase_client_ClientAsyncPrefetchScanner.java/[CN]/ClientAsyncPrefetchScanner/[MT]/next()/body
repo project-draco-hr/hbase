@@ -1,0 +1,34 @@
+{
+  try {
+    handleException();
+    if (getCacheCount() == 0 && this.closed) {
+      return null;
+    }
+    if (prefetchCondition()) {
+      if (!isPrefetchRunning()) {
+        if (prefetchRunning.compareAndSet(false,true)) {
+          getPool().execute(prefetchRunnable);
+        }
+      }
+    }
+    while (isPrefetchRunning()) {
+      if (getCacheCount() > 0) {
+        Result res=cache.poll();
+        long estimatedSize=calcEstimatedSize(res);
+        addEstimatedSize(-estimatedSize);
+        return res;
+      }
+ else {
+        Threads.sleep(1);
+      }
+    }
+    if (getCacheCount() > 0) {
+      return cache.poll();
+    }
+    writeScanMetrics();
+    return null;
+  }
+  finally {
+    handleException();
+  }
+}
