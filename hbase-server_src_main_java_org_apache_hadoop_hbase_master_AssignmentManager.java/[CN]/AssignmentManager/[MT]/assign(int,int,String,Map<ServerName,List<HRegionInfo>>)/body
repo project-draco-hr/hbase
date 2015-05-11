@@ -4,14 +4,21 @@
     if (LOG.isTraceEnabled()) {
       LOG.trace("Not using bulk assignment since we are assigning only " + regions + " region(s) to "+ servers+ " server(s)");
     }
+    ArrayList<HRegionInfo> userRegionSet=new ArrayList<HRegionInfo>(regions);
     for (    Map.Entry<ServerName,List<HRegionInfo>> plan : bulkPlan.entrySet()) {
       if (!assign(plan.getKey(),plan.getValue()) && !server.isStopped()) {
         for (        HRegionInfo region : plan.getValue()) {
           if (!regionStates.isRegionOnline(region)) {
             invokeAssign(region);
+            if (!region.getTable().isSystemTable()) {
+              userRegionSet.add(region);
+            }
           }
         }
       }
+    }
+    if (!waitForAssignment(userRegionSet,true,userRegionSet.size(),System.currentTimeMillis())) {
+      LOG.debug("some user regions are still in transition: " + userRegionSet);
     }
   }
  else {
