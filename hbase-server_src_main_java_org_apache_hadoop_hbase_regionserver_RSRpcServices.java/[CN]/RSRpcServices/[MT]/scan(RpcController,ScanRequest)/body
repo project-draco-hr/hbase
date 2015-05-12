@@ -91,10 +91,10 @@
           rsh=scanners.get(scannerName);
         }
         if (rsh != null) {
-          if (request.getNextCallSeq() != rsh.nextCallSeq) {
-            throw new OutOfOrderScannerNextException("Expected nextCallSeq: " + rsh.nextCallSeq + " But the nextCallSeq got from client: "+ request.getNextCallSeq()+ "; request="+ TextFormat.shortDebugString(request));
+          if (request.getNextCallSeq() != rsh.getNextCallSeq()) {
+            throw new OutOfOrderScannerNextException("Expected nextCallSeq: " + rsh.getNextCallSeq() + " But the nextCallSeq got from client: "+ request.getNextCallSeq()+ "; request="+ TextFormat.shortDebugString(request));
           }
-          rsh.nextCallSeq++;
+          rsh.incNextCallSeq();
         }
       }
       try {
@@ -209,7 +209,13 @@ synchronized (scanner) {
           addResults(builder,results,controller,RegionReplicaUtil.isDefaultReplica(region.getRegionInfo()));
         }
       }
-  finally {
+ catch (      IOException e) {
+        if (rsh != null && request.hasNextCallSeq()) {
+          rsh.rollbackNextCallSeq();
+        }
+        throw e;
+      }
+ finally {
         if (scanners.containsKey(scannerName)) {
           if (lease != null)           regionServer.leases.addLease(lease);
           ttl=this.scannerLeaseTimeoutPeriod;
