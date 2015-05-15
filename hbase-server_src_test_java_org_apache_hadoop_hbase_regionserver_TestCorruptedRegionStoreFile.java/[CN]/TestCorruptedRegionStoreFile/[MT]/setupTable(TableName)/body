@@ -1,0 +1,33 @@
+{
+  Table table=UTIL.createTable(tableName,FAMILY_NAME);
+  try {
+    rowCount=0;
+    byte[] value=new byte[1024];
+    byte[] q=Bytes.toBytes("q");
+    while (rowCount < NUM_ROWS) {
+      Put put=new Put(Bytes.toBytes(String.format("%010d",rowCount)));
+      put.setDurability(Durability.SKIP_WAL);
+      put.add(FAMILY_NAME,q,value);
+      table.put(put);
+      if ((rowCount++ % ROW_PER_FILE) == 0) {
+        UTIL.getHBaseAdmin().flush(tableName);
+      }
+    }
+  }
+  finally {
+    UTIL.getHBaseAdmin().flush(tableName);
+    table.close();
+  }
+  assertEquals(NUM_ROWS,rowCount);
+  storeFiles.clear();
+  tableDir=FSUtils.getTableDir(getRootDir(),tableName);
+  FSVisitor.visitTableStoreFiles(getFileSystem(),tableDir,new FSVisitor.StoreFileVisitor(){
+    @Override public void storeFile(    final String region,    final String family,    final String hfile) throws IOException {
+      HFileLink link=HFileLink.build(UTIL.getConfiguration(),tableName,region,family,hfile);
+      storeFiles.add(link.getOriginPath());
+    }
+  }
+);
+  assertTrue("expected at least 1 store file",storeFiles.size() > 0);
+  LOG.info("store-files: " + storeFiles);
+}
