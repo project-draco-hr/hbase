@@ -1,6 +1,6 @@
 {
   try {
-    ServerRpcController execController=new ServerRpcController();
+    ServerRpcController serviceController=new ServerRpcController();
     CoprocessorServiceCall call=serviceRequest.getCall();
     String serviceName=call.getServiceName();
     String methodName=call.getMethodName();
@@ -15,7 +15,7 @@
     }
     Message request=service.getRequestPrototype(methodDesc).newBuilderForType().mergeFrom(call.getRequest()).build();
     final Message.Builder responseBuilder=service.getResponsePrototype(methodDesc).newBuilderForType();
-    service.callMethod(methodDesc,controller,request,new RpcCallback<Message>(){
+    service.callMethod(methodDesc,serviceController,request,new RpcCallback<Message>(){
       @Override public void run(      Message message){
         if (message != null) {
           responseBuilder.mergeFrom(message);
@@ -23,10 +23,11 @@
       }
     }
 );
-    Message execResult=responseBuilder.build();
-    if (execController.getFailedOn() != null) {
-      throw execController.getFailedOn();
+    IOException exception=ResponseConverter.getControllerException(serviceController);
+    if (exception != null) {
+      throw exception;
     }
+    Message execResult=responseBuilder.build();
     ClientProtos.CoprocessorServiceResponse.Builder builder=ClientProtos.CoprocessorServiceResponse.newBuilder();
     builder.setRegion(RequestConverter.buildRegionSpecifier(RegionSpecifierType.REGION_NAME,HConstants.EMPTY_BYTE_ARRAY));
     builder.setValue(builder.getValueBuilder().setName(execResult.getClass().getName()).setValue(execResult.toByteString()));

@@ -8,9 +8,10 @@
   RpcCallContext rpcCall=RpcServer.getCurrentCall();
   int initialBatchProgress=scannerContext.getBatchProgress();
   long initialSizeProgress=scannerContext.getSizeProgress();
+  long initialTimeProgress=scannerContext.getTimeProgress();
   while (true) {
     if (scannerContext.getKeepProgress()) {
-      scannerContext.setProgress(initialBatchProgress,initialSizeProgress);
+      scannerContext.setProgress(initialBatchProgress,initialSizeProgress,initialTimeProgress);
     }
  else {
       scannerContext.clearProgress();
@@ -37,6 +38,7 @@
         LOG.trace("filter#hasFilterRow is true which prevents partial results from being " + " formed. Changing scope of limits that may create partials");
       }
       scannerContext.setSizeLimitScope(LimitScope.BETWEEN_ROWS);
+      scannerContext.setTimeLimitScope(LimitScope.BETWEEN_ROWS);
     }
     if (joinedContinuationRow == null) {
       if (stopRow) {
@@ -66,12 +68,14 @@
       FilterWrapper.FilterRowRetCode ret=FilterWrapper.FilterRowRetCode.NOT_CALLED;
       if (hasFilterRow) {
         ret=filter.filterRowCellsWithRet(results);
+        long timeProgress=scannerContext.getTimeProgress();
         if (scannerContext.getKeepProgress()) {
-          scannerContext.setProgress(initialBatchProgress,initialSizeProgress);
+          scannerContext.setProgress(initialBatchProgress,initialSizeProgress,initialTimeProgress);
         }
  else {
           scannerContext.clearProgress();
         }
+        scannerContext.setTimeProgress(timeProgress);
         scannerContext.incrementBatchProgress(results.size());
         for (        Cell cell : results) {
           scannerContext.incrementSizeProgress(CellUtil.estimatedHeapSizeOfWithoutTags(cell));
@@ -87,8 +91,7 @@
         return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
       }
       if (this.joinedHeap != null) {
-        Cell nextJoinedKv=joinedHeap.peek();
-        boolean mayHaveData=(nextJoinedKv != null && CellUtil.matchingRow(nextJoinedKv,currentRow,offset,length)) || (this.joinedHeap.requestSeek(KeyValueUtil.createFirstOnRow(currentRow,offset,length),true,true) && joinedHeap.peek() != null && CellUtil.matchingRow(joinedHeap.peek(),currentRow,offset,length));
+        boolean mayHaveData=joinedHeapMayHaveData(currentRow,offset,length);
         if (mayHaveData) {
           joinedContinuationRow=current;
           populateFromJoinedHeap(results,scannerContext);

@@ -1,6 +1,6 @@
 {
   byte[] midkey=f.createReader().midkey();
-  KeyValue midKV=KeyValue.createKeyValueFromKey(midkey);
+  KeyValue midKV=KeyValueUtil.createKeyValueFromKey(midkey);
   byte[] midRow=midKV.getRow();
   HRegionInfo topHri=new HRegionInfo(regionFs.getRegionInfo().getTable(),null,midRow);
   Path topPath=splitStoreFile(regionFs,topHri,TEST_FAMILY,f,midRow,true);
@@ -17,7 +17,7 @@
     HFileScanner topScanner=top.getScanner(false,false);
     while ((!topScanner.isSeeked() && topScanner.seekTo()) || (topScanner.isSeeked() && topScanner.next())) {
       key=topScanner.getKey();
-      if (topScanner.getReader().getComparator().compareFlatKey(key.array(),key.arrayOffset(),key.limit(),midkey,0,midkey.length) < 0) {
+      if ((topScanner.getReader().getComparator().compare(midKV,key.array(),key.arrayOffset(),key.limit())) > 0) {
         fail("key=" + Bytes.toStringBinary(key) + " < midkey="+ Bytes.toStringBinary(midkey));
       }
       if (first) {
@@ -50,12 +50,14 @@
     top=new StoreFile(this.fs,topPath,conf,cacheConf,BloomType.NONE).createReader();
     first=true;
     topScanner=top.getScanner(false,false);
+    KeyValue.KeyOnlyKeyValue keyOnlyKV=new KeyValue.KeyOnlyKeyValue();
     while ((!topScanner.isSeeked() && topScanner.seekTo()) || topScanner.next()) {
       key=topScanner.getKey();
-      assertTrue(topScanner.getReader().getComparator().compareFlatKey(key.array(),key.arrayOffset(),key.limit(),badmidkey,0,badmidkey.length) >= 0);
+      keyOnlyKV.setKey(key.array(),0 + key.arrayOffset(),key.limit());
+      assertTrue(topScanner.getReader().getComparator().compare(keyOnlyKV,badmidkey,0,badmidkey.length) >= 0);
       if (first) {
         first=false;
-        KeyValue keyKV=KeyValue.createKeyValueFromKey(key);
+        KeyValue keyKV=KeyValueUtil.createKeyValueFromKey(key);
         LOG.info("First top when key < bottom: " + keyKV);
         String tmp=Bytes.toString(keyKV.getRow());
         for (int i=0; i < tmp.length(); i++) {
@@ -63,7 +65,7 @@
         }
       }
     }
-    KeyValue keyKV=KeyValue.createKeyValueFromKey(key);
+    KeyValue keyKV=KeyValueUtil.createKeyValueFromKey(key);
     LOG.info("Last top when key < bottom: " + keyKV);
     String tmp=Bytes.toString(keyKV.getRow());
     for (int i=0; i < tmp.length(); i++) {
@@ -82,7 +84,7 @@
       key=bottomScanner.getKey();
       if (first) {
         first=false;
-        keyKV=KeyValue.createKeyValueFromKey(key);
+        keyKV=KeyValueUtil.createKeyValueFromKey(key);
         LOG.info("First bottom when key > top: " + keyKV);
         tmp=Bytes.toString(keyKV.getRow());
         for (int i=0; i < tmp.length(); i++) {
@@ -90,7 +92,7 @@
         }
       }
     }
-    keyKV=KeyValue.createKeyValueFromKey(key);
+    keyKV=KeyValueUtil.createKeyValueFromKey(key);
     LOG.info("Last bottom when key > top: " + keyKV);
     for (int i=0; i < tmp.length(); i++) {
       assertTrue(Bytes.toString(keyKV.getRow()).charAt(i) == 'z');

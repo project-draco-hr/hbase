@@ -1,0 +1,18 @@
+{
+  assertEquals(rowCount,fullScanAndCount(TEST_TABLE.getTableName()));
+  final FileSystem fs=getFileSystem();
+  final Path tmpStoreFilePath=new Path(UTIL.getDataTestDir(),"corruptedHFile");
+  int count=fullScanAndCount(TEST_TABLE.getTableName(),new ScanInjector(){
+    private boolean hasFile=true;
+    @Override public void beforeScan(    Table table,    Scan scan) throws Exception {
+      if (hasFile) {
+        fs.copyToLocalFile(true,storeFiles.get(0),tmpStoreFilePath);
+        LOG.info("Move file to local");
+        evictHFileCache(storeFiles.get(0));
+        hasFile=false;
+      }
+    }
+  }
+);
+  assertTrue("expected one file lost: rowCount=" + count + " lostRows="+ (NUM_ROWS - count),count >= (NUM_ROWS - ROW_PER_FILE));
+}

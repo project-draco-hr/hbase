@@ -7,6 +7,7 @@
  else {
     this.filter=null;
   }
+  this.comparator=region.getCellCompartor();
   defaultScannerContext=ScannerContext.newBuilder().setBatchLimit(scan.getBatch()).build();
   if (Bytes.equals(scan.getStopRow(),HConstants.EMPTY_END_ROW) && !scan.isGetScan()) {
     this.stopRow=null;
@@ -27,7 +28,13 @@ synchronized (scannerReadPoints) {
   }
   for (  Map.Entry<byte[],NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
     Store store=stores.get(entry.getKey());
-    KeyValueScanner scanner=store.getScanner(scan,entry.getValue(),this.readPt);
+    KeyValueScanner scanner;
+    try {
+      scanner=store.getScanner(scan,entry.getValue(),this.readPt);
+    }
+ catch (    FileNotFoundException e) {
+      throw handleFileNotFound(e);
+    }
     if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand() || this.filter.isFamilyEssential(entry.getKey())) {
       scanners.add(scanner);
     }

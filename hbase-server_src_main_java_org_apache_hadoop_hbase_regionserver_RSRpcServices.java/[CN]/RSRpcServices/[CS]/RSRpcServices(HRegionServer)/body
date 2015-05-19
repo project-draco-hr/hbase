@@ -11,13 +11,20 @@
 catch (  IllegalAccessException e) {
     throw new IllegalArgumentException(e);
   }
-  String hostname=getHostname(rs.conf);
-  int port=rs.conf.getInt(HConstants.REGIONSERVER_PORT,HConstants.DEFAULT_REGIONSERVER_PORT);
+  InetSocketAddress initialIsa;
+  InetSocketAddress bindAddress;
   if (this instanceof MasterRpcServices) {
-    port=rs.conf.getInt(HConstants.MASTER_PORT,HConstants.DEFAULT_MASTER_PORT);
+    String hostname=getHostname(rs.conf,true);
+    int port=rs.conf.getInt(HConstants.MASTER_PORT,HConstants.DEFAULT_MASTER_PORT);
+    initialIsa=new InetSocketAddress(hostname,port);
+    bindAddress=new InetSocketAddress(rs.conf.get("hbase.master.ipc.address",hostname),port);
   }
-  InetSocketAddress initialIsa=new InetSocketAddress(hostname,port);
-  InetSocketAddress bindAddress=new InetSocketAddress(rs.conf.get("hbase.regionserver.ipc.address",hostname),port);
+ else {
+    String hostname=getHostname(rs.conf,false);
+    int port=rs.conf.getInt(HConstants.REGIONSERVER_PORT,HConstants.DEFAULT_REGIONSERVER_PORT);
+    initialIsa=new InetSocketAddress(hostname,port);
+    bindAddress=new InetSocketAddress(rs.conf.get("hbase.regionserver.ipc.address",hostname),port);
+  }
   if (initialIsa.getAddress() == null) {
     throw new IllegalArgumentException("Failed resolve of " + initialIsa);
   }
@@ -27,6 +34,8 @@ catch (  IllegalAccessException e) {
   rpcServer=new RpcServer(rs,name,getServices(),bindAddress,rs.conf,rpcSchedulerFactory.create(rs.conf,this,rs));
   scannerLeaseTimeoutPeriod=rs.conf.getInt(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD,HConstants.DEFAULT_HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD);
   maxScannerResultSize=rs.conf.getLong(HConstants.HBASE_SERVER_SCANNER_MAX_RESULT_SIZE_KEY,HConstants.DEFAULT_HBASE_SERVER_SCANNER_MAX_RESULT_SIZE);
+  rpcTimeout=rs.conf.getInt(HConstants.HBASE_RPC_TIMEOUT_KEY,HConstants.DEFAULT_HBASE_RPC_TIMEOUT);
+  minimumScanTimeLimitDelta=rs.conf.getLong(REGION_SERVER_RPC_MINIMUM_SCAN_TIME_LIMIT_DELTA,DEFAULT_REGION_SERVER_RPC_MINIMUM_SCAN_TIME_LIMIT_DELTA);
   isa=new InetSocketAddress(initialIsa.getHostName(),rpcServer.getListenerAddress().getPort());
   rpcServer.setErrorHandler(this);
   rs.setName(name);

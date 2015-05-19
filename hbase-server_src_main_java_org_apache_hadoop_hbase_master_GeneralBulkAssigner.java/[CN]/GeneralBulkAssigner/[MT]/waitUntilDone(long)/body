@@ -28,25 +28,7 @@
   if (!failedPlans.isEmpty() && !server.isStopped()) {
     reassigningRegions=reassignFailedPlans();
   }
-  Configuration conf=server.getConfiguration();
-  long perRegionOpenTimeGuesstimate=conf.getLong("hbase.bulk.assignment.perregion.open.time",1000);
-  long endTime=Math.max(System.currentTimeMillis(),rpcWaitTime) + perRegionOpenTimeGuesstimate * (reassigningRegions + 1);
-  RegionStates regionStates=assignmentManager.getRegionStates();
-  while (!regionSet.isEmpty() && !server.isStopped() && endTime > System.currentTimeMillis()) {
-    Iterator<HRegionInfo> regionInfoIterator=regionSet.iterator();
-    while (regionInfoIterator.hasNext()) {
-      HRegionInfo hri=regionInfoIterator.next();
-      if (regionStates.isRegionOnline(hri) || regionStates.isRegionInState(hri,State.SPLITTING,State.SPLIT,State.MERGING,State.MERGED)) {
-        regionInfoIterator.remove();
-      }
-    }
-    if (!waitTillAllAssigned) {
-      break;
-    }
-    if (!regionSet.isEmpty()) {
-      regionStates.waitForUpdate(100);
-    }
-  }
+  assignmentManager.waitForAssignment(regionSet,waitTillAllAssigned,reassigningRegions,Math.max(System.currentTimeMillis(),rpcWaitTime));
   if (LOG.isDebugEnabled()) {
     long elapsedTime=System.currentTimeMillis() - startTime;
     String status="successfully";

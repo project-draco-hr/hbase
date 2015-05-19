@@ -3,7 +3,8 @@
   if (bloomFilter == null) {
     return true;
   }
-  byte[] key;
+  byte[] key=null;
+  KeyValue kvKey=null;
 switch (bloomFilterType) {
 case ROW:
     if (col != null) {
@@ -15,7 +16,7 @@ case ROW:
 key=row;
 break;
 case ROWCOL:
-key=bloomFilter.createBloomKey(row,rowOffset,rowLen,col,colOffset,colLen);
+kvKey=KeyValueUtil.createFirstOnRow(row,rowOffset,rowLen,HConstants.EMPTY_BYTE_ARRAY,0,0,col,colOffset,colLen);
 break;
 default :
 return true;
@@ -34,14 +35,22 @@ shouldCheckBloom=bloom != null;
 }
 if (shouldCheckBloom) {
 boolean exists;
-boolean keyIsAfterLast=lastBloomKey != null && bloomFilter.getComparator().compareFlatKey(key,lastBloomKey) > 0;
+boolean keyIsAfterLast=(lastBloomKey != null);
+if (keyIsAfterLast) {
+if (bloomFilterType == BloomType.ROW) {
+keyIsAfterLast=(Bytes.BYTES_RAWCOMPARATOR.compare(key,lastBloomKey) > 0);
+}
+ else {
+keyIsAfterLast=(CellComparator.COMPARATOR.compare(kvKey,lastBloomKeyOnlyKV)) > 0;
+}
+}
 if (bloomFilterType == BloomType.ROWCOL) {
-byte[] rowBloomKey=bloomFilter.createBloomKey(row,rowOffset,rowLen,null,0,0);
-if (keyIsAfterLast && bloomFilter.getComparator().compareFlatKey(rowBloomKey,lastBloomKey) > 0) {
+KeyValue rowBloomKey=KeyValueUtil.createFirstOnRow(row,rowOffset,rowLen,HConstants.EMPTY_BYTE_ARRAY,0,0,HConstants.EMPTY_BYTE_ARRAY,0,0);
+if (keyIsAfterLast && (CellComparator.COMPARATOR.compare(rowBloomKey,lastBloomKeyOnlyKV)) > 0) {
 exists=false;
 }
  else {
-exists=bloomFilter.contains(key,0,key.length,bloom) || bloomFilter.contains(rowBloomKey,0,rowBloomKey.length,bloom);
+exists=bloomFilter.contains(kvKey,bloom) || bloomFilter.contains(rowBloomKey,bloom);
 }
 }
  else {

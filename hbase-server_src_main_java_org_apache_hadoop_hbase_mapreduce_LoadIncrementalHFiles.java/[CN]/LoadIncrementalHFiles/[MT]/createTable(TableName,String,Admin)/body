@@ -1,0 +1,38 @@
+{
+  final Path hfofDir=new Path(dirPath);
+  final FileSystem fs=hfofDir.getFileSystem(getConf());
+  final HTableDescriptor htd=new HTableDescriptor(tableName);
+  final TreeMap<byte[],Integer> map=new TreeMap<byte[],Integer>(Bytes.BYTES_COMPARATOR);
+  visitBulkHFiles(fs,hfofDir,new BulkHFileVisitor<HColumnDescriptor>(){
+    @Override public HColumnDescriptor bulkFamily(    final byte[] familyName){
+      HColumnDescriptor hcd=new HColumnDescriptor(familyName);
+      htd.addFamily(hcd);
+      return hcd;
+    }
+    @Override public void bulkHFile(    final HColumnDescriptor hcd,    final FileStatus hfileStatus) throws IOException {
+      Path hfile=hfileStatus.getPath();
+      HFile.Reader reader=HFile.createReader(fs,hfile,new CacheConfig(getConf()),getConf());
+      try {
+        if (hcd.getCompressionType() != reader.getFileContext().getCompression()) {
+          hcd.setCompressionType(reader.getFileContext().getCompression());
+          LOG.info("Setting compression " + hcd.getCompressionType().name() + " for family "+ hcd.toString());
+        }
+        reader.loadFileInfo();
+        byte[] first=reader.getFirstRowKey();
+        byte[] last=reader.getLastRowKey();
+        LOG.info("Trying to figure out region boundaries hfile=" + hfile + " first="+ Bytes.toStringBinary(first)+ " last="+ Bytes.toStringBinary(last));
+        Integer value=map.containsKey(first) ? map.get(first) : 0;
+        map.put(first,value + 1);
+        value=map.containsKey(last) ? map.get(last) : 0;
+        map.put(last,value - 1);
+      }
+  finally {
+        reader.close();
+      }
+    }
+  }
+);
+  byte[][] keys=LoadIncrementalHFiles.inferBoundaries(map);
+  admin.createTable(htd,keys);
+  LOG.info("Table " + tableName + " is available!!");
+}
