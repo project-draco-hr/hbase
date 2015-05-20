@@ -1,12 +1,20 @@
 {
-  String[] otherArgs=new GenericOptionsParser(getConf(),args).getRemainingArgs();
-  if (otherArgs.length < 1) {
+  if (args.length < 1) {
     printUsage("Wrong number of parameters: " + args.length);
     return -1;
   }
-  Job job=createSubmittableJob(getConf(),otherArgs);
+  Job job=createSubmittableJob(getConf(),args);
   if (job == null) {
     return -1;
   }
-  return (job.waitForCompletion(true) ? 0 : 1);
+  boolean success=job.waitForCompletion(true);
+  final long expectedCount=getConf().getLong(EXPECTED_COUNT_KEY,-1);
+  if (success && expectedCount != -1) {
+    final Counter counter=job.getCounters().findCounter(RowCounterMapper.Counters.ROWS);
+    success=expectedCount == counter.getValue();
+    if (!success) {
+      LOG.error("Failing job because count of '" + counter.getValue() + "' does not match expected count of '"+ expectedCount+ "'");
+    }
+  }
+  return (success ? 0 : 1);
 }

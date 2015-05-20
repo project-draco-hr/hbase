@@ -1,0 +1,128 @@
+{
+  final Configuration conf=getConf();
+  TServer server=null;
+  Options options=getOptions();
+  CommandLine cmd=parseArguments(conf,options,args);
+  int workerThreads=0;
+  List<?> argList=cmd.getArgList();
+  if (cmd.hasOption("help") || !argList.contains("start") || argList.contains("stop")) {
+    printUsage();
+    return 1;
+  }
+  String bindAddress;
+  if (cmd.hasOption("bind")) {
+    bindAddress=cmd.getOptionValue("bind");
+    conf.set("hbase.thrift.info.bindAddress",bindAddress);
+  }
+ else {
+    bindAddress=conf.get("hbase.thrift.info.bindAddress");
+  }
+  int listenPort=0;
+  try {
+    if (cmd.hasOption("port")) {
+      listenPort=Integer.parseInt(cmd.getOptionValue("port"));
+    }
+ else {
+      listenPort=conf.getInt("hbase.regionserver.thrift.port",DEFAULT_LISTEN_PORT);
+    }
+  }
+ catch (  NumberFormatException e) {
+    throw new RuntimeException("Could not parse the value provided for the port option",e);
+  }
+  String host=null;
+  String name=null;
+  UserProvider userProvider=UserProvider.instantiate(conf);
+  boolean securityEnabled=userProvider.isHadoopSecurityEnabled() && userProvider.isHBaseSecurityEnabled();
+  if (securityEnabled) {
+    host=Strings.domainNamePointerToHostName(DNS.getDefaultHost(conf.get("hbase.thrift.dns.interface","default"),conf.get("hbase.thrift.dns.nameserver","default")));
+    userProvider.login("hbase.thrift.keytab.file","hbase.thrift.kerberos.principal",host);
+  }
+  UserGroupInformation realUser=userProvider.getCurrent().getUGI();
+  String qop=conf.get(THRIFT_QOP_KEY);
+  if (qop != null) {
+    if (!qop.equals("auth") && !qop.equals("auth-int") && !qop.equals("auth-conf")) {
+      throw new IOException("Invalid " + THRIFT_QOP_KEY + ": "+ qop+ ", it must be 'auth', 'auth-int', or 'auth-conf'");
+    }
+    if (!securityEnabled) {
+      throw new IOException("Thrift server must" + " run in secure mode to support authentication");
+    }
+    name=SecurityUtil.getUserFromPrincipal(conf.get("hbase.thrift.kerberos.principal"));
+  }
+  boolean nonblocking=cmd.hasOption("nonblocking");
+  boolean hsha=cmd.hasOption("hsha");
+  ThriftMetrics metrics=new ThriftMetrics(conf,ThriftMetrics.ThriftServerType.TWO);
+  String implType="threadpool";
+  if (nonblocking) {
+    implType="nonblocking";
+  }
+ else   if (hsha) {
+    implType="hsha";
+  }
+  conf.set("hbase.regionserver.thrift.server.type",implType);
+  conf.setInt("hbase.regionserver.thrift.port",listenPort);
+  registerFilters(conf);
+  boolean compact=cmd.hasOption("compact") || conf.getBoolean("hbase.regionserver.thrift.compact",false);
+  TProtocolFactory protocolFactory=getTProtocolFactory(compact);
+  final ThriftHBaseServiceHandler hbaseHandler=new ThriftHBaseServiceHandler(conf,userProvider);
+  THBaseService.Iface handler=ThriftHBaseServiceHandler.newInstance(hbaseHandler,metrics);
+  final THBaseService.Processor p=new THBaseService.Processor(handler);
+  conf.setBoolean("hbase.regionserver.thrift.compact",compact);
+  TProcessor processor=p;
+  boolean framed=cmd.hasOption("framed") || conf.getBoolean("hbase.regionserver.thrift.framed",false) || nonblocking|| hsha;
+  TTransportFactory transportFactory=getTTransportFactory(qop,name,host,framed,conf.getInt("hbase.regionserver.thrift.framed.max_frame_size_in_mb",2) * 1024 * 1024);
+  InetSocketAddress inetSocketAddress=bindToPort(bindAddress,listenPort);
+  conf.setBoolean("hbase.regionserver.thrift.framed",framed);
+  if (qop != null) {
+    processor=new TProcessor(){
+      @Override public boolean process(      TProtocol inProt,      TProtocol outProt) throws TException {
+        TSaslServerTransport saslServerTransport=(TSaslServerTransport)inProt.getTransport();
+        SaslServer saslServer=saslServerTransport.getSaslServer();
+        String principal=saslServer.getAuthorizationID();
+        hbaseHandler.setEffectiveUser(principal);
+        return p.process(inProt,outProt);
+      }
+    }
+;
+  }
+  if (cmd.hasOption("w")) {
+    workerThreads=Integer.parseInt(cmd.getOptionValue("w"));
+  }
+  try {
+    if (cmd.hasOption("infoport")) {
+      String val=cmd.getOptionValue("infoport");
+      conf.setInt("hbase.thrift.info.port",Integer.parseInt(val));
+      log.debug("Web UI port set to " + val);
+    }
+  }
+ catch (  NumberFormatException e) {
+    log.error("Could not parse the value provided for the infoport option",e);
+    printUsage();
+    System.exit(1);
+  }
+  int port=conf.getInt("hbase.thrift.info.port",9095);
+  if (port >= 0) {
+    conf.setLong("startcode",System.currentTimeMillis());
+    String a=conf.get("hbase.thrift.info.bindAddress","0.0.0.0");
+    InfoServer infoServer=new InfoServer("thrift",a,port,false,conf);
+    infoServer.setAttribute("hbase.conf",conf);
+    infoServer.start();
+  }
+  if (nonblocking) {
+    server=getTNonBlockingServer(protocolFactory,processor,transportFactory,inetSocketAddress);
+  }
+ else   if (hsha) {
+    server=getTHsHaServer(protocolFactory,processor,transportFactory,workerThreads,inetSocketAddress,metrics);
+  }
+ else {
+    server=getTThreadPoolServer(protocolFactory,processor,transportFactory,workerThreads,inetSocketAddress);
+  }
+  final TServer tserver=server;
+  realUser.doAs(new PrivilegedAction<Object>(){
+    @Override public Object run(){
+      tserver.serve();
+      return null;
+    }
+  }
+);
+  return 0;
+}
