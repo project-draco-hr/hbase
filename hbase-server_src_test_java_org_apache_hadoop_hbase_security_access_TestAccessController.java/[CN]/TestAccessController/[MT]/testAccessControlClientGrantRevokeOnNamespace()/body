@@ -2,25 +2,32 @@
   User testNS=User.createUserForTesting(conf,"testNS",new String[0]);
   AccessTestAction getAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(TEST_TABLE.getTableName())){
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(TEST_TABLE)){
         return t.get(new Get(TEST_ROW));
       }
      }
   }
 ;
   verifyDenied(getAction,testNS);
+  String userName=testNS.getShortName();
+  String namespace=TEST_TABLE.getNamespaceAsString();
   try {
-    grantOnNamespaceUsingAccessControlClient(TEST_UTIL,systemUserConnection,testNS.getShortName(),TEST_TABLE.getTableName().getNamespaceAsString(),Permission.Action.READ);
+    grantOnNamespaceUsingAccessControlClient(TEST_UTIL,systemUserConnection,userName,namespace,Permission.Action.READ);
   }
  catch (  Throwable e) {
     LOG.error("error during call of AccessControlClient.grant. ",e);
   }
-  verifyAllowed(getAction,testNS);
   try {
-    revokeFromNamespaceUsingAccessControlClient(TEST_UTIL,systemUserConnection,testNS.getShortName(),TEST_TABLE.getTableName().getNamespaceAsString(),Permission.Action.READ);
+    verifyAllowed(getAction,testNS);
+    try {
+      revokeFromNamespaceUsingAccessControlClient(TEST_UTIL,systemUserConnection,userName,namespace,Permission.Action.READ);
+    }
+ catch (    Throwable e) {
+      LOG.error("error during call of AccessControlClient.revoke ",e);
+    }
+    verifyDenied(getAction,testNS);
   }
- catch (  Throwable e) {
-    LOG.error("error during call of AccessControlClient.revoke ",e);
+  finally {
+    revokeFromNamespace(TEST_UTIL,userName,namespace,Permission.Action.READ);
   }
-  verifyDenied(getAction,testNS);
 }

@@ -2,25 +2,31 @@
   User testGlobalGrantRevoke=User.createUserForTesting(conf,"testGlobalGrantRevoke",new String[0]);
   AccessTestAction getAction=new AccessTestAction(){
     @Override public Object run() throws Exception {
-      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(TEST_TABLE.getTableName())){
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table t=conn.getTable(TEST_TABLE)){
         return t.get(new Get(TEST_ROW));
       }
      }
   }
 ;
   verifyDenied(getAction,testGlobalGrantRevoke);
+  String userName=testGlobalGrantRevoke.getShortName();
   try {
-    grantGlobalUsingAccessControlClient(TEST_UTIL,systemUserConnection,testGlobalGrantRevoke.getShortName(),Permission.Action.READ);
+    grantGlobalUsingAccessControlClient(TEST_UTIL,systemUserConnection,userName,Permission.Action.READ);
   }
  catch (  Throwable e) {
     LOG.error("error during call of AccessControlClient.grant. ",e);
   }
-  verifyAllowed(getAction,testGlobalGrantRevoke);
   try {
-    revokeGlobalUsingAccessControlClient(TEST_UTIL,systemUserConnection,testGlobalGrantRevoke.getShortName(),Permission.Action.READ);
+    verifyAllowed(getAction,testGlobalGrantRevoke);
+    try {
+      revokeGlobalUsingAccessControlClient(TEST_UTIL,systemUserConnection,userName,Permission.Action.READ);
+    }
+ catch (    Throwable e) {
+      LOG.error("error during call of AccessControlClient.revoke ",e);
+    }
+    verifyDenied(getAction,testGlobalGrantRevoke);
   }
- catch (  Throwable e) {
-    LOG.error("error during call of AccessControlClient.revoke ",e);
+  finally {
+    revokeGlobal(TEST_UTIL,userName,Permission.Action.READ);
   }
-  verifyDenied(getAction,testGlobalGrantRevoke);
 }
