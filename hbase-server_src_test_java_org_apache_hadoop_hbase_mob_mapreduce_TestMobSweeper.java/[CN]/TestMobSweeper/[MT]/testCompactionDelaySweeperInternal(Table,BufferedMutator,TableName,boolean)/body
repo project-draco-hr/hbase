@@ -21,7 +21,7 @@
   Configuration conf=TEST_UTIL.getConfiguration();
   conf.setLong(SweepJob.MOB_SWEEP_JOB_DELAY,0);
   String[] args=new String[2];
-  args[0]=tableName;
+  args[0]=tableName.getNameAsString();
   args[1]=family;
   assertEquals(0,ToolRunner.run(conf,new Sweeper(),args));
   mobFamilyPath=getMobFamilyPath(TEST_UTIL.getConfiguration(),tableName,family);
@@ -42,10 +42,20 @@
   }
   assertEquals(1,mobFilesScannedAfterJob.size());
   fileStatuses=TEST_UTIL.getTestFileSystem().listStatus(mobFamilyPath);
+  Path lastFilePath=null;
   mobFilesSet=new TreeSet<String>();
   for (  FileStatus status : fileStatuses) {
     mobFilesSet.add(status.getPath().getName());
+    lastFilePath=status.getPath();
   }
   assertEquals(1,mobFilesSet.size());
   assertEquals(true,mobFilesScannedAfterJob.iterator().next().equalsIgnoreCase(mobFilesSet.iterator().next()));
+  if (encrypted) {
+    CacheConfig cacheConf=new CacheConfig(conf);
+    StoreFile sf=new StoreFile(TEST_UTIL.getTestFileSystem(),lastFilePath,conf,cacheConf,BloomType.NONE);
+    HFile.Reader reader=sf.createReader().getHFileReader();
+    byte[] encryptionKey=reader.getTrailer().getEncryptionKey();
+    Assert.assertTrue(null != encryptionKey);
+    Assert.assertTrue(reader.getFileContext().getEncryptionContext().getCipher().getName().equals(HConstants.CIPHER_AES));
+  }
 }
