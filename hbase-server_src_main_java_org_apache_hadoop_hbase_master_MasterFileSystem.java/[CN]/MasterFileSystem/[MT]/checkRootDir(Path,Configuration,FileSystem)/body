@@ -1,13 +1,24 @@
 {
   FSUtils.waitOnSafeMode(c,c.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000));
+  boolean isSecurityEnabled="kerberos".equalsIgnoreCase(c.get("hbase.security.authentication"));
+  FsPermission rootDirPerms=new FsPermission(c.get("hbase.rootdir.perms","700"));
   try {
     if (!fs.exists(rd)) {
-      fs.mkdirs(rd);
+      if (isSecurityEnabled) {
+        fs.mkdirs(rd,rootDirPerms);
+      }
+ else {
+        fs.mkdirs(rd);
+      }
       FSUtils.setVersion(fs,rd,c.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000),c.getInt(HConstants.VERSION_FILE_WRITE_ATTEMPTS,HConstants.DEFAULT_VERSION_FILE_WRITE_ATTEMPTS));
     }
  else {
       if (!fs.isDirectory(rd)) {
         throw new IllegalArgumentException(rd.toString() + " is not a directory");
+      }
+      if (isSecurityEnabled && !rootDirPerms.equals(fs.getFileStatus(rd).getPermission())) {
+        LOG.warn("Found rootdir permissions NOT matching expected \"hbase.rootdir.perms\" for " + "rootdir=" + rd.toString() + " permissions="+ fs.getFileStatus(rd).getPermission()+ " and  \"hbase.rootdir.perms\" configured as "+ c.get("hbase.rootdir.perms","700")+ ". Automatically setting the permissions. You"+ " can change the permissions by setting \"hbase.rootdir.perms\" in hbase-site.xml "+ "and restarting the master");
+        fs.setPermission(rd,rootDirPerms);
       }
       FSUtils.checkVersion(fs,rd,true,c.getInt(HConstants.THREAD_WAKE_FREQUENCY,10 * 1000),c.getInt(HConstants.VERSION_FILE_WRITE_ATTEMPTS,HConstants.DEFAULT_VERSION_FILE_WRITE_ATTEMPTS));
     }
