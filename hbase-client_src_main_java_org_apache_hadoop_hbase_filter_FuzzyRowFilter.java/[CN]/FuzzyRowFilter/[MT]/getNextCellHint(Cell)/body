@@ -1,16 +1,23 @@
 {
-  byte[] nextRowKey=null;
-  for (  Pair<byte[],byte[]> fuzzyData : fuzzyKeysData) {
-    byte[] nextRowKeyCandidate=getNextForFuzzyRule(isReversed(),currentCell.getRowArray(),currentCell.getRowOffset(),currentCell.getRowLength(),fuzzyData.getFirst(),fuzzyData.getSecond());
-    if (nextRowKeyCandidate == null) {
-      continue;
+  boolean result=true;
+  if (tracker.needsUpdate()) {
+    result=tracker.updateTracker(currentCell);
+  }
+  if (result == false) {
+    done=true;
+    return null;
+  }
+  byte[] nextRowKey=tracker.nextRow();
+  int compareResult=Bytes.compareTo(nextRowKey,0,nextRowKey.length,currentCell.getRowArray(),currentCell.getRowOffset(),currentCell.getRowLength());
+  if ((reversed && compareResult > 0) || (!reversed && compareResult < 0)) {
+    result=tracker.updateTracker(currentCell);
+    if (result == false) {
+      done=true;
+      return null;
     }
-    if (nextRowKey == null || (reversed && Bytes.compareTo(nextRowKeyCandidate,nextRowKey) > 0) || (!reversed && Bytes.compareTo(nextRowKeyCandidate,nextRowKey) < 0)) {
-      nextRowKey=nextRowKeyCandidate;
+ else {
+      nextRowKey=tracker.nextRow();
     }
   }
-  if (!reversed && nextRowKey == null) {
-    throw new IllegalStateException("No next row key that satisfies fuzzy exists when" + " getNextKeyHint() is invoked." + " Filter: " + this.toString() + " currentKV: "+ currentCell);
-  }
-  return nextRowKey == null ? null : KeyValueUtil.createFirstOnRow(nextRowKey);
+  return KeyValueUtil.createFirstOnRow(nextRowKey);
 }
