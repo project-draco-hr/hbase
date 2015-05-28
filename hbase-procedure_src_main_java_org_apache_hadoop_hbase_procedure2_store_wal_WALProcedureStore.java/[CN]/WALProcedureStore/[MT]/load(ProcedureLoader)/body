@@ -1,0 +1,45 @@
+{
+  if (logs.isEmpty()) {
+    throw new RuntimeException("recoverLease() must be called before loading data");
+  }
+  if (logs.size() == 1) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("No state logs to replay.");
+    }
+    loader.setMaxProcId(0);
+    return;
+  }
+  final ArrayList<ProcedureWALFile> toRemove=new ArrayList<ProcedureWALFile>();
+  Iterator<ProcedureWALFile> it=logs.descendingIterator();
+  it.next();
+  try {
+    ProcedureWALFormat.load(it,storeTracker,new ProcedureWALFormat.Loader(){
+      @Override public void setMaxProcId(      long maxProcId){
+        loader.setMaxProcId(maxProcId);
+      }
+      @Override public void load(      ProcedureIterator procIter) throws IOException {
+        loader.load(procIter);
+      }
+      @Override public void handleCorrupted(      ProcedureIterator procIter) throws IOException {
+        loader.handleCorrupted(procIter);
+      }
+      @Override public void removeLog(      ProcedureWALFile log){
+        toRemove.add(log);
+      }
+      @Override public void markCorruptedWAL(      ProcedureWALFile log,      IOException e){
+        if (corruptedLogs == null) {
+          corruptedLogs=new HashSet<ProcedureWALFile>();
+        }
+        corruptedLogs.add(log);
+      }
+    }
+);
+  }
+  finally {
+    if (!toRemove.isEmpty()) {
+      for (      ProcedureWALFile log : toRemove) {
+        removeLogFile(log);
+      }
+    }
+  }
+}
