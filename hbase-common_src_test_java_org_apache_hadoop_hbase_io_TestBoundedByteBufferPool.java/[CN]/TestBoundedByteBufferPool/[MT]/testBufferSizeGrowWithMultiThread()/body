@@ -1,0 +1,55 @@
+{
+  final ConcurrentLinkedDeque<ByteBuffer> bufferQueue=new ConcurrentLinkedDeque<ByteBuffer>();
+  int takeBufferThreadsCount=30;
+  int putBufferThreadsCount=1;
+  Thread takeBufferThreads[]=new Thread[takeBufferThreadsCount];
+  for (int i=0; i < takeBufferThreadsCount; i++) {
+    takeBufferThreads[i]=new Thread(new Runnable(){
+      @Override public void run(){
+        while (true) {
+          ByteBuffer buffer=reservoir.getBuffer();
+          try {
+            Thread.sleep(5);
+          }
+ catch (          InterruptedException e) {
+            break;
+          }
+          bufferQueue.offer(buffer);
+          if (Thread.currentThread().isInterrupted())           break;
+        }
+      }
+    }
+);
+  }
+  Thread putBufferThread[]=new Thread[putBufferThreadsCount];
+  for (int i=0; i < putBufferThreadsCount; i++) {
+    putBufferThread[i]=new Thread(new Runnable(){
+      @Override public void run(){
+        while (true) {
+          ByteBuffer buffer=bufferQueue.poll();
+          if (buffer != null) {
+            reservoir.putBuffer(buffer);
+          }
+          if (Thread.currentThread().isInterrupted())           break;
+        }
+      }
+    }
+);
+  }
+  for (int i=0; i < takeBufferThreadsCount; i++) {
+    takeBufferThreads[i].start();
+  }
+  for (int i=0; i < putBufferThreadsCount; i++) {
+    putBufferThread[i].start();
+  }
+  Thread.sleep(2 * 1000);
+  for (int i=0; i < takeBufferThreadsCount; i++) {
+    takeBufferThreads[i].interrupt();
+    takeBufferThreads[i].join();
+  }
+  for (int i=0; i < putBufferThreadsCount; i++) {
+    putBufferThread[i].interrupt();
+    putBufferThread[i].join();
+  }
+  assertEquals(initialByteBufferSize,this.reservoir.runningAverage);
+}
