@@ -1,10 +1,17 @@
 {
   final ExecutorService service;
   final Future<HBaseFsck> hbck1, hbck2;
+  final int timeoutInSeconds=60;
+  final int sleepIntervalInMilliseconds=200;
+  final int maxSleepTimeInMilliseconds=6000;
+  final int maxRetryAttempts=15;
 class RunHbck implements Callable<HBaseFsck> {
     @Override public HBaseFsck call() throws Exception {
       Configuration c=new Configuration(conf);
-      c.setInt("hbase.hbck.lockfile.attempts",10);
+      c.setInt("hbase.hbck.lockfile.maxwaittime",timeoutInSeconds);
+      c.setInt("hbase.hbck.lockfile.attempt.sleep.interval",sleepIntervalInMilliseconds);
+      c.setInt("hbase.hbck.lockfile.attempt.maxsleeptime",maxSleepTimeInMilliseconds);
+      c.setInt("hbase.hbck.lockfile.attempts",maxRetryAttempts);
       return doFsck(c,false);
     }
   }
@@ -12,7 +19,7 @@ class RunHbck implements Callable<HBaseFsck> {
   hbck1=service.submit(new RunHbck());
   hbck2=service.submit(new RunHbck());
   service.shutdown();
-  service.awaitTermination(25,TimeUnit.SECONDS);
+  service.awaitTermination(timeoutInSeconds * 2,TimeUnit.SECONDS);
   HBaseFsck h1=hbck1.get();
   HBaseFsck h2=hbck2.get();
   assertNotNull(h1);
