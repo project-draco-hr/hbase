@@ -1,0 +1,31 @@
+{
+  MasterServices services=env.getMasterServices();
+  int iTimes=services.getConfiguration().getInt(KEY_RETRIES_ON_META,DEFAULT_RETRIES_ON_META);
+  long waitTime=services.getConfiguration().getLong(KEY_SHORT_WAIT_ON_META,DEFAULT_SHORT_WAIT_ON_META);
+  int iFlag=0;
+  while (true) {
+    try {
+      verifyAndAssignMeta(env);
+      break;
+    }
+ catch (    KeeperException e) {
+      services.abort("In server shutdown processing, assigning meta",e);
+      throw new IOException("Aborting",e);
+    }
+catch (    Exception e) {
+      if (iFlag >= iTimes) {
+        services.abort("verifyAndAssignMeta failed after" + iTimes + " retries, aborting",e);
+        throw new IOException("Aborting",e);
+      }
+      try {
+        Thread.sleep(waitTime);
+      }
+ catch (      InterruptedException e1) {
+        LOG.warn("Interrupted when is the thread sleep",e1);
+        Thread.currentThread().interrupt();
+        throw (InterruptedIOException)new InterruptedIOException().initCause(e1);
+      }
+      iFlag++;
+    }
+  }
+}

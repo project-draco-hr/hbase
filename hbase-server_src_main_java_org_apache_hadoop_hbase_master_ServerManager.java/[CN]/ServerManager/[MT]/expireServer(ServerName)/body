@@ -5,7 +5,7 @@
     }
     return;
   }
-  if (!services.isServerShutdownHandlerEnabled()) {
+  if (!services.isServerCrashProcessingEnabled()) {
     LOG.info("Master doesn't enable ServerShutdownHandler during initialization, " + "delay expiring server " + serverName);
     this.queuedDeadServers.add(serverName);
     return;
@@ -14,15 +14,7 @@
     LOG.warn("Expiration of " + serverName + " but server shutdown already in progress");
     return;
   }
-synchronized (onlineServers) {
-    if (!this.onlineServers.containsKey(serverName)) {
-      LOG.warn("Expiration of " + serverName + " but server not online");
-    }
-    this.deadservers.add(serverName);
-    this.onlineServers.remove(serverName);
-    onlineServers.notifyAll();
-  }
-  this.rsAdmins.remove(serverName);
+  moveFromOnelineToDeadServers(serverName);
   if (this.clusterShutdown) {
     LOG.info("Cluster shutdown set; " + serverName + " expired; onlineServers="+ this.onlineServers.size());
     if (this.onlineServers.isEmpty()) {
@@ -31,12 +23,7 @@ synchronized (onlineServers) {
     return;
   }
   boolean carryingMeta=services.getAssignmentManager().isCarryingMeta(serverName);
-  if (carryingMeta) {
-    this.services.getExecutorService().submit(new MetaServerShutdownHandler(this.master,this.services,this.deadservers,serverName));
-  }
- else {
-    this.services.getExecutorService().submit(new ServerShutdownHandler(this.master,this.services,this.deadservers,serverName,true));
-  }
+  this.services.getMasterProcedureExecutor().submitProcedure(new ServerCrashProcedure(serverName,true,carryingMeta));
   LOG.debug("Added=" + serverName + " to dead servers, submitted shutdown handler to be executed meta="+ carryingMeta);
   if (!this.listeners.isEmpty()) {
     for (    ServerListener listener : this.listeners) {

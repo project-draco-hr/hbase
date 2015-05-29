@@ -1,0 +1,62 @@
+{
+  AssignmentManager am=env.getMasterServices().getAssignmentManager();
+  List<HRegionInfo> regionsToAssignAggregator=new ArrayList<HRegionInfo>();
+  int replicaCount=env.getMasterConfiguration().getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM);
+  for (int i=1; i < replicaCount; i++) {
+    HRegionInfo metaHri=RegionReplicaUtil.getRegionInfoForReplica(HRegionInfo.FIRST_META_REGIONINFO,i);
+    if (am.isCarryingMetaReplica(this.serverName,metaHri)) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Reassigning meta replica" + metaHri + " that was on "+ this.serverName);
+      }
+      regionsToAssignAggregator.add(metaHri);
+    }
+  }
+  List<HRegionInfo> regionsInTransition=am.cleanOutCrashedServerReferences(serverName);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Reassigning " + size(this.regionsOnCrashedServer) + " region(s) that "+ (serverName == null ? "null" : serverName)+ " was carrying (and "+ regionsInTransition.size()+ " regions(s) that were opening on this server)");
+  }
+  regionsToAssignAggregator.addAll(regionsInTransition);
+  if (this.regionsOnCrashedServer != null && !this.regionsOnCrashedServer.isEmpty()) {
+    RegionStates regionStates=am.getRegionStates();
+    for (    HRegionInfo hri : this.regionsOnCrashedServer) {
+      if (regionsInTransition.contains(hri))       continue;
+      String encodedName=hri.getEncodedName();
+      Lock lock=am.acquireRegionLock(encodedName);
+      try {
+        RegionState rit=regionStates.getRegionTransitionState(hri);
+        if (processDeadRegion(hri,am)) {
+          ServerName addressFromAM=regionStates.getRegionServerOfRegion(hri);
+          if (addressFromAM != null && !addressFromAM.equals(this.serverName)) {
+            LOG.info("Skip assigning region " + hri.getRegionNameAsString() + " because it has been opened in "+ addressFromAM.getServerName());
+            continue;
+          }
+          if (rit != null) {
+            if (rit.getServerName() != null && !rit.isOnServer(this.serverName)) {
+              LOG.info("Skip assigning region in transition on other server" + rit);
+              continue;
+            }
+            LOG.info("Reassigning region " + rit + " and clearing zknode if exists");
+            regionStates.updateRegionState(hri,RegionState.State.OFFLINE);
+          }
+ else           if (regionStates.isRegionInState(hri,RegionState.State.SPLITTING_NEW,RegionState.State.MERGING_NEW)) {
+            regionStates.updateRegionState(hri,RegionState.State.OFFLINE);
+          }
+          regionsToAssignAggregator.add(hri);
+        }
+ else         if (rit != null) {
+          if ((rit.isClosing() || rit.isFailedClose() || rit.isOffline()) && am.getTableStateManager().isTableState(hri.getTable(),TableState.State.DISABLED,TableState.State.DISABLING) || am.getReplicasToClose().contains(hri)) {
+            regionStates.updateRegionState(hri,RegionState.State.OFFLINE);
+            am.offlineDisabledRegion(hri);
+          }
+ else {
+            LOG.warn("THIS SHOULD NOT HAPPEN: unexpected region in transition " + rit + " not to be assigned by SSH of server "+ serverName);
+          }
+        }
+      }
+  finally {
+        lock.unlock();
+      }
+    }
+  }
+  return regionsToAssignAggregator;
+}

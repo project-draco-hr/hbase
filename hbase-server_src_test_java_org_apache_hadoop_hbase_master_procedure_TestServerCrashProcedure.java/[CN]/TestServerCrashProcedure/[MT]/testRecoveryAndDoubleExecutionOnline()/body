@@ -1,0 +1,23 @@
+{
+  final TableName tableName=TableName.valueOf("testRecoveryAndDoubleExecutionOnline");
+  this.util.createTable(tableName,HBaseTestingUtility.COLUMNS,HBaseTestingUtility.KEYS_FOR_HBA_CREATE_TABLE);
+  try (Table t=this.util.getConnection().getTable(tableName)){
+    this.util.loadTable(t,HBaseTestingUtility.COLUMNS[0]);
+    int count=countRows(t);
+    HMaster master=this.util.getHBaseCluster().getMaster();
+    final ProcedureExecutor<MasterProcedureEnv> procExec=master.getMasterProcedureExecutor();
+    master.setServerCrashProcessingEnabled(false);
+    HRegionServer hrs=this.util.getHBaseCluster().getRegionServer(0);
+    boolean carryingMeta=master.getAssignmentManager().isCarryingMeta(hrs.getServerName());
+    this.util.getHBaseCluster().killRegionServer(hrs.getServerName());
+    hrs.join();
+    while (!master.getServerManager().isServerDead(hrs.getServerName()))     Threads.sleep(10);
+    master.setServerCrashProcessingEnabled(true);
+    master.getServerManager().moveFromOnelineToDeadServers(hrs.getServerName());
+    ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+    ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+    long procId=procExec.submitProcedure(new ServerCrashProcedure(hrs.getServerName(),true,carryingMeta));
+    MasterProcedureTestingUtility.testRecoveryAndDoubleExecution(procExec,procId);
+    assertEquals(count,countRows(t));
+  }
+ }

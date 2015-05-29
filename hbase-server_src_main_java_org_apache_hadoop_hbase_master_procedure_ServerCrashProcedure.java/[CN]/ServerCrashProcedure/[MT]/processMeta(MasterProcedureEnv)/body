@@ -1,0 +1,30 @@
+{
+  if (LOG.isDebugEnabled())   LOG.debug("Processing hbase:meta that was on " + this.serverName);
+  MasterFileSystem mfs=env.getMasterServices().getMasterFileSystem();
+  AssignmentManager am=env.getMasterServices().getAssignmentManager();
+  HRegionInfo metaHRI=HRegionInfo.FIRST_META_REGIONINFO;
+  if (this.shouldSplitWal) {
+    if (this.distributedLogReplay) {
+      prepareLogReplay(env,META_REGION_SET);
+    }
+ else {
+      mfs.splitMetaLog(serverName);
+      am.getRegionStates().logSplit(metaHRI);
+    }
+  }
+  boolean processed=true;
+  if (am.isCarryingMeta(serverName)) {
+    am.regionOffline(HRegionInfo.FIRST_META_REGIONINFO);
+    verifyAndAssignMetaWithRetries(env);
+    if (this.shouldSplitWal && distributedLogReplay) {
+      int timeout=env.getMasterConfiguration().getInt(KEY_WAIT_ON_RIT,DEFAULT_WAIT_ON_RIT);
+      if (!waitOnRegionToClearRegionsInTransition(am,metaHRI,timeout)) {
+        processed=false;
+      }
+ else {
+        mfs.splitMetaLog(serverName);
+      }
+    }
+  }
+  return processed;
+}
