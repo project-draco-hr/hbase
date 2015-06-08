@@ -1,22 +1,19 @@
 {
-  Map<byte[],Long> lowestFlushingRegionSequenceIdsLocal=null;
-  Map<byte[],Long> oldestUnflushedRegionSequenceIdsLocal=null;
-  List<Path> logsToArchive=new ArrayList<Path>();
-synchronized (regionSequenceIdLock) {
-    lowestFlushingRegionSequenceIdsLocal=copyMapWithLowestSeqId(this.lowestFlushingStoreSequenceIds);
-    oldestUnflushedRegionSequenceIdsLocal=copyMapWithLowestSeqId(this.oldestUnflushedStoreSequenceIds);
-  }
-  for (  Map.Entry<Path,Map<byte[],Long>> e : byWalRegionSequenceIds.entrySet()) {
+  List<Path> logsToArchive=null;
+  for (  Map.Entry<Path,Map<byte[],Long>> e : this.byWalRegionSequenceIds.entrySet()) {
     Path log=e.getKey();
     Map<byte[],Long> sequenceNums=e.getValue();
-    if (areAllRegionsFlushed(sequenceNums,lowestFlushingRegionSequenceIdsLocal,oldestUnflushedRegionSequenceIdsLocal)) {
+    if (this.sequenceIdAccounting.areAllLower(sequenceNums)) {
+      if (logsToArchive == null)       logsToArchive=new ArrayList<Path>();
       logsToArchive.add(log);
-      LOG.debug("WAL file ready for archiving " + log);
+      if (LOG.isTraceEnabled())       LOG.trace("WAL file ready for archiving " + log);
     }
   }
-  for (  Path p : logsToArchive) {
-    this.totalLogSize.addAndGet(-this.fs.getFileStatus(p).getLen());
-    archiveLogFile(p);
-    this.byWalRegionSequenceIds.remove(p);
+  if (logsToArchive != null) {
+    for (    Path p : logsToArchive) {
+      this.totalLogSize.addAndGet(-this.fs.getFileStatus(p).getLen());
+      archiveLogFile(p);
+      this.byWalRegionSequenceIds.remove(p);
+    }
   }
 }

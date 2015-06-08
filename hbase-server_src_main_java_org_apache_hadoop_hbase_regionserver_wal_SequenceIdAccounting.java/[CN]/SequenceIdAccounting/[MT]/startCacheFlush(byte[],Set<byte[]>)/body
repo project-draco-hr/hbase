@@ -1,0 +1,31 @@
+{
+  Map<byte[],Long> oldSequenceIds=null;
+  Long lowestUnflushedInRegion=HConstants.NO_SEQNUM;
+synchronized (tieLock) {
+    Map<byte[],Long> m=this.lowestUnflushedSequenceIds.get(encodedRegionName);
+    if (m != null) {
+      for (      byte[] familyName : families) {
+        Long seqId=m.remove(familyName);
+        if (seqId != null) {
+          if (oldSequenceIds == null)           oldSequenceIds=Maps.newTreeMap(Bytes.BYTES_COMPARATOR);
+          oldSequenceIds.put(familyName,seqId);
+        }
+      }
+      if (oldSequenceIds != null && !oldSequenceIds.isEmpty()) {
+        if (this.flushingSequenceIds.put(encodedRegionName,oldSequenceIds) != null) {
+          LOG.warn("Flushing Map not cleaned up for " + Bytes.toString(encodedRegionName) + ", sequenceid="+ oldSequenceIds);
+        }
+      }
+      if (m.isEmpty()) {
+        this.lowestUnflushedSequenceIds.remove(encodedRegionName);
+      }
+ else {
+        lowestUnflushedInRegion=Collections.min(m.values());
+      }
+    }
+  }
+  if (oldSequenceIds != null && oldSequenceIds.isEmpty()) {
+    LOG.warn("Couldn't find oldest sequenceid for " + Bytes.toString(encodedRegionName));
+  }
+  return lowestUnflushedInRegion;
+}

@@ -30,12 +30,17 @@
     }
   }
   if (LOG.isInfoEnabled()) {
-    LOG.info("Started memstore flush for " + this + ", current region memstore size "+ StringUtils.byteDesc(this.memstoreSize.get())+ ", and "+ storesToFlush.size()+ "/"+ stores.size()+ " column families' memstores are being flushed."+ ((wal != null) ? "" : "; wal is null, using passed sequenceid=" + myseqid));
-    if (this.stores.size() > storesToFlush.size()) {
+    StringBuilder perCfExtras=null;
+    if (!isAllFamilies(storesToFlush)) {
+      perCfExtras=new StringBuilder();
       for (      Store store : storesToFlush) {
-        LOG.info("Flushing Column Family: " + store.getColumnFamilyName() + " which was occupying "+ StringUtils.byteDesc(store.getMemStoreSize())+ " of memstore.");
+        perCfExtras.append("; ");
+        perCfExtras.append(store.getColumnFamilyName());
+        perCfExtras.append("=");
+        perCfExtras.append(StringUtils.byteDesc(store.getMemStoreSize()));
       }
     }
+    LOG.info("Flushing " + +storesToFlush.size() + "/"+ stores.size()+ " column families, memstore="+ StringUtils.byteDesc(this.memstoreSize.get())+ ((perCfExtras != null && perCfExtras.length() > 0) ? perCfExtras.toString() : "")+ ((wal != null) ? "" : "; WAL is null, using passed sequenceid=" + myseqid));
   }
   MultiVersionConsistencyControl.WriteEntry w=null;
   status.setStatus("Obtaining lock to block concurrent updates");
@@ -56,14 +61,14 @@
     try {
       w=mvcc.beginMemstoreInsert();
       if (wal != null) {
-        if (!wal.startCacheFlush(encodedRegionName,flushedFamilyNames)) {
-          String msg="Flush will not be started for [" + this.getRegionInfo().getEncodedName() + "] - because the WAL is closing.";
+        Long earliestUnflushedSequenceIdForTheRegion=wal.startCacheFlush(encodedRegionName,flushedFamilyNames);
+        if (earliestUnflushedSequenceIdForTheRegion == null) {
+          String msg=this.getRegionInfo().getEncodedName() + " flush aborted; WAL closing.";
           status.setStatus(msg);
           return new PrepareFlushResult(new FlushResultImpl(FlushResult.Result.CANNOT_FLUSH,msg,false),myseqid);
         }
         flushOpSeqId=getNextSequenceId(wal);
-        long oldestUnflushedSeqId=wal.getEarliestMemstoreSeqNum(encodedRegionName);
-        flushedSeqId=(oldestUnflushedSeqId == HConstants.NO_SEQNUM) ? flushOpSeqId : oldestUnflushedSeqId - 1;
+        flushedSeqId=earliestUnflushedSequenceIdForTheRegion.longValue() == HConstants.NO_SEQNUM ? flushOpSeqId : earliestUnflushedSequenceIdForTheRegion.longValue() - 1;
       }
  else {
         flushedSeqId=flushOpSeqId=myseqid;

@@ -43,13 +43,16 @@
     failedServerName=(serverName == null) ? "" : serverName.getServerName();
     while ((entry=getNextLogLine(in,logPath,skipErrors)) != null) {
       byte[] region=entry.getKey().getEncodedRegionName();
-      String key=Bytes.toString(region);
-      lastFlushedSequenceId=lastFlushedSequenceIds.get(key);
+      String encodedRegionNameAsStr=Bytes.toString(region);
+      lastFlushedSequenceId=lastFlushedSequenceIds.get(encodedRegionNameAsStr);
       if (lastFlushedSequenceId == null) {
         if (this.distributedLogReplay) {
-          RegionStoreSequenceIds ids=csm.getSplitLogWorkerCoordination().getRegionFlushedSequenceId(failedServerName,key);
+          RegionStoreSequenceIds ids=csm.getSplitLogWorkerCoordination().getRegionFlushedSequenceId(failedServerName,encodedRegionNameAsStr);
           if (ids != null) {
             lastFlushedSequenceId=ids.getLastFlushedSequenceId();
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("DLR Last flushed sequenceid for " + encodedRegionNameAsStr + ": "+ TextFormat.shortDebugString(ids));
+            }
           }
         }
  else         if (sequenceIdChecker != null) {
@@ -58,13 +61,16 @@
           for (          StoreSequenceId storeSeqId : ids.getStoreSequenceIdList()) {
             maxSeqIdInStores.put(storeSeqId.getFamilyName().toByteArray(),storeSeqId.getSequenceId());
           }
-          regionMaxSeqIdInStores.put(key,maxSeqIdInStores);
+          regionMaxSeqIdInStores.put(encodedRegionNameAsStr,maxSeqIdInStores);
           lastFlushedSequenceId=ids.getLastFlushedSequenceId();
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("DLS Last flushed sequenceid for " + encodedRegionNameAsStr + ": "+ TextFormat.shortDebugString(ids));
+          }
         }
         if (lastFlushedSequenceId == null) {
           lastFlushedSequenceId=-1L;
         }
-        lastFlushedSequenceIds.put(key,lastFlushedSequenceId);
+        lastFlushedSequenceIds.put(encodedRegionNameAsStr,lastFlushedSequenceId);
       }
       if (lastFlushedSequenceId >= entry.getKey().getLogSeqNum()) {
         editsSkipped++;
