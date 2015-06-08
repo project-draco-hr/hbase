@@ -1,0 +1,36 @@
+{
+  TableName table=TableName.valueOf(name.getMethodName());
+  try {
+    setupMobTable(table);
+    assertEquals(ROWKEYS.length,countRows());
+    admin.flush(table);
+    FileSystem fs=FileSystem.get(conf);
+    Path mobFile=getFlushedMobFile(fs,table);
+    admin.disableTable(table);
+    String corruptMobFile=createMobFileName(mobFile.getName());
+    Path corrupt=new Path(mobFile.getParent(),corruptMobFile);
+    TestHFile.truncateFile(fs,mobFile,corrupt);
+    LOG.info("Created corrupted mob file " + corrupt);
+    HBaseFsck.debugLsr(conf,FSUtils.getRootDir(conf));
+    HBaseFsck.debugLsr(conf,MobUtils.getMobHome(conf));
+    admin.enableTable(table);
+    HBaseFsck res=HbckTestingUtil.doHFileQuarantine(conf,table);
+    assertEquals(res.getRetCode(),0);
+    HFileCorruptionChecker hfcc=res.getHFilecorruptionChecker();
+    assertEquals(hfcc.getHFilesChecked(),4);
+    assertEquals(hfcc.getCorrupted().size(),0);
+    assertEquals(hfcc.getFailures().size(),0);
+    assertEquals(hfcc.getQuarantined().size(),0);
+    assertEquals(hfcc.getMissing().size(),0);
+    assertEquals(hfcc.getMobFilesChecked(),5);
+    assertEquals(hfcc.getCorruptedMobFiles().size(),1);
+    assertEquals(hfcc.getFailureMobFiles().size(),0);
+    assertEquals(hfcc.getQuarantinedMobFiles().size(),1);
+    assertEquals(hfcc.getMissedMobFiles().size(),0);
+    String quarantinedMobFile=hfcc.getQuarantinedMobFiles().iterator().next().getName();
+    assertEquals(corruptMobFile,quarantinedMobFile);
+  }
+  finally {
+    cleanupTable(table);
+  }
+}
