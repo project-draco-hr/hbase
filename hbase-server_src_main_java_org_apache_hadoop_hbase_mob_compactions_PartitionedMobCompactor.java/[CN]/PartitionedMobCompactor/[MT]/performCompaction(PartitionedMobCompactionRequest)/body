@@ -5,13 +5,20 @@
   }
   List<Path> newDelPaths=compactDelFiles(request,delFilePaths);
   List<StoreFile> newDelFiles=new ArrayList<StoreFile>();
-  for (  Path newDelPath : newDelPaths) {
-    StoreFile sf=new StoreFile(fs,newDelPath,conf,compactionCacheConfig,BloomType.NONE);
-    newDelFiles.add(sf);
+  List<Path> paths=null;
+  try {
+    for (    Path newDelPath : newDelPaths) {
+      StoreFile sf=new StoreFile(fs,newDelPath,conf,compactionCacheConfig,BloomType.NONE);
+      sf.createReader();
+      newDelFiles.add(sf);
+    }
+    LOG.info("After merging, there are " + newDelFiles.size() + " del files");
+    paths=compactMobFiles(request,newDelFiles);
+    LOG.info("After compaction, there are " + paths.size() + " mob files");
   }
-  LOG.info("After merging, there are " + newDelFiles.size() + " del files");
-  List<Path> paths=compactMobFiles(request,newDelFiles);
-  LOG.info("After compaction, there are " + paths.size() + " mob files");
+  finally {
+    closeStoreFileReaders(newDelFiles);
+  }
   if (request.type == CompactionType.ALL_FILES && !newDelPaths.isEmpty()) {
     LOG.info("After a mob compaction with all files selected, archiving the del files " + newDelPaths);
     try {
