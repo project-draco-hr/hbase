@@ -1,0 +1,47 @@
+{
+  FileSystem fs=sourceHashDir.getFileSystem(getConf());
+  if (!fs.exists(sourceHashDir)) {
+    throw new IOException("Source hash dir not found: " + sourceHashDir);
+  }
+  HashTable.TableHash tableHash=HashTable.TableHash.read(getConf(),sourceHashDir);
+  LOG.info("Read source hash manifest: " + tableHash);
+  LOG.info("Read " + tableHash.partitions.size() + " partition keys");
+  if (!tableHash.tableName.equals(sourceTableName)) {
+    LOG.warn("Table name mismatch - manifest indicates hash was taken from: " + tableHash.tableName + " but job is reading from: "+ sourceTableName);
+  }
+  if (tableHash.numHashFiles != tableHash.partitions.size() + 1) {
+    throw new RuntimeException("Hash data appears corrupt. The number of of hash files created" + " should be 1 more than the number of partition keys.  However, the manifest file " + " says numHashFiles=" + tableHash.numHashFiles + " but the number of partition keys"+ " found in the partitions file is "+ tableHash.partitions.size());
+  }
+  Path dataDir=new Path(sourceHashDir,HashTable.HASH_DATA_DIR);
+  int dataSubdirCount=0;
+  for (  FileStatus file : fs.listStatus(dataDir)) {
+    if (file.getPath().getName().startsWith(HashTable.OUTPUT_DATA_FILE_PREFIX)) {
+      dataSubdirCount++;
+    }
+  }
+  if (dataSubdirCount != tableHash.numHashFiles) {
+    throw new RuntimeException("Hash data appears corrupt. The number of of hash files created" + " should be 1 more than the number of partition keys.  However, the number of data dirs" + " found is " + dataSubdirCount + " but the number of partition keys"+ " found in the partitions file is "+ tableHash.partitions.size());
+  }
+  Job job=Job.getInstance(getConf(),getConf().get("mapreduce.job.name","syncTable_" + sourceTableName + "-"+ targetTableName));
+  Configuration jobConf=job.getConfiguration();
+  job.setJarByClass(HashTable.class);
+  jobConf.set(SOURCE_HASH_DIR_CONF_KEY,sourceHashDir.toString());
+  jobConf.set(SOURCE_TABLE_CONF_KEY,sourceTableName);
+  jobConf.set(TARGET_TABLE_CONF_KEY,targetTableName);
+  if (sourceZkCluster != null) {
+    jobConf.set(SOURCE_ZK_CLUSTER_CONF_KEY,sourceZkCluster);
+  }
+  if (targetZkCluster != null) {
+    jobConf.set(TARGET_ZK_CLUSTER_CONF_KEY,targetZkCluster);
+  }
+  jobConf.setBoolean(DRY_RUN_CONF_KEY,dryRun);
+  TableMapReduceUtil.initTableMapperJob(targetTableName,tableHash.initScan(),SyncMapper.class,null,null,job);
+  job.setNumReduceTasks(0);
+  if (dryRun) {
+    job.setOutputFormatClass(NullOutputFormat.class);
+  }
+ else {
+    TableMapReduceUtil.initTableReducerJob(targetTableName,null,job,null,targetZkCluster,null,null);
+  }
+  return job;
+}

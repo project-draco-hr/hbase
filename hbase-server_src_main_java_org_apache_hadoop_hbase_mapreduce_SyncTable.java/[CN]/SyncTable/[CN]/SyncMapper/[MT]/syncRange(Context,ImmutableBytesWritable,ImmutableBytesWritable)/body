@@ -1,0 +1,43 @@
+{
+  Scan scan=sourceTableHash.initScan();
+  scan.setStartRow(startRow.copyBytes());
+  scan.setStopRow(stopRow.copyBytes());
+  ResultScanner sourceScanner=sourceTable.getScanner(scan);
+  CellScanner sourceCells=new CellScanner(sourceScanner.iterator());
+  ResultScanner targetScanner=targetTable.getScanner(scan);
+  CellScanner targetCells=new CellScanner(targetScanner.iterator());
+  boolean rangeMatched=true;
+  byte[] nextSourceRow=sourceCells.nextRow();
+  byte[] nextTargetRow=targetCells.nextRow();
+  while (nextSourceRow != null || nextTargetRow != null) {
+    boolean rowMatched;
+    int rowComparison=compareRowKeys(nextSourceRow,nextTargetRow);
+    if (rowComparison < 0) {
+      if (LOG.isInfoEnabled()) {
+        LOG.info("Target missing row: " + Bytes.toHex(nextSourceRow));
+      }
+      context.getCounter(Counter.TARGETMISSINGROWS).increment(1);
+      rowMatched=syncRowCells(context,nextSourceRow,sourceCells,EMPTY_CELL_SCANNER);
+      nextSourceRow=sourceCells.nextRow();
+    }
+ else     if (rowComparison > 0) {
+      if (LOG.isInfoEnabled()) {
+        LOG.info("Source missing row: " + Bytes.toHex(nextTargetRow));
+      }
+      context.getCounter(Counter.SOURCEMISSINGROWS).increment(1);
+      rowMatched=syncRowCells(context,nextTargetRow,EMPTY_CELL_SCANNER,targetCells);
+      nextTargetRow=targetCells.nextRow();
+    }
+ else {
+      rowMatched=syncRowCells(context,nextSourceRow,sourceCells,targetCells);
+      nextSourceRow=sourceCells.nextRow();
+      nextTargetRow=targetCells.nextRow();
+    }
+    if (!rowMatched) {
+      rangeMatched=false;
+    }
+  }
+  sourceScanner.close();
+  targetScanner.close();
+  context.getCounter(rangeMatched ? Counter.RANGESMATCHED : Counter.RANGESNOTMATCHED).increment(1);
+}

@@ -1,0 +1,25 @@
+{
+  TableSplit split=(TableSplit)context.getInputSplit();
+  byte[] splitEndRow=split.getEndRow();
+  boolean reachedEndOfTable=HashTable.isTableEndRow(splitEndRow);
+  while (nextSourceKey != null && (nextSourceKey.compareTo(splitEndRow) < 0 || reachedEndOfTable)) {
+    moveToNextBatch(context);
+  }
+  if (targetHasher.isBatchStarted()) {
+    if ((nextSourceKey != null && nextSourceKey.compareTo(splitEndRow) > 0) || (nextSourceKey == null && !Bytes.equals(splitEndRow,sourceTableHash.stopRow))) {
+      Scan scan=sourceTableHash.initScan();
+      scan.setStartRow(splitEndRow);
+      if (nextSourceKey == null) {
+        scan.setStopRow(sourceTableHash.stopRow);
+      }
+ else {
+        scan.setStopRow(nextSourceKey.copyBytes());
+      }
+      ResultScanner targetScanner=targetTable.getScanner(scan);
+      for (      Result row : targetScanner) {
+        targetHasher.hashResult(row);
+      }
+    }
+    finishBatchAndCompareHashes(context);
+  }
+}

@@ -1,0 +1,90 @@
+{
+  Put put=null;
+  Delete delete=null;
+  long matchingCells=0;
+  boolean matchingRow=true;
+  Cell sourceCell=sourceCells.nextCellInRow();
+  Cell targetCell=targetCells.nextCellInRow();
+  while (sourceCell != null || targetCell != null) {
+    int cellKeyComparison=compareCellKeysWithinRow(sourceCell,targetCell);
+    if (cellKeyComparison < 0) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Target missing cell: " + sourceCell);
+      }
+      context.getCounter(Counter.TARGETMISSINGCELLS).increment(1);
+      matchingRow=false;
+      if (!dryRun) {
+        if (put == null) {
+          put=new Put(rowKey);
+        }
+        put.add(sourceCell);
+      }
+      sourceCell=sourceCells.nextCellInRow();
+    }
+ else     if (cellKeyComparison > 0) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Source missing cell: " + targetCell);
+      }
+      context.getCounter(Counter.SOURCEMISSINGCELLS).increment(1);
+      matchingRow=false;
+      if (!dryRun) {
+        if (delete == null) {
+          delete=new Delete(rowKey);
+        }
+        delete.addColumn(CellUtil.cloneFamily(targetCell),CellUtil.cloneQualifier(targetCell),targetCell.getTimestamp());
+      }
+      targetCell=targetCells.nextCellInRow();
+    }
+ else {
+      if (CellUtil.matchingValue(sourceCell,targetCell)) {
+        matchingCells++;
+      }
+ else {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Different values: ");
+          LOG.debug("  source cell: " + sourceCell + " value: "+ Bytes.toHex(sourceCell.getValueArray(),sourceCell.getValueOffset(),sourceCell.getValueLength()));
+          LOG.debug("  target cell: " + targetCell + " value: "+ Bytes.toHex(targetCell.getValueArray(),targetCell.getValueOffset(),targetCell.getValueLength()));
+        }
+        context.getCounter(Counter.DIFFERENTCELLVALUES).increment(1);
+        matchingRow=false;
+        if (!dryRun) {
+          if (put == null) {
+            put=new Put(rowKey);
+          }
+          put.add(sourceCell);
+        }
+      }
+      sourceCell=sourceCells.nextCellInRow();
+      targetCell=targetCells.nextCellInRow();
+    }
+    if (!dryRun && sourceTableHash.scanBatch > 0) {
+      if (put != null && put.size() >= sourceTableHash.scanBatch) {
+        context.write(new ImmutableBytesWritable(rowKey),put);
+        put=null;
+      }
+      if (delete != null && delete.size() >= sourceTableHash.scanBatch) {
+        context.write(new ImmutableBytesWritable(rowKey),delete);
+        delete=null;
+      }
+    }
+  }
+  if (!dryRun) {
+    if (put != null) {
+      context.write(new ImmutableBytesWritable(rowKey),put);
+    }
+    if (delete != null) {
+      context.write(new ImmutableBytesWritable(rowKey),delete);
+    }
+  }
+  if (matchingCells > 0) {
+    context.getCounter(Counter.MATCHINGCELLS).increment(matchingCells);
+  }
+  if (matchingRow) {
+    context.getCounter(Counter.MATCHINGROWS).increment(1);
+    return true;
+  }
+ else {
+    context.getCounter(Counter.ROWSWITHDIFFS).increment(1);
+    return false;
+  }
+}
