@@ -1,5 +1,6 @@
 {
   FileSystem fs=getFileSystem();
+  Throwable throwable=null;
   for (  Path location : locations) {
     MobFile file=null;
     Path path=new Path(location,fileName);
@@ -9,8 +10,13 @@
     }
  catch (    IOException e) {
       mobCacheConfig.getMobFileCache().evictFile(fileName);
+      throwable=e;
       if ((e instanceof FileNotFoundException) || (e.getCause() instanceof FileNotFoundException)) {
         LOG.warn("Fail to read the cell, the mob file " + path + " doesn't exist",e);
+      }
+ else       if (e instanceof CorruptHFileException) {
+        LOG.error("The mob file " + path + " is corrupt",e);
+        break;
       }
  else {
         throw e;
@@ -19,10 +25,12 @@
 catch (    NullPointerException e) {
       mobCacheConfig.getMobFileCache().evictFile(fileName);
       LOG.warn("Fail to read the cell",e);
+      throwable=e;
     }
 catch (    AssertionError e) {
       mobCacheConfig.getMobFileCache().evictFile(fileName);
       LOG.warn("Fail to read the cell",e);
+      throwable=e;
     }
  finally {
       if (file != null) {
@@ -30,6 +38,14 @@ catch (    AssertionError e) {
       }
     }
   }
-  LOG.error("The mob file " + fileName + " could not be found in the locations "+ locations);
-  return null;
+  LOG.error("The mob file " + fileName + " could not be found in the locations "+ locations+ " or it is corrupt");
+  if (readEmptyValueOnMobCellMiss) {
+    return null;
+  }
+ else   if (throwable instanceof IOException) {
+    throw (IOException)throwable;
+  }
+ else {
+    throw new IOException(throwable);
+  }
 }
