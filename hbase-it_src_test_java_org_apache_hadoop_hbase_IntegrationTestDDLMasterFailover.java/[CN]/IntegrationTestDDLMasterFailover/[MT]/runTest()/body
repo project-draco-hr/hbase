@@ -1,0 +1,43 @@
+{
+  LOG.info("Starting the test");
+  String runtimeKey=String.format(RUN_TIME_KEY,this.getClass().getSimpleName());
+  long runtime=util.getConfiguration().getLong(runtimeKey,DEFAULT_RUN_TIME);
+  String numThreadKey=String.format(NUM_THREADS_KEY,this.getClass().getSimpleName());
+  numThreads=util.getConfiguration().getInt(numThreadKey,DEFAULT_NUM_THREADS);
+  ArrayList<Worker> workers=new ArrayList<>();
+  for (int i=0; i < numThreads; i++) {
+    checkException(workers);
+    Worker worker=new Worker();
+    LOG.info("Launching worker thread " + worker.getName());
+    workers.add(worker);
+    worker.start();
+  }
+  Threads.sleep(runtime / 2);
+  LOG.info("Stopping creating new tables");
+  create_table.set(false);
+  Threads.sleep(runtime / 2);
+  LOG.info("Runtime is up");
+  running.set(false);
+  checkException(workers);
+  for (  Worker worker : workers) {
+    worker.join();
+  }
+  LOG.info("All Worker threads stopped");
+  LOG.info("Verify actions of all threads succeeded");
+  checkException(workers);
+  LOG.info("Verify states of all tables");
+  verifyTables();
+  HBaseFsck hbck=null;
+  try {
+    LOG.info("Running hbck");
+    hbck=HbckTestingUtil.doFsck(util.getConfiguration(),false);
+    HbckTestingUtil.assertNoErrors(hbck);
+    LOG.info("Finished hbck");
+  }
+  finally {
+    if (hbck != null) {
+      hbck.close();
+    }
+  }
+  return 0;
+}

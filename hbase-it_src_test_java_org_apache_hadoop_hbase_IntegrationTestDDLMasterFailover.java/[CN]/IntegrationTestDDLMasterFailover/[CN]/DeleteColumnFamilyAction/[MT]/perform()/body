@@ -1,0 +1,35 @@
+{
+  HTableDescriptor selected=selectTable(disabledTables);
+  HColumnDescriptor cfd=selectFamily(selected);
+  if (selected == null || cfd == null) {
+    return;
+  }
+  Admin admin=connection.getAdmin();
+  try {
+    if (selected.getColumnFamilies().length < 2) {
+      LOG.info("No enough column families to delete in table " + selected.getTableName());
+      return;
+    }
+    TableName tableName=selected.getTableName();
+    LOG.info("Deleting column family: " + cfd + " from table: "+ tableName);
+    admin.deleteColumn(tableName,cfd.getName());
+    HTableDescriptor freshTableDesc=admin.getTableDescriptor(tableName);
+    Assert.assertFalse("Column family: " + cfd + " was not added",freshTableDesc.hasFamily(cfd.getName()));
+    LOG.info("Deleted column family: " + cfd + " from table: "+ tableName);
+    disabledTables.put(tableName,freshTableDesc);
+  }
+ catch (  Exception e) {
+    LOG.warn("Caught exception in action: " + this.getClass());
+    if (e instanceof InvalidFamilyOperationException) {
+      LOG.warn("Caught InvalidFamilyOperationException in action: " + this.getClass());
+      e.printStackTrace();
+    }
+ else {
+      throw e;
+    }
+  }
+ finally {
+    admin.close();
+  }
+  verifyTables();
+}

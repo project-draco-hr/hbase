@@ -1,0 +1,32 @@
+{
+  HTableDescriptor selected=selectTable(disabledTables);
+  if (selected == null) {
+    return;
+  }
+  HColumnDescriptor columnDesc=selectFamily(selected);
+  if (columnDesc == null) {
+    return;
+  }
+  Admin admin=connection.getAdmin();
+  try {
+    TableName tableName=selected.getTableName();
+    int[] possibleIds={0,2,3,4,6};
+    short id=(short)possibleIds[RandomUtils.nextInt(possibleIds.length)];
+    LOG.info("Altering encoding of column family: " + columnDesc + " to: "+ id+ " in table: "+ tableName);
+    columnDesc.setDataBlockEncoding(DataBlockEncoding.getEncodingById(id));
+    admin.modifyTable(tableName,selected);
+    HTableDescriptor freshTableDesc=admin.getTableDescriptor(tableName);
+    HColumnDescriptor freshColumnDesc=freshTableDesc.getFamily(columnDesc.getName());
+    Assert.assertEquals("Encoding of column family: " + columnDesc + " was not altered",freshColumnDesc.getDataBlockEncoding().getId(),id);
+    LOG.info("Altered encoding of column family: " + freshColumnDesc + " to: "+ id+ " in table: "+ tableName);
+    disabledTables.put(tableName,freshTableDesc);
+  }
+ catch (  Exception e) {
+    LOG.warn("Caught exception in action: " + this.getClass());
+    throw e;
+  }
+ finally {
+    admin.close();
+  }
+  verifyTables();
+}

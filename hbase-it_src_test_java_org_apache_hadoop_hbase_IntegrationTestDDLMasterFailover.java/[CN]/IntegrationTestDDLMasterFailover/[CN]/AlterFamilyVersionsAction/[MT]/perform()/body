@@ -1,0 +1,33 @@
+{
+  HTableDescriptor selected=selectTable(disabledTables);
+  if (selected == null) {
+    return;
+  }
+  HColumnDescriptor columnDesc=selectFamily(selected);
+  if (columnDesc == null) {
+    return;
+  }
+  Admin admin=connection.getAdmin();
+  int versions=RandomUtils.nextInt(10) + 3;
+  try {
+    TableName tableName=selected.getTableName();
+    LOG.info("Altering versions of column family: " + columnDesc + " to: "+ versions+ " in table: "+ tableName);
+    columnDesc.setMinVersions(versions);
+    columnDesc.setMaxVersions(versions);
+    admin.modifyTable(tableName,selected);
+    HTableDescriptor freshTableDesc=admin.getTableDescriptor(tableName);
+    HColumnDescriptor freshColumnDesc=freshTableDesc.getFamily(columnDesc.getName());
+    Assert.assertEquals("Column family: " + columnDesc + " was not altered",freshColumnDesc.getMaxVersions(),versions);
+    Assert.assertEquals("Column family: " + freshColumnDesc + " was not altered",freshColumnDesc.getMinVersions(),versions);
+    LOG.info("Altered versions of column family: " + columnDesc + " to: "+ versions+ " in table: "+ tableName);
+    disabledTables.put(tableName,freshTableDesc);
+  }
+ catch (  Exception e) {
+    LOG.warn("Caught exception in action: " + this.getClass());
+    throw e;
+  }
+ finally {
+    admin.close();
+  }
+  verifyTables();
+}

@@ -1,0 +1,33 @@
+{
+  Admin admin=connection.getAdmin();
+  try {
+    HTableDescriptor htd=createTableDesc();
+    TableName tableName=htd.getTableName();
+    if (admin.tableExists(tableName)) {
+      return;
+    }
+    String numRegionKey=String.format(NUM_REGIONS_KEY,this.getClass().getSimpleName());
+    numRegions=getConf().getInt(numRegionKey,DEFAULT_NUM_REGIONS);
+    byte[] startKey=Bytes.toBytes("row-0000000000");
+    byte[] endKey=Bytes.toBytes("row-" + Integer.MAX_VALUE);
+    LOG.info("Creating table:" + htd);
+    admin.createTable(htd,startKey,endKey,numRegions);
+    Assert.assertTrue("Table: " + htd + " was not created",admin.tableExists(tableName));
+    HTableDescriptor freshTableDesc=admin.getTableDescriptor(tableName);
+    enabledTables.put(tableName,freshTableDesc);
+    LOG.info("Created table:" + freshTableDesc);
+  }
+ catch (  Exception e) {
+    LOG.warn("Caught exception in action: " + this.getClass());
+    if (e instanceof TableExistsException) {
+      LOG.warn("Caught TableExistsException in action: " + this.getClass(),e);
+    }
+ else {
+      throw e;
+    }
+  }
+ finally {
+    admin.close();
+  }
+  verifyTables();
+}
