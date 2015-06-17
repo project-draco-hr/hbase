@@ -1,0 +1,28 @@
+{
+  builder=getMutationBuilderAndSetCommonFields(type,mutation,builder);
+  if (nonce != HConstants.NO_NONCE) {
+    builder.setNonce(nonce);
+  }
+  ClientProtos.MutationProto.ColumnValue.Builder columnBuilder=ClientProtos.MutationProto.ColumnValue.newBuilder();
+  ClientProtos.MutationProto.ColumnValue.QualifierValue.Builder valueBuilder=ClientProtos.MutationProto.ColumnValue.QualifierValue.newBuilder();
+  for (  Map.Entry<byte[],List<Cell>> family : mutation.getFamilyCellMap().entrySet()) {
+    columnBuilder.clear();
+    columnBuilder.setFamily(ByteStringer.wrap(family.getKey()));
+    for (    Cell cell : family.getValue()) {
+      valueBuilder.clear();
+      valueBuilder.setQualifier(ByteStringer.wrap(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength()));
+      valueBuilder.setValue(ByteStringer.wrap(cell.getValueArray(),cell.getValueOffset(),cell.getValueLength()));
+      valueBuilder.setTimestamp(cell.getTimestamp());
+      if (cell.getTagsLength() > 0) {
+        valueBuilder.setTags(ByteStringer.wrap(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength()));
+      }
+      if (type == ClientProtos.MutationProto.MutationType.DELETE || (type == ClientProtos.MutationProto.MutationType.PUT && CellUtil.isDelete(cell))) {
+        KeyValue.Type keyValueType=KeyValue.Type.codeToType(cell.getTypeByte());
+        valueBuilder.setDeleteType(toDeleteType(keyValueType));
+      }
+      columnBuilder.addQualifierValue(valueBuilder.build());
+    }
+    builder.addColumnValue(columnBuilder.build());
+  }
+  return builder.build();
+}
