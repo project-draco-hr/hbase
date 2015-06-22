@@ -1,0 +1,70 @@
+{
+  if (table == null || table.isSystemTable()) {
+    LOG.debug("Normalization of table " + table + " isn't allowed");
+    return EmptyNormalizationPlan.getInstance();
+  }
+  List<HRegionInfo> tableRegions=masterServices.getAssignmentManager().getRegionStates().getRegionsOfTable(table);
+  if (tableRegions == null || tableRegions.size() < 3) {
+    LOG.debug("Table " + table + " has "+ tableRegions.size()+ " regions, required min number"+ " of regions for normalizer to run is 3, not running normalizer");
+    return EmptyNormalizationPlan.getInstance();
+  }
+  LOG.debug("Computing normalization plan for table: " + table + ", number of regions: "+ tableRegions.size());
+  long totalSizeMb=0;
+  Pair<HRegionInfo,Long> largestRegion=new Pair<>();
+  Pair<HRegionInfo,Long> smallestRegion=new Pair<>();
+  Pair<HRegionInfo,Long> smallestNeighborOfSmallestRegion;
+  int smallestRegionIndex=0;
+  for (int i=0; i < tableRegions.size(); i++) {
+    HRegionInfo hri=tableRegions.get(i);
+    long regionSize=getRegionSize(hri);
+    totalSizeMb+=regionSize;
+    if (largestRegion.getFirst() == null || regionSize > largestRegion.getSecond()) {
+      largestRegion.setFirst(hri);
+      largestRegion.setSecond(regionSize);
+    }
+    if (smallestRegion.getFirst() == null || regionSize < smallestRegion.getSecond()) {
+      smallestRegion.setFirst(hri);
+      smallestRegion.setSecond(regionSize);
+      smallestRegionIndex=i;
+    }
+  }
+  long leftNeighborSize=-1;
+  long rightNeighborSize=-1;
+  if (smallestRegionIndex > 0) {
+    leftNeighborSize=getRegionSize(tableRegions.get(smallestRegionIndex - 1));
+  }
+  if (smallestRegionIndex < tableRegions.size() - 1) {
+    rightNeighborSize=getRegionSize(tableRegions.get(smallestRegionIndex + 1));
+  }
+  if (leftNeighborSize == -1) {
+    smallestNeighborOfSmallestRegion=new Pair<>(tableRegions.get(smallestRegionIndex + 1),rightNeighborSize);
+  }
+ else   if (rightNeighborSize == -1) {
+    smallestNeighborOfSmallestRegion=new Pair<>(tableRegions.get(smallestRegionIndex - 1),leftNeighborSize);
+  }
+ else {
+    if (leftNeighborSize < rightNeighborSize) {
+      smallestNeighborOfSmallestRegion=new Pair<>(tableRegions.get(smallestRegionIndex - 1),leftNeighborSize);
+    }
+ else {
+      smallestNeighborOfSmallestRegion=new Pair<>(tableRegions.get(smallestRegionIndex + 1),rightNeighborSize);
+    }
+  }
+  double avgRegionSize=totalSizeMb / (double)tableRegions.size();
+  LOG.debug("Table " + table + ", total aggregated regions size: "+ totalSizeMb);
+  LOG.debug("Table " + table + ", average region size: "+ avgRegionSize);
+  if (largestRegion.getSecond() > 2 * avgRegionSize) {
+    LOG.debug("Table " + table + ", largest region "+ largestRegion.getFirst().getRegionName()+ " has size "+ largestRegion.getSecond()+ ", more than 2 times than avg size, splitting");
+    return new SplitNormalizationPlan(largestRegion.getFirst(),null);
+  }
+ else {
+    if ((smallestRegion.getSecond() + smallestNeighborOfSmallestRegion.getSecond() < avgRegionSize)) {
+      LOG.debug("Table " + table + ", smallest region size: "+ smallestRegion.getSecond()+ " and its smallest neighbor size: "+ smallestNeighborOfSmallestRegion.getSecond()+ ", less than half the avg size, merging them");
+      return new MergeNormalizationPlan(smallestRegion.getFirst(),smallestNeighborOfSmallestRegion.getFirst());
+    }
+ else {
+      LOG.debug("No normalization needed, regions look good for table: " + table);
+      return EmptyNormalizationPlan.getInstance();
+    }
+  }
+}

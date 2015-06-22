@@ -1,0 +1,22 @@
+{
+  if (!this.initialized) {
+    LOG.debug("Master has not been initialized, don't run region normalizer.");
+    return false;
+  }
+  if (!this.normalizerEnabled) {
+    LOG.debug("Region normalization is disabled, don't run region normalizer.");
+    return false;
+  }
+synchronized (this.normalizer) {
+    List<TableName> allEnabledTables=new ArrayList<>(this.tableStateManager.getTablesInStates(TableState.State.ENABLED));
+    Collections.shuffle(allEnabledTables);
+    for (    TableName table : allEnabledTables) {
+      if (table.isSystemTable() || !getTableDescriptors().getDescriptor(table).getHTableDescriptor().isNormalizationEnabled()) {
+        LOG.debug("Skipping normalization for table: " + table + ", as it's either system"+ " table or doesn't have auto normalization turned on");
+        continue;
+      }
+      this.normalizer.computePlanForTable(table).execute(clusterConnection.getAdmin());
+    }
+  }
+  return true;
+}
