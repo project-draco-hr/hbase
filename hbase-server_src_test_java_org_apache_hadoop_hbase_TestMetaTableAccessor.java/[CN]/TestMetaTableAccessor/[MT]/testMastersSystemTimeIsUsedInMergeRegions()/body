@@ -1,0 +1,31 @@
+{
+  long regionId=System.currentTimeMillis();
+  HRegionInfo regionInfoA=new HRegionInfo(TableName.valueOf("table_foo"),HConstants.EMPTY_START_ROW,new byte[]{'a'},false,regionId,0);
+  HRegionInfo regionInfoB=new HRegionInfo(TableName.valueOf("table_foo"),new byte[]{'a'},HConstants.EMPTY_END_ROW,false,regionId,0);
+  HRegionInfo mergedRegionInfo=new HRegionInfo(TableName.valueOf("table_foo"),HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,false,regionId,0);
+  ServerName sn=ServerName.valueOf("bar",0,0);
+  Table meta=MetaTableAccessor.getMetaHTable(connection);
+  try {
+    List<HRegionInfo> regionInfos=Lists.newArrayList(regionInfoA,regionInfoB);
+    MetaTableAccessor.addRegionsToMeta(connection,regionInfos,1);
+    long serverNameTime=EnvironmentEdgeManager.currentTime() + 100000000;
+    long masterSystemTime=EnvironmentEdgeManager.currentTime() + 123456789;
+    MetaTableAccessor.updateRegionLocation(connection,regionInfoA,sn,1,serverNameTime);
+    Get get=new Get(mergedRegionInfo.getRegionName());
+    Result result=meta.get(get);
+    Cell serverCell=result.getColumnLatestCell(HConstants.CATALOG_FAMILY,MetaTableAccessor.getServerColumn(0));
+    assertNotNull(serverCell);
+    assertEquals(serverNameTime,serverCell.getTimestamp());
+    MetaTableAccessor.mergeRegions(connection,mergedRegionInfo,regionInfoA,regionInfoB,sn,1,masterSystemTime);
+    result=meta.get(get);
+    serverCell=result.getColumnLatestCell(HConstants.CATALOG_FAMILY,MetaTableAccessor.getServerColumn(0));
+    Cell startCodeCell=result.getColumnLatestCell(HConstants.CATALOG_FAMILY,MetaTableAccessor.getStartCodeColumn(0));
+    Cell seqNumCell=result.getColumnLatestCell(HConstants.CATALOG_FAMILY,MetaTableAccessor.getSeqNumColumn(0));
+    assertNull(serverCell);
+    assertNull(startCodeCell);
+    assertNull(seqNumCell);
+  }
+  finally {
+    meta.close();
+  }
+}
