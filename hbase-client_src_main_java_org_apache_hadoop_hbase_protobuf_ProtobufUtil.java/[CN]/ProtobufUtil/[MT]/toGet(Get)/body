@@ -1,3 +1,56 @@
 {
-  return ProtobufConverter.toGet(get);
+  ClientProtos.Get.Builder builder=ClientProtos.Get.newBuilder();
+  builder.setRow(ByteStringer.wrap(get.getRow()));
+  builder.setCacheBlocks(get.getCacheBlocks());
+  builder.setMaxVersions(get.getMaxVersions());
+  if (get.getFilter() != null) {
+    builder.setFilter(ProtobufUtil.toFilter(get.getFilter()));
+  }
+  TimeRange timeRange=get.getTimeRange();
+  if (!timeRange.isAllTime()) {
+    HBaseProtos.TimeRange.Builder timeRangeBuilder=HBaseProtos.TimeRange.newBuilder();
+    timeRangeBuilder.setFrom(timeRange.getMin());
+    timeRangeBuilder.setTo(timeRange.getMax());
+    builder.setTimeRange(timeRangeBuilder.build());
+  }
+  Map<String,byte[]> attributes=get.getAttributesMap();
+  if (!attributes.isEmpty()) {
+    NameBytesPair.Builder attributeBuilder=NameBytesPair.newBuilder();
+    for (    Map.Entry<String,byte[]> attribute : attributes.entrySet()) {
+      attributeBuilder.setName(attribute.getKey());
+      attributeBuilder.setValue(ByteStringer.wrap(attribute.getValue()));
+      builder.addAttribute(attributeBuilder.build());
+    }
+  }
+  if (get.hasFamilies()) {
+    Column.Builder columnBuilder=Column.newBuilder();
+    Map<byte[],NavigableSet<byte[]>> families=get.getFamilyMap();
+    for (    Map.Entry<byte[],NavigableSet<byte[]>> family : families.entrySet()) {
+      NavigableSet<byte[]> qualifiers=family.getValue();
+      columnBuilder.setFamily(ByteStringer.wrap(family.getKey()));
+      columnBuilder.clearQualifier();
+      if (qualifiers != null && qualifiers.size() > 0) {
+        for (        byte[] qualifier : qualifiers) {
+          columnBuilder.addQualifier(ByteStringer.wrap(qualifier));
+        }
+      }
+      builder.addColumn(columnBuilder.build());
+    }
+  }
+  if (get.getMaxResultsPerColumnFamily() >= 0) {
+    builder.setStoreLimit(get.getMaxResultsPerColumnFamily());
+  }
+  if (get.getRowOffsetPerColumnFamily() > 0) {
+    builder.setStoreOffset(get.getRowOffsetPerColumnFamily());
+  }
+  if (get.isCheckExistenceOnly()) {
+    builder.setExistenceOnly(true);
+  }
+  if (get.isClosestRowBefore()) {
+    builder.setClosestRowBefore(true);
+  }
+  if (get.getConsistency() != null && get.getConsistency() != Consistency.STRONG) {
+    builder.setConsistency(toConsistency(get.getConsistency()));
+  }
+  return builder.build();
 }
