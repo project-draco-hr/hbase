@@ -1,5 +1,8 @@
 {
   Cell pCell=null;
+  FileSystem fs=FileSystem.get(getConf());
+  Set<String> foundMobFiles=new LinkedHashSet<String>(FOUND_MOB_FILES_CACHE_CAPACITY);
+  Set<String> missingMobFiles=new LinkedHashSet<String>(MISSING_MOB_FILES_CACHE_CAPACITY);
   do {
     Cell cell=scanner.getKeyValue();
     if (row != null && row.length != 0) {
@@ -38,6 +41,23 @@
       }
       if (pCell != null && CellComparator.compareFamilies(pCell,cell) != 0) {
         System.err.println("WARNING, previous kv has different family" + " compared to current key\n\tfilename -> " + file + "\n\tprevious -> "+ CellUtil.getCellKeyAsString(pCell)+ "\n\tcurrent  -> "+ CellUtil.getCellKeyAsString(cell));
+      }
+    }
+    if (checkMobIntegrity && MobUtils.isMobReferenceCell(cell)) {
+      Tag tnTag=MobUtils.getTableNameTag(cell);
+      if (tnTag == null) {
+        System.err.println("ERROR, wrong tag format in mob reference cell " + CellUtil.getCellKeyAsString(cell));
+      }
+ else       if (!MobUtils.hasValidMobRefCellValue(cell)) {
+        System.err.println("ERROR, wrong value format in mob reference cell " + CellUtil.getCellKeyAsString(cell));
+      }
+ else {
+        TableName tn=TableName.valueOf(tnTag.getValue());
+        String mobFileName=MobUtils.getMobFileName(cell);
+        boolean exist=mobFileExists(fs,tn,mobFileName,Bytes.toString(CellUtil.cloneFamily(cell)),foundMobFiles,missingMobFiles);
+        if (!exist) {
+          System.err.println("ERROR, the mob file [" + mobFileName + "] is missing referenced by cell "+ CellUtil.getCellKeyAsString(cell));
+        }
       }
     }
     pCell=cell;
