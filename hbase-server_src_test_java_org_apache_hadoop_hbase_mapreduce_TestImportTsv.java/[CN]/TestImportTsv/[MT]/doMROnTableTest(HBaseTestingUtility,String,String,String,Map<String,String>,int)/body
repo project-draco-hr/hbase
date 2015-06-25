@@ -1,0 +1,46 @@
+{
+  Configuration conf=new Configuration(util.getConfiguration());
+  FileSystem fs=FileSystem.get(conf);
+  Path inputPath=fs.makeQualified(new Path(util.getDataTestDirOnTestFS(table),"input.dat"));
+  FSDataOutputStream op=fs.create(inputPath,true);
+  if (data == null) {
+    data="KEY\u001bVALUE1\u001bVALUE2\n";
+  }
+  op.write(Bytes.toBytes(data));
+  op.close();
+  LOG.debug(String.format("Wrote test data to file: %s",inputPath));
+  if (conf.getBoolean(FORCE_COMBINER_CONF,true)) {
+    LOG.debug("Forcing combiner.");
+    conf.setInt("mapreduce.map.combine.minspills",1);
+  }
+  String[] argsArray=new String[args.size() + 2];
+  Iterator it=args.entrySet().iterator();
+  int i=0;
+  while (it.hasNext()) {
+    Map.Entry pair=(Map.Entry)it.next();
+    argsArray[i]="-D" + pair.getKey() + "="+ pair.getValue();
+    i++;
+  }
+  argsArray[i]=table;
+  argsArray[i + 1]=inputPath.toString();
+  Tool tool=new ImportTsv();
+  LOG.debug("Running ImportTsv with arguments: " + argsArray);
+  assertEquals(0,ToolRunner.run(conf,tool,argsArray));
+  boolean isDryRun=args.containsKey(ImportTsv.DRY_RUN_CONF_KEY) && "true".equalsIgnoreCase(args.get(ImportTsv.DRY_RUN_CONF_KEY));
+  if (args.containsKey(ImportTsv.BULK_OUTPUT_CONF_KEY)) {
+    if (isDryRun) {
+      assertFalse(String.format("Dry run mode, %s should not have been created.",ImportTsv.BULK_OUTPUT_CONF_KEY),fs.exists(new Path(ImportTsv.BULK_OUTPUT_CONF_KEY)));
+    }
+ else {
+      validateHFiles(fs,args.get(ImportTsv.BULK_OUTPUT_CONF_KEY),family);
+    }
+  }
+ else {
+    validateTable(conf,TableName.valueOf(table),family,valueMultiplier,isDryRun);
+  }
+  if (conf.getBoolean(DELETE_AFTER_LOAD_CONF,true)) {
+    LOG.debug("Deleting test subdirectory");
+    util.cleanupDataTestDirOnTestFS(table);
+  }
+  return tool;
+}
