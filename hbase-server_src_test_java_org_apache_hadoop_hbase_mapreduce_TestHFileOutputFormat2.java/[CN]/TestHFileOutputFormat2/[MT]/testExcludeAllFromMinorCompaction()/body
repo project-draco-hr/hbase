@@ -3,9 +3,8 @@
   conf.setInt("hbase.hstore.compaction.min",2);
   generateRandomStartKeys(5);
   util.startMiniCluster();
-  try (Connection conn=ConnectionFactory.createConnection();Admin admin=conn.getAdmin()){
+  try (Connection conn=ConnectionFactory.createConnection();Admin admin=conn.getAdmin();Table table=util.createTable(TABLE_NAME,FAMILIES);RegionLocator locator=conn.getRegionLocator(TABLE_NAME)){
     final FileSystem fs=util.getDFSCluster().getFileSystem();
-    HTable table=util.createTable(TABLE_NAME,FAMILIES);
     assertEquals("Should start with empty table",0,util.countRows(table));
     final Path storePath=new Path(FSUtils.getTableDir(FSUtils.getRootDir(conf),TABLE_NAME),new Path(admin.getTableRegions(TABLE_NAME).get(0).getEncodedName(),Bytes.toString(FAMILIES[0])));
     assertEquals(0,fs.listStatus(storePath).length);
@@ -14,7 +13,7 @@
     for (int i=0; i < 2; i++) {
       Path testDir=util.getDataTestDirOnTestFS("testExcludeAllFromMinorCompaction_" + i);
       runIncrementalPELoad(conf,table.getTableDescriptor(),conn.getRegionLocator(TABLE_NAME),testDir);
-      new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
+      new LoadIncrementalHFiles(conf).doBulkLoad(testDir,admin,table,locator);
     }
     int expectedRows=2 * NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
     assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));

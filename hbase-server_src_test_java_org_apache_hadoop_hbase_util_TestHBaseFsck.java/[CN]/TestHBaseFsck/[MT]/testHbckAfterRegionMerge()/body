@@ -5,26 +5,28 @@
     TEST_UTIL.getHBaseCluster().getMaster().setCatalogJanitorEnabled(false);
     setupTable(table);
     assertEquals(ROWKEYS.length,countRows());
-    admin.flush(table);
-    HRegionInfo region1=tbl.getRegionLocation(Bytes.toBytes("A")).getRegionInfo();
-    HRegionInfo region2=tbl.getRegionLocation(Bytes.toBytes("B")).getRegionInfo();
-    int regionCountBeforeMerge=tbl.getRegionLocations().size();
-    assertNotEquals(region1,region2);
-    admin.mergeRegions(region1.getEncodedNameAsBytes(),region2.getEncodedNameAsBytes(),false);
-    long timeout=System.currentTimeMillis() + 30 * 1000;
-    while (true) {
-      if (tbl.getRegionLocations().size() < regionCountBeforeMerge) {
-        break;
+    try (RegionLocator rl=connection.getRegionLocator(tbl.getName())){
+      admin.flush(table);
+      HRegionInfo region1=rl.getRegionLocation(Bytes.toBytes("A")).getRegionInfo();
+      HRegionInfo region2=rl.getRegionLocation(Bytes.toBytes("B")).getRegionInfo();
+      int regionCountBeforeMerge=rl.getAllRegionLocations().size();
+      assertNotEquals(region1,region2);
+      admin.mergeRegions(region1.getEncodedNameAsBytes(),region2.getEncodedNameAsBytes(),false);
+      long timeout=System.currentTimeMillis() + 30 * 1000;
+      while (true) {
+        if (rl.getAllRegionLocations().size() < regionCountBeforeMerge) {
+          break;
+        }
+ else         if (System.currentTimeMillis() > timeout) {
+          fail("Time out waiting on region " + region1.getEncodedName() + " and "+ region2.getEncodedName()+ " be merged");
+        }
+        Thread.sleep(10);
       }
- else       if (System.currentTimeMillis() > timeout) {
-        fail("Time out waiting on region " + region1.getEncodedName() + " and "+ region2.getEncodedName()+ " be merged");
-      }
-      Thread.sleep(10);
+      assertEquals(ROWKEYS.length,countRows());
+      HBaseFsck hbck=doFsck(conf,false);
+      assertNoErrors(hbck);
     }
-    assertEquals(ROWKEYS.length,countRows());
-    HBaseFsck hbck=doFsck(conf,false);
-    assertNoErrors(hbck);
-  }
+   }
   finally {
     TEST_UTIL.getHBaseCluster().getMaster().setCatalogJanitorEnabled(true);
     cleanupTable(table);

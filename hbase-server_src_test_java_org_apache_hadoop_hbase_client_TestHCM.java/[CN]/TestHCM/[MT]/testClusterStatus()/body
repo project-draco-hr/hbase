@@ -5,22 +5,24 @@
   JVMClusterUtil.RegionServerThread rs=TEST_UTIL.getHBaseCluster().startRegionServer();
   rs.waitForServerOnline();
   final ServerName sn=rs.getRegionServer().getServerName();
-  HTable t=TEST_UTIL.createTable(tn,cf);
+  Table t=TEST_UTIL.createTable(tn,cf);
   TEST_UTIL.waitTableAvailable(tn);
   while (TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionStates().isRegionsInTransition()) {
     Thread.sleep(1);
   }
-  final ConnectionImplementation hci=(ConnectionImplementation)t.getConnection();
-  while (t.getRegionLocation(rk).getPort() != sn.getPort()) {
-    TEST_UTIL.getHBaseAdmin().move(t.getRegionLocation(rk).getRegionInfo().getEncodedNameAsBytes(),Bytes.toBytes(sn.toString()));
-    while (TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionStates().isRegionsInTransition()) {
-      Thread.sleep(1);
+  final ConnectionImplementation hci=(ConnectionImplementation)TEST_UTIL.getConnection();
+  try (RegionLocator l=TEST_UTIL.getConnection().getRegionLocator(tn)){
+    while (l.getRegionLocation(rk).getPort() != sn.getPort()) {
+      TEST_UTIL.getHBaseAdmin().move(l.getRegionLocation(rk).getRegionInfo().getEncodedNameAsBytes(),Bytes.toBytes(sn.toString()));
+      while (TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().getRegionStates().isRegionsInTransition()) {
+        Thread.sleep(1);
+      }
+      hci.clearRegionCache(tn);
     }
-    hci.clearRegionCache(tn);
+    Assert.assertNotNull(hci.clusterStatusListener);
+    TEST_UTIL.assertRegionOnServer(l.getRegionLocation(rk).getRegionInfo(),sn,20000);
   }
-  Assert.assertNotNull(hci.clusterStatusListener);
-  TEST_UTIL.assertRegionOnServer(t.getRegionLocation(rk).getRegionInfo(),sn,20000);
-  Put p1=new Put(rk);
+   Put p1=new Put(rk);
   p1.add(cf,"qual".getBytes(),"val".getBytes());
   t.put(p1);
   rs.getRegionServer().abort("I'm dead");

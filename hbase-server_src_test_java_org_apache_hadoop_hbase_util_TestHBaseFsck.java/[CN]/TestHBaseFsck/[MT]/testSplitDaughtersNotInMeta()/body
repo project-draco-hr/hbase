@@ -5,34 +5,37 @@
     setupTable(table);
     assertEquals(ROWKEYS.length,countRows());
     admin.flush(table);
-    HRegionLocation location=tbl.getRegionLocation(Bytes.toBytes("B"));
-    HRegionInfo hri=location.getRegionInfo();
-    byte[] regionName=location.getRegionInfo().getRegionName();
-    admin.splitRegion(location.getRegionInfo().getRegionName(),Bytes.toBytes("BM"));
-    TestEndToEndSplitTransaction.blockUntilRegionSplit(conf,60000,regionName,true);
-    PairOfSameType<HRegionInfo> daughters=MetaTableAccessor.getDaughterRegions(meta.get(new Get(regionName)));
-    Map<HRegionInfo,ServerName> hris=tbl.getRegionLocations();
-    undeployRegion(connection,hris.get(daughters.getFirst()),daughters.getFirst());
-    undeployRegion(connection,hris.get(daughters.getSecond()),daughters.getSecond());
-    List<Delete> deletes=new ArrayList<>();
-    deletes.add(new Delete(daughters.getFirst().getRegionName()));
-    deletes.add(new Delete(daughters.getSecond().getRegionName()));
-    meta.delete(deletes);
-    RegionStates regionStates=TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates();
-    regionStates.deleteRegion(daughters.getFirst());
-    regionStates.deleteRegion(daughters.getSecond());
-    HBaseFsck hbck=doFsck(conf,false);
-    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.HOLE_IN_REGION_CHAIN});
-    hbck=doFsck(conf,true,true,false,false,false,false,false,false,false,false,null);
-    assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.HOLE_IN_REGION_CHAIN});
-    Get get=new Get(hri.getRegionName());
-    Result result=meta.get(get);
-    assertNotNull(result);
-    assertNotNull(MetaTableAccessor.getHRegionInfo(result));
-    assertEquals(ROWKEYS.length,countRows());
-    assertEquals(tbl.getStartKeys().length,SPLITS.length + 1 + 1);
-    assertNoErrors(doFsck(conf,false));
-  }
+    try (RegionLocator rl=connection.getRegionLocator(tbl.getName())){
+      HRegionLocation location=rl.getRegionLocation(Bytes.toBytes("B"));
+      HRegionInfo hri=location.getRegionInfo();
+      byte[] regionName=location.getRegionInfo().getRegionName();
+      admin.splitRegion(location.getRegionInfo().getRegionName(),Bytes.toBytes("BM"));
+      TestEndToEndSplitTransaction.blockUntilRegionSplit(conf,60000,regionName,true);
+      PairOfSameType<HRegionInfo> daughters=MetaTableAccessor.getDaughterRegions(meta.get(new Get(regionName)));
+      ServerName firstSN=rl.getRegionLocation(daughters.getFirst().getStartKey()).getServerName();
+      ServerName secondSN=rl.getRegionLocation(daughters.getSecond().getStartKey()).getServerName();
+      undeployRegion(connection,firstSN,daughters.getFirst());
+      undeployRegion(connection,secondSN,daughters.getSecond());
+      List<Delete> deletes=new ArrayList<>();
+      deletes.add(new Delete(daughters.getFirst().getRegionName()));
+      deletes.add(new Delete(daughters.getSecond().getRegionName()));
+      meta.delete(deletes);
+      RegionStates regionStates=TEST_UTIL.getMiniHBaseCluster().getMaster().getAssignmentManager().getRegionStates();
+      regionStates.deleteRegion(daughters.getFirst());
+      regionStates.deleteRegion(daughters.getSecond());
+      HBaseFsck hbck=doFsck(conf,false);
+      assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+      hbck=doFsck(conf,true,true,false,false,false,false,false,false,false,false,null);
+      assertErrors(hbck,new ERROR_CODE[]{ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.NOT_IN_META_OR_DEPLOYED,ERROR_CODE.HOLE_IN_REGION_CHAIN});
+      Get get=new Get(hri.getRegionName());
+      Result result=meta.get(get);
+      assertNotNull(result);
+      assertNotNull(MetaTableAccessor.getHRegionInfo(result));
+      assertEquals(ROWKEYS.length,countRows());
+      assertEquals(rl.getStartKeys().length,SPLITS.length + 1 + 1);
+      assertNoErrors(doFsck(conf,false));
+    }
+   }
   finally {
     meta.close();
     cleanupTable(table);

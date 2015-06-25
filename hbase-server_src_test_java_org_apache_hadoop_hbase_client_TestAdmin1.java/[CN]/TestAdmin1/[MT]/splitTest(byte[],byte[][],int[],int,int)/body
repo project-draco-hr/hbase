@@ -5,107 +5,105 @@
     sb.append("_").append(Integer.toString(rowCounts[i]));
   }
   assertFalse(admin.tableExists(tableName));
-  final HTable table=TEST_UTIL.createTable(tableName,familyNames,numVersions,blockSize);
-  int rowCount=0;
-  byte[] q=new byte[0];
-  for (int index=0; index < familyNames.length; index++) {
-    ArrayList<Put> puts=new ArrayList<Put>(rowCounts[index]);
-    for (int i=0; i < rowCounts[index]; i++) {
-      byte[] k=Bytes.toBytes(i);
-      Put put=new Put(k);
-      put.add(familyNames[index],q,k);
-      puts.add(put);
-    }
-    table.put(puts);
-    if (rowCount < rowCounts[index]) {
-      rowCount=rowCounts[index];
-    }
-  }
-  Map<HRegionInfo,ServerName> m=table.getRegionLocations();
-  LOG.info("Initial regions (" + m.size() + "): "+ m);
-  assertTrue(m.size() == 1);
-  Scan scan=new Scan();
-  ResultScanner scanner=table.getScanner(scan);
-  int rows=0;
-  for (  @SuppressWarnings("unused") Result result : scanner) {
-    rows++;
-  }
-  scanner.close();
-  assertEquals(rowCount,rows);
-  scan=new Scan();
-  scanner=table.getScanner(scan);
-  scanner.next();
-  this.admin.split(tableName,splitPoint);
-  final AtomicInteger count=new AtomicInteger(0);
-  Thread t=new Thread("CheckForSplit"){
-    @Override public void run(){
-      for (int i=0; i < 45; i++) {
-        try {
-          sleep(1000);
-        }
- catch (        InterruptedException e) {
-          continue;
-        }
-        Map<HRegionInfo,ServerName> regions=null;
-        try {
-          regions=table.getRegionLocations();
-        }
- catch (        IOException e) {
-          e.printStackTrace();
-        }
-        if (regions == null)         continue;
-        count.set(regions.size());
-        if (count.get() >= 2) {
-          LOG.info("Found: " + regions);
-          break;
-        }
-        LOG.debug("Cycle waiting on split");
+  try (final Table table=TEST_UTIL.createTable(tableName,familyNames,numVersions,blockSize);final RegionLocator locator=TEST_UTIL.getConnection().getRegionLocator(tableName)){
+    int rowCount=0;
+    byte[] q=new byte[0];
+    for (int index=0; index < familyNames.length; index++) {
+      ArrayList<Put> puts=new ArrayList<Put>(rowCounts[index]);
+      for (int i=0; i < rowCounts[index]; i++) {
+        byte[] k=Bytes.toBytes(i);
+        Put put=new Put(k);
+        put.addColumn(familyNames[index],q,k);
+        puts.add(put);
       }
-      LOG.debug("CheckForSplit thread exited, current region count: " + count.get());
+      table.put(puts);
+      if (rowCount < rowCounts[index]) {
+        rowCount=rowCounts[index];
+      }
     }
-  }
+    List<HRegionLocation> m=locator.getAllRegionLocations();
+    LOG.info("Initial regions (" + m.size() + "): "+ m);
+    assertTrue(m.size() == 1);
+    Scan scan=new Scan();
+    ResultScanner scanner=table.getScanner(scan);
+    int rows=0;
+    for (    @SuppressWarnings("unused") Result result : scanner) {
+      rows++;
+    }
+    scanner.close();
+    assertEquals(rowCount,rows);
+    scan=new Scan();
+    scanner=table.getScanner(scan);
+    scanner.next();
+    this.admin.split(tableName,splitPoint);
+    final AtomicInteger count=new AtomicInteger(0);
+    Thread t=new Thread("CheckForSplit"){
+      @Override public void run(){
+        for (int i=0; i < 45; i++) {
+          try {
+            sleep(1000);
+          }
+ catch (          InterruptedException e) {
+            continue;
+          }
+          List<HRegionLocation> regions=null;
+          try {
+            regions=locator.getAllRegionLocations();
+          }
+ catch (          IOException e) {
+            e.printStackTrace();
+          }
+          if (regions == null)           continue;
+          count.set(regions.size());
+          if (count.get() >= 2) {
+            LOG.info("Found: " + regions);
+            break;
+          }
+          LOG.debug("Cycle waiting on split");
+        }
+        LOG.debug("CheckForSplit thread exited, current region count: " + count.get());
+      }
+    }
 ;
-  t.setPriority(Thread.NORM_PRIORITY - 2);
-  t.start();
-  t.join();
-  rows=1;
-  for (  @SuppressWarnings("unused") Result result : scanner) {
-    rows++;
-    if (rows > rowCount) {
-      scanner.close();
-      assertTrue("Scanned more than expected (" + rowCount + ")",false);
+    t.setPriority(Thread.NORM_PRIORITY - 2);
+    t.start();
+    t.join();
+    rows=1;
+    for (    @SuppressWarnings("unused") Result result : scanner) {
+      rows++;
+      if (rows > rowCount) {
+        scanner.close();
+        assertTrue("Scanned more than expected (" + rowCount + ")",false);
+      }
     }
-  }
-  scanner.close();
-  assertEquals(rowCount,rows);
-  Map<HRegionInfo,ServerName> regions=null;
-  try {
-    regions=table.getRegionLocations();
-  }
- catch (  IOException e) {
-    e.printStackTrace();
-  }
-  assertEquals(2,regions.size());
-  Set<HRegionInfo> hRegionInfos=regions.keySet();
-  HRegionInfo[] r=hRegionInfos.toArray(new HRegionInfo[hRegionInfos.size()]);
-  if (splitPoint != null) {
-    assertEquals(Bytes.toString(splitPoint),Bytes.toString(r[0].getEndKey()));
-    assertEquals(Bytes.toString(splitPoint),Bytes.toString(r[1].getStartKey()));
-    LOG.debug("Properly split on " + Bytes.toString(splitPoint));
-  }
+    scanner.close();
+    assertEquals(rowCount,rows);
+    List<HRegionLocation> regions=null;
+    try {
+      regions=locator.getAllRegionLocations();
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+    }
+    assertEquals(2,regions.size());
+    if (splitPoint != null) {
+      assertEquals(Bytes.toString(splitPoint),Bytes.toString(regions.get(0).getRegionInfo().getEndKey()));
+      assertEquals(Bytes.toString(splitPoint),Bytes.toString(regions.get(1).getRegionInfo().getStartKey()));
+      LOG.debug("Properly split on " + Bytes.toString(splitPoint));
+    }
  else {
-    if (familyNames.length > 1) {
-      int splitKey=Bytes.toInt(r[0].getEndKey());
-      int deltaForLargestFamily=Math.abs(rowCount / 2 - splitKey);
-      LOG.debug("SplitKey=" + splitKey + "&deltaForLargestFamily="+ deltaForLargestFamily+ ", r="+ r[0]);
-      for (int index=0; index < familyNames.length; index++) {
-        int delta=Math.abs(rowCounts[index] / 2 - splitKey);
-        if (delta < deltaForLargestFamily) {
-          assertTrue("Delta " + delta + " for family "+ index+ " should be at least deltaForLargestFamily "+ deltaForLargestFamily,false);
+      if (familyNames.length > 1) {
+        int splitKey=Bytes.toInt(regions.get(0).getRegionInfo().getEndKey());
+        int deltaForLargestFamily=Math.abs(rowCount / 2 - splitKey);
+        LOG.debug("SplitKey=" + splitKey + "&deltaForLargestFamily="+ deltaForLargestFamily+ ", r="+ regions.get(0).getRegionInfo());
+        for (int index=0; index < familyNames.length; index++) {
+          int delta=Math.abs(rowCounts[index] / 2 - splitKey);
+          if (delta < deltaForLargestFamily) {
+            assertTrue("Delta " + delta + " for family "+ index+ " should be at least "+ "deltaForLargestFamily "+ deltaForLargestFamily,false);
+          }
         }
       }
     }
+    TEST_UTIL.deleteTable(tableName);
   }
-  TEST_UTIL.deleteTable(tableName);
-  table.close();
-}
+ }

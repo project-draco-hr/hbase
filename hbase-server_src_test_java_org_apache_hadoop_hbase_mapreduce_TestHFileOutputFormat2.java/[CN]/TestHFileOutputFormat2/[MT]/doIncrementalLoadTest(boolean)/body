@@ -3,18 +3,16 @@
   Configuration conf=util.getConfiguration();
   byte[][] splitKeys=generateRandomSplitKeys(4);
   util.startMiniCluster();
-  try {
-    HTable table=util.createTable(TABLE_NAME,FAMILIES,splitKeys);
-    Admin admin=table.getConnection().getAdmin();
+  Table table=util.createTable(TABLE_NAME,FAMILIES,splitKeys);
+  try (RegionLocator r=util.getConnection().getRegionLocator(TABLE_NAME)){
+    Admin admin=util.getConnection().getAdmin();
     Path testDir=util.getDataTestDirOnTestFS("testLocalMRIncrementalLoad");
     assertEquals("Should start with empty table",0,util.countRows(table));
-    int numRegions=-1;
-    try (RegionLocator r=table.getRegionLocator()){
-      numRegions=r.getStartKeys().length;
-    }
-     assertEquals("Should make 5 regions",numRegions,5);
+    int numRegions;
+    numRegions=r.getStartKeys().length;
+    assertEquals("Should make 5 regions",numRegions,5);
     util.startMiniMapReduceCluster();
-    runIncrementalPELoad(conf,table.getTableDescriptor(),table.getRegionLocator(),testDir);
+    runIncrementalPELoad(conf,table.getTableDescriptor(),r,testDir);
     assertEquals("HFOF should not touch actual table",0,util.countRows(table));
     int dir=0;
     for (    FileStatus f : testDir.getFileSystem(conf).listStatus(testDir)) {
@@ -35,12 +33,12 @@
       util.deleteTable(table.getName());
       byte[][] newSplitKeys=generateRandomSplitKeys(14);
       table=util.createTable(TABLE_NAME,FAMILIES,newSplitKeys);
-      while (table.getRegionLocator().getAllRegionLocations().size() != 15 || !admin.isTableAvailable(table.getName())) {
+      while (util.getConnection().getRegionLocator(TABLE_NAME).getAllRegionLocations().size() != 15 || !admin.isTableAvailable(table.getName())) {
         Thread.sleep(200);
         LOG.info("Waiting for new region assignment to happen");
       }
     }
-    new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
+    new LoadIncrementalHFiles(conf).doBulkLoad(testDir,admin,table,r);
     int expectedRows=NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
     assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
     Scan scan=new Scan();

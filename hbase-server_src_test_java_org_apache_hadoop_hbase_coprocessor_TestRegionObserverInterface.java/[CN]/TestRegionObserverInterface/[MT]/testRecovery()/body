@@ -1,19 +1,19 @@
 {
   LOG.info(TestRegionObserverInterface.class.getName() + ".testRecovery");
   TableName tableName=TableName.valueOf(TEST_TABLE.getNameAsString() + ".testRecovery");
-  HTable table=util.createTable(tableName,new byte[][]{A,B,C});
-  try {
+  Table table=util.createTable(tableName,new byte[][]{A,B,C});
+  try (RegionLocator locator=util.getConnection().getRegionLocator(tableName)){
     JVMClusterUtil.RegionServerThread rs1=cluster.startRegionServer();
     ServerName sn2=rs1.getRegionServer().getServerName();
-    String regEN=table.getRegionLocations().firstEntry().getKey().getEncodedName();
+    String regEN=locator.getAllRegionLocations().get(0).getRegionInfo().getEncodedName();
     util.getHBaseAdmin().move(regEN.getBytes(),sn2.getServerName().getBytes());
-    while (!sn2.equals(table.getRegionLocations().firstEntry().getValue())) {
+    while (!sn2.equals(locator.getAllRegionLocations().get(0).getServerName())) {
       Thread.sleep(100);
     }
     Put put=new Put(ROW);
-    put.add(A,A,A);
-    put.add(B,B,B);
-    put.add(C,C,C);
+    put.addColumn(A,A,A);
+    put.addColumn(B,B,B);
+    put.addColumn(C,C,C);
     table.put(put);
     verifyMethodResult(SimpleRegionObserver.class,new String[]{"hadPreGet","hadPostGet","hadPrePut","hadPostPut","hadPreBatchMutate","hadPostBatchMutate","hadDelete"},tableName,new Boolean[]{false,false,true,true,true,true,false});
     verifyMethodResult(SimpleRegionObserver.class,new String[]{"getCtPreWALRestore","getCtPostWALRestore","getCtPrePut","getCtPostPut","getCtPreWALRestoreDeprecated","getCtPostWALRestoreDeprecated"},tableName,new Integer[]{0,0,1,1,0,0});

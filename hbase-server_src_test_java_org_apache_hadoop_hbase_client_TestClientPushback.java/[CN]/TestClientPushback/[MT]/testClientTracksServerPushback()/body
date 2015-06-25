@@ -1,21 +1,18 @@
 {
   Configuration conf=UTIL.getConfiguration();
-  TableName tablename=TableName.valueOf(tableName);
-  Connection conn=ConnectionFactory.createConnection(conf);
-  HTable table=(HTable)conn.getTable(tablename);
+  ClusterConnection conn=(ClusterConnection)ConnectionFactory.createConnection(conf);
+  HTable table=(HTable)conn.getTable(tableName);
   HRegionServer rs=UTIL.getHBaseCluster().getRegionServer(0);
-  Region region=rs.getOnlineRegions(tablename).get(0);
-  LOG.debug("Writing some data to " + tablename);
+  Region region=rs.getOnlineRegions(tableName).get(0);
+  LOG.debug("Writing some data to " + tableName);
   Put p=new Put(Bytes.toBytes("row"));
-  p.add(family,qualifier,Bytes.toBytes("value1"));
+  p.addColumn(family,qualifier,Bytes.toBytes("value1"));
   table.put(p);
-  table.flushCommits();
   int load=(int)((((HRegion)region).addAndGetGlobalMemstoreSize(0) * 100) / flushSizeBytes);
-  LOG.debug("Done writing some data to " + tablename);
-  ClusterConnection connection=table.connection;
-  ClientBackoffPolicy backoffPolicy=connection.getBackoffPolicy();
+  LOG.debug("Done writing some data to " + tableName);
+  ClientBackoffPolicy backoffPolicy=conn.getBackoffPolicy();
   assertTrue("Backoff policy is not correctly configured",backoffPolicy instanceof ExponentialClientBackoffPolicy);
-  ServerStatisticTracker stats=connection.getStatisticsTracker();
+  ServerStatisticTracker stats=conn.getStatisticsTracker();
   assertNotNull("No stats configured for the client!",stats);
   ServerName server=rs.getServerName();
   byte[] regionName=region.getRegionInfo().getRegionName();
@@ -30,7 +27,7 @@
   final CountDownLatch latch=new CountDownLatch(1);
   final AtomicLong endTime=new AtomicLong();
   long startTime=EnvironmentEdgeManager.currentTime();
-  table.mutator.ap.submit(tablename,ops,true,new Batch.Callback<Result>(){
+  table.mutator.ap.submit(tableName,ops,true,new Batch.Callback<Result>(){
     @Override public void update(    byte[] region,    byte[] row,    Result result){
       endTime.set(EnvironmentEdgeManager.currentTime());
       latch.countDown();

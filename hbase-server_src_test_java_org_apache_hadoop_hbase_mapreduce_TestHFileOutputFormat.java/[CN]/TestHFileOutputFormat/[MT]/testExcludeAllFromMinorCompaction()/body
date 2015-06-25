@@ -6,18 +6,20 @@
     util.startMiniCluster();
     final FileSystem fs=util.getDFSCluster().getFileSystem();
     HBaseAdmin admin=util.getHBaseAdmin();
-    HTable table=util.createTable(TABLE_NAME,FAMILIES);
+    Table table=util.createTable(TABLE_NAME,FAMILIES);
     assertEquals("Should start with empty table",0,util.countRows(table));
     final Path storePath=HStore.getStoreHomedir(FSUtils.getTableDir(FSUtils.getRootDir(conf),TABLE_NAME),admin.getTableRegions(TABLE_NAME).get(0),FAMILIES[0]);
     assertEquals(0,fs.listStatus(storePath).length);
     conf.setBoolean("hbase.mapreduce.hfileoutputformat.compaction.exclude",true);
     util.startMiniMapReduceCluster();
-    for (int i=0; i < 2; i++) {
-      Path testDir=util.getDataTestDirOnTestFS("testExcludeAllFromMinorCompaction_" + i);
-      runIncrementalPELoad(conf,table,testDir);
-      new LoadIncrementalHFiles(conf).doBulkLoad(testDir,table);
+    try (RegionLocator regionLocator=util.getConnection().getRegionLocator(TABLE_NAME)){
+      for (int i=0; i < 2; i++) {
+        Path testDir=util.getDataTestDirOnTestFS("testExcludeAllFromMinorCompaction_" + i);
+        runIncrementalPELoad(conf,table,regionLocator,testDir);
+        new LoadIncrementalHFiles(conf).doBulkLoad(testDir,admin,table,regionLocator);
+      }
     }
-    int expectedRows=2 * NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
+     int expectedRows=2 * NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
     assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
     assertEquals(2,fs.listStatus(storePath).length);
     admin.compact(TABLE_NAME.getName());
