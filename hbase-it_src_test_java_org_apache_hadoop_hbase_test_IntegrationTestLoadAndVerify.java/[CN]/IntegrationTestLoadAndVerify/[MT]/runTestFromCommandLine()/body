@@ -2,17 +2,27 @@
   IntegrationTestingUtility.setUseDistributedCluster(getConf());
   boolean doLoad=false;
   boolean doVerify=false;
+  boolean doSearch=false;
   boolean doDelete=getConf().getBoolean("loadmapper.deleteAfter",true);
   int numPresplits=getConf().getInt("loadmapper.numPresplits",40);
-  if (toRun.equals("load")) {
+  if (toRun.equalsIgnoreCase("load")) {
     doLoad=true;
   }
- else   if (toRun.equals("verify")) {
+ else   if (toRun.equalsIgnoreCase("verify")) {
     doVerify=true;
   }
- else   if (toRun.equals("loadAndVerify")) {
+ else   if (toRun.equalsIgnoreCase("loadAndVerify")) {
     doLoad=true;
     doVerify=true;
+  }
+ else   if (toRun.equalsIgnoreCase("search")) {
+    doLoad=false;
+    doVerify=false;
+    doSearch=true;
+    if (keysDir == null) {
+      System.err.println("Usage: search <KEYS_DIR>]");
+      return 1;
+    }
   }
  else {
     System.err.println("Invalid argument " + toRun);
@@ -22,17 +32,20 @@
   TableName table=getTablename();
   HTableDescriptor htd=new HTableDescriptor(table);
   htd.addFamily(new HColumnDescriptor(TEST_FAMILY));
-  try (Connection conn=ConnectionFactory.createConnection(getConf());Admin admin=conn.getAdmin()){
-    if (doLoad) {
+  if (doLoad) {
+    try (Connection conn=ConnectionFactory.createConnection(getConf());Admin admin=conn.getAdmin()){
       admin.createTable(htd,Bytes.toBytes(0L),Bytes.toBytes(-1L),numPresplits);
       doLoad(getConf(),htd);
     }
-  }
-   if (doVerify) {
+   }
+  if (doVerify) {
     doVerify(getConf(),htd);
     if (doDelete) {
       getTestingUtil(getConf()).deleteTable(htd.getTableName());
     }
+  }
+  if (doSearch) {
+    return doSearch(getConf(),keysDir);
   }
   return 0;
 }
