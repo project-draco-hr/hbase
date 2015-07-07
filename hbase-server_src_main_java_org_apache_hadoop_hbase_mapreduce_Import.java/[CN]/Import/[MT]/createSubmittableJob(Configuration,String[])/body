@@ -16,7 +16,26 @@
  catch (  Exception e) {
     throw new IOException(e);
   }
-  if (hfileOutPath != null) {
+  if (hfileOutPath != null && conf.getBoolean(HAS_LARGE_RESULT,false)) {
+    LOG.info("Use Large Result!!");
+    try (Connection conn=ConnectionFactory.createConnection(conf);Table table=conn.getTable(tableName);RegionLocator regionLocator=conn.getRegionLocator(tableName)){
+      HFileOutputFormat2.configureIncrementalLoad(job,table.getTableDescriptor(),regionLocator);
+      job.setMapperClass(KeyValueSortImporter.class);
+      job.setReducerClass(KeyValueReducer.class);
+      Path outputDir=new Path(hfileOutPath);
+      FileOutputFormat.setOutputPath(job,outputDir);
+      job.setMapOutputKeyClass(KeyValueWritableComparable.class);
+      job.setMapOutputValueClass(KeyValue.class);
+      job.getConfiguration().setClass("mapreduce.job.output.key.comparator.class",KeyValueWritableComparable.KeyValueWritableComparator.class,RawComparator.class);
+      Path partitionsPath=new Path(TotalOrderPartitioner.getPartitionFile(job.getConfiguration()));
+      FileSystem fs=FileSystem.get(job.getConfiguration());
+      fs.deleteOnExit(partitionsPath);
+      job.setPartitionerClass(KeyValueWritableComparablePartitioner.class);
+      job.setNumReduceTasks(regionLocator.getStartKeys().length);
+      TableMapReduceUtil.addDependencyJars(job.getConfiguration(),com.google.common.base.Preconditions.class);
+    }
+   }
+ else   if (hfileOutPath != null) {
     LOG.info("writing to hfiles for bulk load.");
     job.setMapperClass(KeyValueImporter.class);
     try (Connection conn=ConnectionFactory.createConnection(conf);Table table=conn.getTable(tableName);RegionLocator regionLocator=conn.getRegionLocator(tableName)){
