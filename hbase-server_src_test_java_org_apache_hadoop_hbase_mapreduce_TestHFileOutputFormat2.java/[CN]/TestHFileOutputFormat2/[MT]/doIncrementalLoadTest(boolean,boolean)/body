@@ -1,16 +1,25 @@
 {
   util=new HBaseTestingUtility();
   Configuration conf=util.getConfiguration();
-  byte[][] splitKeys=generateRandomSplitKeys(4);
-  util.startMiniCluster();
+  conf.setBoolean(HFileOutputFormat2.LOCALITY_SENSITIVE_CONF_KEY,shouldKeepLocality);
+  int hostCount=1;
+  int regionNum=5;
+  if (shouldKeepLocality) {
+    hostCount=3;
+    regionNum=20;
+  }
+  byte[][] splitKeys=generateRandomSplitKeys(regionNum - 1);
+  String[] hostnames=new String[hostCount];
+  for (int i=0; i < hostCount; ++i) {
+    hostnames[i]="datanode_" + i;
+  }
+  util.startMiniCluster(1,hostCount,hostnames);
   Table table=util.createTable(TABLE_NAME,FAMILIES,splitKeys);
-  try (RegionLocator r=util.getConnection().getRegionLocator(TABLE_NAME)){
-    Admin admin=util.getConnection().getAdmin();
-    Path testDir=util.getDataTestDirOnTestFS("testLocalMRIncrementalLoad");
+  Path testDir=util.getDataTestDirOnTestFS("testLocalMRIncrementalLoad");
+  try (RegionLocator r=util.getConnection().getRegionLocator(TABLE_NAME);Admin admin=util.getConnection().getAdmin()){
     assertEquals("Should start with empty table",0,util.countRows(table));
-    int numRegions;
-    numRegions=r.getStartKeys().length;
-    assertEquals("Should make 5 regions",numRegions,5);
+    int numRegions=r.getStartKeys().length;
+    assertEquals("Should make " + regionNum + " regions",numRegions,regionNum);
     util.startMiniMapReduceCluster();
     runIncrementalPELoad(conf,table.getTableDescriptor(),r,testDir);
     assertEquals("HFOF should not touch actual table",0,util.countRows(table));
@@ -53,6 +62,15 @@
     }
     results.close();
     String tableDigestBefore=util.checksumRows(table);
+    HDFSBlocksDistribution hbd=new HDFSBlocksDistribution();
+    for (    HRegion region : util.getHBaseCluster().getRegions(TABLE_NAME)) {
+      hbd.add(region.getHDFSBlocksDistribution());
+    }
+    for (    String hostname : hostnames) {
+      float locality=hbd.getBlockLocalityIndex(hostname);
+      LOG.info("locality of [" + hostname + "]: "+ locality);
+      assertEquals(100,(int)(locality * 100));
+    }
     admin.disableTable(TABLE_NAME);
     while (!admin.isTableDisabled(TABLE_NAME)) {
       Thread.sleep(200);
@@ -63,6 +81,8 @@
     assertEquals("Data should remain after reopening of regions",tableDigestBefore,util.checksumRows(table));
   }
   finally {
+    testDir.getFileSystem(conf).delete(testDir,true);
+    util.deleteTable(TABLE_NAME);
     util.shutdownMiniMapReduceCluster();
     util.shutdownMiniCluster();
   }
