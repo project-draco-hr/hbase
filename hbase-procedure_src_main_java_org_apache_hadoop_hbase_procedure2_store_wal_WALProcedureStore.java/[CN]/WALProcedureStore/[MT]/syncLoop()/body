@@ -1,39 +1,50 @@
 {
   inSync.set(false);
-  while (isRunning()) {
-    lock.lock();
-    try {
-      if (slotIndex == 0) {
-        if (LOG.isTraceEnabled()) {
-          float rollTsSec=(System.currentTimeMillis() - lastRollTs) / 1000.0f;
-          LOG.trace(String.format("Waiting for data. flushed=%s (%s/sec)",StringUtils.humanSize(totalSynced.get()),StringUtils.humanSize(totalSynced.get() / rollTsSec)));
-        }
-        waitCond.await();
+  lock.lock();
+  try {
+    while (isRunning()) {
+      try {
         if (slotIndex == 0) {
-          continue;
+          if (LOG.isTraceEnabled()) {
+            float rollTsSec=getMillisFromLastRoll() / 1000.0f;
+            LOG.trace(String.format("Waiting for data. flushed=%s (%s/sec)",StringUtils.humanSize(totalSynced.get()),StringUtils.humanSize(totalSynced.get() / rollTsSec)));
+          }
+          waitCond.await(getMillisToNextPeriodicRoll(),TimeUnit.MILLISECONDS);
+          if (slotIndex == 0) {
+            checkAndTryRoll();
+            continue;
+          }
         }
+        long syncWaitSt=System.currentTimeMillis();
+        if (slotIndex != slots.length) {
+          slotCond.await(syncWaitMsec,TimeUnit.MILLISECONDS);
+        }
+        long syncWaitMs=System.currentTimeMillis() - syncWaitSt;
+        if (LOG.isTraceEnabled() && (syncWaitMs > 10 || slotIndex < slots.length)) {
+          float rollSec=getMillisFromLastRoll() / 1000.0f;
+          LOG.trace(String.format("Sync wait %s, slotIndex=%s , totalSynced=%s/sec",StringUtils.humanTimeDiff(syncWaitMs),slotIndex,StringUtils.humanSize(totalSynced.get()),StringUtils.humanSize(totalSynced.get() / rollSec)));
+        }
+        inSync.set(true);
+        totalSynced.addAndGet(syncSlots());
+        slotIndex=0;
+        inSync.set(false);
       }
-      long syncWaitSt=System.currentTimeMillis();
-      if (slotIndex != slots.length) {
-        slotCond.await(syncWaitMsec,TimeUnit.MILLISECONDS);
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        sendAbortProcessSignal();
+        syncException.compareAndSet(null,e);
+        throw e;
       }
-      long syncWaitMs=System.currentTimeMillis() - syncWaitSt;
-      if (LOG.isTraceEnabled() && (syncWaitMs > 10 || slotIndex < slots.length)) {
-        float rollSec=(System.currentTimeMillis() - lastRollTs) / 1000.0f;
-        LOG.trace("Sync wait " + StringUtils.humanTimeDiff(syncWaitMs) + ", slotIndex="+ slotIndex+ ", totalSynced="+ StringUtils.humanSize(totalSynced.get())+ " "+ StringUtils.humanSize(totalSynced.get() / rollSec)+ "/sec");
+catch (      Throwable t) {
+        syncException.compareAndSet(null,t);
+        throw t;
       }
-      inSync.set(true);
-      totalSynced.addAndGet(syncSlots());
-      slotIndex=0;
-      inSync.set(false);
-      syncCond.signalAll();
-    }
- catch (    InterruptedException e) {
-      Thread.currentThread().interrupt();
-      sendAbortProcessSignal();
-    }
  finally {
-      lock.unlock();
+        syncCond.signalAll();
+      }
     }
+  }
+  finally {
+    lock.unlock();
   }
 }

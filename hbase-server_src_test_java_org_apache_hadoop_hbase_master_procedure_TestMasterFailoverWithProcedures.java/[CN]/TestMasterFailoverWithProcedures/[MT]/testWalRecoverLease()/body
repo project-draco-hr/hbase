@@ -4,6 +4,8 @@
   HMaster firstMaster=UTIL.getHBaseCluster().getMaster();
   final CountDownLatch masterStoreAbort=new CountDownLatch(1);
   masterStore.registerListener(new ProcedureStore.ProcedureStoreListener(){
+    @Override public void postSync(){
+    }
     @Override public void abortProcess(){
       LOG.debug("Abort store of Master");
       masterStoreAbort.countDown();
@@ -16,6 +18,8 @@
   final WALProcedureStore backupStore3=new WALProcedureStore(firstMaster.getConfiguration(),firstMaster.getMasterFileSystem().getFileSystem(),((WALProcedureStore)masterStore).getLogDir(),new MasterProcedureEnv.WALStoreLeaseRecovery(backupMaster3));
   final CountDownLatch backupStore3Abort=new CountDownLatch(1);
   backupStore3.registerListener(new ProcedureStore.ProcedureStoreListener(){
+    @Override public void postSync(){
+    }
     @Override public void abortProcess(){
       LOG.debug("Abort store of backupMaster3");
       backupStore3Abort.countDown();
@@ -28,7 +32,13 @@
   HTableDescriptor htd=MasterProcedureTestingUtility.createHTD(TableName.valueOf("mtb"),"f");
   HRegionInfo[] regions=ModifyRegionUtils.createHRegionInfos(htd,null);
   LOG.debug("submit proc");
-  getMasterProcedureExecutor().submitProcedure(new CreateTableProcedure(getMasterProcedureExecutor().getEnvironment(),htd,regions));
+  try {
+    getMasterProcedureExecutor().submitProcedure(new CreateTableProcedure(getMasterProcedureExecutor().getEnvironment(),htd,regions));
+    fail("expected RuntimeException 'sync aborted'");
+  }
+ catch (  RuntimeException e) {
+    LOG.info("got " + e.getMessage());
+  }
   LOG.debug("wait master store abort");
   masterStoreAbort.await();
   LOG.debug("wait backup master to startup");
@@ -36,6 +46,12 @@
   assertEquals(true,firstMaster.isStopped());
   LOG.debug("wait the store to abort");
   backupStore3.getStoreTracker().setDeleted(1,false);
-  backupStore3.delete(1);
+  try {
+    backupStore3.delete(1);
+    fail("expected RuntimeException 'sync aborted'");
+  }
+ catch (  RuntimeException e) {
+    LOG.info("got " + e.getMessage());
+  }
   backupStore3Abort.await();
 }

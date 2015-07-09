@@ -1,5 +1,6 @@
 {
   int retry=0;
+  int logRolled=0;
   long totalSynced=0;
   do {
     try {
@@ -7,9 +8,17 @@
       break;
     }
  catch (    Throwable e) {
-      if (++retry == MAX_RETRIES_BEFORE_ABORT) {
-        LOG.error("Sync slot failed, abort.",e);
-        sendAbortProcessSignal();
+      if (++retry >= maxRetriesBeforeRoll) {
+        if (logRolled >= maxSyncFailureRoll) {
+          LOG.error("Sync slots after log roll failed, abort.",e);
+          sendAbortProcessSignal();
+          throw e;
+        }
+        if (!rollWriterOrDie()) {
+          throw e;
+        }
+        logRolled++;
+        retry=0;
       }
     }
   }

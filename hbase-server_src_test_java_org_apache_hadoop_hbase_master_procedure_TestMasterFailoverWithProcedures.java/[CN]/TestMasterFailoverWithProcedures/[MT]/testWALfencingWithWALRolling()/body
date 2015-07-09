@@ -1,0 +1,25 @@
+{
+  final ProcedureStore procStore=getMasterProcedureExecutor().getStore();
+  assertTrue("expected WALStore for this test",procStore instanceof WALProcedureStore);
+  HMaster firstMaster=UTIL.getHBaseCluster().getMaster();
+  HMaster backupMaster3=Mockito.mock(HMaster.class);
+  Mockito.doReturn(firstMaster.getConfiguration()).when(backupMaster3).getConfiguration();
+  Mockito.doReturn(true).when(backupMaster3).isActiveMaster();
+  final WALProcedureStore procStore2=new WALProcedureStore(firstMaster.getConfiguration(),firstMaster.getMasterFileSystem().getFileSystem(),((WALProcedureStore)procStore).getLogDir(),new MasterProcedureEnv.WALStoreLeaseRecovery(backupMaster3));
+  LOG.info("Starting new WALProcedureStore");
+  procStore2.start(1);
+  procStore2.recoverLease();
+  LOG.info("Inserting into second WALProcedureStore");
+  Procedure proc2=new TestSequentialProcedure();
+  procStore2.insert(proc2,null);
+  procStore2.rollWriterOrDie();
+  LOG.info("Inserting into first WALProcedureStore");
+  proc2=new TestSequentialProcedure();
+  try {
+    procStore.insert(proc2,null);
+    fail("expected RuntimeException 'sync aborted'");
+  }
+ catch (  RuntimeException e) {
+    LOG.info("got " + e.getMessage());
+  }
+}

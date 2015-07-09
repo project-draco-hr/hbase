@@ -1,2 +1,52 @@
 {
+  if (!isRunning()) {
+    throw new RuntimeException("the store must be running before inserting data");
+  }
+  if (logs.isEmpty()) {
+    throw new RuntimeException("recoverLease() must be called before inserting data");
+  }
+  long logId=-1;
+  lock.lock();
+  try {
+    while (true) {
+      if (!isRunning()) {
+        throw new RuntimeException("store no longer running");
+      }
+ else       if (isSyncAborted()) {
+        throw new RuntimeException("sync aborted",syncException.get());
+      }
+ else       if (inSync.get()) {
+        syncCond.await();
+      }
+ else       if (slotIndex == slots.length) {
+        slotCond.signal();
+        syncCond.await();
+      }
+ else {
+        break;
+      }
+    }
+    slots[slotIndex++]=slot;
+    logId=flushLogId;
+    if (slotIndex == 1) {
+      waitCond.signal();
+    }
+    if (slotIndex == slots.length) {
+      waitCond.signal();
+      slotCond.signal();
+    }
+    syncCond.await();
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    sendAbortProcessSignal();
+    throw new RuntimeException(e);
+  }
+ finally {
+    lock.unlock();
+    if (isSyncAborted()) {
+      throw new RuntimeException("sync aborted",syncException.get());
+    }
+  }
+  return logId;
 }
