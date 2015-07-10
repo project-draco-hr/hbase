@@ -8,12 +8,10 @@
     return r;
   }
   RegionLocations rl=RpcRetryingCallerWithReadReplicas.getRegionLocations(true,RegionReplicaUtil.DEFAULT_REPLICA_ID,cConnection,tableName,currentScannerCallable.getRow());
-  ResultBoundedCompletionService<Pair<Result[],ScannerCallable>> cs=new ResultBoundedCompletionService<Pair<Result[],ScannerCallable>>(new RpcRetryingCallerFactory(ScannerCallableWithReplicas.this.conf),pool,rl.size() * 5);
-  List<ExecutionException> exceptions=null;
-  int submitted=0, completed=0;
+  ResultBoundedCompletionService<Pair<Result[],ScannerCallable>> cs=new ResultBoundedCompletionService<Pair<Result[],ScannerCallable>>(RpcRetryingCallerFactory.instantiate(ScannerCallableWithReplicas.this.conf),pool,rl.size() * 5);
   AtomicBoolean done=new AtomicBoolean(false);
   replicaSwitched.set(false);
-  submitted+=addCallsForCurrentReplica(cs,rl);
+  addCallsForCurrentReplica(cs,rl);
   try {
     Future<Pair<Result[],ScannerCallable>> f=cs.poll(timeBeforeReplicas,TimeUnit.MICROSECONDS);
     if (f != null) {
@@ -25,9 +23,7 @@
     }
   }
  catch (  ExecutionException e) {
-    exceptions=new ArrayList<ExecutionException>(rl.size());
-    exceptions.add(e);
-    completed++;
+    RpcRetryingCallerWithReadReplicas.throwEnrichedException(e,retries);
   }
 catch (  CancellationException e) {
     throw new InterruptedIOException(e.getMessage());
@@ -35,25 +31,19 @@ catch (  CancellationException e) {
 catch (  InterruptedException e) {
     throw new InterruptedIOException(e.getMessage());
   }
-  submitted+=addCallsForOtherReplicas(cs,rl,0,rl.size() - 1);
+  addCallsForOtherReplicas(cs,rl,0,rl.size() - 1);
   try {
-    while (completed < submitted) {
-      try {
-        Future<Pair<Result[],ScannerCallable>> f=cs.take();
-        Pair<Result[],ScannerCallable> r=f.get();
-        if (r != null && r.getSecond() != null) {
-          updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
-        }
-        return r == null ? null : r.getFirst();
-      }
- catch (      ExecutionException e) {
-        if (exceptions == null)         exceptions=new ArrayList<ExecutionException>(rl.size());
-        exceptions.add(e);
-        completed++;
-      }
+    Future<Pair<Result[],ScannerCallable>> f=cs.take();
+    Pair<Result[],ScannerCallable> r=f.get();
+    if (r != null && r.getSecond() != null) {
+      updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
     }
+    return r == null ? null : r.getFirst();
   }
- catch (  CancellationException e) {
+ catch (  ExecutionException e) {
+    RpcRetryingCallerWithReadReplicas.throwEnrichedException(e,retries);
+  }
+catch (  CancellationException e) {
     throw new InterruptedIOException(e.getMessage());
   }
 catch (  InterruptedException e) {
@@ -61,9 +51,6 @@ catch (  InterruptedException e) {
   }
  finally {
     cs.cancelAll();
-  }
-  if (exceptions != null && !exceptions.isEmpty()) {
-    RpcRetryingCallerWithReadReplicas.throwEnrichedException(exceptions.get(0),retries);
   }
   return null;
 }
