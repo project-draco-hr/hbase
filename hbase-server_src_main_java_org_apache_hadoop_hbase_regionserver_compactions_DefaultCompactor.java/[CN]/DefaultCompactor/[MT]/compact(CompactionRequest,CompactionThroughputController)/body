@@ -4,16 +4,16 @@
   long smallestReadPoint=getSmallestReadPoint();
   List<StoreFileScanner> scanners;
   Collection<StoreFile> readersToClose;
-  if (this.conf.getBoolean("hbase.regionserver.compaction.private.readers",false)) {
+  if (this.conf.getBoolean("hbase.regionserver.compaction.private.readers",true)) {
     readersToClose=new ArrayList<StoreFile>(request.getFiles().size());
     for (    StoreFile f : request.getFiles()) {
       readersToClose.add(new StoreFile(f));
     }
-    scanners=createFileScanners(readersToClose,smallestReadPoint);
+    scanners=createFileScanners(readersToClose,smallestReadPoint,store.throttleCompaction(request.getSize()));
   }
  else {
     readersToClose=Collections.emptyList();
-    scanners=createFileScanners(request.getFiles(),smallestReadPoint);
+    scanners=createFileScanners(request.getFiles(),smallestReadPoint,store.throttleCompaction(request.getSize()));
   }
   StoreFile.Writer writer=null;
   List<Path> newFiles=new ArrayList<Path>();
@@ -35,7 +35,7 @@
         smallestReadPoint=Math.min(fd.minSeqIdToKeep,smallestReadPoint);
         cleanSeqId=true;
       }
-      writer=createTmpWriter(fd,smallestReadPoint);
+      writer=createTmpWriter(fd,store.throttleCompaction(request.getSize()));
       boolean finished=performCompaction(fd,scanner,writer,smallestReadPoint,cleanSeqId,throughputController,request.isAllFiles());
       if (!finished) {
         writer.close();

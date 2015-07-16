@@ -1,0 +1,36 @@
+{
+  FSDataInputStreamWrapper in;
+  FileStatus status;
+  final boolean doDropBehind=canUseDropBehind && cacheConf.shouldDropBehindCompaction();
+  if (this.link != null) {
+    in=new FSDataInputStreamWrapper(fs,this.link,doDropBehind);
+    status=this.link.getFileStatus(fs);
+  }
+ else   if (this.reference != null) {
+    Path referencePath=getReferredToFile(this.getPath());
+    in=new FSDataInputStreamWrapper(fs,referencePath,doDropBehind);
+    status=fs.getFileStatus(referencePath);
+  }
+ else {
+    in=new FSDataInputStreamWrapper(fs,this.getPath(),doDropBehind);
+    status=fs.getFileStatus(initialPath);
+  }
+  long length=status.getLen();
+  hdfsBlocksDistribution=computeHDFSBlocksDistribution(fs);
+  StoreFile.Reader reader=null;
+  if (this.coprocessorHost != null) {
+    reader=this.coprocessorHost.preStoreFileReaderOpen(fs,this.getPath(),in,length,cacheConf,reference);
+  }
+  if (reader == null) {
+    if (this.reference != null) {
+      reader=new HalfStoreFileReader(fs,this.getPath(),in,length,cacheConf,reference,conf);
+    }
+ else {
+      reader=new StoreFile.Reader(fs,status.getPath(),in,length,cacheConf,conf);
+    }
+  }
+  if (this.coprocessorHost != null) {
+    reader=this.coprocessorHost.postStoreFileReaderOpen(fs,this.getPath(),in,length,cacheConf,reference,reader);
+  }
+  return reader;
+}
