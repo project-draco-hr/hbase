@@ -1,71 +1,62 @@
 {
   int klen, vlen, tlen=0;
-  long memstoreTS=0;
-  int memstoreTSLen=0;
   int lastKeyValueSize=-1;
+  int pos=-1;
   do {
-    blockBuffer.mark();
-    klen=blockBuffer.getInt();
-    vlen=blockBuffer.getInt();
+    pos=blockBuffer.position();
+    long ll=blockBuffer.getLongStrictlyForward(pos);
+    klen=(int)(ll >> Integer.SIZE);
+    vlen=(int)(Bytes.MASK_FOR_LOWER_INT_IN_LONG ^ ll);
     if (klen < 0 || vlen < 0 || klen > blockBuffer.limit() || vlen > blockBuffer.limit()) {
       throw new IllegalStateException("Invalid klen " + klen + " or vlen "+ vlen+ ". Block offset: "+ block.getOffset()+ ", block length: "+ blockBuffer.limit()+ ", position: "+ blockBuffer.position()+ " (without header).");
     }
-    ByteBufferUtils.skip(blockBuffer,klen + vlen);
+    pos+=Bytes.SIZEOF_LONG;
+    blockBuffer.asSubByteBuffer(pos,klen,pair);
+    keyOnlyKv.setKey(pair.getFirst().array(),pair.getFirst().arrayOffset() + pair.getSecond(),klen);
+    int comp=reader.getComparator().compareKeyIgnoresMvcc(key,keyOnlyKv);
+    pos+=klen + vlen;
     if (this.reader.getFileContext().isIncludesTags()) {
-      tlen=((blockBuffer.get() & 0xff) << 8) ^ (blockBuffer.get() & 0xff);
+      tlen=((blockBuffer.getByteStrictlyForward(pos) & 0xff) << 8) ^ (blockBuffer.getByteStrictlyForward(pos + 1) & 0xff);
       if (tlen < 0 || tlen > blockBuffer.limit()) {
         throw new IllegalStateException("Invalid tlen " + tlen + ". Block offset: "+ block.getOffset()+ ", block length: "+ blockBuffer.limit()+ ", position: "+ blockBuffer.position()+ " (without header).");
       }
-      ByteBufferUtils.skip(blockBuffer,tlen);
+      pos+=tlen + (Bytes.SIZEOF_SHORT);
     }
     if (this.reader.shouldIncludeMemstoreTS()) {
-      if (this.reader.isDecodeMemstoreTS()) {
-        memstoreTS=Bytes.readAsVLong(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position());
-        memstoreTSLen=WritableUtils.getVIntSize(memstoreTS);
-      }
- else {
-        memstoreTS=0;
-        memstoreTSLen=1;
-      }
+      readMvccVersion(pos);
     }
-    blockBuffer.reset();
-    int keyOffset=blockBuffer.arrayOffset() + blockBuffer.position() + (Bytes.SIZEOF_INT * 2);
-    keyOnlyKv.setKey(blockBuffer.array(),keyOffset,klen);
-    int comp=reader.getComparator().compareKeyIgnoresMvcc(key,keyOnlyKv);
     if (comp == 0) {
       if (seekBefore) {
         if (lastKeyValueSize < 0) {
           throw new IllegalStateException("blockSeek with seekBefore " + "at the first key of the block: key=" + CellUtil.getCellKeyAsString(key) + ", blockOffset="+ block.getOffset()+ ", onDiskSize="+ block.getOnDiskSizeWithHeader());
         }
-        blockBuffer.position(blockBuffer.position() - lastKeyValueSize);
+        blockBuffer.moveBack(lastKeyValueSize);
         readKeyValueLen();
         return 1;
       }
       currKeyLen=klen;
       currValueLen=vlen;
       currTagsLen=tlen;
-      if (this.reader.shouldIncludeMemstoreTS()) {
-        currMemstoreTS=memstoreTS;
-        currMemstoreTSLen=memstoreTSLen;
-      }
       return 0;
     }
  else     if (comp < 0) {
-      if (lastKeyValueSize > 0)       blockBuffer.position(blockBuffer.position() - lastKeyValueSize);
+      if (lastKeyValueSize > 0) {
+        blockBuffer.moveBack(lastKeyValueSize);
+      }
       readKeyValueLen();
       if (lastKeyValueSize == -1 && blockBuffer.position() == 0) {
         return HConstants.INDEX_KEY_MAGIC;
       }
       return 1;
     }
-    lastKeyValueSize=klen + vlen + memstoreTSLen+ KEY_VALUE_LEN_SIZE;
-    if (this.reader.getFileContext().isIncludesTags()) {
+    lastKeyValueSize=klen + vlen + currMemstoreTSLen+ KEY_VALUE_LEN_SIZE;
+    if (reader.getFileContext().isIncludesTags()) {
       lastKeyValueSize+=tlen + Bytes.SIZEOF_SHORT;
     }
-    blockBuffer.position(blockBuffer.position() + lastKeyValueSize);
+    blockBuffer.skip(lastKeyValueSize);
   }
- while (blockBuffer.remaining() > 0);
-  blockBuffer.position(blockBuffer.position() - lastKeyValueSize);
+ while (blockBuffer.hasRemaining());
+  blockBuffer.moveBack(lastKeyValueSize);
   readKeyValueLen();
   return 1;
 }
