@@ -1,27 +1,16 @@
 {
   List<KeyValue> sampleKv=generator.generateTestKeyValues(NUMBER_OF_KV,includesTags);
   for (  DataBlockEncoding encoding : DataBlockEncoding.values()) {
+    if (this.useOffheapData && encoding == DataBlockEncoding.PREFIX_TREE)     continue;
     if (encoding.getEncoder() == null) {
       continue;
     }
     DataBlockEncoder encoder=encoding.getEncoder();
-    ByteBuffer encodedBuffer=encodeKeyValues(encoding,sampleKv,getEncodingContext(Compression.Algorithm.NONE,encoding));
-    Cell key=encoder.getFirstKeyCellInBlock(new MultiByteBuff(encodedBuffer));
-    KeyValue keyBuffer=null;
-    if (encoding == DataBlockEncoding.PREFIX_TREE) {
-      byte[] serializedKey=CellUtil.getCellKeySerializedAsKeyValueKey(key);
-      keyBuffer=KeyValueUtil.createKeyValueFromKey(serializedKey);
-    }
- else {
-      keyBuffer=KeyValueUtil.ensureKeyValue(key);
-    }
+    ByteBuffer encodedBuffer=encodeKeyValues(encoding,sampleKv,getEncodingContext(Compression.Algorithm.NONE,encoding),this.useOffheapData);
+    Cell key=encoder.getFirstKeyCellInBlock(new SingleByteBuff(encodedBuffer));
     KeyValue firstKv=sampleKv.get(0);
-    if (0 != CellComparator.COMPARATOR.compareKeyIgnoresMvcc(keyBuffer,firstKv)) {
-      int commonPrefix=0;
-      int length=Math.min(keyBuffer.getKeyLength(),firstKv.getKeyLength());
-      while (commonPrefix < length && keyBuffer.getBuffer()[keyBuffer.getKeyOffset() + commonPrefix] == firstKv.getBuffer()[firstKv.getKeyOffset() + commonPrefix]) {
-        commonPrefix++;
-      }
+    if (0 != CellComparator.COMPARATOR.compareKeyIgnoresMvcc(key,firstKv)) {
+      int commonPrefix=CellUtil.findCommonPrefixInFlatKey(key,firstKv,false,true);
       fail(String.format("Bug in '%s' commonPrefix %d",encoder.toString(),commonPrefix));
     }
   }
