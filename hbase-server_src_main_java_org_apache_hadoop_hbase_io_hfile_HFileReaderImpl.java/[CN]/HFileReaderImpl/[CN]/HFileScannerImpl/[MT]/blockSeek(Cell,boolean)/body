@@ -1,29 +1,29 @@
 {
   int klen, vlen, tlen=0;
   int lastKeyValueSize=-1;
-  int pos=-1;
+  int offsetFromPos;
   do {
-    pos=blockBuffer.position();
-    long ll=blockBuffer.getLongStrictlyForward(pos);
+    offsetFromPos=0;
+    long ll=blockBuffer.getLongAfterPosition(offsetFromPos);
     klen=(int)(ll >> Integer.SIZE);
     vlen=(int)(Bytes.MASK_FOR_LOWER_INT_IN_LONG ^ ll);
     if (klen < 0 || vlen < 0 || klen > blockBuffer.limit() || vlen > blockBuffer.limit()) {
       throw new IllegalStateException("Invalid klen " + klen + " or vlen "+ vlen+ ". Block offset: "+ block.getOffset()+ ", block length: "+ blockBuffer.limit()+ ", position: "+ blockBuffer.position()+ " (without header).");
     }
-    pos+=Bytes.SIZEOF_LONG;
-    blockBuffer.asSubByteBuffer(pos,klen,pair);
+    offsetFromPos+=Bytes.SIZEOF_LONG;
+    blockBuffer.asSubByteBuffer(blockBuffer.position() + offsetFromPos,klen,pair);
     keyOnlyKv.setKey(pair.getFirst().array(),pair.getFirst().arrayOffset() + pair.getSecond(),klen);
     int comp=reader.getComparator().compareKeyIgnoresMvcc(key,keyOnlyKv);
-    pos+=klen + vlen;
+    offsetFromPos+=klen + vlen;
     if (this.reader.getFileContext().isIncludesTags()) {
-      tlen=((blockBuffer.getByteStrictlyForward(pos) & 0xff) << 8) ^ (blockBuffer.getByteStrictlyForward(pos + 1) & 0xff);
+      tlen=((blockBuffer.getByteAfterPosition(offsetFromPos) & 0xff) << 8) ^ (blockBuffer.getByteAfterPosition(offsetFromPos + 1) & 0xff);
       if (tlen < 0 || tlen > blockBuffer.limit()) {
         throw new IllegalStateException("Invalid tlen " + tlen + ". Block offset: "+ block.getOffset()+ ", block length: "+ blockBuffer.limit()+ ", position: "+ blockBuffer.position()+ " (without header).");
       }
-      pos+=tlen + (Bytes.SIZEOF_SHORT);
+      offsetFromPos+=tlen + (Bytes.SIZEOF_SHORT);
     }
     if (this.reader.shouldIncludeMemstoreTS()) {
-      readMvccVersion(pos);
+      readMvccVersion(offsetFromPos);
     }
     if (comp == 0) {
       if (seekBefore) {
