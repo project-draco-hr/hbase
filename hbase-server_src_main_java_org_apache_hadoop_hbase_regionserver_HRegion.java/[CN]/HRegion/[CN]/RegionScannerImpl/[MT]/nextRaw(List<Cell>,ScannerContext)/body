@@ -2,18 +2,35 @@
   if (storeHeap == null) {
     throw new UnknownScannerException("Scanner was closed");
   }
-  boolean moreValues;
-  if (outResults.isEmpty()) {
-    moreValues=nextInternal(outResults,scannerContext);
-  }
+  boolean moreValues=false;
+  try {
+    if (outResults.isEmpty()) {
+      moreValues=nextInternal(outResults,scannerContext);
+    }
  else {
-    List<Cell> tmpList=new ArrayList<Cell>();
-    moreValues=nextInternal(tmpList,scannerContext);
-    outResults.addAll(tmpList);
+      List<Cell> tmpList=new ArrayList<Cell>();
+      moreValues=nextInternal(tmpList,scannerContext);
+      outResults.addAll(tmpList);
+    }
+    if (!scannerContext.partialResultFormed())     resetFilters();
+    if (isFilterDoneInternal()) {
+      moreValues=false;
+    }
+    if (copyCellsFromSharedMem && !outResults.isEmpty()) {
+      ListIterator<Cell> listItr=outResults.listIterator();
+      Cell cell=null;
+      while (listItr.hasNext()) {
+        cell=listItr.next();
+        if (cell instanceof ShareableMemory) {
+          listItr.set(((ShareableMemory)cell).cloneToCell());
+        }
+      }
+    }
   }
-  if (!scannerContext.partialResultFormed())   resetFilters();
-  if (isFilterDoneInternal()) {
-    moreValues=false;
+  finally {
+    if (copyCellsFromSharedMem) {
+      this.shipped();
+    }
   }
   return moreValues;
 }

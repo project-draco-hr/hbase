@@ -10,6 +10,8 @@
   HFileBlock prevBlock=null;
   EnumMap<BlockType,Integer> blockCountByType=new EnumMap<BlockType,Integer>(BlockType.class);
   DataBlockEncoding encodingInCache=encoderType.getEncoder().getDataBlockEncoding();
+  List<Long> cachedBlocksOffset=new ArrayList<Long>();
+  Map<Long,HFileBlock> cachedBlocks=new HashMap<Long,HFileBlock>();
   while (offset < reader.getTrailer().getLoadOnOpenDataOffset()) {
     long onDiskSize=-1;
     if (prevBlock != null) {
@@ -19,6 +21,8 @@
     BlockCacheKey blockCacheKey=new BlockCacheKey(reader.getName(),offset);
     HFileBlock fromCache=(HFileBlock)blockCache.getBlock(blockCacheKey,true,false,true);
     boolean isCached=fromCache != null;
+    cachedBlocksOffset.add(offset);
+    cachedBlocks.put(offset,fromCache);
     boolean shouldBeCached=cowType.shouldBeCached(block.getBlockType());
     assertTrue("shouldBeCached: " + shouldBeCached + "\n"+ "isCached: "+ isCached+ "\n"+ "Test description: "+ testDescription+ "\n"+ "block: "+ block+ "\n"+ "encodingInCache: "+ encodingInCache+ "\n"+ "blockCacheKey: "+ blockCacheKey,shouldBeCached == isCached);
     if (isCached) {
@@ -59,5 +63,23 @@
   while (scanner.next()) {
     scanner.getCell();
   }
+  Iterator<Long> iterator=cachedBlocksOffset.iterator();
+  while (iterator.hasNext()) {
+    Long entry=iterator.next();
+    BlockCacheKey blockCacheKey=new BlockCacheKey(reader.getName(),entry);
+    HFileBlock hFileBlock=cachedBlocks.get(entry);
+    if (hFileBlock != null) {
+      blockCache.returnBlock(blockCacheKey,hFileBlock);
+      if (cacheCompressedData) {
+        if (this.compress == Compression.Algorithm.NONE || cowType == CacheOnWriteType.INDEX_BLOCKS || cowType == CacheOnWriteType.BLOOM_BLOCKS) {
+          blockCache.returnBlock(blockCacheKey,hFileBlock);
+        }
+      }
+ else {
+        blockCache.returnBlock(blockCacheKey,hFileBlock);
+      }
+    }
+  }
+  scanner.shipped();
   reader.close();
 }

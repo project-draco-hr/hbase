@@ -18,18 +18,17 @@
       lockEntry=offsetLock.getLockEntry(bucketEntry.offset());
       if (bucketEntry.equals(backingMap.get(key))) {
         int len=bucketEntry.getLength();
-        ByteBuffer buf=ByteBuffer.allocate(len);
-        int lenRead=ioEngine.read(buf,bucketEntry.offset());
-        ByteBuff bb=new SingleByteBuff(buf);
-        if (lenRead != len) {
-          throw new RuntimeException("Only " + lenRead + " bytes read, "+ len+ " expected");
-        }
+        Pair<ByteBuff,MemoryType> pair=ioEngine.read(bucketEntry.offset(),len);
+        ByteBuff bb=pair.getFirst();
         CacheableDeserializer<Cacheable> deserializer=bucketEntry.deserializerReference(this.deserialiserMap);
-        Cacheable cachedBlock=deserializer.deserialize(bb,true);
+        Cacheable cachedBlock=deserializer.deserialize(bb,true,pair.getSecond());
         long timeTaken=System.nanoTime() - start;
         if (updateCacheMetrics) {
           cacheStats.hit(caching);
           cacheStats.ioHit(timeTaken);
+        }
+        if (pair.getSecond() == MemoryType.SHARED) {
+          bucketEntry.refCount.incrementAndGet();
         }
         bucketEntry.access(accessCount.incrementAndGet());
         if (this.ioErrorStartTime > 0) {

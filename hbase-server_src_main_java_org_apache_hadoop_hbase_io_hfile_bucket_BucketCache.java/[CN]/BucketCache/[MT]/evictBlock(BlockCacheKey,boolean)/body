@@ -1,0 +1,54 @@
+{
+  if (!cacheEnabled) {
+    return false;
+  }
+  RAMQueueEntry removedBlock=checkRamCache(cacheKey);
+  BucketEntry bucketEntry=backingMap.get(cacheKey);
+  if (bucketEntry == null) {
+    if (removedBlock != null) {
+      cacheStats.evicted(0);
+      return true;
+    }
+ else {
+      return false;
+    }
+  }
+  IdLock.Entry lockEntry=null;
+  try {
+    lockEntry=offsetLock.getLockEntry(bucketEntry.offset());
+    int refCount=bucketEntry.refCount.get();
+    if (refCount == 0) {
+      if (backingMap.remove(cacheKey,bucketEntry)) {
+        blockEvicted(cacheKey,bucketEntry,removedBlock == null);
+      }
+ else {
+        return false;
+      }
+    }
+ else {
+      if (!deletedBlock) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("This block " + cacheKey + " is still referred by "+ refCount+ " readers. Can not be freed now");
+        }
+        return false;
+      }
+ else {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("This block " + cacheKey + " is still referred by "+ refCount+ " readers. Can not be freed now. Hence will mark this"+ " for evicting at a later point");
+        }
+        bucketEntry.markedForEvict=true;
+      }
+    }
+  }
+ catch (  IOException ie) {
+    LOG.warn("Failed evicting block " + cacheKey);
+    return false;
+  }
+ finally {
+    if (lockEntry != null) {
+      offsetLock.releaseLockEntry(lockEntry);
+    }
+  }
+  cacheStats.evicted(bucketEntry.getCachedTime());
+  return true;
+}

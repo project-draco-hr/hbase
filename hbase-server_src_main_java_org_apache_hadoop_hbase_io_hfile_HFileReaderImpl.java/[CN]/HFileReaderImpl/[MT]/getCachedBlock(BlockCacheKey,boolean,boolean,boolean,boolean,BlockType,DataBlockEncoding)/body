@@ -4,7 +4,11 @@
     HFileBlock cachedBlock=(HFileBlock)cache.getBlock(cacheKey,cacheBlock,useLock,updateCacheMetrics);
     if (cachedBlock != null) {
       if (cacheConf.shouldCacheCompressed(cachedBlock.getBlockType().getCategory())) {
-        cachedBlock=cachedBlock.unpack(hfileContext,fsBlockReader);
+        HFileBlock compressedBlock=cachedBlock;
+        cachedBlock=compressedBlock.unpack(hfileContext,fsBlockReader);
+        if (compressedBlock != cachedBlock) {
+          cache.returnBlock(cacheKey,compressedBlock);
+        }
       }
       validateBlockType(cachedBlock,expectedBlockType);
       if (expectedDataBlockEncoding == null) {
@@ -14,6 +18,7 @@
       if (cachedBlock.getBlockType().isData() && !actualDataBlockEncoding.equals(expectedDataBlockEncoding)) {
         if (!expectedDataBlockEncoding.equals(DataBlockEncoding.NONE) && !actualDataBlockEncoding.equals(DataBlockEncoding.NONE)) {
           LOG.info("Evicting cached block with key " + cacheKey + " because of a data block encoding mismatch"+ "; expected: "+ expectedDataBlockEncoding+ ", actual: "+ actualDataBlockEncoding);
+          cache.returnBlock(cacheKey,cachedBlock);
           cache.evictBlock(cacheKey);
         }
         return null;

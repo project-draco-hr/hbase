@@ -1,0 +1,57 @@
+{
+  int counter=NO_OF_THREADS;
+  if (CustomInnerRegionObserver.waitForGets.get()) {
+    counter=counter - 1;
+    while (CustomInnerRegionObserver.countOfGets.get() < NO_OF_THREADS) {
+      Thread.sleep(100);
+    }
+  }
+ else {
+    while (CustomInnerRegionObserver.countOfNext.get() < NO_OF_THREADS) {
+      Thread.sleep(100);
+    }
+  }
+  Iterator<CachedBlock> iterator=cache.iterator();
+  int refCount=0;
+  while (iterator.hasNext()) {
+    CachedBlock next=iterator.next();
+    BlockCacheKey cacheKey=new BlockCacheKey(next.getFilename(),next.getOffset());
+    if (cache instanceof BucketCache) {
+      refCount=((BucketCache)cache).getRefCount(cacheKey);
+    }
+ else     if (cache instanceof CombinedBlockCache) {
+      refCount=((CombinedBlockCache)cache).getRefCount(cacheKey);
+    }
+ else {
+      continue;
+    }
+    System.out.println(" the refcount is " + refCount + " block is "+ cacheKey);
+    if (CustomInnerRegionObserver.waitForGets.get()) {
+      if (expectOnlyZero) {
+        assertTrue(refCount == 0);
+      }
+      if (refCount != 0) {
+        if (getClosed) {
+          assertEquals(refCount,CustomInnerRegionObserver.countOfGets.get());
+        }
+ else {
+          assertEquals(refCount,CustomInnerRegionObserver.countOfGets.get() + (NO_OF_THREADS));
+        }
+      }
+    }
+ else {
+      if (expectOnlyZero) {
+        assertTrue(refCount == 0);
+      }
+      if (refCount != 0) {
+        if (getLatch == null || wrappedCp) {
+          assertEquals(refCount,CustomInnerRegionObserver.countOfNext.get());
+        }
+ else {
+          assertEquals(refCount,CustomInnerRegionObserver.countOfNext.get() + (NO_OF_THREADS));
+        }
+      }
+    }
+  }
+  CustomInnerRegionObserver.getCdl().get().countDown();
+}

@@ -1,0 +1,37 @@
+{
+  if (!cacheEnabled) {
+    return false;
+  }
+  RAMQueueEntry removedBlock=checkRamCache(cacheKey);
+  BucketEntry bucketEntry=backingMap.get(cacheKey);
+  if (bucketEntry == null) {
+    if (removedBlock != null) {
+      cacheStats.evicted(0);
+      return true;
+    }
+ else {
+      return false;
+    }
+  }
+  IdLock.Entry lockEntry=null;
+  try {
+    lockEntry=offsetLock.getLockEntry(bucketEntry.offset());
+    if (backingMap.remove(cacheKey,bucketEntry)) {
+      blockEvicted(cacheKey,bucketEntry,removedBlock == null);
+    }
+ else {
+      return false;
+    }
+  }
+ catch (  IOException ie) {
+    LOG.warn("Failed evicting block " + cacheKey);
+    return false;
+  }
+ finally {
+    if (lockEntry != null) {
+      offsetLock.releaseLockEntry(lockEntry);
+    }
+  }
+  cacheStats.evicted(bucketEntry.getCachedTime());
+  return true;
+}

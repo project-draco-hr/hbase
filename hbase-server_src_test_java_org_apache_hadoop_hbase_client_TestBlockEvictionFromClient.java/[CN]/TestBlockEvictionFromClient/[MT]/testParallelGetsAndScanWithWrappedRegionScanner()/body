@@ -1,0 +1,39 @@
+{
+  HTable table=null;
+  try {
+    latch=new CountDownLatch(2);
+    getLatch=new CountDownLatch(1);
+    TableName tableName=TableName.valueOf("testParallelGetsAndScanWithWrappedRegionScanner");
+    table=TEST_UTIL.createTable(tableName,FAMILIES_1,1,1024,CustomInnerRegionObserverWrapper.class.getName());
+    RegionLocator locator=table.getRegionLocator();
+    String regionName=locator.getAllRegionLocations().get(0).getRegionInfo().getEncodedName();
+    Region region=TEST_UTIL.getRSForFirstRegionInTable(tableName).getFromOnlineRegions(regionName);
+    Store store=region.getStores().iterator().next();
+    CacheConfig cacheConf=store.getCacheConfig();
+    cacheConf.setCacheDataOnWrite(true);
+    cacheConf.setEvictOnClose(true);
+    BlockCache cache=cacheConf.getBlockCache();
+    insertData(table);
+    System.out.println("Flushing cache");
+    region.flush(true);
+    CustomInnerRegionObserver.waitForGets.set(true);
+    ScanThread[] scanThreads=initiateScan(table,false);
+    GetThread[] getThreads=initiateGet(table,false,false);
+    Thread.sleep(100);
+    CustomInnerRegionObserver.waitForGets.set(false);
+    checkForBlockEviction(cache,false,false,true);
+    CustomInnerRegionObserver.getCdl().get().countDown();
+    for (    GetThread thread : getThreads) {
+      thread.join();
+    }
+    getLatch.countDown();
+    for (    ScanThread thread : scanThreads) {
+      thread.join();
+    }
+  }
+  finally {
+    if (table != null) {
+      table.close();
+    }
+  }
+}

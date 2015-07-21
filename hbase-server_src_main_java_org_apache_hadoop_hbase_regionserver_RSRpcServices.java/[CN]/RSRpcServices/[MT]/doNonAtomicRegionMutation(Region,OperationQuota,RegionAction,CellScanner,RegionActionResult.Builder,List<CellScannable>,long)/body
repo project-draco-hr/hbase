@@ -1,12 +1,18 @@
 {
   List<ClientProtos.Action> mutations=null;
+  RpcCallContext context=RpcServer.getCurrentCall();
+  RegionScannersCloseCallBack closeCallBack=null;
   for (  ClientProtos.Action action : actions.getActionList()) {
     ClientProtos.ResultOrException.Builder resultOrExceptionBuilder=null;
     try {
       Result r=null;
       if (action.hasGet()) {
+        if (closeCallBack == null) {
+          closeCallBack=new RegionScannersCloseCallBack();
+          context.setCallBack(closeCallBack);
+        }
         Get get=ProtobufUtil.toGet(action.getGet());
-        r=region.get(get);
+        r=get(get,((HRegion)region),closeCallBack,context);
       }
  else       if (action.hasServiceCall()) {
         resultOrExceptionBuilder=ResultOrException.newBuilder();
@@ -49,7 +55,7 @@ throw new HBaseIOException("Unexpected Action type");
 }
 if (r != null) {
 ClientProtos.Result pbResult=null;
-if (isClientCellBlockSupport()) {
+if (isClientCellBlockSupport(context)) {
 pbResult=ProtobufUtil.toResultNoData(r);
 if (cellsToReturn == null) cellsToReturn=new ArrayList<CellScannable>();
 cellsToReturn.add(r);
