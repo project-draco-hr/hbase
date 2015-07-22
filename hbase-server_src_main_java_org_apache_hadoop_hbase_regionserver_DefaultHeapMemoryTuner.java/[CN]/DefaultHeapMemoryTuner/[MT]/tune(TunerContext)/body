@@ -10,6 +10,7 @@
   StepDirection newTuneDirection=StepDirection.NEUTRAL;
   if (ignoreInitialPeriods < numPeriodsToIgnore) {
     ignoreInitialPeriods++;
+    rollingStatsForTunerSteps.insertDataValue(0);
     return NO_OP_TUNER_RESULT;
   }
   String tunerLog="";
@@ -59,14 +60,14 @@ default :
 break;
 }
 if (!isReverting) {
-if ((double)cacheMissCount < rollingStatsForCacheMisses.getMean() - rollingStatsForCacheMisses.getDeviation() / 2.00 && (double)totalFlushCount < rollingStatsForFlushes.getMean() - rollingStatsForFlushes.getDeviation() / 2.00) {
+if ((double)cacheMissCount < rollingStatsForCacheMisses.getMean() - rollingStatsForCacheMisses.getDeviation() * 0.80 && (double)totalFlushCount < rollingStatsForFlushes.getMean() - rollingStatsForFlushes.getDeviation() * 0.80) {
 newTuneDirection=StepDirection.NEUTRAL;
 }
- else if ((double)cacheMissCount > rollingStatsForCacheMisses.getMean() + rollingStatsForCacheMisses.getDeviation() / 2.00 && (double)totalFlushCount < rollingStatsForFlushes.getMean() - rollingStatsForFlushes.getDeviation() / 2.00) {
+ else if ((double)cacheMissCount > rollingStatsForCacheMisses.getMean() + rollingStatsForCacheMisses.getDeviation() * 0.80 && (double)totalFlushCount < rollingStatsForFlushes.getMean() - rollingStatsForFlushes.getDeviation() * 0.80) {
 newTuneDirection=StepDirection.INCREASE_BLOCK_CACHE_SIZE;
 tunerLog+="Increasing block cache size as observed increase in number of cache misses.";
 }
- else if ((double)cacheMissCount < rollingStatsForCacheMisses.getMean() - rollingStatsForCacheMisses.getDeviation() / 2.00 && (double)totalFlushCount > rollingStatsForFlushes.getMean() + rollingStatsForFlushes.getDeviation() / 2.00) {
+ else if ((double)cacheMissCount < rollingStatsForCacheMisses.getMean() - rollingStatsForCacheMisses.getDeviation() * 0.80 && (double)totalFlushCount > rollingStatsForFlushes.getMean() + rollingStatsForFlushes.getDeviation() * 0.80) {
 newTuneDirection=StepDirection.INCREASE_MEMSTORE_SIZE;
 tunerLog+="Increasing memstore size as observed increase in number of flushes.";
 }
@@ -79,26 +80,33 @@ newTuneDirection=StepDirection.NEUTRAL;
 }
 }
 }
-if (prevTuneDirection == StepDirection.NEUTRAL && newTuneDirection != StepDirection.NEUTRAL) {
+if (prevTuneDirection == StepDirection.NEUTRAL && newTuneDirection != StepDirection.NEUTRAL && rollingStatsForTunerSteps.getDeviation() < TUNER_STEP_EPS) {
 step=maximumStepSize;
 }
- else if (prevTuneDirection != newTuneDirection) {
+ else if ((newTuneDirection == StepDirection.INCREASE_MEMSTORE_SIZE && decayingTunerStepSizeSum < 0) || (newTuneDirection == StepDirection.INCREASE_BLOCK_CACHE_SIZE && decayingTunerStepSizeSum > 0)) {
 step=step / 2.00f;
-if (step < minimumStepSize) {
-step=minimumStepSize;
 }
+if (step < minimumStepSize) {
+step=0.0f;
+newTuneDirection=StepDirection.NEUTRAL;
 }
 switch (newTuneDirection) {
 case INCREASE_BLOCK_CACHE_SIZE:
 newBlockCacheSize=context.getCurBlockCacheSize() + step;
 newMemstoreSize=context.getCurMemStoreSize() - step;
+rollingStatsForTunerSteps.insertDataValue(-(int)(step * 100000));
+decayingTunerStepSizeSum=(decayingTunerStepSizeSum - step) / 2.00f;
 break;
 case INCREASE_MEMSTORE_SIZE:
 newBlockCacheSize=context.getCurBlockCacheSize() - step;
 newMemstoreSize=context.getCurMemStoreSize() + step;
+rollingStatsForTunerSteps.insertDataValue((int)(step * 100000));
+decayingTunerStepSizeSum=(decayingTunerStepSizeSum + step) / 2.00f;
 break;
 default :
 prevTuneDirection=StepDirection.NEUTRAL;
+rollingStatsForTunerSteps.insertDataValue(0);
+decayingTunerStepSizeSum=(decayingTunerStepSizeSum) / 2.00f;
 return NO_OP_TUNER_RESULT;
 }
 if (newMemstoreSize > globalMemStorePercentMaxRange) {
