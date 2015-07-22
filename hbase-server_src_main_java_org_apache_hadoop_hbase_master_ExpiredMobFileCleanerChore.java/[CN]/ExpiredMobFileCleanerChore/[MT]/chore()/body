@@ -1,0 +1,41 @@
+{
+  try {
+    TableDescriptors htds=master.getTableDescriptors();
+    Map<String,HTableDescriptor> map=htds.getAll();
+    for (    HTableDescriptor htd : map.values()) {
+      for (      HColumnDescriptor hcd : htd.getColumnFamilies()) {
+        if (hcd.isMobEnabled() && hcd.getMinVersions() == 0) {
+          boolean tableLocked=false;
+          TableLock lock=null;
+          try {
+            if (tableLockManager != null) {
+              lock=tableLockManager.readLock(MobUtils.getTableLockName(htd.getTableName()),"Run ExpiredMobFileCleanerChore");
+              lock.acquire();
+            }
+            tableLocked=true;
+            cleaner.cleanExpiredMobFiles(htd.getTableName().getNameAsString(),hcd);
+          }
+ catch (          LockTimeoutException e) {
+            LOG.info("Fail to acquire the lock because of timeout, maybe a" + " MobFileCompactor is running",e);
+          }
+catch (          Exception e) {
+            LOG.error("Fail to clean the expired mob files for the column " + hcd.getNameAsString() + " in the table "+ htd.getNameAsString(),e);
+          }
+ finally {
+            if (lock != null && tableLocked) {
+              try {
+                lock.release();
+              }
+ catch (              IOException e) {
+                LOG.error("Fail to release the read lock for the table " + htd.getNameAsString(),e);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+ catch (  Exception e) {
+    LOG.error("Fail to clean the expired mob files",e);
+  }
+}

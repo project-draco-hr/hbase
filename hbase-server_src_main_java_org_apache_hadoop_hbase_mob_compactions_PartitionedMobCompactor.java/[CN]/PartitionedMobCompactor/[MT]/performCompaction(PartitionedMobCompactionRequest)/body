@@ -1,0 +1,32 @@
+{
+  List<Path> delFilePaths=new ArrayList<Path>();
+  for (  FileStatus delFile : request.delFiles) {
+    delFilePaths.add(delFile.getPath());
+  }
+  List<Path> newDelPaths=compactDelFiles(request,delFilePaths);
+  List<StoreFile> newDelFiles=new ArrayList<StoreFile>();
+  List<Path> paths=null;
+  try {
+    for (    Path newDelPath : newDelPaths) {
+      StoreFile sf=new StoreFile(fs,newDelPath,conf,compactionCacheConfig,BloomType.NONE);
+      sf.createReader();
+      newDelFiles.add(sf);
+    }
+    LOG.info("After merging, there are " + newDelFiles.size() + " del files");
+    paths=compactMobFiles(request,newDelFiles);
+    LOG.info("After compaction, there are " + paths.size() + " mob files");
+  }
+  finally {
+    closeStoreFileReaders(newDelFiles);
+  }
+  if (request.type == CompactionType.ALL_FILES && !newDelPaths.isEmpty()) {
+    LOG.info("After a mob compaction with all files selected, archiving the del files " + newDelPaths);
+    try {
+      MobUtils.removeMobFiles(conf,fs,tableName,mobTableDir,column.getName(),newDelFiles);
+    }
+ catch (    IOException e) {
+      LOG.error("Failed to archive the del files " + newDelPaths,e);
+    }
+  }
+  return paths;
+}

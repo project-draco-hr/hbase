@@ -1,0 +1,35 @@
+{
+  Scan scan=new Scan();
+  scan.setAttribute(MobConstants.MOB_SCAN_RAW,Bytes.toBytes(Boolean.TRUE));
+  InternalScanner scanner=region.getScanner(scan);
+  List<Cell> kvs=new ArrayList<>();
+  boolean hasMore=true;
+  String fileName;
+  Set<String> files=new HashSet<>();
+  do {
+    kvs.clear();
+    hasMore=scanner.next(kvs);
+    for (    Cell kv : kvs) {
+      if (!MobUtils.isMobReferenceCell(kv)) {
+        continue;
+      }
+      if (!MobUtils.hasValidMobRefCellValue(kv)) {
+        continue;
+      }
+      int size=MobUtils.getMobValueLength(kv);
+      if (size <= mobCellThreshold) {
+        continue;
+      }
+      fileName=MobUtils.getMobFileName(kv);
+      if (fileName.isEmpty()) {
+        continue;
+      }
+      files.add(fileName);
+      Path familyPath=MobUtils.getMobFamilyPath(conf,htd.getTableName(),hcd.getNameAsString());
+      assertTrue(fs.exists(new Path(familyPath,fileName)));
+    }
+  }
+ while (hasMore);
+  scanner.close();
+  return files.size();
+}

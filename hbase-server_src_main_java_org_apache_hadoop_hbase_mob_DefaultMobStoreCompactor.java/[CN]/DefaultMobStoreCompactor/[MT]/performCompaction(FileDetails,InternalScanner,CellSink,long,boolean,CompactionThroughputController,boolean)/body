@@ -1,0 +1,130 @@
+{
+  if (!(scanner instanceof MobCompactionStoreScanner)) {
+    throw new IllegalArgumentException("The scanner should be an instance of MobCompactionStoreScanner");
+  }
+  MobCompactionStoreScanner compactionScanner=(MobCompactionStoreScanner)scanner;
+  int bytesWritten=0;
+  List<Cell> cells=new ArrayList<Cell>();
+  int closeCheckInterval=HStore.getCloseCheckInterval();
+  boolean hasMore;
+  Path path=MobUtils.getMobFamilyPath(conf,store.getTableName(),store.getColumnFamilyName());
+  byte[] fileName=null;
+  StoreFile.Writer mobFileWriter=null, delFileWriter=null;
+  long mobCells=0, deleteMarkersCount=0;
+  Tag tableNameTag=new Tag(TagType.MOB_TABLE_NAME_TAG_TYPE,store.getTableName().getName());
+  long cellsCountCompactedToMob=0, cellsCountCompactedFromMob=0;
+  long cellsSizeCompactedToMob=0, cellsSizeCompactedFromMob=0;
+  try {
+    try {
+      mobFileWriter=mobStore.createWriterInTmp(new Date(fd.latestPutTs),fd.maxKeyCount,store.getFamily().getCompression(),store.getRegionInfo().getStartKey());
+      fileName=Bytes.toBytes(mobFileWriter.getPath().getName());
+    }
+ catch (    IOException e) {
+      LOG.error("Failed to create mob writer, " + "we will continue the compaction by writing MOB cells directly in store files",e);
+    }
+    delFileWriter=mobStore.createDelFileWriterInTmp(new Date(fd.latestPutTs),fd.maxKeyCount,store.getFamily().getCompression(),store.getRegionInfo().getStartKey());
+    ScannerContext scannerContext=ScannerContext.newBuilder().setBatchLimit(compactionKVMax).build();
+    do {
+      hasMore=compactionScanner.next(cells,scannerContext);
+      for (      Cell c : cells) {
+        if (compactionScanner.isOutputDeleteMarkers() && CellUtil.isDelete(c)) {
+          delFileWriter.append(c);
+          deleteMarkersCount++;
+        }
+ else         if (mobFileWriter == null || c.getTypeByte() != KeyValue.Type.Put.getCode()) {
+          writer.append(c);
+        }
+ else         if (MobUtils.isMobReferenceCell(c)) {
+          if (MobUtils.hasValidMobRefCellValue(c)) {
+            int size=MobUtils.getMobValueLength(c);
+            if (size > mobSizeThreshold) {
+              writer.append(c);
+            }
+ else {
+              Cell mobCell=mobStore.resolve(c,false);
+              if (mobCell.getValueLength() != 0) {
+                CellUtil.setSequenceId(mobCell,c.getSequenceId());
+                writer.append(mobCell);
+                cellsCountCompactedFromMob++;
+                cellsSizeCompactedFromMob+=mobCell.getValueLength();
+              }
+ else {
+                writer.append(c);
+              }
+            }
+          }
+ else {
+            LOG.warn("The value format of the KeyValue " + c + " is wrong, its length is less than "+ Bytes.SIZEOF_INT);
+            writer.append(c);
+          }
+        }
+ else         if (c.getValueLength() <= mobSizeThreshold) {
+          writer.append(c);
+        }
+ else {
+          mobCells++;
+          mobFileWriter.append(c);
+          KeyValue reference=MobUtils.createMobRefKeyValue(c,fileName,tableNameTag);
+          writer.append(reference);
+          cellsCountCompactedToMob++;
+          cellsSizeCompactedToMob+=c.getValueLength();
+        }
+        ++progress.currentCompactedKVs;
+        if (closeCheckInterval > 0) {
+          bytesWritten+=KeyValueUtil.length(c);
+          if (bytesWritten > closeCheckInterval) {
+            bytesWritten=0;
+            if (!store.areWritesEnabled()) {
+              progress.cancel();
+              return false;
+            }
+          }
+        }
+      }
+      cells.clear();
+    }
+ while (hasMore);
+  }
+  finally {
+    if (mobFileWriter != null) {
+      mobFileWriter.appendMetadata(fd.maxSeqId,major,mobCells);
+      mobFileWriter.close();
+    }
+    if (delFileWriter != null) {
+      delFileWriter.appendMetadata(fd.maxSeqId,major,deleteMarkersCount);
+      delFileWriter.close();
+    }
+  }
+  if (mobFileWriter != null) {
+    if (mobCells > 0) {
+      mobStore.commitFile(mobFileWriter.getPath(),path);
+    }
+ else {
+      try {
+        store.getFileSystem().delete(mobFileWriter.getPath(),true);
+      }
+ catch (      IOException e) {
+        LOG.error("Failed to delete the temp mob file",e);
+      }
+    }
+  }
+  if (delFileWriter != null) {
+    if (deleteMarkersCount > 0) {
+      mobStore.commitFile(delFileWriter.getPath(),path);
+    }
+ else {
+      try {
+        store.getFileSystem().delete(delFileWriter.getPath(),true);
+      }
+ catch (      IOException e) {
+        LOG.error("Failed to delete the temp del file",e);
+      }
+    }
+  }
+  mobStore.updateCellsCountCompactedFromMob(cellsCountCompactedFromMob);
+  mobStore.updateCellsCountCompactedToMob(cellsCountCompactedToMob);
+  mobStore.updateCellsSizeCompactedFromMob(cellsSizeCompactedFromMob);
+  mobStore.updateCellsSizeCompactedToMob(cellsSizeCompactedToMob);
+  progress.complete();
+  return true;
+}

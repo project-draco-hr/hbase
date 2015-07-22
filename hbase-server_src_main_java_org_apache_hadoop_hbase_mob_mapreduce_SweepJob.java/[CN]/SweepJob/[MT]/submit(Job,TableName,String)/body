@@ -1,0 +1,45 @@
+{
+  Path tempDir=new Path(MobUtils.getMobHome(job.getConfiguration()),MobConstants.TEMP_DIR_NAME);
+  Path mobCompactionTempDir=new Path(tempDir,MobConstants.MOB_SWEEP_TOOL_COMPACTION_TEMP_DIR_NAME);
+  Path workingPath=MobUtils.getCompactionWorkingPath(mobCompactionTempDir,job.getJobName());
+  job.getConfiguration().set(WORKING_DIR_KEY,workingPath.toString());
+  fs.delete(workingPath,true);
+  fs.mkdirs(workingPath);
+  Path workingPathOfFiles=new Path(workingPath,"files");
+  Path workingPathOfNames=new Path(workingPath,"names");
+  job.getConfiguration().set(WORKING_FILES_DIR_KEY,workingPathOfFiles.toString());
+  Path allFileNamesPath=new Path(workingPathOfNames,WORKING_ALLNAMES_DIR);
+  job.getConfiguration().set(WORKING_ALLNAMES_FILE_KEY,allFileNamesPath.toString());
+  Path vistiedFileNamesPath=new Path(workingPathOfNames,WORKING_VISITED_DIR);
+  job.getConfiguration().set(WORKING_VISITED_DIR_KEY,vistiedFileNamesPath.toString());
+  fs.mkdirs(vistiedFileNamesPath);
+  Path mobStorePath=MobUtils.getMobFamilyPath(job.getConfiguration(),tn,familyName);
+  FileStatus[] files=fs.listStatus(mobStorePath);
+  Set<String> fileNames=new TreeSet<String>();
+  long mobCompactionDelay=job.getConfiguration().getLong(MOB_SWEEP_JOB_DELAY,ONE_DAY);
+  for (  FileStatus fileStatus : files) {
+    if (fileStatus.isFile() && !HFileLink.isHFileLink(fileStatus.getPath())) {
+      if (compactionStartTime - fileStatus.getModificationTime() > mobCompactionDelay) {
+        fileNames.add(fileStatus.getPath().getName());
+      }
+    }
+  }
+  FSDataOutputStream fout=null;
+  SequenceFile.Writer writer=null;
+  try {
+    fout=fs.create(allFileNamesPath,true);
+    writer=SequenceFile.createWriter(job.getConfiguration(),fout,String.class,String.class,CompressionType.NONE,null);
+    for (    String fileName : fileNames) {
+      writer.append(fileName,MobConstants.EMPTY_STRING);
+    }
+    writer.hflush();
+  }
+  finally {
+    if (writer != null) {
+      IOUtils.closeStream(writer);
+    }
+    if (fout != null) {
+      IOUtils.closeStream(fout);
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  final Path exportedSnapshot=new Path(rootDir,new Path(HConstants.SNAPSHOT_DIR_NAME,snapshotName));
+  final Set<String> snapshotFiles=new HashSet<String>();
+  final Path exportedArchive=new Path(rootDir,HConstants.HFILE_ARCHIVE_DIRECTORY);
+  SnapshotReferenceUtil.visitReferencedFiles(TEST_UTIL.getConfiguration(),fs,exportedSnapshot,new SnapshotReferenceUtil.SnapshotVisitor(){
+    @Override public void storeFile(    final HRegionInfo regionInfo,    final String family,    final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
+      if (MobUtils.isMobRegionInfo(regionInfo))       return;
+      String hfile=storeFile.getName();
+      snapshotFiles.add(hfile);
+      if (storeFile.hasReference()) {
+      }
+ else {
+        verifyNonEmptyFile(new Path(exportedArchive,new Path(FSUtils.getTableDir(new Path("./"),tableName),new Path(regionInfo.getEncodedName(),new Path(family,hfile)))));
+      }
+    }
+    @Override public void logFile(    final String server,    final String logfile) throws IOException {
+      snapshotFiles.add(logfile);
+      verifyNonEmptyFile(new Path(exportedSnapshot,new Path(server,logfile)));
+    }
+    private void verifyNonEmptyFile(    final Path path) throws IOException {
+      assertTrue(path + " should exists",fs.exists(path));
+      assertTrue(path + " should not be empty",fs.getFileStatus(path).getLen() > 0);
+    }
+  }
+);
+  SnapshotDescription desc=SnapshotDescriptionUtils.readSnapshotInfo(fs,exportedSnapshot);
+  assertTrue(desc.getName().equals(snapshotName));
+  assertTrue(desc.getTable().equals(tableName.getNameAsString()));
+  return snapshotFiles;
+}

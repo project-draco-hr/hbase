@@ -32,7 +32,22 @@
     }
     LOG.debug("Table '" + tableName + "' archived!");
   }
+  HTableDescriptor htd=env.getMasterServices().getTableDescriptors().get(tableName);
+  boolean hasMob=MobUtils.hasMobColumns(htd);
+  Path mobTableDir=null;
+  if (hasMob) {
+    mobTableDir=FSUtils.getTableDir(new Path(mfs.getRootDir(),MobConstants.MOB_DIR_NAME),tableName);
+    Path regionDir=new Path(mobTableDir,MobUtils.getMobRegionInfo(tableName).getEncodedName());
+    if (fs.exists(regionDir)) {
+      HFileArchiver.archiveRegion(fs,mfs.getRootDir(),mobTableDir,regionDir);
+    }
+  }
   if (!fs.delete(tempTableDir,true) && fs.exists(tempTableDir)) {
     throw new IOException("Couldn't delete " + tempTableDir);
+  }
+  if (hasMob && mobTableDir != null && fs.exists(mobTableDir)) {
+    if (!fs.delete(mobTableDir,true)) {
+      throw new IOException("Couldn't delete mob dir " + mobTableDir);
+    }
   }
 }
