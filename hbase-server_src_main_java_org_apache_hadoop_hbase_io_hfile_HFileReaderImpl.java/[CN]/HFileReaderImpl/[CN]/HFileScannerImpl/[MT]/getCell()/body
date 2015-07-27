@@ -1,24 +1,40 @@
 {
   if (!isSeeked())   return null;
-  KeyValue ret;
-  if (currTagsLen > 0) {
-    if (this.curBlock.getMemoryType() == MemoryType.SHARED) {
-      ret=new ShareableMemoryKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),getCellBufSize());
+  Cell ret;
+  int cellBufSize=getCellBufSize();
+  if (blockBuffer.hasArray()) {
+    if (currTagsLen > 0) {
+      if (this.curBlock.getMemoryType() == MemoryType.SHARED) {
+        ret=new ShareableMemoryKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),getCellBufSize());
+      }
+ else {
+        ret=new SizeCachedKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),cellBufSize);
+      }
     }
  else {
-      ret=new SizeCachedKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),getCellBufSize());
+      if (this.curBlock.getMemoryType() == MemoryType.SHARED) {
+        ret=new ShareableMemoryNoTagsKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),getCellBufSize());
+      }
+ else {
+        ret=new SizeCachedNoTagsKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),cellBufSize);
+      }
     }
   }
  else {
+    ByteBuffer buf=blockBuffer.asSubByteBuffer(cellBufSize);
     if (this.curBlock.getMemoryType() == MemoryType.SHARED) {
-      ret=new ShareableMemoryNoTagsKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),getCellBufSize());
+      ret=new ShareableMemoryOffheapKeyValue(buf,buf.position(),cellBufSize,currTagsLen > 0);
     }
  else {
-      ret=new SizeCachedNoTagsKeyValue(blockBuffer.array(),blockBuffer.arrayOffset() + blockBuffer.position(),getCellBufSize());
+      ret=new OffheapKeyValue(buf,buf.position(),cellBufSize,currTagsLen > 0);
     }
   }
   if (this.reader.shouldIncludeMemstoreTS()) {
-    ret.setSequenceId(currMemstoreTS);
+    try {
+      CellUtil.setSequenceId(ret,currMemstoreTS);
+    }
+ catch (    IOException e) {
+    }
   }
   return ret;
 }
