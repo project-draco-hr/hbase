@@ -1,0 +1,40 @@
+{
+  String tableNameString="testMoveRegion";
+  TableName tableName=TableName.valueOf(tableNameString);
+  Table t=TEST_UTIL.createTable(tableName,Bytes.toBytes("D"));
+  TEST_UTIL.waitUntilAllRegionsAssigned(t.getName());
+  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  HRegionInfo regionInfo;
+  byte[] row=Bytes.toBytes("r1");
+  for (int i=0; i < 30; i++) {
+    boolean moved=false;
+    try (RegionLocator locator=TEST_UTIL.getConnection().getRegionLocator(tableName)){
+      regionInfo=locator.getRegionLocation(row,true).getRegionInfo();
+    }
+     int currentServerIdx=cluster.getServerWith(regionInfo.getRegionName());
+    int destServerIdx=(currentServerIdx + 1) % cluster.getLiveRegionServerThreads().size();
+    HRegionServer currentServer=cluster.getRegionServer(currentServerIdx);
+    HRegionServer destServer=cluster.getRegionServer(destServerIdx);
+    byte[] destServerName=Bytes.toBytes(destServer.getServerName().getServerName());
+    Put p=new Put(row);
+    p.addColumn(Bytes.toBytes("D"),Bytes.toBytes("Zero"),Bytes.toBytes("VALUE"));
+    t.put(p);
+    MetricsRegionAggregateSource currentAgg=currentServer.getRegion(regionInfo.getRegionName()).getMetrics().getSource().getAggregateSource();
+    String prefix="namespace_" + NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR + "_table_"+ tableNameString+ "_region_"+ regionInfo.getEncodedName()+ "_metric";
+    metricsHelper.assertCounter(prefix + "_mutateCount",1,currentAgg);
+    try {
+      admin.move(regionInfo.getEncodedNameAsBytes(),destServerName);
+      moved=true;
+      Thread.sleep(5000);
+    }
+ catch (    IOException ioe) {
+      moved=false;
+    }
+    TEST_UTIL.waitUntilAllRegionsAssigned(t.getName());
+    if (moved) {
+      MetricsRegionAggregateSource destAgg=destServer.getRegion(regionInfo.getRegionName()).getMetrics().getSource().getAggregateSource();
+      metricsHelper.assertCounter(prefix + "_mutateCount",0,destAgg);
+    }
+  }
+  TEST_UTIL.deleteTable(tableName);
+}
