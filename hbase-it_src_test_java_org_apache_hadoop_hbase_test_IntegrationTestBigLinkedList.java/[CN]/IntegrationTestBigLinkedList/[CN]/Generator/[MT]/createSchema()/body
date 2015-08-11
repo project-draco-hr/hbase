@@ -7,15 +7,20 @@
       htd.addFamily(new HColumnDescriptor(FAMILY_NAME));
       htd.addFamily(new HColumnDescriptor(BIG_FAMILY_NAME));
       htd.addFamily(new HColumnDescriptor(TINY_FAMILY_NAME));
-      int numberOfServers=admin.getClusterStatus().getServers().size();
-      if (numberOfServers == 0) {
-        throw new IllegalStateException("No live regionservers");
+      if (conf.getBoolean(HBaseTestingUtility.PRESPLIT_TEST_TABLE_KEY,HBaseTestingUtility.PRESPLIT_TEST_TABLE)) {
+        int numberOfServers=admin.getClusterStatus().getServers().size();
+        if (numberOfServers == 0) {
+          throw new IllegalStateException("No live regionservers");
+        }
+        int regionsPerServer=conf.getInt(HBaseTestingUtility.REGIONS_PER_SERVER_KEY,HBaseTestingUtility.DEFAULT_REGIONS_PER_SERVER);
+        int totalNumberOfRegions=numberOfServers * regionsPerServer;
+        LOG.info("Number of live regionservers: " + numberOfServers + ", "+ "pre-splitting table into "+ totalNumberOfRegions+ " regions "+ "(default regions per server: "+ regionsPerServer+ ")");
+        byte[][] splits=new RegionSplitter.UniformSplit().split(totalNumberOfRegions);
+        admin.createTable(htd,splits);
       }
-      int regionsPerServer=conf.getInt(HBaseTestingUtility.REGIONS_PER_SERVER_KEY,HBaseTestingUtility.DEFAULT_REGIONS_PER_SERVER);
-      int totalNumberOfRegions=numberOfServers * regionsPerServer;
-      LOG.info("Number of live regionservers: " + numberOfServers + ", "+ "pre-splitting table into "+ totalNumberOfRegions+ " regions "+ "(default regions per server: "+ regionsPerServer+ ")");
-      byte[][] splits=new RegionSplitter.UniformSplit().split(totalNumberOfRegions);
-      admin.createTable(htd,splits);
+ else {
+        admin.createTable(htd);
+      }
     }
   }
  catch (  MasterNotRunningException e) {
