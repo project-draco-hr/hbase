@@ -1,2 +1,125 @@
 {
+  if (isClosed()) {
+    LOG.warn("Region " + this + " already closed");
+    return null;
+  }
+  if (coprocessorHost != null) {
+    status.setStatus("Running coprocessor pre-close hooks");
+    this.coprocessorHost.preClose(abort);
+  }
+  status.setStatus("Disabling compacts and flushes for region");
+  boolean canFlush=true;
+synchronized (writestate) {
+    canFlush=!writestate.readOnly;
+    writestate.writesEnabled=false;
+    LOG.debug("Closing " + this + ": disabling compactions & flushes");
+    waitForFlushesAndCompactions();
+  }
+  if (!abort && worthPreFlushing() && canFlush) {
+    status.setStatus("Pre-flushing region before close");
+    LOG.info("Running close preflush of " + getRegionInfo().getRegionNameAsString());
+    try {
+      internalFlushcache(status);
+    }
+ catch (    IOException ioe) {
+      status.setStatus("Failed pre-flush " + this + "; "+ ioe.getMessage());
+    }
+  }
+  this.closing.set(true);
+  status.setStatus("Disabling writes for close");
+  lock.writeLock().lock();
+  try {
+    if (this.isClosed()) {
+      status.abort("Already got closed by another process");
+      return null;
+    }
+    LOG.debug("Updates disabled for region " + this);
+    if (!abort && canFlush) {
+      int flushCount=0;
+      while (this.memstoreSize.get() > 0) {
+        try {
+          if (flushCount++ > 0) {
+            int actualFlushes=flushCount - 1;
+            if (actualFlushes > 5) {
+              throw new DroppedSnapshotException("Failed clearing memory after " + actualFlushes + " attempts on region: "+ Bytes.toStringBinary(getRegionInfo().getRegionName()));
+            }
+            LOG.info("Running extra flush, " + actualFlushes + " (carrying snapshot?) "+ this);
+          }
+          internalFlushcache(status);
+        }
+ catch (        IOException ioe) {
+          status.setStatus("Failed flush " + this + ", putting online again");
+synchronized (writestate) {
+            writestate.writesEnabled=true;
+          }
+          throw ioe;
+        }
+      }
+    }
+    Map<byte[],List<StoreFile>> result=new TreeMap<byte[],List<StoreFile>>(Bytes.BYTES_COMPARATOR);
+    if (!stores.isEmpty()) {
+      ThreadPoolExecutor storeCloserThreadPool=getStoreOpenAndCloseThreadPool("StoreCloserThread-" + getRegionInfo().getRegionNameAsString());
+      CompletionService<Pair<byte[],Collection<StoreFile>>> completionService=new ExecutorCompletionService<Pair<byte[],Collection<StoreFile>>>(storeCloserThreadPool);
+      for (      final Store store : stores.values()) {
+        long flushableSize=store.getFlushableSize();
+        if (!(abort || flushableSize == 0 || writestate.readOnly)) {
+          getRegionServerServices().abort("Assertion failed while closing store " + getRegionInfo().getRegionNameAsString() + " "+ store+ ". flushableSize expected=0, actual= "+ flushableSize+ ". Current memstoreSize="+ getMemstoreSize()+ ". Maybe a coprocessor "+ "operation failed and left the memstore in a partially updated state.",null);
+        }
+        completionService.submit(new Callable<Pair<byte[],Collection<StoreFile>>>(){
+          @Override public Pair<byte[],Collection<StoreFile>> call() throws IOException {
+            return new Pair<byte[],Collection<StoreFile>>(store.getFamily().getName(),store.close());
+          }
+        }
+);
+      }
+      try {
+        for (int i=0; i < stores.size(); i++) {
+          Future<Pair<byte[],Collection<StoreFile>>> future=completionService.take();
+          Pair<byte[],Collection<StoreFile>> storeFiles=future.get();
+          List<StoreFile> familyFiles=result.get(storeFiles.getFirst());
+          if (familyFiles == null) {
+            familyFiles=new ArrayList<StoreFile>();
+            result.put(storeFiles.getFirst(),familyFiles);
+          }
+          familyFiles.addAll(storeFiles.getSecond());
+        }
+      }
+ catch (      InterruptedException e) {
+        throw (InterruptedIOException)new InterruptedIOException().initCause(e);
+      }
+catch (      ExecutionException e) {
+        throw new IOException(e.getCause());
+      }
+ finally {
+        storeCloserThreadPool.shutdownNow();
+      }
+    }
+    status.setStatus("Writing region close event to WAL");
+    if (!abort && wal != null && getRegionServerServices() != null && !writestate.readOnly) {
+      writeRegionCloseMarker(wal);
+    }
+    this.closed.set(true);
+    if (!canFlush) {
+      addAndGetGlobalMemstoreSize(-memstoreSize.get());
+    }
+ else     if (memstoreSize.get() != 0) {
+      LOG.error("Memstore size is " + memstoreSize.get());
+    }
+    if (coprocessorHost != null) {
+      status.setStatus("Running coprocessor post-close hooks");
+      this.coprocessorHost.postClose(abort);
+    }
+    if (this.metricsRegion != null) {
+      this.metricsRegion.close();
+    }
+    if (this.metricsRegionWrapper != null) {
+      Closeables.closeQuietly(this.metricsRegionWrapper);
+    }
+    status.markComplete("Closed");
+    LOG.info("Closed " + this);
+    return result;
+  }
+  finally {
+    lock.writeLock().unlock();
+  }
 }
