@@ -9,23 +9,21 @@
     @Override public Object run() throws Exception {
       try (Connection connection=ConnectionFactory.createConnection(conf)){
         try (Table t=connection.getTable(TEST_TABLE.getTableName())){
-          Map<String,Permission> permsU1andOwner=new HashMap<String,Permission>();
-          permsU1andOwner.put(user1.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
-          permsU1andOwner.put(USER_OWNER.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
-          Map<String,Permission> permsU2andOwner=new HashMap<String,Permission>();
-          permsU2andOwner.put(user2.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
-          permsU2andOwner.put(USER_OWNER.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
+          Map<String,Permission> permsU1andOwner=prepareCellPermissions(new String[]{user1.getShortName(),USER_OWNER.getShortName()},Action.READ,Action.WRITE);
+          Map<String,Permission> permsU2andGUandOwner=prepareCellPermissions(new String[]{user1.getShortName(),AuthUtil.toGroupEntry(GROUP),USER_OWNER.getShortName()},Action.READ,Action.WRITE);
+          permsU2andGUandOwner.put(user2.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
+          permsU2andGUandOwner.put(USER_OWNER.getShortName(),new Permission(Permission.Action.READ,Permission.Action.WRITE));
           Put p=new Put(TEST_ROW1);
           p.add(TEST_FAMILY1,TEST_Q1,123,ZERO);
           p.setACL(permsU1andOwner);
           t.put(p);
           p=new Put(TEST_ROW1);
           p.add(TEST_FAMILY1,TEST_Q2,123,ZERO);
-          p.setACL(permsU2andOwner);
+          p.setACL(permsU2andGUandOwner);
           t.put(p);
           p=new Put(TEST_ROW1);
           p.add(TEST_FAMILY1,TEST_Q1,127,ZERO);
-          p.setACL(permsU2andOwner);
+          p.setACL(permsU2andGUandOwner);
           t.put(p);
           p=new Put(TEST_ROW1);
           p.add(TEST_FAMILY1,TEST_Q2,127,ZERO);
@@ -52,21 +50,6 @@
     }
   }
 );
-  user2.runAs(new PrivilegedExceptionAction<Void>(){
-    @Override public Void run() throws Exception {
-      try (Connection connection=ConnectionFactory.createConnection(conf)){
-        try (Table t=connection.getTable(TEST_TABLE.getTableName())){
-          Put p=new Put(TEST_ROW1);
-          p.add(TEST_FAMILY1,TEST_Q1,124,ZERO);
-          p.add(TEST_FAMILY1,TEST_Q2,ZERO);
-          t.put(p);
-          fail();
-        }
- catch (        Exception e) {
-        }
-      }
-       return null;
-    }
-  }
-);
+  verifyUserDeniedForPutMultipleVersions(user2,TEST_ROW1,TEST_Q1,TEST_Q2,ZERO);
+  verifyUserDeniedForPutMultipleVersions(GROUP_USER,TEST_ROW1,TEST_Q1,TEST_Q2,ZERO);
 }
