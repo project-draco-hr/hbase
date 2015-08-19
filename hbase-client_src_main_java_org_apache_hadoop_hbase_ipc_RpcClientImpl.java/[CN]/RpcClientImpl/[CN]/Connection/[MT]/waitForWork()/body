@@ -2,18 +2,22 @@
   long waitUntil=EnvironmentEdgeManager.currentTime() + minIdleTimeBeforeClose;
   while (true) {
     if (shouldCloseConnection.get()) {
-      return false;
+      return WaitForWorkResult.CLOSED;
     }
     if (!running.get()) {
-      markClosed(new IOException("stopped with " + calls.size() + " pending request(s)"));
-      return false;
+      if (markClosed(new IOException("stopped with " + calls.size() + " pending request(s)"))) {
+        return WaitForWorkResult.CALLER_SHOULD_CLOSE;
+      }
+      return WaitForWorkResult.CLOSED;
     }
     if (!calls.isEmpty()) {
-      return true;
+      return WaitForWorkResult.READ_RESPONSE;
     }
     if (EnvironmentEdgeManager.currentTime() >= waitUntil) {
-      markClosed(new IOException("idle connection closed with " + calls.size() + " pending request(s)"));
-      return false;
+      if (markClosed(new IOException("idle connection closed with " + calls.size() + " pending request(s)"))) {
+        return WaitForWorkResult.CALLER_SHOULD_CLOSE;
+      }
+      return WaitForWorkResult.CLOSED;
     }
     wait(Math.min(minIdleTimeBeforeClose,1000));
   }

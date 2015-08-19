@@ -2,24 +2,37 @@
   if (LOG.isTraceEnabled()) {
     LOG.trace(getName() + ": starting, connections " + connections.size());
   }
+  WaitForWorkResult result=WaitForWorkResult.CALLER_SHOULD_CLOSE;
   try {
-    while (waitForWork()) {
-      readResponse();
+    result=waitForWork();
+    while (result == WaitForWorkResult.READ_RESPONSE) {
+      if (readResponse()) {
+        result=WaitForWorkResult.CALLER_SHOULD_CLOSE;
+      }
+ else {
+        result=waitForWork();
+      }
     }
   }
  catch (  InterruptedException t) {
     if (LOG.isTraceEnabled()) {
       LOG.trace(getName() + ": interrupted while waiting for call responses");
     }
-    markClosed(ExceptionUtil.asInterrupt(t));
+    if (markClosed(ExceptionUtil.asInterrupt(t))) {
+      result=WaitForWorkResult.CALLER_SHOULD_CLOSE;
+    }
   }
 catch (  Throwable t) {
     if (LOG.isDebugEnabled()) {
       LOG.debug(getName() + ": unexpected throwable while waiting for call responses",t);
     }
-    markClosed(new IOException("Unexpected throwable while waiting call responses",t));
+    if (markClosed(new IOException("Unexpected throwable while waiting call responses",t))) {
+      result=WaitForWorkResult.CALLER_SHOULD_CLOSE;
+    }
   }
-  close();
+  if (result == WaitForWorkResult.CALLER_SHOULD_CLOSE) {
+    close();
+  }
   if (LOG.isTraceEnabled()) {
     LOG.trace(getName() + ": stopped, connections " + connections.size());
   }
