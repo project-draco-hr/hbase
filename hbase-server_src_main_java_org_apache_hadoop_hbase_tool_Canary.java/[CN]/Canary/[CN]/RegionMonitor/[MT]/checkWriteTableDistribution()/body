@@ -1,0 +1,28 @@
+{
+  if (!admin.tableExists(writeTableName)) {
+    int numberOfServers=admin.getClusterStatus().getServers().size();
+    if (numberOfServers == 0) {
+      throw new IllegalStateException("No live regionservers");
+    }
+    createWriteTable(numberOfServers);
+  }
+  if (!admin.isTableEnabled(writeTableName)) {
+    admin.enableTable(writeTableName);
+  }
+  int numberOfServers=admin.getClusterStatus().getServers().size();
+  List<Pair<HRegionInfo,ServerName>> pairs=MetaTableAccessor.getTableRegionsAndLocations(connection,writeTableName);
+  int numberOfRegions=pairs.size();
+  if (numberOfRegions < numberOfServers * regionsLowerLimit || numberOfRegions > numberOfServers * regionsUpperLimit) {
+    admin.disableTable(writeTableName);
+    admin.deleteTable(writeTableName);
+    createWriteTable(numberOfServers);
+  }
+  HashSet<ServerName> serverSet=new HashSet<ServerName>();
+  for (  Pair<HRegionInfo,ServerName> pair : pairs) {
+    serverSet.add(pair.getSecond());
+  }
+  int numberOfCoveredServers=serverSet.size();
+  if (numberOfCoveredServers < numberOfServers) {
+    admin.balancer();
+  }
+}

@@ -1,0 +1,33 @@
+{
+  Table table=null;
+  HTableDescriptor tableDesc=null;
+  try {
+    table=connection.getTable(region.getTable());
+    tableDesc=table.getTableDescriptor();
+    byte[] rowToCheck=region.getStartKey();
+    if (rowToCheck.length == 0) {
+      rowToCheck=new byte[]{0x0};
+    }
+    int writeValueSize=connection.getConfiguration().getInt(HConstants.HBASE_CANARY_WRITE_VALUE_SIZE_KEY,10);
+    for (    HColumnDescriptor column : tableDesc.getColumnFamilies()) {
+      Put put=new Put(rowToCheck);
+      byte[] value=new byte[writeValueSize];
+      Bytes.random(value);
+      put.addColumn(column.getName(),HConstants.EMPTY_BYTE_ARRAY,value);
+      try {
+        long startTime=System.currentTimeMillis();
+        table.put(put);
+        long time=System.currentTimeMillis() - startTime;
+        sink.publishWriteTiming(region,column,time);
+      }
+ catch (      Exception e) {
+        sink.publishWriteFailure(region,column,e);
+      }
+    }
+    table.close();
+  }
+ catch (  IOException e) {
+    sink.publishWriteFailure(region,e);
+  }
+  return null;
+}

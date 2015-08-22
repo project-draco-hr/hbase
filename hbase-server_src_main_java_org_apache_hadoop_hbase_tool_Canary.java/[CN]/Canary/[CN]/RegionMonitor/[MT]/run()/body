@@ -6,11 +6,23 @@
         String[] tables=generateMonitorTables(this.targets);
         this.initialized=true;
         for (        String table : tables) {
-          taskFutures.addAll(Canary.sniff(admin,sink,table,executor));
+          taskFutures.addAll(Canary.sniff(admin,sink,table,executor,TaskType.READ));
         }
       }
  else {
-        taskFutures.addAll(sniff());
+        taskFutures.addAll(sniff(TaskType.READ));
+      }
+      if (writeSniffing) {
+        if (EnvironmentEdgeManager.currentTime() - lastCheckTime > checkPeriod) {
+          try {
+            checkWriteTableDistribution();
+          }
+ catch (          IOException e) {
+            LOG.error("Check canary table distribution failed!",e);
+          }
+          lastCheckTime=EnvironmentEdgeManager.currentTime();
+        }
+        taskFutures.addAll(Canary.sniff(admin,sink,admin.getTableDescriptor(writeTableName),executor,TaskType.WRITE));
       }
       for (      Future<Void> future : taskFutures) {
         try {
