@@ -1,0 +1,16 @@
+{
+  final NamespaceDescriptor nsd=NamespaceDescriptor.create("testRecoveryAndDoubleExecution").build();
+  final String nsKey="foo";
+  final String nsValue="bar";
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  createNamespaceForTesting(nsd);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  nsd.setConfiguration(nsKey,nsValue);
+  long procId=procExec.submitProcedure(new ModifyNamespaceProcedure(procExec.getEnvironment(),nsd),nonceGroup,nonce);
+  int numberOfSteps=ModifyNamespaceState.values().length;
+  MasterProcedureTestingUtility.testRecoveryAndDoubleExecution(procExec,procId,numberOfSteps,ModifyNamespaceState.values());
+  ProcedureTestingUtility.assertProcNotFailed(procExec,procId);
+  NamespaceDescriptor currentNsDescriptor=UTIL.getHBaseAdmin().getNamespaceDescriptor(nsd.getName());
+  assertEquals(currentNsDescriptor.getConfigurationValue(nsKey),nsValue);
+}
