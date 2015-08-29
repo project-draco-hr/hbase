@@ -1,0 +1,65 @@
+{
+  if (!this.initialized) {
+    LOG.debug("Master has not been initialized, don't run balancer.");
+    return false;
+  }
+  int maximumBalanceTime=getBalancerCutoffTime();
+synchronized (this.balancer) {
+    if (!this.loadBalancerTracker.isBalancerOn())     return false;
+    if (this.assignmentManager.getRegionStates().isRegionsInTransition()) {
+      Map<String,RegionState> regionsInTransition=this.assignmentManager.getRegionStates().getRegionsInTransition();
+      boolean metaInTransition=assignmentManager.getRegionStates().isMetaRegionInTransition();
+      String prefix=force && !metaInTransition ? "R" : "Not r";
+      LOG.debug(prefix + "unning balancer because " + regionsInTransition.size()+ " region(s) in transition: "+ org.apache.commons.lang.StringUtils.abbreviate(regionsInTransition.toString(),256));
+      if (!force || metaInTransition)       return false;
+    }
+    if (this.serverManager.areDeadServersInProgress()) {
+      LOG.debug("Not running balancer because processing dead regionserver(s): " + this.serverManager.getDeadServers());
+      return false;
+    }
+    if (this.cpHost != null) {
+      try {
+        if (this.cpHost.preBalance()) {
+          LOG.debug("Coprocessor bypassing balancer request");
+          return false;
+        }
+      }
+ catch (      IOException ioe) {
+        LOG.error("Error invoking master coprocessor preBalance()",ioe);
+        return false;
+      }
+    }
+    Map<TableName,Map<ServerName,List<HRegionInfo>>> assignmentsByTable=this.assignmentManager.getRegionStates().getAssignmentsByTable();
+    List<RegionPlan> plans=new ArrayList<RegionPlan>();
+    this.balancer.setClusterStatus(getClusterStatus());
+    for (    Entry<TableName,Map<ServerName,List<HRegionInfo>>> e : assignmentsByTable.entrySet()) {
+      List<RegionPlan> partialPlans=this.balancer.balanceCluster(e.getKey(),e.getValue());
+      if (partialPlans != null)       plans.addAll(partialPlans);
+    }
+    long cutoffTime=System.currentTimeMillis() + maximumBalanceTime;
+    int rpCount=0;
+    long totalRegPlanExecTime=0;
+    if (plans != null && !plans.isEmpty()) {
+      for (      RegionPlan plan : plans) {
+        LOG.info("balance " + plan);
+        long balStartTime=System.currentTimeMillis();
+        this.assignmentManager.balance(plan);
+        totalRegPlanExecTime+=System.currentTimeMillis() - balStartTime;
+        rpCount++;
+        if (rpCount < plans.size() && (System.currentTimeMillis() + (totalRegPlanExecTime / rpCount)) > cutoffTime) {
+          LOG.debug("No more balancing till next balance run; maximumBalanceTime=" + maximumBalanceTime);
+          break;
+        }
+      }
+    }
+    if (this.cpHost != null) {
+      try {
+        this.cpHost.postBalance(rpCount < plans.size() ? plans.subList(0,rpCount) : plans);
+      }
+ catch (      IOException ioe) {
+        LOG.error("Error invoking master coprocessor postBalance()",ioe);
+      }
+    }
+  }
+  return true;
+}
