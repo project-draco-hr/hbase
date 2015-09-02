@@ -1,0 +1,30 @@
+{
+  FileSystem fs=FileSystem.get(CONF);
+  Path rootDir=new Path(dir + "testMemstoreSizeWithFlushCanceling");
+  FSHLog hLog=new FSHLog(fs,rootDir,"testMemstoreSizeWithFlushCanceling",CONF);
+  HRegion region=initHRegion(tableName,null,null,name.getMethodName(),CONF,false,Durability.SYNC_WAL,hLog,COLUMN_FAMILY_BYTES);
+  Store store=region.getStore(COLUMN_FAMILY_BYTES);
+  assertEquals(0,region.getMemstoreSize());
+  byte[] value=Bytes.toBytes(name.getMethodName());
+  Put put=new Put(value);
+  put.add(COLUMN_FAMILY_BYTES,Bytes.toBytes("abc"),value);
+  region.put(put);
+  long onePutSize=region.getMemstoreSize();
+  assertTrue(onePutSize > 0);
+  region.flush(true);
+  assertEquals("memstoreSize should be zero",0,region.getMemstoreSize());
+  assertEquals("flushable size should be zero",0,store.getFlushableSize());
+  RegionCoprocessorHost normalCPHost=region.getCoprocessorHost();
+  RegionCoprocessorHost mockedCPHost=Mockito.mock(RegionCoprocessorHost.class);
+  when(mockedCPHost.preFlush(isA(HStore.class),isA(InternalScanner.class))).thenReturn(null);
+  region.setCoprocessorHost(mockedCPHost);
+  region.put(put);
+  region.flush(true);
+  assertEquals("memstoreSize should NOT be zero",onePutSize,region.getMemstoreSize());
+  assertEquals("flushable size should NOT be zero",onePutSize,store.getFlushableSize());
+  region.setCoprocessorHost(normalCPHost);
+  region.flush(true);
+  assertEquals("memstoreSize should be zero",0,region.getMemstoreSize());
+  assertEquals("flushable size should be zero",0,store.getFlushableSize());
+  HBaseTestingUtility.closeRegionAndWAL(region);
+}
