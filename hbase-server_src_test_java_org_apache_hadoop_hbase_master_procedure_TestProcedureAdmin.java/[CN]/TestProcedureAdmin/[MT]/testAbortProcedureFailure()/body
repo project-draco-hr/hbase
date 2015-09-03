@@ -1,0 +1,16 @@
+{
+  final TableName tableName=TableName.valueOf("testAbortProcedureFailure");
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  HRegionInfo[] regions=MasterProcedureTestingUtility.createTable(procExec,tableName,null,"f");
+  UTIL.getHBaseAdmin().disableTable(tableName);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  long procId=procExec.submitProcedure(new DeleteTableProcedure(procExec.getEnvironment(),tableName),nonceGroup,nonce);
+  boolean abortResult=procExec.abort(procId,true);
+  assertFalse(abortResult);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,false);
+  ProcedureTestingUtility.restart(procExec);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.assertProcNotFailed(procExec,procId);
+  MasterProcedureTestingUtility.validateTableDeletion(UTIL.getHBaseCluster().getMaster(),tableName,regions,"f");
+}
