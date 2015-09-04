@@ -1,0 +1,125 @@
+{
+class DodgyFSLog extends FSHLog {
+    volatile boolean throwException=false;
+    CountDownLatch latch=new CountDownLatch(1);
+    public DodgyFSLog(    FileSystem fs,    Path root,    String logDir,    Configuration conf) throws IOException {
+      super(fs,root,logDir,conf);
+    }
+    @Override protected void afterCreatingZigZagLatch(){
+      if (throwException) {
+        try {
+          LOG.info("LATCHED");
+          this.latch.await();
+        }
+ catch (        InterruptedException e) {
+          e.printStackTrace();
+        }
+      }
+    }
+    @Override protected void beforeWaitOnSafePoint(){
+      if (throwException) {
+        LOG.info("COUNTDOWN");
+        while (this.latch.getCount() <= 0) {
+          Threads.sleep(10);
+        }
+        this.latch.countDown();
+      }
+    }
+    @Override protected Writer createWriterInstance(    Path path) throws IOException {
+      final Writer w=super.createWriterInstance(path);
+      return new Writer(){
+        @Override public void close() throws IOException {
+          w.close();
+        }
+        @Override public void sync() throws IOException {
+          if (throwException) {
+            throw new IOException("FAKE! Failed to replace a bad datanode...SYNC");
+          }
+          w.sync();
+        }
+        @Override public void append(        Entry entry) throws IOException {
+          if (throwException) {
+            throw new IOException("FAKE! Failed to replace a bad datanode...APPEND");
+          }
+          w.append(entry);
+        }
+        @Override public long getLength() throws IOException {
+          return w.getLength();
+        }
+      }
+;
+    }
+  }
+  Server server=Mockito.mock(Server.class);
+  Mockito.when(server.getConfiguration()).thenReturn(CONF);
+  Mockito.when(server.isStopped()).thenReturn(false);
+  Mockito.when(server.isAborted()).thenReturn(false);
+  RegionServerServices services=Mockito.mock(RegionServerServices.class);
+  FileSystem fs=FileSystem.get(CONF);
+  Path rootDir=new Path(dir + getName());
+  DodgyFSLog dodgyWAL=new DodgyFSLog(fs,rootDir,getName(),CONF);
+  Path originalWAL=dodgyWAL.getCurrentFileName();
+  LogRoller logRoller=new LogRoller(server,services);
+  logRoller.addWAL(dodgyWAL);
+  logRoller.start();
+  HTableDescriptor htd=new HTableDescriptor(TableName.META_TABLE_NAME);
+  final HRegion region=initHRegion(tableName,null,null,dodgyWAL);
+  byte[] bytes=Bytes.toBytes(getName());
+  try {
+    Put put=new Put(bytes);
+    put.addColumn(COLUMN_FAMILY_BYTES,Bytes.toBytes("1"),bytes);
+    WALKey key=new WALKey(region.getRegionInfo().getEncodedNameAsBytes(),htd.getTableName());
+    WALEdit edit=new WALEdit();
+    List<Cell> cells=new ArrayList<Cell>();
+    for (CellScanner cs=put.cellScanner(); cs.advance(); ) {
+      edit.add(cs.current());
+      cells.add(cs.current());
+    }
+    for (int i=0; i < 1000; i++) {
+      dodgyWAL.append(htd,region.getRegionInfo(),key,edit,region.getSequenceId(),true,cells);
+    }
+    dodgyWAL.throwException=true;
+    dodgyWAL.append(htd,region.getRegionInfo(),key,edit,region.getSequenceId(),true,cells);
+    boolean exception=false;
+    Mockito.verify(server,Mockito.atLeast(0)).abort(Mockito.anyString(),(Throwable)Mockito.anyObject());
+    try {
+      dodgyWAL.sync();
+    }
+ catch (    Exception e) {
+      exception=true;
+    }
+    assertTrue("Did not get sync exception",exception);
+    while (true) {
+      try {
+        Mockito.verify(server,Mockito.atLeast(1)).abort(Mockito.anyString(),(Throwable)Mockito.anyObject());
+        break;
+      }
+ catch (      WantedButNotInvoked t) {
+        Threads.sleep(1);
+      }
+    }
+    Thread t=new Thread("flusher"){
+      public void run(){
+        try {
+          region.flush(false);
+        }
+ catch (        IOException e) {
+          e.printStackTrace();
+        }
+      }
+    }
+;
+    t.setDaemon(true);
+    t.start();
+    while (!region.writestate.flushing)     Threads.sleep(1);
+    assertTrue(originalWAL != dodgyWAL.getCurrentFileName());
+    dodgyWAL.throwException=false;
+    region.put(put);
+  }
+  finally {
+    Mockito.when(server.isStopped()).thenReturn(true);
+    if (logRoller != null)     logRoller.interrupt();
+    if (region != null)     region.close();
+    if (dodgyWAL != null)     dodgyWAL.close();
+  }
+}

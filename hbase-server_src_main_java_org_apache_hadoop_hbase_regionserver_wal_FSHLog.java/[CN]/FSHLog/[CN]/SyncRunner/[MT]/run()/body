@@ -20,7 +20,7 @@
       }
       TraceScope scope=Trace.continueSpan(takeSyncFuture.getSpan());
       long start=System.nanoTime();
-      Throwable t=null;
+      Throwable lastException=null;
       try {
         Trace.addTimelineAnnotation("syncing writer");
         writer.sync();
@@ -28,20 +28,18 @@
         currentSequence=updateHighestSyncedSequence(currentSequence);
       }
  catch (      IOException e) {
-        LOG.error("Error syncing, request close of wal ",e);
-        t=e;
+        LOG.error("Error syncing, request close of WAL",e);
+        lastException=e;
       }
 catch (      Exception e) {
         LOG.warn("UNEXPECTED",e);
-        t=e;
+        lastException=e;
       }
  finally {
         takeSyncFuture.setSpan(scope.detach());
-        syncCount+=releaseSyncFuture(takeSyncFuture,currentSequence,t);
-        syncCount+=releaseSyncFutures(currentSequence,t);
-        if (t != null) {
-          requestLogRoll();
-        }
+        syncCount+=releaseSyncFuture(takeSyncFuture,currentSequence,lastException);
+        syncCount+=releaseSyncFutures(currentSequence,lastException);
+        if (lastException != null)         requestLogRoll();
  else         checkLogRoll();
       }
       postSync(System.nanoTime() - start,syncCount);

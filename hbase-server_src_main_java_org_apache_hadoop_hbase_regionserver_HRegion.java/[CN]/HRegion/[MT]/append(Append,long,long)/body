@@ -14,7 +14,7 @@
   startRegionOperation(Operation.APPEND);
   this.writeRequestsCount.increment();
   long mvccNum=0;
-  WriteEntry w=null;
+  WriteEntry writeEntry=null;
   WALKey walKey=null;
   RowLock rowLock=null;
   List<Cell> memstoreCells=new ArrayList<Cell>();
@@ -32,7 +32,7 @@
           }
         }
         mvccNum=MultiVersionConcurrencyControl.getPreAssignedWriteNumber(this.sequenceId);
-        w=mvcc.beginMemstoreInsertWithSeqNum(mvccNum);
+        writeEntry=mvcc.beginMemstoreInsertWithSeqNum(mvccNum);
         long now=EnvironmentEdgeManager.currentTime();
         for (        Map.Entry<byte[],List<Cell>> family : append.getFamilyCellMap().entrySet()) {
           Store store=stores.get(family.getKey());
@@ -149,9 +149,10 @@
     }
     if (doRollBackMemstore) {
       rollbackMemstore(memstoreCells);
+      if (writeEntry != null)       mvcc.cancelMemstoreInsert(writeEntry);
     }
-    if (w != null) {
-      mvcc.completeMemstoreInsertWithSeqNum(w,walKey);
+ else     if (writeEntry != null) {
+      mvcc.completeMemstoreInsertWithSeqNum(writeEntry,walKey);
     }
     closeRegionOperation(Operation.APPEND);
   }

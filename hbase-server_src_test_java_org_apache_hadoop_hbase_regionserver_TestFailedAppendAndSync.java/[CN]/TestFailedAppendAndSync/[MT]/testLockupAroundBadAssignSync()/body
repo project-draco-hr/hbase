@@ -1,0 +1,115 @@
+{
+class DodgyFSLog extends FSHLog {
+    volatile boolean throwSyncException=false;
+    volatile boolean throwAppendException=false;
+    public DodgyFSLog(    FileSystem fs,    Path root,    String logDir,    Configuration conf) throws IOException {
+      super(fs,root,logDir,conf);
+    }
+    @Override protected Writer createWriterInstance(    Path path) throws IOException {
+      final Writer w=super.createWriterInstance(path);
+      return new Writer(){
+        @Override public void close() throws IOException {
+          w.close();
+        }
+        @Override public void sync() throws IOException {
+          if (throwSyncException) {
+            throw new IOException("FAKE! Failed to replace a bad datanode...");
+          }
+          w.sync();
+        }
+        @Override public void append(        Entry entry) throws IOException {
+          if (throwAppendException) {
+            throw new IOException("FAKE! Failed to replace a bad datanode...");
+          }
+          w.append(entry);
+        }
+        @Override public long getLength() throws IOException {
+          return w.getLength();
+        }
+      }
+;
+    }
+  }
+  Server server=mock(Server.class);
+  when(server.getConfiguration()).thenReturn(CONF);
+  when(server.isStopped()).thenReturn(false);
+  when(server.isAborted()).thenReturn(false);
+  RegionServerServices services=mock(RegionServerServices.class);
+  FileSystem fs=FileSystem.get(CONF);
+  Path rootDir=new Path(dir + getName());
+  DodgyFSLog dodgyWAL=new DodgyFSLog(fs,rootDir,getName(),CONF);
+  LogRoller logRoller=new LogRoller(server,services);
+  logRoller.addWAL(dodgyWAL);
+  logRoller.start();
+  boolean threwOnSync=false;
+  boolean threwOnAppend=false;
+  boolean threwOnBoth=false;
+  HRegion region=initHRegion(tableName,null,null,dodgyWAL);
+  try {
+    byte[] value=Bytes.toBytes(getName());
+    try {
+      Put put=new Put(value);
+      put.addColumn(COLUMN_FAMILY_BYTES,Bytes.toBytes("1"),value);
+      region.put(put);
+    }
+ catch (    IOException ioe) {
+      fail();
+    }
+    try {
+      dodgyWAL.throwAppendException=true;
+      dodgyWAL.throwSyncException=false;
+      Put put=new Put(value);
+      put.addColumn(COLUMN_FAMILY_BYTES,Bytes.toBytes("3"),value);
+      region.put(put);
+    }
+ catch (    IOException ioe) {
+      threwOnAppend=true;
+    }
+    try {
+      dodgyWAL.throwAppendException=true;
+      dodgyWAL.throwSyncException=true;
+      Put put=new Put(value);
+      put.addColumn(COLUMN_FAMILY_BYTES,Bytes.toBytes("4"),value);
+      region.put(put);
+    }
+ catch (    IOException ioe) {
+      threwOnBoth=true;
+    }
+    Mockito.verify(server,Mockito.atLeast(0)).abort(Mockito.anyString(),(Throwable)Mockito.anyObject());
+    try {
+      dodgyWAL.throwAppendException=false;
+      dodgyWAL.throwSyncException=true;
+      Put put=new Put(value);
+      put.addColumn(COLUMN_FAMILY_BYTES,Bytes.toBytes("2"),value);
+      region.put(put);
+    }
+ catch (    IOException ioe) {
+      threwOnSync=true;
+    }
+    while (true) {
+      try {
+        Mockito.verify(server,Mockito.atLeast(1)).abort(Mockito.anyString(),(Throwable)Mockito.anyObject());
+        break;
+      }
+ catch (      WantedButNotInvoked t) {
+        Threads.sleep(1);
+      }
+    }
+  }
+  finally {
+    Mockito.when(server.isStopped()).thenReturn(true);
+    if (logRoller != null)     logRoller.interrupt();
+    if (region != null) {
+      try {
+        region.close(true);
+      }
+ catch (      DroppedSnapshotException e) {
+        LOG.info("On way out; expected!",e);
+      }
+    }
+    if (dodgyWAL != null)     dodgyWAL.close();
+    assertTrue("The regionserver should have thrown an exception",threwOnBoth);
+    assertTrue("The regionserver should have thrown an exception",threwOnAppend);
+    assertTrue("The regionserver should have thrown an exception",threwOnSync);
+  }
+}

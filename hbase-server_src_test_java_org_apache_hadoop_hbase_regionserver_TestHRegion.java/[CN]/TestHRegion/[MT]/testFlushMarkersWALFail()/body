@@ -5,8 +5,42 @@
   Path logDir=TEST_UTIL.getDataTestDirOnTestFS(method + "log");
   final Configuration walConf=new Configuration(TEST_UTIL.getConfiguration());
   FSUtils.setRootDir(walConf,logDir);
-  final WALFactory wals=new WALFactory(walConf,null,method);
-  WAL wal=spy(wals.getWAL(tableName.getName()));
+class FailAppendFlushMarkerWAL extends FSHLog {
+    volatile FlushAction[] flushActions=null;
+    public FailAppendFlushMarkerWAL(    FileSystem fs,    Path root,    String logDir,    Configuration conf) throws IOException {
+      super(fs,root,logDir,conf);
+    }
+    @Override protected Writer createWriterInstance(    Path path) throws IOException {
+      final Writer w=super.createWriterInstance(path);
+      return new Writer(){
+        @Override public void close() throws IOException {
+          w.close();
+        }
+        @Override public void sync() throws IOException {
+          w.sync();
+        }
+        @Override public void append(        Entry entry) throws IOException {
+          List<Cell> cells=entry.getEdit().getCells();
+          if (WALEdit.isMetaEditFamily(cells.get(0))) {
+            FlushDescriptor desc=WALEdit.getFlushDescriptor(cells.get(0));
+            if (desc != null) {
+              for (              FlushAction flushAction : flushActions) {
+                if (desc.getAction().equals(flushAction)) {
+                  throw new IOException("Failed to append flush marker! " + flushAction);
+                }
+              }
+            }
+          }
+          w.append(entry);
+        }
+        @Override public long getLength() throws IOException {
+          return w.getLength();
+        }
+      }
+;
+    }
+  }
+  FailAppendFlushMarkerWAL wal=new FailAppendFlushMarkerWAL(FileSystem.get(walConf),FSUtils.getRootDir(walConf),getName(),walConf);
   this.region=initHRegion(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,wal,family);
   try {
     int i=0;
@@ -14,8 +48,7 @@
     put.setDurability(Durability.SKIP_WAL);
     put.add(family,Bytes.toBytes(i),Bytes.toBytes(i));
     region.put(put);
-    IsFlushWALMarker isFlushWALMarker=new IsFlushWALMarker(FlushAction.START_FLUSH);
-    when(wal.append((HTableDescriptor)any(),(HRegionInfo)any(),(WALKey)any(),(WALEdit)argThat(isFlushWALMarker),(AtomicLong)any(),Mockito.anyBoolean(),(List<Cell>)any())).thenThrow(new IOException("Fail to append flush marker"));
+    wal.flushActions=new FlushAction[]{FlushAction.START_FLUSH};
     try {
       region.flush(true);
       fail("This should have thrown exception");
@@ -25,7 +58,8 @@
     }
 catch (    IOException expected) {
     }
-    isFlushWALMarker.set(FlushAction.COMMIT_FLUSH);
+    wal.rollWriter(true);
+    wal.flushActions=new FlushAction[]{FlushAction.COMMIT_FLUSH};
     try {
       region.flush(true);
       fail("This should have thrown exception");
@@ -36,9 +70,10 @@ catch (    IOException unexpected) {
       throw unexpected;
     }
     region.close();
+    wal.rollWriter(true);
     this.region=initHRegion(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW,method,CONF,false,Durability.USE_DEFAULT,wal,family);
     region.put(put);
-    isFlushWALMarker.set(FlushAction.COMMIT_FLUSH,FlushAction.ABORT_FLUSH);
+    wal.flushActions=new FlushAction[]{FlushAction.COMMIT_FLUSH,FlushAction.ABORT_FLUSH};
     try {
       region.flush(true);
       fail("This should have thrown exception");

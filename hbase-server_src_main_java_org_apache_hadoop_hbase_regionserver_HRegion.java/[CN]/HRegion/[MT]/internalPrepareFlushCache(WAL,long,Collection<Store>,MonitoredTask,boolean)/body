@@ -42,7 +42,7 @@
     }
     LOG.info("Flushing " + +storesToFlush.size() + "/"+ stores.size()+ " column families, memstore="+ StringUtils.byteDesc(this.memstoreSize.get())+ ((perCfExtras != null && perCfExtras.length() > 0) ? perCfExtras.toString() : "")+ ((wal != null) ? "" : "; WAL is null, using passed sequenceid=" + myseqid));
   }
-  MultiVersionConcurrencyControl.WriteEntry w=null;
+  MultiVersionConcurrencyControl.WriteEntry writeEntry=null;
   status.setStatus("Obtaining lock to block concurrent updates");
   this.updatesLock.writeLock().lock();
   status.setStatus("Preparing to flush by snapshotting stores in " + getRegionInfo().getEncodedName());
@@ -60,7 +60,7 @@
   long trxId=0;
   try {
     try {
-      w=mvcc.beginMemstoreInsert();
+      writeEntry=mvcc.beginMemstoreInsert();
       if (wal != null) {
         Long earliestUnflushedSequenceIdForTheRegion=wal.startCacheFlush(encodedRegionName,flushedFamilyNames);
         if (earliestUnflushedSequenceIdForTheRegion == null) {
@@ -114,16 +114,17 @@
         wal.sync();
       }
  catch (      IOException ioe) {
-        LOG.warn("Unexpected exception while wal.sync(), ignoring. Exception: " + StringUtils.stringifyException(ioe));
+        wal.abortCacheFlush(this.getRegionInfo().getEncodedNameAsBytes());
+        throw ioe;
       }
     }
-    w.setWriteNumber(flushOpSeqId);
-    mvcc.waitForPreviousTransactionsComplete(w);
-    w=null;
+    writeEntry.setWriteNumber(flushOpSeqId);
+    mvcc.waitForPreviousTransactionsComplete(writeEntry);
+    writeEntry=null;
   }
   finally {
-    if (w != null) {
-      mvcc.advanceMemstore(w);
+    if (writeEntry != null) {
+      mvcc.advanceMemstore(writeEntry);
     }
   }
   return new PrepareFlushResult(storeFlushCtxs,committedFiles,storeFlushableSize,startTime,flushOpSeqId,flushedSeqId,totalFlushableSizeOfFlushableStores);
