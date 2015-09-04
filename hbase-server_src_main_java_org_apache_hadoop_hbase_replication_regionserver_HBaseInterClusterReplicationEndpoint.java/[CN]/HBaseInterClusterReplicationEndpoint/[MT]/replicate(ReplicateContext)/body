@@ -1,27 +1,59 @@
 {
   List<Entry> entries=replicateContext.getEntries();
   int sleepMultiplier=1;
-  while (this.isRunning()) {
-    if (!peersSelected) {
-      connectToPeers();
-      peersSelected=true;
+  if (!peersSelected && this.isRunning()) {
+    connectToPeers();
+    peersSelected=true;
+  }
+  int n=Math.min(Math.min(this.maxThreads,entries.size() / 100 + 1),replicationSinkMgr.getSinks().size());
+  List<List<Entry>> entryLists=new ArrayList<List<Entry>>(n);
+  if (n == 1) {
+    entryLists.add(entries);
+  }
+ else {
+    for (int i=0; i < n; i++) {
+      entryLists.add(new ArrayList<Entry>(entries.size() / n + 1));
     }
+    for (    Entry e : entries) {
+      entryLists.get(Math.abs(Bytes.hashCode(e.getKey().getEncodedRegionName()) % n)).add(e);
+    }
+  }
+  while (this.isRunning()) {
     if (!isPeerEnabled()) {
       if (sleepForRetries("Replication is disabled",sleepMultiplier)) {
         sleepMultiplier++;
       }
       continue;
     }
-    SinkPeer sinkPeer=null;
     try {
-      sinkPeer=replicationSinkMgr.getReplicationSink();
-      BlockingInterface rrs=sinkPeer.getRegionServer();
       if (LOG.isTraceEnabled()) {
         LOG.trace("Replicating " + entries.size() + " entries of total size "+ replicateContext.getSize());
       }
-      ReplicationProtbufUtil.replicateWALEntry(rrs,entries.toArray(new Entry[entries.size()]));
+      List<Future<Integer>> futures=new ArrayList<Future<Integer>>(entryLists.size());
+      for (int i=0; i < entryLists.size(); i++) {
+        if (!entryLists.get(i).isEmpty()) {
+          if (LOG.isTraceEnabled()) {
+            LOG.trace("Submitting " + entryLists.get(i).size() + " entries of total size "+ replicateContext.getSize());
+          }
+          futures.add(exec.submit(new Replicator(entryLists.get(i),i)));
+        }
+      }
+      IOException iox=null;
+      for (      Future<Integer> f : futures) {
+        try {
+          entryLists.remove(f.get());
+        }
+ catch (        InterruptedException ie) {
+          iox=new IOException(ie);
+        }
+catch (        ExecutionException ee) {
+          iox=(IOException)ee.getCause();
+        }
+      }
+      if (iox != null) {
+        throw iox;
+      }
       this.metrics.setAgeOfLastShippedOp(entries.get(entries.size() - 1).getKey().getWriteTime());
-      replicationSinkMgr.reportSinkSuccess(sinkPeer);
       return true;
     }
  catch (    IOException ioe) {
@@ -46,9 +78,6 @@
  else {
           LOG.warn("Can't replicate because of a local or network error: ",ioe);
         }
-      }
-      if (sinkPeer != null) {
-        replicationSinkMgr.reportBadSink(sinkPeer);
       }
       if (sleepForRetries("Since we are unable to replicate",sleepMultiplier)) {
         sleepMultiplier++;
