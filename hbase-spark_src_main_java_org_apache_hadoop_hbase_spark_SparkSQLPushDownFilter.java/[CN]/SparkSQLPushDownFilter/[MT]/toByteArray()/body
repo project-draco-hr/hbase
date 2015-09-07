@@ -1,0 +1,29 @@
+{
+  FilterProtos.SQLPredicatePushDownFilter.Builder builder=FilterProtos.SQLPredicatePushDownFilter.newBuilder();
+  FilterProtos.SQLPredicatePushDownColumnFilter.Builder columnBuilder=FilterProtos.SQLPredicatePushDownColumnFilter.newBuilder();
+  FilterProtos.RowRange.Builder rowRangeBuilder=FilterProtos.RowRange.newBuilder();
+  for (  Map.Entry<ColumnFamilyQualifierMapKeyWrapper,ColumnFilter> entry : columnFamilyQualifierFilterMap.entrySet()) {
+    columnBuilder.setColumnFamily(ByteStringer.wrap(entry.getKey().cloneColumnFamily()));
+    columnBuilder.setQualifier(ByteStringer.wrap(entry.getKey().cloneQualifier()));
+    final MutableList<byte[]> points=entry.getValue().points();
+    int pointLength=points.length();
+    for (int i=0; i < pointLength; i++) {
+      byte[] point=points.get(i).get();
+      columnBuilder.addGetPointList(ByteStringer.wrap(point));
+    }
+    final MutableList<ScanRange> ranges=entry.getValue().ranges();
+    int rangeLength=ranges.length();
+    for (int i=0; i < rangeLength; i++) {
+      ScanRange scanRange=ranges.get(i).get();
+      rowRangeBuilder.clear();
+      rowRangeBuilder.setStartRow(ByteStringer.wrap(scanRange.lowerBound()));
+      rowRangeBuilder.setStopRow(ByteStringer.wrap(scanRange.upperBound()));
+      rowRangeBuilder.setStartRowInclusive(scanRange.isLowerBoundEqualTo());
+      rowRangeBuilder.setStopRowInclusive(scanRange.isUpperBoundEqualTo());
+      columnBuilder.addRangeList(rowRangeBuilder.build());
+    }
+    builder.addColumnFilterList(columnBuilder.build());
+    columnBuilder.clear();
+  }
+  return builder.build().toByteArray();
+}
