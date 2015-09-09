@@ -1,10 +1,20 @@
 {
   List<RegionServerTask> tasks=new ArrayList<RegionServerTask>();
+  Map<String,AtomicLong> successMap=new HashMap<String,AtomicLong>();
   Random rand=new Random();
   for (  Map.Entry<String,List<HRegionInfo>> entry : rsAndRMap.entrySet()) {
     String serverName=entry.getKey();
-    HRegionInfo region=entry.getValue().get(rand.nextInt(entry.getValue().size()));
-    tasks.add(new RegionServerTask(this.connection,serverName,region,getSink()));
+    AtomicLong successes=new AtomicLong(0);
+    successMap.put(serverName,successes);
+    if (this.allRegions) {
+      for (      HRegionInfo region : entry.getValue()) {
+        tasks.add(new RegionServerTask(this.connection,serverName,region,getSink(),successes));
+      }
+    }
+ else {
+      HRegionInfo region=entry.getValue().get(rand.nextInt(entry.getValue().size()));
+      tasks.add(new RegionServerTask(this.connection,serverName,region,getSink(),successes));
+    }
   }
   try {
     for (    Future<Void> future : this.executor.invokeAll(tasks)) {
@@ -14,6 +24,12 @@
  catch (      ExecutionException e) {
         LOG.error("Sniff regionserver failed!",e);
         this.errorCode=ERROR_EXIT_CODE;
+      }
+    }
+    if (this.allRegions) {
+      for (      Map.Entry<String,List<HRegionInfo>> entry : rsAndRMap.entrySet()) {
+        String serverName=entry.getKey();
+        LOG.info("Successfully read " + successMap.get(serverName) + " regions out of "+ entry.getValue().size()+ " on regionserver:"+ serverName);
       }
     }
   }
