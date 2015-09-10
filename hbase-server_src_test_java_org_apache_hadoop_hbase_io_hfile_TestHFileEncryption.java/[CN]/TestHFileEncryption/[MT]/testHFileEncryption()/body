@@ -10,36 +10,51 @@
       Path path=new Path(TEST_UTIL.getDataTestDir(),UUID.randomUUID().toString() + ".hfile");
       FSDataOutputStream out=fs.create(path);
       HFile.Writer writer=HFile.getWriterFactory(conf,cacheConf).withOutputStream(out).withFileContext(fileContext).create();
-      for (      KeyValue kv : testKvs) {
-        writer.append(kv);
+      try {
+        for (        KeyValue kv : testKvs) {
+          writer.append(kv);
+        }
       }
-      writer.close();
-      out.close();
+  finally {
+        writer.close();
+        out.close();
+      }
       LOG.info("Reading with " + fileContext);
-      HFile.Reader reader=HFile.createReader(fs,path,cacheConf,conf);
-      reader.loadFileInfo();
-      FixedFileTrailer trailer=reader.getTrailer();
-      assertNotNull(trailer.getEncryptionKey());
-      HFileScanner scanner=reader.getScanner(false,false);
-      assertTrue("Initial seekTo failed",scanner.seekTo());
       int i=0;
-      do {
-        Cell kv=scanner.getCell();
-        assertTrue("Read back an unexpected or invalid KV",testKvs.contains(KeyValueUtil.ensureKeyValue(kv)));
-        i++;
-      }
+      HFileScanner scanner=null;
+      HFile.Reader reader=HFile.createReader(fs,path,cacheConf,conf);
+      try {
+        reader.loadFileInfo();
+        FixedFileTrailer trailer=reader.getTrailer();
+        assertNotNull(trailer.getEncryptionKey());
+        scanner=reader.getScanner(false,false);
+        assertTrue("Initial seekTo failed",scanner.seekTo());
+        do {
+          Cell kv=scanner.getCell();
+          assertTrue("Read back an unexpected or invalid KV",testKvs.contains(KeyValueUtil.ensureKeyValue(kv)));
+          i++;
+        }
  while (scanner.next());
-      reader.close();
+      }
+  finally {
+        reader.close();
+        scanner.close();
+      }
       assertEquals("Did not read back as many KVs as written",i,testKvs.size());
       LOG.info("Random seeking with " + fileContext);
       reader=HFile.createReader(fs,path,cacheConf,conf);
-      scanner=reader.getScanner(false,true);
-      assertTrue("Initial seekTo failed",scanner.seekTo());
-      for (i=0; i < 100; i++) {
-        KeyValue kv=testKvs.get(RNG.nextInt(testKvs.size()));
-        assertEquals("Unable to find KV as expected: " + kv,scanner.seekTo(kv),0);
+      try {
+        scanner=reader.getScanner(false,true);
+        assertTrue("Initial seekTo failed",scanner.seekTo());
+        for (i=0; i < 100; i++) {
+          KeyValue kv=testKvs.get(RNG.nextInt(testKvs.size()));
+          assertEquals("Unable to find KV as expected: " + kv,scanner.seekTo(kv),0);
+        }
       }
-      reader.close();
+  finally {
+        scanner.close();
+        reader.close();
+      }
     }
   }
 }
