@@ -4,19 +4,27 @@
   ReplicationSourceInterface src=getReplicationSource(this.conf,this.fs,this,this.replicationQueues,this.replicationPeers,server,id,this.clusterId,peerConfig,peer);
 synchronized (this.walsById) {
     this.sources.add(src);
-    this.walsById.put(id,new TreeSet<String>());
-    if (this.latestPath != null) {
-      String name=this.latestPath.getName();
-      this.walsById.get(id).add(name);
-      try {
-        this.replicationQueues.addLog(src.getPeerClusterZnode(),name);
+    Map<String,SortedSet<String>> walsByGroup=new HashMap<String,SortedSet<String>>();
+    this.walsById.put(id,walsByGroup);
+synchronized (latestPaths) {
+      if (this.latestPaths.size() > 0) {
+        for (        Path logPath : latestPaths) {
+          String name=logPath.getName();
+          String walPrefix=DefaultWALProvider.getWALPrefixFromWALName(name);
+          SortedSet<String> logs=new TreeSet<String>();
+          logs.add(name);
+          walsByGroup.put(walPrefix,logs);
+          try {
+            this.replicationQueues.addLog(id,name);
+          }
+ catch (          ReplicationException e) {
+            String message="Cannot add log to queue when creating a new source, queueId=" + id + ", filename="+ name;
+            server.stop(message);
+            throw e;
+          }
+          src.enqueueLog(logPath);
+        }
       }
- catch (      ReplicationException e) {
-        String message="Cannot add log to queue when creating a new source, queueId=" + src.getPeerClusterZnode() + ", filename="+ name;
-        server.stop(message);
-        throw e;
-      }
-      src.enqueueLog(this.latestPath);
     }
   }
   src.startup();

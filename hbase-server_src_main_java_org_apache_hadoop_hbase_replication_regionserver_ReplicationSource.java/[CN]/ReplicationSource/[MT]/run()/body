@@ -1,8 +1,5 @@
 {
-  if (!this.isActive()) {
-    uninitialize();
-    return;
-  }
+  this.sourceRunning=true;
   try {
     Service.State state=replicationEndpoint.start().get();
     if (state != Service.State.RUNNING) {
@@ -22,123 +19,29 @@
   }
   this.walEntryFilter=new ChainWALEntryFilter(filters);
   int sleepMultiplier=1;
-  while (this.isActive() && this.peerClusterId == null) {
+  while (this.isSourceActive() && this.peerClusterId == null) {
     this.peerClusterId=replicationEndpoint.getPeerUUID();
-    if (this.isActive() && this.peerClusterId == null) {
+    if (this.isSourceActive() && this.peerClusterId == null) {
       if (sleepForRetries("Cannot contact the peer's zk ensemble",sleepMultiplier)) {
         sleepMultiplier++;
       }
     }
   }
-  if (!this.isActive()) {
-    uninitialize();
-    return;
-  }
-  sleepMultiplier=1;
   if (clusterId.equals(peerClusterId) && !replicationEndpoint.canReplicateToSameCluster()) {
     this.terminate("ClusterId " + clusterId + " is replicating to itself: peerClusterId "+ peerClusterId+ " which is not allowed by ReplicationEndpoint:"+ replicationEndpoint.getClass().getName(),null,false);
   }
   LOG.info("Replicating " + clusterId + " -> "+ peerClusterId);
-  if (this.replicationQueueInfo.isQueueRecovered()) {
-    try {
-      this.repLogReader.setPosition(this.replicationQueues.getLogPosition(this.peerClusterZnode,this.queue.peek().getName()));
-      if (LOG.isTraceEnabled()) {
-        LOG.trace("Recovered queue started with log " + this.queue.peek() + " at position "+ this.repLogReader.getPosition());
-      }
+  for (  Map.Entry<String,PriorityBlockingQueue<Path>> entry : queues.entrySet()) {
+    String walGroupId=entry.getKey();
+    PriorityBlockingQueue<Path> queue=entry.getValue();
+    final ReplicationSourceWorkerThread worker=new ReplicationSourceWorkerThread(walGroupId,queue,replicationQueueInfo,this);
+    ReplicationSourceWorkerThread extant=workerThreads.putIfAbsent(walGroupId,worker);
+    if (extant != null) {
+      LOG.debug("Someone has beat us to start a worker thread for wal group " + walGroupId);
     }
- catch (    ReplicationException e) {
-      this.terminate("Couldn't get the position of this recovered queue " + this.peerClusterZnode,e);
+ else {
+      LOG.debug("Starting up worker for wal group " + walGroupId);
+      worker.startup();
     }
   }
-  while (isActive()) {
-    if (!isPeerEnabled()) {
-      if (sleepForRetries("Replication is disabled",sleepMultiplier)) {
-        sleepMultiplier++;
-      }
-      continue;
-    }
-    Path oldPath=getCurrentPath();
-    boolean hasCurrentPath=getNextPath();
-    if (getCurrentPath() != null && oldPath == null) {
-      sleepMultiplier=1;
-    }
-    if (!hasCurrentPath) {
-      if (sleepForRetries("No log to process",sleepMultiplier)) {
-        sleepMultiplier++;
-      }
-      continue;
-    }
-    boolean currentWALisBeingWrittenTo=false;
-    if (!this.replicationQueueInfo.isQueueRecovered() && queue.size() == 0) {
-      currentWALisBeingWrittenTo=true;
-    }
-    if (!openReader(sleepMultiplier)) {
-      sleepMultiplier=1;
-      continue;
-    }
-    if (this.reader == null) {
-      if (sleepForRetries("Unable to open a reader",sleepMultiplier)) {
-        sleepMultiplier++;
-      }
-      continue;
-    }
-    boolean gotIOE=false;
-    currentNbOperations=0;
-    List<WAL.Entry> entries=new ArrayList<WAL.Entry>(1);
-    currentSize=0;
-    try {
-      if (readAllEntriesToReplicateOrNextFile(currentWALisBeingWrittenTo,entries)) {
-        continue;
-      }
-    }
- catch (    IOException ioe) {
-      LOG.warn(this.peerClusterZnode + " Got: ",ioe);
-      gotIOE=true;
-      if (ioe.getCause() instanceof EOFException) {
-        boolean considerDumping=false;
-        if (this.replicationQueueInfo.isQueueRecovered()) {
-          try {
-            FileStatus stat=this.fs.getFileStatus(this.currentPath);
-            if (stat.getLen() == 0) {
-              LOG.warn(this.peerClusterZnode + " Got EOF and the file was empty");
-            }
-            considerDumping=true;
-          }
- catch (          IOException e) {
-            LOG.warn(this.peerClusterZnode + " Got while getting file size: ",e);
-          }
-        }
-        if (considerDumping && sleepMultiplier == this.maxRetriesMultiplier && processEndOfFile()) {
-          continue;
-        }
-      }
-    }
- finally {
-      try {
-        this.reader=null;
-        this.repLogReader.closeReader();
-      }
- catch (      IOException e) {
-        gotIOE=true;
-        LOG.warn("Unable to finalize the tailing of a file",e);
-      }
-    }
-    if (this.isActive() && (gotIOE || entries.isEmpty())) {
-      if (this.lastLoggedPosition != this.repLogReader.getPosition()) {
-        this.manager.logPositionAndCleanOldLogs(this.currentPath,this.peerClusterZnode,this.repLogReader.getPosition(),this.replicationQueueInfo.isQueueRecovered(),currentWALisBeingWrittenTo);
-        this.lastLoggedPosition=this.repLogReader.getPosition();
-      }
-      if (!gotIOE) {
-        sleepMultiplier=1;
-        this.metrics.setAgeOfLastShippedOp(System.currentTimeMillis());
-      }
-      if (sleepForRetries("Nothing to replicate",sleepMultiplier)) {
-        sleepMultiplier++;
-      }
-      continue;
-    }
-    sleepMultiplier=1;
-    shipEdits(currentWALisBeingWrittenTo,entries);
-  }
-  uninitialize();
 }

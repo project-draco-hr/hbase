@@ -1,0 +1,66 @@
+{
+  try {
+    try {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Opening log " + this.currentPath);
+      }
+      this.reader=repLogReader.openReader(this.currentPath);
+    }
+ catch (    FileNotFoundException fnfe) {
+      if (this.replicationQueueInfo.isQueueRecovered()) {
+        List<String> deadRegionServers=this.replicationQueueInfo.getDeadRegionServers();
+        LOG.info("NB dead servers : " + deadRegionServers.size());
+        final Path rootDir=FSUtils.getRootDir(conf);
+        for (        String curDeadServerName : deadRegionServers) {
+          final Path deadRsDirectory=new Path(rootDir,DefaultWALProvider.getWALDirectoryName(curDeadServerName));
+          Path[] locs=new Path[]{new Path(deadRsDirectory,currentPath.getName()),new Path(deadRsDirectory.suffix(DefaultWALProvider.SPLITTING_EXT),currentPath.getName())};
+          for (          Path possibleLogLocation : locs) {
+            LOG.info("Possible location " + possibleLogLocation.toUri().toString());
+            if (manager.getFs().exists(possibleLogLocation)) {
+              LOG.info("Log " + this.currentPath + " still exists at "+ possibleLogLocation);
+              return true;
+            }
+          }
+        }
+        if (stopper instanceof ReplicationSyncUp.DummyServer) {
+          FileStatus[] rss=fs.listStatus(manager.getLogDir());
+          for (          FileStatus rs : rss) {
+            Path p=rs.getPath();
+            FileStatus[] logs=fs.listStatus(p);
+            for (            FileStatus log : logs) {
+              p=new Path(p,log.getPath().getName());
+              if (p.getName().equals(currentPath.getName())) {
+                currentPath=p;
+                LOG.info("Log " + currentPath.getName() + " found at "+ currentPath);
+                this.openReader(sleepMultiplier);
+                return true;
+              }
+            }
+          }
+        }
+        throw new IOException("File from recovered queue is " + "nowhere to be found",fnfe);
+      }
+ else {
+        Path archivedLogLocation=new Path(manager.getOldLogDir(),currentPath.getName());
+        if (manager.getFs().exists(archivedLogLocation)) {
+          currentPath=archivedLogLocation;
+          LOG.info("Log " + this.currentPath + " was moved to "+ archivedLogLocation);
+          this.openReader(sleepMultiplier);
+        }
+      }
+    }
+  }
+ catch (  IOException ioe) {
+    if (ioe instanceof EOFException && isCurrentLogEmpty())     return true;
+    LOG.warn(peerClusterZnode + " Got: ",ioe);
+    this.reader=null;
+    if (ioe.getCause() instanceof NullPointerException) {
+      LOG.warn("Got NPE opening reader, will retry.");
+    }
+ else     if (sleepMultiplier == maxRetriesMultiplier) {
+      LOG.warn("Waited too long for this file, considering dumping");
+      return !processEndOfFile();
+    }
+  }
+  return true;
+}

@@ -1,0 +1,37 @@
+{
+  String logName=logPath.getName();
+  String logPrefix=DefaultWALProvider.getWALPrefixFromWALName(logName);
+synchronized (replicationPeers) {
+    for (    String id : replicationPeers.getPeerIds()) {
+      try {
+        this.replicationQueues.addLog(id,logName);
+      }
+ catch (      ReplicationException e) {
+        throw new IOException("Cannot add log to replication queue" + " when creating a new source, queueId=" + id + ", filename="+ logName,e);
+      }
+    }
+  }
+synchronized (walsById) {
+    for (    Map.Entry<String,Map<String,SortedSet<String>>> entry : this.walsById.entrySet()) {
+      String peerId=entry.getKey();
+      Map<String,SortedSet<String>> walsByPrefix=entry.getValue();
+      boolean existingPrefix=false;
+      for (      Map.Entry<String,SortedSet<String>> walsEntry : walsByPrefix.entrySet()) {
+        SortedSet<String> wals=walsEntry.getValue();
+        if (this.sources.isEmpty()) {
+          wals.clear();
+        }
+        if (logPrefix.equals(walsEntry.getKey())) {
+          wals.add(logName);
+          existingPrefix=true;
+        }
+      }
+      if (!existingPrefix) {
+        LOG.debug("Start tracking logs for wal group " + logPrefix + " for peer "+ peerId);
+        SortedSet<String> wals=new TreeSet<String>();
+        wals.add(logName);
+        walsByPrefix.put(logPrefix,wals);
+      }
+    }
+  }
+}

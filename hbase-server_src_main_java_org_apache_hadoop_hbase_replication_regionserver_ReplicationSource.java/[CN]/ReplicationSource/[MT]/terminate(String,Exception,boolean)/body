@@ -5,14 +5,21 @@
  else {
     LOG.error("Closing source " + this.peerClusterZnode + " because an error occurred: "+ reason,cause);
   }
-  this.running=false;
-  this.interrupt();
+  this.sourceRunning=false;
+  Collection<ReplicationSourceWorkerThread> workers=workerThreads.values();
+  for (  ReplicationSourceWorkerThread worker : workers) {
+    worker.setWorkerRunning(false);
+    worker.interrupt();
+  }
   ListenableFuture<Service.State> future=null;
   if (this.replicationEndpoint != null) {
     future=this.replicationEndpoint.stop();
   }
   if (join) {
-    Threads.shutdown(this,this.sleepForRetries);
+    for (    ReplicationSourceWorkerThread worker : workers) {
+      Threads.shutdown(worker,this.sleepForRetries);
+      LOG.info("ReplicationSourceWorker " + worker.getName() + " terminated");
+    }
     if (future != null) {
       try {
         future.get();

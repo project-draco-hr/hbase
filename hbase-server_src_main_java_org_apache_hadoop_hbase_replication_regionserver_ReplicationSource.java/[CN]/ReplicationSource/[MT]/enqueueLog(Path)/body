@@ -1,8 +1,25 @@
 {
-  this.queue.put(log);
-  int queueSize=queue.size();
+  String logPrefix=DefaultWALProvider.getWALPrefixFromWALName(log.getName());
+  PriorityBlockingQueue<Path> queue=queues.get(logPrefix);
+  if (queue == null) {
+    queue=new PriorityBlockingQueue<Path>(queueSizePerGroup,new LogsComparator());
+    queues.put(logPrefix,queue);
+    if (this.sourceRunning) {
+      final ReplicationSourceWorkerThread worker=new ReplicationSourceWorkerThread(logPrefix,queue,replicationQueueInfo,this);
+      ReplicationSourceWorkerThread extant=workerThreads.putIfAbsent(logPrefix,worker);
+      if (extant != null) {
+        LOG.debug("Someone has beat us to start a worker thread for wal group " + logPrefix);
+      }
+ else {
+        LOG.debug("Starting up worker for wal group " + logPrefix);
+        worker.startup();
+      }
+    }
+  }
+  queue.put(log);
+  int queueSize=logQueueSize.incrementAndGet();
   this.metrics.setSizeOfLogQueue(queueSize);
-  if (queueSize > this.logQueueWarnThreshold) {
-    LOG.warn("Queue size: " + queueSize + " exceeds value of replication.source.log.queue.warn: "+ logQueueWarnThreshold);
+  if (queue.size() > this.logQueueWarnThreshold) {
+    LOG.warn("WAL group " + logPrefix + " queue size: "+ queueSize+ " exceeds value of replication.source.log.queue.warn: "+ logQueueWarnThreshold);
   }
 }
