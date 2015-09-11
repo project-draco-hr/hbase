@@ -2,12 +2,28 @@
   waitUntilStarted();
   if (path.equals(aclZNode)) {
     try {
-      List<ZKUtil.NodeAndData> nodes=ZKUtil.getChildDataAndWatchForNewChildren(watcher,aclZNode);
-      refreshNodes(nodes);
+      List<ZKUtil.NodeAndData> nodeList=ZKUtil.getChildDataAndWatchForNewChildren(watcher,aclZNode);
+      while (!nodes.compareAndSet(null,nodeList)) {
+        try {
+          Thread.sleep(20);
+        }
+ catch (        InterruptedException e) {
+          LOG.warn("Interrupted while setting node list",e);
+          Thread.currentThread().interrupt();
+        }
+      }
     }
  catch (    KeeperException ke) {
       LOG.error("Error reading data from zookeeper for path " + path,ke);
       watcher.abort("Zookeeper error get node children for path " + path,ke);
     }
+    executor.submit(new Runnable(){
+      @Override public void run(){
+        List<ZKUtil.NodeAndData> nodeList=nodes.get();
+        nodes.set(null);
+        refreshNodes(nodeList,nodes);
+      }
+    }
+);
   }
 }

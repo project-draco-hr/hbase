@@ -1,0 +1,34 @@
+{
+  conf=TEST_UTIL.getConfiguration();
+  enableSecurity(conf);
+  String accessControllerClassName=FaultyAccessController.class.getName();
+  conf.set(CoprocessorHost.REGION_COPROCESSOR_CONF_KEY,accessControllerClassName);
+  verifyConfiguration(conf);
+  conf.setBoolean(AccessControlConstants.EXEC_PERMISSION_CHECKS_KEY,true);
+  TEST_UTIL.startMiniCluster();
+  MasterCoprocessorHost cpHost=TEST_UTIL.getMiniHBaseCluster().getMaster().getMasterCoprocessorHost();
+  cpHost.load(FaultyAccessController.class,Coprocessor.PRIORITY_HIGHEST,conf);
+  ACCESS_CONTROLLER=(AccessController)cpHost.findCoprocessor(accessControllerClassName);
+  CP_ENV=cpHost.createEnvironment(AccessController.class,ACCESS_CONTROLLER,Coprocessor.PRIORITY_HIGHEST,1,conf);
+  RegionServerCoprocessorHost rsHost;
+  do {
+    rsHost=TEST_UTIL.getMiniHBaseCluster().getRegionServer(0).getRegionServerCoprocessorHost();
+  }
+ while (rsHost == null);
+  RSCP_ENV=rsHost.createEnvironment(AccessController.class,ACCESS_CONTROLLER,Coprocessor.PRIORITY_HIGHEST,1,conf);
+  TEST_UTIL.waitUntilAllRegionsAssigned(AccessControlLists.ACL_TABLE_NAME);
+  SUPERUSER=User.createUserForTesting(conf,"admin",new String[]{"supergroup"});
+  USER_ADMIN=User.createUserForTesting(conf,"admin2",new String[0]);
+  USER_RW=User.createUserForTesting(conf,"rwuser",new String[0]);
+  USER_RO=User.createUserForTesting(conf,"rouser",new String[0]);
+  USER_OWNER=User.createUserForTesting(conf,"owner",new String[0]);
+  USER_CREATE=User.createUserForTesting(conf,"tbl_create",new String[0]);
+  USER_NONE=User.createUserForTesting(conf,"nouser",new String[0]);
+  USER_ADMIN_CF=User.createUserForTesting(conf,"col_family_admin",new String[0]);
+  USER_GROUP_ADMIN=User.createUserForTesting(conf,"user_group_admin",new String[]{GROUP_ADMIN});
+  USER_GROUP_CREATE=User.createUserForTesting(conf,"user_group_create",new String[]{GROUP_CREATE});
+  USER_GROUP_READ=User.createUserForTesting(conf,"user_group_read",new String[]{GROUP_READ});
+  USER_GROUP_WRITE=User.createUserForTesting(conf,"user_group_write",new String[]{GROUP_WRITE});
+  systemUserConnection=TEST_UTIL.getConnection();
+  setUpTableAndUserPermissions();
+}
