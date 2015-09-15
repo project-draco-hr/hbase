@@ -1,25 +1,23 @@
 {
   Table table=null;
-  Table table2=null;
   Table t=TEST_UTIL.getConnection().getTable(TableName.META_TABLE_NAME);
   try {
     table=createTestTable(getName());
-    table2=createTestTable(getName() + "1");
     server=TEST_UTIL.getRSForFirstRegionInTable(table.getName());
-    final WAL log=server.getWAL(null);
-    Region region=server.getOnlineRegions(table2.getName()).get(0);
+    Region region=server.getOnlineRegions(table.getName()).get(0);
+    final WAL log=server.getWAL(region.getRegionInfo());
     Store s=region.getStore(HConstants.CATALOG_FAMILY);
     admin.flush(TableName.NAMESPACE_TABLE_NAME);
     for (int i=1; i <= 2; ++i) {
-      doPut(table2,i);
-      admin.flush(table2.getName());
+      doPut(table,i);
+      admin.flush(table.getName());
     }
-    doPut(table2,3);
+    doPut(table,3);
     assertEquals("Should have no WAL after initial writes",0,DefaultWALProvider.getNumRolledLogFiles(log));
     assertEquals(2,s.getStorefilesCount());
     log.rollWriter();
     assertEquals("Should have WAL; one table is not flushed",1,DefaultWALProvider.getNumRolledLogFiles(log));
-    admin.flush(table2.getName());
+    admin.flush(table.getName());
     region.compact(false);
     Assert.assertNotNull(s);
     for (int waitTime=3000; s.getStorefilesCount() > 1 && waitTime > 0; waitTime-=200) {
@@ -37,6 +35,5 @@
   finally {
     if (t != null)     t.close();
     if (table != null)     table.close();
-    if (table2 != null)     table2.close();
   }
 }
