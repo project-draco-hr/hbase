@@ -1,9 +1,15 @@
 {
+  final AtomicLong rolls=new AtomicLong(0);
 class DodgyFSLog extends FSHLog {
     volatile boolean throwSyncException=false;
     volatile boolean throwAppendException=false;
     public DodgyFSLog(    FileSystem fs,    Path root,    String logDir,    Configuration conf) throws IOException {
       super(fs,root,logDir,conf);
+    }
+    @Override public byte[][] rollWriter(    boolean force) throws FailedLogCloseException, IOException {
+      byte[][] regions=super.rollWriter(force);
+      rolls.getAndIncrement();
+      return regions;
     }
     @Override protected Writer createWriterInstance(    Path path) throws IOException {
       final Writer w=super.createWriterInstance(path);
@@ -55,6 +61,7 @@ class DodgyFSLog extends FSHLog {
  catch (    IOException ioe) {
       fail();
     }
+    long rollsCount=rolls.get();
     try {
       dodgyWAL.throwAppendException=true;
       dodgyWAL.throwSyncException=false;
@@ -65,6 +72,8 @@ class DodgyFSLog extends FSHLog {
  catch (    IOException ioe) {
       threwOnAppend=true;
     }
+    while (rollsCount == rolls.get())     Threads.sleep(100);
+    rollsCount=rolls.get();
     try {
       dodgyWAL.throwAppendException=true;
       dodgyWAL.throwSyncException=true;
@@ -75,6 +84,7 @@ class DodgyFSLog extends FSHLog {
  catch (    IOException ioe) {
       threwOnBoth=true;
     }
+    while (rollsCount == rolls.get())     Threads.sleep(100);
     Mockito.verify(server,Mockito.atLeast(0)).abort(Mockito.anyString(),(Throwable)Mockito.anyObject());
     try {
       dodgyWAL.throwAppendException=false;
