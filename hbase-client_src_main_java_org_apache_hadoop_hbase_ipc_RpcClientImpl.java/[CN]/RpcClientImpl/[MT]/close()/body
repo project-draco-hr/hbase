@@ -1,6 +1,7 @@
 {
   if (LOG.isDebugEnabled())   LOG.debug("Stopping rpc client");
   if (!running.compareAndSet(true,false))   return;
+  Set<Connection> connsToClose=null;
 synchronized (connections) {
     for (    Connection conn : connections.values()) {
       conn.interrupt();
@@ -8,10 +9,17 @@ synchronized (connections) {
         conn.callSender.interrupt();
       }
       if (!conn.isAlive()) {
-        if (conn.markClosed(new InterruptedIOException("RpcClient is closing"))) {
-          conn.close();
+        if (connsToClose == null) {
+          connsToClose=new HashSet<Connection>();
         }
+        connsToClose.add(conn);
       }
+    }
+  }
+  if (connsToClose != null) {
+    for (    Connection conn : connsToClose) {
+      conn.markClosed(new InterruptedIOException("RpcClient is closing"));
+      conn.close();
     }
   }
   while (!connections.isEmpty()) {
