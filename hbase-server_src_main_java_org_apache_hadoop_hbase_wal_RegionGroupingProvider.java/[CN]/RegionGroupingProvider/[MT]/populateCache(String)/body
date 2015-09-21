@@ -1,10 +1,17 @@
 {
-  final WALProvider temp=factory.getProvider(DELEGATE_PROVIDER,DEFAULT_DELEGATE_PROVIDER,listeners,providerId + "-" + UUID.randomUUID());
-  final WALProvider extant=cached.putIfAbsent(group,temp);
-  if (null != extant) {
-    temp.close();
-    return extant;
+  boolean isMeta=META_WAL_PROVIDER_ID.equals(providerId);
+  String hlogPrefix;
+  List<WALActionsListener> listeners;
+  if (isMeta) {
+    hlogPrefix=this.providerId;
+    listeners=Collections.<WALActionsListener>singletonList(new MetricsWAL());
   }
-  providers.add(temp);
-  return temp;
+ else {
+    hlogPrefix=groupName;
+    listeners=this.listeners;
+  }
+  FSHLog log=new FSHLog(FileSystem.get(conf),FSUtils.getRootDir(conf),DefaultWALProvider.getWALDirectoryName(providerId),HConstants.HREGION_OLDLOGDIR_NAME,conf,listeners,true,hlogPrefix,isMeta ? META_WAL_PROVIDER_ID : null);
+  cached.put(groupName,log);
+  logs.add(log);
+  return log;
 }
