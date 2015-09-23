@@ -4,17 +4,16 @@
   }
   final long startTime=EnvironmentEdgeManager.currentTime();
   if (this.memstoreSize.get() <= 0) {
-    MultiVersionConcurrencyControl.WriteEntry w=null;
+    MultiVersionConcurrencyControl.WriteEntry writeEntry=null;
     this.updatesLock.writeLock().lock();
     try {
       if (this.memstoreSize.get() <= 0) {
         if (wal != null) {
-          w=mvcc.beginMemstoreInsert();
-          long flushOpSeqId=getNextSequenceId(wal);
+          writeEntry=mvcc.begin();
+          long flushOpSeqId=writeEntry.getWriteNumber();
           FlushResult flushResult=new FlushResultImpl(FlushResult.Result.CANNOT_FLUSH_MEMSTORE_EMPTY,flushOpSeqId,"Nothing to flush",writeFlushRequestMarkerToWAL(wal,writeFlushWalMarker));
-          w.setWriteNumber(flushOpSeqId);
-          mvcc.waitForPreviousTransactionsComplete(w);
-          w=null;
+          mvcc.completeAndWait(writeEntry);
+          writeEntry=null;
           return new PrepareFlushResult(flushResult,myseqid);
         }
  else {
@@ -24,8 +23,8 @@
     }
   finally {
       this.updatesLock.writeLock().unlock();
-      if (w != null) {
-        mvcc.advanceMemstore(w);
+      if (writeEntry != null) {
+        mvcc.complete(writeEntry);
       }
     }
   }
@@ -34,10 +33,8 @@
     if (!isAllFamilies(storesToFlush)) {
       perCfExtras=new StringBuilder();
       for (      Store store : storesToFlush) {
-        perCfExtras.append("; ");
-        perCfExtras.append(store.getColumnFamilyName());
-        perCfExtras.append("=");
-        perCfExtras.append(StringUtils.byteDesc(store.getMemStoreSize()));
+        perCfExtras.append("; ").append(store.getColumnFamilyName());
+        perCfExtras.append("=").append(StringUtils.byteDesc(store.getMemStoreSize()));
       }
     }
     LOG.info("Flushing " + +storesToFlush.size() + "/"+ stores.size()+ " column families, memstore="+ StringUtils.byteDesc(this.memstoreSize.get())+ ((perCfExtras != null && perCfExtras.length() > 0) ? perCfExtras.toString() : "")+ ((wal != null) ? "" : "; WAL is null, using passed sequenceid=" + myseqid));
@@ -60,7 +57,7 @@
   long trxId=0;
   try {
     try {
-      writeEntry=mvcc.beginMemstoreInsert();
+      writeEntry=mvcc.begin();
       if (wal != null) {
         Long earliestUnflushedSequenceIdForTheRegion=wal.startCacheFlush(encodedRegionName,flushedFamilyNames);
         if (earliestUnflushedSequenceIdForTheRegion == null) {
@@ -82,7 +79,7 @@
       }
       if (wal != null && !writestate.readOnly) {
         FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.START_FLUSH,getRegionInfo(),flushOpSeqId,committedFiles);
-        trxId=WALUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,false);
+        trxId=WALUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,false,mvcc);
       }
       for (      StoreFlushContext flush : storeFlushCtxs.values()) {
         flush.prepare();
@@ -93,7 +90,7 @@
         if (trxId > 0) {
           try {
             FlushDescriptor desc=ProtobufUtil.toFlushDescriptor(FlushAction.ABORT_FLUSH,getRegionInfo(),flushOpSeqId,committedFiles);
-            WALUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,sequenceId,false);
+            WALUtil.writeFlushMarker(wal,this.htableDescriptor,getRegionInfo(),desc,false,mvcc);
           }
  catch (          Throwable t) {
             LOG.warn("Received unexpected exception trying to write ABORT_FLUSH marker to WAL:" + StringUtils.stringifyException(t));
@@ -118,13 +115,12 @@
         throw ioe;
       }
     }
-    writeEntry.setWriteNumber(flushOpSeqId);
-    mvcc.waitForPreviousTransactionsComplete(writeEntry);
+    mvcc.completeAndWait(writeEntry);
     writeEntry=null;
   }
   finally {
     if (writeEntry != null) {
-      mvcc.advanceMemstore(writeEntry);
+      mvcc.complete(writeEntry);
     }
   }
   return new PrepareFlushResult(storeFlushCtxs,committedFiles,storeFlushableSize,startTime,flushOpSeqId,flushedSeqId,totalFlushableSizeOfFlushableStores);

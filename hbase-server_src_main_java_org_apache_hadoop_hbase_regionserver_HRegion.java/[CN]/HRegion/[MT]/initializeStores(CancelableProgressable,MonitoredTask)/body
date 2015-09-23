@@ -1,0 +1,56 @@
+{
+  long maxSeqId=-1;
+  long maxMemstoreTS=-1;
+  if (!htableDescriptor.getFamilies().isEmpty()) {
+    ThreadPoolExecutor storeOpenerThreadPool=getStoreOpenAndCloseThreadPool("StoreOpener-" + this.getRegionInfo().getShortNameToLog());
+    CompletionService<HStore> completionService=new ExecutorCompletionService<HStore>(storeOpenerThreadPool);
+    for (    final HColumnDescriptor family : htableDescriptor.getFamilies()) {
+      status.setStatus("Instantiating store for column family " + family);
+      completionService.submit(new Callable<HStore>(){
+        @Override public HStore call() throws IOException {
+          return instantiateHStore(family);
+        }
+      }
+);
+    }
+    boolean allStoresOpened=false;
+    try {
+      for (int i=0; i < htableDescriptor.getFamilies().size(); i++) {
+        Future<HStore> future=completionService.take();
+        HStore store=future.get();
+        this.stores.put(store.getFamily().getName(),store);
+        long storeMaxSequenceId=store.getMaxSequenceId();
+        maxSeqIdInStores.put(store.getColumnFamilyName().getBytes(),storeMaxSequenceId);
+        if (maxSeqId == -1 || storeMaxSequenceId > maxSeqId) {
+          maxSeqId=storeMaxSequenceId;
+        }
+        long maxStoreMemstoreTS=store.getMaxMemstoreTS();
+        if (maxStoreMemstoreTS > maxMemstoreTS) {
+          maxMemstoreTS=maxStoreMemstoreTS;
+        }
+      }
+      allStoresOpened=true;
+    }
+ catch (    InterruptedException e) {
+      throw (InterruptedIOException)new InterruptedIOException().initCause(e);
+    }
+catch (    ExecutionException e) {
+      throw new IOException(e.getCause());
+    }
+ finally {
+      storeOpenerThreadPool.shutdownNow();
+      if (!allStoresOpened) {
+        LOG.error("Could not initialize all stores for the region=" + this);
+        for (        Store store : this.stores.values()) {
+          try {
+            store.close();
+          }
+ catch (          IOException e) {
+            LOG.warn(e.getMessage());
+          }
+        }
+      }
+    }
+  }
+  return Math.max(maxSeqId,maxMemstoreTS + 1);
+}

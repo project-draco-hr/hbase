@@ -1,7 +1,7 @@
 {
-  long seq=0;
   long baseline=1000;
   long time=baseline;
+  MultiVersionConcurrencyControl mvcc=new MultiVersionConcurrencyControl();
   KeyValue kv=new KeyValue(r1,f1,r1);
   WALEdit edit=new WALEdit();
   edit.add(kv);
@@ -9,7 +9,6 @@
   listeners.add(replication);
   final WALFactory wals=new WALFactory(utility.getConfiguration(),listeners,URLEncoder.encode("regionserver:60020","UTF8"));
   final WAL wal=wals.getWAL(hri.getEncodedNameAsBytes(),hri.getTable().getNamespace());
-  final AtomicLong sequenceId=new AtomicLong(1);
   manager.init();
   HTableDescriptor htd=new HTableDescriptor(TableName.valueOf("tableame"));
   htd.addFamily(new HColumnDescriptor(f1));
@@ -18,7 +17,7 @@
       wal.rollWriter();
     }
     LOG.info(i);
-    final long txid=wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis()),edit,sequenceId,true,null);
+    final long txid=wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis(),mvcc),edit,true);
     wal.sync(txid);
   }
   LOG.info(baseline + " and " + time);
@@ -26,7 +25,7 @@
   time=baseline;
   LOG.info(baseline + " and " + time);
   for (int i=0; i < 3; i++) {
-    wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis()),edit,sequenceId,true,null);
+    wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis(),mvcc),edit,true);
   }
   wal.sync();
   int logNumber=0;
@@ -36,7 +35,7 @@
   assertEquals(6,logNumber);
   wal.rollWriter();
   manager.logPositionAndCleanOldLogs(manager.getSources().get(0).getCurrentPath(),"1",0,false,false);
-  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis()),edit,sequenceId,true,null);
+  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),test,System.currentTimeMillis(),mvcc),edit,true);
   wal.sync();
   assertEquals(1,manager.getWALs().size());
 }

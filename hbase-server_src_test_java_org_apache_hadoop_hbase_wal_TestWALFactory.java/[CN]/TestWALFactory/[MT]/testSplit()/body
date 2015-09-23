@@ -1,6 +1,7 @@
 {
   final TableName tableName=TableName.valueOf(currentTest.getMethodName());
   final byte[] rowName=tableName.getName();
+  final MultiVersionConcurrencyControl mvcc=new MultiVersionConcurrencyControl(1);
   final Path logdir=new Path(hbaseDir,DefaultWALProvider.getWALDirectoryName(currentTest.getMethodName()));
   Path oldLogDir=new Path(hbaseDir,HConstants.HREGION_OLDLOGDIR_NAME);
   final int howmany=3;
@@ -14,7 +15,6 @@
   }
   HTableDescriptor htd=new HTableDescriptor(tableName);
   htd.addFamily(new HColumnDescriptor("column"));
-  final AtomicLong sequenceId=new AtomicLong(1);
   for (int ii=0; ii < howmany; ii++) {
     for (int i=0; i < howmany; i++) {
       final WAL log=wals.getWAL(infos[i].getEncodedNameAsBytes(),infos[i].getTable().getNamespace());
@@ -25,10 +25,12 @@
         byte[] column=Bytes.toBytes("column:" + Integer.toString(j));
         edit.add(new KeyValue(rowName,family,qualifier,System.currentTimeMillis(),column));
         LOG.info("Region " + i + ": "+ edit);
-        log.append(htd,infos[i],new WALKey(infos[i].getEncodedNameAsBytes(),tableName,System.currentTimeMillis()),edit,sequenceId,true,null);
+        WALKey walKey=new WALKey(infos[i].getEncodedNameAsBytes(),tableName,System.currentTimeMillis(),mvcc);
+        log.append(htd,infos[i],walKey,edit,true);
+        walKey.getWriteEntry();
       }
       log.sync();
-      log.rollWriter();
+      log.rollWriter(true);
     }
   }
   wals.shutdown();

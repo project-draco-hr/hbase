@@ -1,5 +1,6 @@
 {
   final TableName tableName=TableName.valueOf("test2727");
+  MultiVersionConcurrencyControl mvcc=new MultiVersionConcurrencyControl();
   HRegionInfo hri=createBasic3FamilyHRegionInfo(tableName);
   Path basedir=FSUtils.getTableDir(hbaseRootDir,tableName);
   deleteDir(basedir);
@@ -9,15 +10,14 @@
   final byte[] rowName=tableName.getName();
   WAL wal1=createWAL(this.conf);
   final int countPerFamily=1000;
-  final AtomicLong sequenceId=new AtomicLong(1);
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
-    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal1,htd,sequenceId);
+    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal1,htd,mvcc);
   }
   wal1.shutdown();
   runWALSplit(this.conf);
   WAL wal2=createWAL(this.conf);
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
-    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal2,htd,sequenceId);
+    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal2,htd,mvcc);
   }
   wal2.shutdown();
   runWALSplit(this.conf);
@@ -25,9 +25,9 @@
   try {
     HRegion region=HRegion.openHRegion(this.conf,this.fs,hbaseRootDir,hri,htd,wal3);
     long seqid=region.getOpenSeqNum();
-    assertTrue(seqid > sequenceId.get());
-    assertEquals(seqid - 1,sequenceId.get());
-    LOG.debug("region.getOpenSeqNum(): " + region.getOpenSeqNum() + ", wal3.id: "+ sequenceId.get());
+    assertTrue(seqid > mvcc.getWritePoint());
+    assertEquals(seqid - 1,mvcc.getWritePoint());
+    LOG.debug("region.getOpenSeqNum(): " + region.getOpenSeqNum() + ", wal3.id: "+ mvcc.getReadPoint());
     region.close();
   }
   finally {
