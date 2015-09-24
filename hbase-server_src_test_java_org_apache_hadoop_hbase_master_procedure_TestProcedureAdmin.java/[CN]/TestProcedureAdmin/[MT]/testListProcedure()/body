@@ -1,0 +1,29 @@
+{
+  final TableName tableName=TableName.valueOf("testListProcedure");
+  final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
+  MasterProcedureTestingUtility.createTable(procExec,tableName,null,"f");
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,true);
+  long procId=procExec.submitProcedure(new DisableTableProcedure(procExec.getEnvironment(),tableName,false),nonceGroup,nonce);
+  List<ProcedureInfo> listProcedures=procExec.listProcedures();
+  assertTrue(listProcedures.size() >= 1);
+  boolean found=false;
+  for (  ProcedureInfo procInfo : listProcedures) {
+    if (procInfo.getProcId() == procId) {
+      assertTrue(procInfo.getProcState() == ProcedureState.RUNNABLE);
+      found=true;
+    }
+ else {
+      assertTrue(procInfo.getProcState() == ProcedureState.FINISHED);
+    }
+  }
+  assertTrue(found);
+  ProcedureTestingUtility.setKillAndToggleBeforeStoreUpdate(procExec,false);
+  ProcedureTestingUtility.restart(procExec);
+  ProcedureTestingUtility.waitNoProcedureRunning(procExec);
+  ProcedureTestingUtility.assertProcNotFailed(procExec,procId);
+  listProcedures=procExec.listProcedures();
+  for (  ProcedureInfo procInfo : listProcedures) {
+    assertTrue(procInfo.getProcState() == ProcedureState.FINISHED);
+  }
+}
