@@ -1,0 +1,19 @@
+{
+  super.setConf(conf);
+  long cacheTimeout=getConf().getLong(CommonConfigurationKeys.HADOOP_SECURITY_GROUPS_CACHE_SECS,CommonConfigurationKeys.HADOOP_SECURITY_GROUPS_CACHE_SECS_DEFAULT) * 1000;
+  this.groupCache=CacheBuilder.newBuilder().refreshAfterWrite(cacheTimeout,TimeUnit.MILLISECONDS).expireAfterWrite(10 * cacheTimeout,TimeUnit.MILLISECONDS).concurrencyLevel(20).build(new CacheLoader<UserGroupInformation,String[]>(){
+    @Override public String[] load(    UserGroupInformation ugi) throws Exception {
+      return ugi.getGroupNames();
+    }
+    public ListenableFuture<String[]> reload(    final UserGroupInformation k,    String[] oldValue) throws Exception {
+      return executor.submit(new Callable<String[]>(){
+        UserGroupInformation userGroupInformation=k;
+        @Override public String[] call() throws Exception {
+          return userGroupInformation.getGroupNames();
+        }
+      }
+);
+    }
+  }
+);
+}
