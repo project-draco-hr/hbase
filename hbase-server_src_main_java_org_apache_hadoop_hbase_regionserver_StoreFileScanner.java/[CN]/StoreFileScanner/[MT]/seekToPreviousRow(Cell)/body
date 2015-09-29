@@ -1,31 +1,41 @@
 {
   try {
     try {
-      Cell seekKey=CellUtil.createFirstOnRow(key);
-      if (seekCount != null)       seekCount.incrementAndGet();
-      if (!hfs.seekBefore(seekKey)) {
-        this.cur=null;
-        return false;
-      }
-      Cell curCell=hfs.getCell();
-      Cell firstKeyOfPreviousRow=CellUtil.createFirstOnRow(curCell);
-      if (seekCount != null)       seekCount.incrementAndGet();
-      if (!seekAtOrAfter(hfs,firstKeyOfPreviousRow)) {
-        this.cur=null;
-        return false;
-      }
-      setCurrentCell(hfs.getCell());
-      this.stopSkippingKVsIfNextRow=true;
-      boolean resultOfSkipKVs;
-      try {
-        resultOfSkipKVs=skipKVsNewerThanReadpoint();
-      }
+      boolean keepSeeking=false;
+      Cell key=originalKey;
+      do {
+        Cell seekKey=CellUtil.createFirstOnRow(key);
+        if (seekCount != null)         seekCount.incrementAndGet();
+        if (!hfs.seekBefore(seekKey)) {
+          this.cur=null;
+          return false;
+        }
+        Cell curCell=hfs.getCell();
+        Cell firstKeyOfPreviousRow=CellUtil.createFirstOnRow(curCell);
+        if (seekCount != null)         seekCount.incrementAndGet();
+        if (!seekAtOrAfter(hfs,firstKeyOfPreviousRow)) {
+          this.cur=null;
+          return false;
+        }
+        setCurrentCell(hfs.getCell());
+        this.stopSkippingKVsIfNextRow=true;
+        boolean resultOfSkipKVs;
+        try {
+          resultOfSkipKVs=skipKVsNewerThanReadpoint();
+        }
   finally {
-        this.stopSkippingKVsIfNextRow=false;
+          this.stopSkippingKVsIfNextRow=false;
+        }
+        if (!resultOfSkipKVs || getComparator().compareRows(cur,firstKeyOfPreviousRow) > 0) {
+          keepSeeking=true;
+          key=firstKeyOfPreviousRow;
+          continue;
+        }
+ else {
+          keepSeeking=false;
+        }
       }
-      if (!resultOfSkipKVs || getComparator().compareRows(cur,firstKeyOfPreviousRow) > 0) {
-        return seekToPreviousRow(firstKeyOfPreviousRow);
-      }
+ while (keepSeeking);
       return true;
     }
   finally {
@@ -36,6 +46,6 @@
     throw e;
   }
 catch (  IOException ioe) {
-    throw new IOException("Could not seekToPreviousRow " + this + " to key "+ key,ioe);
+    throw new IOException("Could not seekToPreviousRow " + this + " to key "+ originalKey,ioe);
   }
 }
