@@ -4,23 +4,48 @@
   if (tSplit.getTable() == null) {
     throw new IOException("Cannot create a record reader because of a" + " previous error. Please look at the previous logs lines from" + " the task's full log for more details.");
   }
-  Connection connection=ConnectionFactory.createConnection(context.getConfiguration());
+  final Connection connection=ConnectionFactory.createConnection(context.getConfiguration());
   Table table=connection.getTable(tSplit.getTable());
-  TableRecordReader trr=this.tableRecordReader;
+  if (this.tableRecordReader == null) {
+    this.tableRecordReader=new TableRecordReader();
+  }
+  final TableRecordReader trr=this.tableRecordReader;
   try {
-    if (trr == null) {
-      trr=new TableRecordReader();
-    }
     Scan sc=tSplit.getScan();
     sc.setStartRow(tSplit.getStartRow());
     sc.setStopRow(tSplit.getEndRow());
     trr.setScan(sc);
     trr.setTable(table);
-    trr.setConnection(connection);
+    return new RecordReader<ImmutableBytesWritable,Result>(){
+      @Override public void close() throws IOException {
+        trr.close();
+        if (connection != null) {
+          connection.close();
+        }
+      }
+      @Override public ImmutableBytesWritable getCurrentKey() throws IOException, InterruptedException {
+        return trr.getCurrentKey();
+      }
+      @Override public Result getCurrentValue() throws IOException, InterruptedException {
+        return trr.getCurrentValue();
+      }
+      @Override public float getProgress() throws IOException, InterruptedException {
+        return trr.getProgress();
+      }
+      @Override public void initialize(      InputSplit inputsplit,      TaskAttemptContext context) throws IOException, InterruptedException {
+        trr.initialize(inputsplit,context);
+      }
+      @Override public boolean nextKeyValue() throws IOException, InterruptedException {
+        return trr.nextKeyValue();
+      }
+    }
+;
   }
  catch (  IOException ioe) {
     trr.close();
+    if (connection != null) {
+      connection.close();
+    }
     throw ioe;
   }
-  return trr;
 }
