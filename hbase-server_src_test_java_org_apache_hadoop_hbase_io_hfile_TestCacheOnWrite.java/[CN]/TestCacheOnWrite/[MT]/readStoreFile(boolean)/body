@@ -1,7 +1,7 @@
 {
   HFile.Reader reader=HFile.createReader(fs,storeFilePath,cacheConf,conf);
   LOG.info("HFile information: " + reader);
-  HFileContext meta=new HFileContextBuilder().withCompression(compress).withBytesPerCheckSum(CKBYTES).withChecksumType(ChecksumType.NULL).withBlockSize(DATA_BLOCK_SIZE).withDataBlockEncoding(encoder.getDataBlockEncoding()).withIncludesTags(useTags).build();
+  HFileContext meta=new HFileContextBuilder().withCompression(compress).withBytesPerCheckSum(CKBYTES).withChecksumType(ChecksumType.NULL).withBlockSize(DATA_BLOCK_SIZE).withDataBlockEncoding(NoOpDataBlockEncoder.INSTANCE.getDataBlockEncoding()).withIncludesTags(useTags).build();
   final boolean cacheBlocks=false;
   final boolean pread=false;
   HFileScanner scanner=reader.getScanner(cacheBlocks,pread);
@@ -9,7 +9,7 @@
   long offset=0;
   HFileBlock prevBlock=null;
   EnumMap<BlockType,Integer> blockCountByType=new EnumMap<BlockType,Integer>(BlockType.class);
-  DataBlockEncoding encodingInCache=encoderType.getEncoder().getDataBlockEncoding();
+  DataBlockEncoding encodingInCache=NoOpDataBlockEncoder.INSTANCE.getDataBlockEncoding();
   List<Long> cachedBlocksOffset=new ArrayList<Long>();
   Map<Long,HFileBlock> cachedBlocks=new HashMap<Long,HFileBlock>();
   while (offset < reader.getTrailer().getLoadOnOpenDataOffset()) {
@@ -37,10 +37,7 @@
       }
       assertEquals(block.getChecksumType(),fromCache.getChecksumType());
       assertEquals(block.getBlockType(),fromCache.getBlockType());
-      if (block.getBlockType() == BlockType.ENCODED_DATA) {
-        assertEquals(block.getDataBlockEncodingId(),fromCache.getDataBlockEncodingId());
-        assertEquals(block.getDataBlockEncoding(),fromCache.getDataBlockEncoding());
-      }
+      assertNotEquals(block.getBlockType(),BlockType.ENCODED_DATA);
       assertEquals(block.getOnDiskSizeWithHeader(),fromCache.getOnDiskSizeWithHeader());
       assertEquals(block.getOnDiskSizeWithoutHeader(),fromCache.getOnDiskSizeWithoutHeader());
       assertEquals(block.getUncompressedSizeWithoutHeader(),fromCache.getUncompressedSizeWithoutHeader());
@@ -53,12 +50,11 @@
   }
   LOG.info("Block count by type: " + blockCountByType);
   String countByType=blockCountByType.toString();
-  BlockType cachedDataBlockType=encoderType.encode ? BlockType.ENCODED_DATA : BlockType.DATA;
   if (useTags) {
-    assertEquals("{" + cachedDataBlockType + "=2663, LEAF_INDEX=297, BLOOM_CHUNK=9, INTERMEDIATE_INDEX=34}",countByType);
+    assertEquals("{" + BlockType.DATA + "=2663, LEAF_INDEX=297, BLOOM_CHUNK=9, INTERMEDIATE_INDEX=34}",countByType);
   }
  else {
-    assertEquals("{" + cachedDataBlockType + "=2498, LEAF_INDEX=278, BLOOM_CHUNK=9, INTERMEDIATE_INDEX=31}",countByType);
+    assertEquals("{" + BlockType.DATA + "=2498, LEAF_INDEX=278, BLOOM_CHUNK=9, INTERMEDIATE_INDEX=31}",countByType);
   }
   while (scanner.next()) {
     scanner.getCell();
