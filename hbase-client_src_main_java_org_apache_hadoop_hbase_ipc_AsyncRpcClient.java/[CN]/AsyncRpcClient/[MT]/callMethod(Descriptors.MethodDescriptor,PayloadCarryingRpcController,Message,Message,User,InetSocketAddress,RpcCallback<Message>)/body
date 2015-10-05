@@ -2,8 +2,16 @@
   final AsyncRpcChannel connection;
   try {
     connection=createRpcChannel(md.getService().getName(),addr,ticket);
-    connection.callMethod(md,pcrc,param,returnType).addListener(new GenericFutureListener<Future<Message>>(){
+    final MetricsConnection.CallStats cs=MetricsConnection.newCallStats();
+    GenericFutureListener<Future<Message>> listener=new GenericFutureListener<Future<Message>>(){
       @Override public void operationComplete(      Future<Message> future) throws Exception {
+        cs.setCallTimeMs(EnvironmentEdgeManager.currentTime() - cs.getStartTime());
+        if (metrics != null) {
+          metrics.updateRpc(md,param,cs);
+        }
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Call: " + md.getName() + ", callTime: "+ cs.getCallTimeMs()+ "ms");
+        }
         if (!future.isSuccess()) {
           Throwable cause=future.cause();
           if (cause instanceof IOException) {
@@ -32,7 +40,9 @@ catch (          InterruptedException e) {
         }
       }
     }
-);
+;
+    cs.setStartTime(EnvironmentEdgeManager.currentTime());
+    connection.callMethod(md,pcrc,param,returnType,cs).addListener(listener);
   }
  catch (  StoppedRpcClientException|FailedServerException e) {
     pcrc.setFailed(e);
