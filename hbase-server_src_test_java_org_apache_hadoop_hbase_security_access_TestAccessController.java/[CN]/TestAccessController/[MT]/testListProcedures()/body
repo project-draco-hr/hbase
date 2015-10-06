@@ -1,0 +1,22 @@
+{
+  final TableName tableName=TableName.valueOf("testAbortProcedure");
+  final ProcedureExecutor<MasterProcedureEnv> procExec=TEST_UTIL.getHBaseCluster().getMaster().getMasterProcedureExecutor();
+  Procedure proc=new TestTableDDLProcedure(procExec.getEnvironment(),tableName);
+  proc.setOwner(USER_OWNER.getShortName());
+  final long procId=procExec.submitProcedure(proc);
+  final List<ProcedureInfo> procInfoList=procExec.listProcedures();
+  AccessTestAction listProceduresAction=new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      List<ProcedureInfo> procInfoListClone=new ArrayList<ProcedureInfo>(procInfoList.size());
+      for (      ProcedureInfo pi : procInfoList) {
+        procInfoListClone.add(pi.clone());
+      }
+      ACCESS_CONTROLLER.postListProcedures(ObserverContext.createAndPrepare(CP_ENV,null),procInfoListClone);
+      return null;
+    }
+  }
+;
+  verifyAllowed(listProceduresAction,SUPERUSER,USER_ADMIN,USER_GROUP_ADMIN);
+  verifyAllowed(listProceduresAction,USER_OWNER);
+  verifyIfNull(listProceduresAction,USER_RW,USER_RO,USER_NONE,USER_GROUP_READ,USER_GROUP_WRITE);
+}
