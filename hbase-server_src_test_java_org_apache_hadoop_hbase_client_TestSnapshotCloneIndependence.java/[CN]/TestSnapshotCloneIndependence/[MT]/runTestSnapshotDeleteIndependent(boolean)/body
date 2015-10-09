@@ -11,13 +11,17 @@
   byte[] snapshotName=Bytes.toBytes(snapshotNameAsString);
   SnapshotTestingUtils.createSnapshotAndValidate(admin,localTableName,TEST_FAM_STR,snapshotNameAsString,rootDir,fs,online);
   if (!online) {
-    admin.enableTable(localTableName);
+    tryDisable(admin,localTableName);
   }
   TableName cloneTableName=TableName.valueOf("test-clone-" + localTableName);
   admin.cloneSnapshot(snapshotName,cloneTableName);
+  UTIL.waitUntilAllRegionsAssigned(cloneTableName);
   admin.majorCompact(localTableName);
   admin.deleteSnapshot(snapshotName);
-  Thread.sleep(10000);
+  do {
+    Thread.sleep(5000);
+  }
+ while (!admin.listSnapshots(snapshotNameAsString).isEmpty());
   try (Table original=UTIL.getConnection().getTable(localTableName)){
     try (Table clonedTable=UTIL.getConnection().getTable(cloneTableName)){
       final int origTableRowCount=countRows(original);
