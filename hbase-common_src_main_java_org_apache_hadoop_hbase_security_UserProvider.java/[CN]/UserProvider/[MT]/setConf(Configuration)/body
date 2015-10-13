@@ -1,15 +1,28 @@
 {
   super.setConf(conf);
-  long cacheTimeout=getConf().getLong(CommonConfigurationKeys.HADOOP_SECURITY_GROUPS_CACHE_SECS,CommonConfigurationKeys.HADOOP_SECURITY_GROUPS_CACHE_SECS_DEFAULT) * 1000;
-  this.groupCache=CacheBuilder.newBuilder().refreshAfterWrite(cacheTimeout,TimeUnit.MILLISECONDS).expireAfterWrite(10 * cacheTimeout,TimeUnit.MILLISECONDS).concurrencyLevel(20).build(new CacheLoader<UserGroupInformation,String[]>(){
-    @Override public String[] load(    UserGroupInformation ugi) throws Exception {
-      return ugi.getGroupNames();
+synchronized (UserProvider.class) {
+    if (!(groups instanceof User.TestingGroups)) {
+      groups=Groups.getUserToGroupsMappingService(conf);
     }
-    public ListenableFuture<String[]> reload(    final UserGroupInformation k,    String[] oldValue) throws Exception {
+  }
+  long cacheTimeout=getConf().getLong(CommonConfigurationKeys.HADOOP_SECURITY_GROUPS_CACHE_SECS,CommonConfigurationKeys.HADOOP_SECURITY_GROUPS_CACHE_SECS_DEFAULT) * 1000;
+  this.groupCache=CacheBuilder.newBuilder().refreshAfterWrite(cacheTimeout,TimeUnit.MILLISECONDS).expireAfterWrite(10 * cacheTimeout,TimeUnit.MILLISECONDS).concurrencyLevel(20).build(new CacheLoader<String,String[]>(){
+    @Override public String[] load(    String ugi) throws Exception {
+      return getGroupStrings(ugi);
+    }
+    private String[] getGroupStrings(    String ugi){
+      try {
+        Set<String> result=new LinkedHashSet<String>(groups.getGroups(ugi));
+        return result.toArray(new String[result.size()]);
+      }
+ catch (      Exception e) {
+        return new String[0];
+      }
+    }
+    public ListenableFuture<String[]> reload(    final String k,    String[] oldValue) throws Exception {
       return executor.submit(new Callable<String[]>(){
-        UserGroupInformation userGroupInformation=k;
         @Override public String[] call() throws Exception {
-          return userGroupInformation.getGroupNames();
+          return getGroupStrings(k);
         }
       }
 );
