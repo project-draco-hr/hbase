@@ -1,0 +1,39 @@
+{
+  TableName table=TableName.valueOf("tableInfo");
+  FileSystem fs=null;
+  Path tableinfo=null;
+  try {
+    setupTable(table);
+    Path hbaseTableDir=FSUtils.getTableDir(FSUtils.getRootDir(conf),table);
+    fs=hbaseTableDir.getFileSystem(conf);
+    FileStatus status=FSTableDescriptors.getTableInfoPath(fs,hbaseTableDir);
+    tableinfo=status.getPath();
+    fs.rename(tableinfo,new Path("/.tableinfo"));
+    HBaseFsck hbck=doFsck(conf,false);
+    assertErrors(hbck,new HBaseFsck.ErrorReporter.ERROR_CODE[]{HBaseFsck.ErrorReporter.ERROR_CODE.NO_TABLEINFO_FILE});
+    hbck=doFsck(conf,true);
+    assertNoErrors(hbck);
+    status=null;
+    status=FSTableDescriptors.getTableInfoPath(fs,hbaseTableDir);
+    assertNotNull(status);
+    HTableDescriptor htd=admin.getTableDescriptor(table);
+    htd.setValue("NOT_DEFAULT","true");
+    admin.disableTable(table);
+    admin.modifyTable(table,htd);
+    admin.enableTable(table);
+    fs.delete(status.getPath(),true);
+    htd=admin.getTableDescriptor(table);
+    hbck=doFsck(conf,true);
+    assertNoErrors(hbck);
+    status=FSTableDescriptors.getTableInfoPath(fs,hbaseTableDir);
+    assertNotNull(status);
+    htd=admin.getTableDescriptor(table);
+    assertEquals(htd.getValue("NOT_DEFAULT"),"true");
+  }
+  finally {
+    if (fs != null) {
+      fs.rename(new Path("/.tableinfo"),tableinfo);
+    }
+    cleanupTable(table);
+  }
+}

@@ -1,0 +1,50 @@
+{
+  IncrementingEnvironmentEdge edge=new IncrementingEnvironmentEdge(0);
+  EnvironmentEdgeManager.injectEdge(edge);
+  HBaseFsck hbck=doFsck(conf,false);
+  assertNoErrors(hbck);
+  ServerName mockName=ServerName.valueOf("localhost",60000,1);
+  final TableName tableName=TableName.valueOf("foo");
+  final TableLockManager tableLockManager=TableLockManager.createTableLockManager(conf,TEST_UTIL.getZooKeeperWatcher(),mockName);
+  TableLockManager.TableLock writeLock=tableLockManager.writeLock(tableName,"testCheckTableLocks");
+  writeLock.acquire();
+  hbck=doFsck(conf,false);
+  assertNoErrors(hbck);
+  edge.incrementTime(conf.getLong(TableLockManager.TABLE_LOCK_EXPIRE_TIMEOUT,TableLockManager.DEFAULT_TABLE_LOCK_EXPIRE_TIMEOUT_MS));
+  hbck=doFsck(conf,false);
+  assertErrors(hbck,new HBaseFsck.ErrorReporter.ERROR_CODE[]{HBaseFsck.ErrorReporter.ERROR_CODE.EXPIRED_TABLE_LOCK});
+  final CountDownLatch latch=new CountDownLatch(1);
+  new Thread(){
+    @Override public void run(){
+      TableLockManager.TableLock readLock=tableLockManager.writeLock(tableName,"testCheckTableLocks");
+      try {
+        latch.countDown();
+        readLock.acquire();
+      }
+ catch (      IOException ex) {
+        fail();
+      }
+catch (      IllegalStateException ex) {
+        return;
+      }
+      fail("should not have come here");
+    }
+  }
+.start();
+  latch.await();
+  Threads.sleep(300);
+  hbck=doFsck(conf,false);
+  assertErrors(hbck,new HBaseFsck.ErrorReporter.ERROR_CODE[]{HBaseFsck.ErrorReporter.ERROR_CODE.EXPIRED_TABLE_LOCK});
+  edge.incrementTime(conf.getLong(TableLockManager.TABLE_LOCK_EXPIRE_TIMEOUT,TableLockManager.DEFAULT_TABLE_LOCK_EXPIRE_TIMEOUT_MS));
+  hbck=doFsck(conf,false);
+  assertErrors(hbck,new HBaseFsck.ErrorReporter.ERROR_CODE[]{HBaseFsck.ErrorReporter.ERROR_CODE.EXPIRED_TABLE_LOCK,HBaseFsck.ErrorReporter.ERROR_CODE.EXPIRED_TABLE_LOCK});
+  conf.setLong(TableLockManager.TABLE_LOCK_EXPIRE_TIMEOUT,1);
+  Threads.sleep(10);
+  hbck=doFsck(conf,true);
+  hbck=doFsck(conf,false);
+  assertNoErrors(hbck);
+  writeLock=tableLockManager.writeLock(tableName,"should acquire without blocking");
+  writeLock.acquire();
+  writeLock.release();
+  tableLockManager.tableDeleted(tableName);
+}

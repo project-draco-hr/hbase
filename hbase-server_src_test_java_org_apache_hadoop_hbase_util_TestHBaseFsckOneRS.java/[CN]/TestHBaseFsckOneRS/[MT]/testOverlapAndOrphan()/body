@@ -1,0 +1,25 @@
+{
+  TableName table=TableName.valueOf("tableOverlapAndOrphan");
+  try {
+    setupTable(table);
+    assertEquals(ROWKEYS.length,countRows());
+    admin.disableTable(table);
+    deleteRegion(conf,tbl.getTableDescriptor(),Bytes.toBytes("A"),Bytes.toBytes("B"),true,true,false,true,HRegionInfo.DEFAULT_REPLICA_ID);
+    admin.enableTable(table);
+    HRegionInfo hriOverlap=createRegion(tbl.getTableDescriptor(),Bytes.toBytes("A2"),Bytes.toBytes("B"));
+    TEST_UTIL.getHBaseCluster().getMaster().assignRegion(hriOverlap);
+    TEST_UTIL.getHBaseCluster().getMaster().getAssignmentManager().waitForAssignment(hriOverlap);
+    ServerName server=regionStates.getRegionServerOfRegion(hriOverlap);
+    TEST_UTIL.assertRegionOnServer(hriOverlap,server,REGION_ONLINE_TIMEOUT);
+    HBaseFsck hbck=doFsck(conf,false);
+    assertErrors(hbck,new HBaseFsck.ErrorReporter.ERROR_CODE[]{HBaseFsck.ErrorReporter.ERROR_CODE.ORPHAN_HDFS_REGION,HBaseFsck.ErrorReporter.ERROR_CODE.NOT_IN_META_OR_DEPLOYED,HBaseFsck.ErrorReporter.ERROR_CODE.HOLE_IN_REGION_CHAIN});
+    doFsck(conf,true);
+    HBaseFsck hbck2=doFsck(conf,false);
+    assertNoErrors(hbck2);
+    assertEquals(0,hbck2.getOverlapGroups(table).size());
+    assertEquals(ROWKEYS.length,countRows());
+  }
+  finally {
+    cleanupTable(table);
+  }
+}

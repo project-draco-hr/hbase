@@ -1,0 +1,66 @@
+{
+  TableName table=TableName.valueOf("testSidelineOverlapRegion");
+  try {
+    setupTable(table);
+    assertEquals(ROWKEYS.length,countRows());
+    MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+    HMaster master=cluster.getMaster();
+    HRegionInfo hriOverlap1=createRegion(tbl.getTableDescriptor(),Bytes.toBytes("A"),Bytes.toBytes("AB"));
+    master.assignRegion(hriOverlap1);
+    master.getAssignmentManager().waitForAssignment(hriOverlap1);
+    HRegionInfo hriOverlap2=createRegion(tbl.getTableDescriptor(),Bytes.toBytes("AB"),Bytes.toBytes("B"));
+    master.assignRegion(hriOverlap2);
+    master.getAssignmentManager().waitForAssignment(hriOverlap2);
+    HBaseFsck hbck=doFsck(conf,false);
+    assertErrors(hbck,new HBaseFsck.ErrorReporter.ERROR_CODE[]{HBaseFsck.ErrorReporter.ERROR_CODE.DUPE_STARTKEYS,HBaseFsck.ErrorReporter.ERROR_CODE.DUPE_STARTKEYS,HBaseFsck.ErrorReporter.ERROR_CODE.OVERLAP_IN_REGION_CHAIN});
+    assertEquals(3,hbck.getOverlapGroups(table).size());
+    assertEquals(ROWKEYS.length,countRows());
+    Multimap<byte[],HBaseFsck.HbckInfo> overlapGroups=hbck.getOverlapGroups(table);
+    ServerName serverName=null;
+    byte[] regionName=null;
+    for (    HBaseFsck.HbckInfo hbi : overlapGroups.values()) {
+      if ("A".equals(Bytes.toString(hbi.getStartKey())) && "B".equals(Bytes.toString(hbi.getEndKey()))) {
+        regionName=hbi.getRegionName();
+        int k=cluster.getServerWith(regionName);
+        for (int i=0; i < 3; i++) {
+          if (i != k) {
+            HRegionServer rs=cluster.getRegionServer(i);
+            serverName=rs.getServerName();
+            break;
+          }
+        }
+        HBaseFsckRepair.closeRegionSilentlyAndWait((HConnection)connection,cluster.getRegionServer(k).getServerName(),hbi.getHdfsHRI());
+        admin.offline(regionName);
+        break;
+      }
+    }
+    assertNotNull(regionName);
+    assertNotNull(serverName);
+    try (Table meta=connection.getTable(TableName.META_TABLE_NAME,tableExecutorService)){
+      Put put=new Put(regionName);
+      put.add(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER,Bytes.toBytes(serverName.getHostAndPort()));
+      meta.put(put);
+    }
+     HBaseFsck fsck=new HBaseFsck(conf,hbfsckExecutorService);
+    fsck.connect();
+    HBaseFsck.setDisplayFullReport();
+    fsck.setTimeLag(0);
+    fsck.setFixAssignments(true);
+    fsck.setFixMeta(true);
+    fsck.setFixHdfsHoles(true);
+    fsck.setFixHdfsOverlaps(true);
+    fsck.setFixHdfsOrphans(true);
+    fsck.setFixVersionFile(true);
+    fsck.setSidelineBigOverlaps(true);
+    fsck.setMaxMerge(2);
+    fsck.onlineHbck();
+    fsck.close();
+    HBaseFsck hbck2=doFsck(conf,false);
+    assertNoErrors(hbck2);
+    assertEquals(0,hbck2.getOverlapGroups(table).size());
+    assertTrue(ROWKEYS.length > countRows());
+  }
+  finally {
+    cleanupTable(table);
+  }
+}

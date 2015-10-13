@@ -1,0 +1,31 @@
+{
+  TableName table=TableName.valueOf("tableRegionShouldNotBeDeployed");
+  try {
+    LOG.info("Starting testRegionShouldNotBeDeployed.");
+    MiniHBaseCluster cluster=TEST_UTIL.getHBaseCluster();
+    assertTrue(cluster.waitForActiveAndReadyMaster());
+    byte[][] SPLIT_KEYS=new byte[][]{new byte[0],Bytes.toBytes("aaa"),Bytes.toBytes("bbb"),Bytes.toBytes("ccc"),Bytes.toBytes("ddd")};
+    HTableDescriptor htdDisabled=new HTableDescriptor(table);
+    htdDisabled.addFamily(new HColumnDescriptor(FAM));
+    FSTableDescriptors fstd=new FSTableDescriptors(conf);
+    fstd.createTableDescriptor(htdDisabled);
+    List<HRegionInfo> disabledRegions=TEST_UTIL.createMultiRegionsInMeta(conf,htdDisabled,SPLIT_KEYS);
+    HRegionServer hrs=cluster.getRegionServer(0);
+    admin.disableTable(table);
+    admin.enableTable(table);
+    admin.disableTable(table);
+    HRegionInfo region=disabledRegions.remove(0);
+    byte[] regionName=region.getRegionName();
+    assertTrue(cluster.getServerWith(regionName) == -1);
+    HRegion r=HRegion.openHRegion(region,htdDisabled,hrs.getWAL(region),conf);
+    hrs.addToOnlineRegions(r);
+    HBaseFsck hbck=doFsck(conf,false);
+    assertErrors(hbck,new HBaseFsck.ErrorReporter.ERROR_CODE[]{HBaseFsck.ErrorReporter.ERROR_CODE.SHOULD_NOT_BE_DEPLOYED});
+    doFsck(conf,true);
+    assertNoErrors(doFsck(conf,false));
+  }
+  finally {
+    admin.enableTable(table);
+    cleanupTable(table);
+  }
+}
