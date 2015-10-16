@@ -1,21 +1,26 @@
 {
   LOG.info(String.format("Performing action: Batch restarting %d%% of region servers",(int)(ratio * 100)));
   List<ServerName> selectedServers=PolicyBasedChaosMonkey.selectRandomItems(getCurrentServers(),ratio);
+  Set<ServerName> killedServers=new HashSet<ServerName>();
   for (  ServerName server : selectedServers) {
+    if (context.isStopping()) {
+      break;
+    }
     LOG.info("Killing region server:" + server);
     cluster.killRegionServer(server);
+    killedServers.add(server);
   }
-  for (  ServerName server : selectedServers) {
+  for (  ServerName server : killedServers) {
     cluster.waitForRegionServerToStop(server,PolicyBasedChaosMonkey.TIMEOUT);
   }
-  LOG.info("Killed " + selectedServers.size() + " region servers. Reported num of rs:"+ cluster.getClusterStatus().getServersSize());
+  LOG.info("Killed " + killedServers.size() + " region servers. Reported num of rs:"+ cluster.getClusterStatus().getServersSize());
   sleep(sleepTime);
-  for (  ServerName server : selectedServers) {
+  for (  ServerName server : killedServers) {
     LOG.info("Starting region server:" + server.getHostname());
     cluster.startRegionServer(server.getHostname(),server.getPort());
   }
-  for (  ServerName server : selectedServers) {
+  for (  ServerName server : killedServers) {
     cluster.waitForRegionServerToStart(server.getHostname(),server.getPort(),PolicyBasedChaosMonkey.TIMEOUT);
   }
-  LOG.info("Started " + selectedServers.size() + " region servers. Reported num of rs:"+ cluster.getClusterStatus().getServersSize());
+  LOG.info("Started " + killedServers.size() + " region servers. Reported num of rs:"+ cluster.getClusterStatus().getServersSize());
 }
