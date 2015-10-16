@@ -1,29 +1,17 @@
 {
   FilterProtos.SQLPredicatePushDownFilter.Builder builder=FilterProtos.SQLPredicatePushDownFilter.newBuilder();
-  FilterProtos.SQLPredicatePushDownColumnFilter.Builder columnBuilder=FilterProtos.SQLPredicatePushDownColumnFilter.newBuilder();
-  FilterProtos.RowRange.Builder rowRangeBuilder=FilterProtos.RowRange.newBuilder();
-  for (  Map.Entry<ColumnFamilyQualifierMapKeyWrapper,ColumnFilter> entry : columnFamilyQualifierFilterMap.entrySet()) {
-    columnBuilder.setColumnFamily(ByteStringer.wrap(entry.getKey().cloneColumnFamily()));
-    columnBuilder.setQualifier(ByteStringer.wrap(entry.getKey().cloneQualifier()));
-    final MutableList<byte[]> points=entry.getValue().points();
-    int pointLength=points.length();
-    for (int i=0; i < pointLength; i++) {
-      byte[] point=points.get(i).get();
-      columnBuilder.addGetPointList(ByteStringer.wrap(point));
+  FilterProtos.SQLPredicatePushDownCellToColumnMapping.Builder columnMappingBuilder=FilterProtos.SQLPredicatePushDownCellToColumnMapping.newBuilder();
+  builder.setDynamicLogicExpression(dynamicLogicExpression.toExpressionString());
+  for (  byte[] valueFromQuery : valueFromQueryArray) {
+    builder.addValueFromQueryArray(ByteStringer.wrap(valueFromQuery));
+  }
+  for (  Map.Entry<ByteArrayComparable,HashMap<ByteArrayComparable,String>> familyEntry : currentCellToColumnIndexMap.entrySet()) {
+    for (    Map.Entry<ByteArrayComparable,String> qualifierEntry : familyEntry.getValue().entrySet()) {
+      columnMappingBuilder.setColumnFamily(ByteStringer.wrap(familyEntry.getKey().bytes()));
+      columnMappingBuilder.setQualifier(ByteStringer.wrap(qualifierEntry.getKey().bytes()));
+      columnMappingBuilder.setColumnName(qualifierEntry.getValue());
+      builder.addCellToColumnMapping(columnMappingBuilder.build());
     }
-    final MutableList<ScanRange> ranges=entry.getValue().ranges();
-    int rangeLength=ranges.length();
-    for (int i=0; i < rangeLength; i++) {
-      ScanRange scanRange=ranges.get(i).get();
-      rowRangeBuilder.clear();
-      rowRangeBuilder.setStartRow(ByteStringer.wrap(scanRange.lowerBound()));
-      rowRangeBuilder.setStopRow(ByteStringer.wrap(scanRange.upperBound()));
-      rowRangeBuilder.setStartRowInclusive(scanRange.isLowerBoundEqualTo());
-      rowRangeBuilder.setStopRowInclusive(scanRange.isUpperBoundEqualTo());
-      columnBuilder.addRangeList(rowRangeBuilder.build());
-    }
-    builder.addColumnFilterList(columnBuilder.build());
-    columnBuilder.clear();
   }
   return builder.build().toByteArray();
 }
