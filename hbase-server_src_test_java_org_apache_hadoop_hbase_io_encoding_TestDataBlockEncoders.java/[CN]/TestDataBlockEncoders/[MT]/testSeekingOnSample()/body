@@ -2,17 +2,20 @@
   List<KeyValue> sampleKv=generator.generateTestKeyValues(NUMBER_OF_KV,includesTags);
   List<DataBlockEncoder.EncodedSeeker> encodedSeekers=new ArrayList<DataBlockEncoder.EncodedSeeker>();
   for (  DataBlockEncoding encoding : DataBlockEncoding.values()) {
+    Log.info("Encoding: " + encoding);
     if (this.useOffheapData && encoding == DataBlockEncoding.PREFIX_TREE)     continue;
     DataBlockEncoder encoder=encoding.getEncoder();
     if (encoder == null) {
       continue;
     }
+    Log.info("Encoder: " + encoder);
     ByteBuffer encodedBuffer=encodeKeyValues(encoding,sampleKv,getEncodingContext(Compression.Algorithm.NONE,encoding),this.useOffheapData);
     HFileContext meta=new HFileContextBuilder().withHBaseCheckSum(false).withIncludesMvcc(includesMemstoreTS).withIncludesTags(includesTags).withCompression(Compression.Algorithm.NONE).build();
     DataBlockEncoder.EncodedSeeker seeker=encoder.createSeeker(CellComparator.COMPARATOR,encoder.newDataBlockDecodingContext(meta));
     seeker.setCurrentBuffer(new SingleByteBuff(encodedBuffer));
     encodedSeekers.add(seeker);
   }
+  Log.info("Testing it!");
   for (  boolean seekBefore : new boolean[]{false,true}) {
     for (int i=0; i < NUM_RANDOM_SEEKS; ++i) {
       int keyValueId;
@@ -26,6 +29,7 @@
       checkSeekingConsistency(encodedSeekers,seekBefore,keyValue);
     }
   }
+  Log.info("Checking edge cases");
   checkSeekingConsistency(encodedSeekers,false,sampleKv.get(0));
   for (  boolean seekBefore : new boolean[]{false,true}) {
     checkSeekingConsistency(encodedSeekers,seekBefore,sampleKv.get(sampleKv.size() - 1));
@@ -33,4 +37,5 @@
     Cell lastMidKv=CellUtil.createLastOnRowCol(midKv);
     checkSeekingConsistency(encodedSeekers,seekBefore,lastMidKv);
   }
+  Log.info("Done");
 }
