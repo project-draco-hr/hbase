@@ -1,8 +1,9 @@
 {
-  long bytesWritten=0;
-  long bytesWrittenProgress=0;
+  long bytesWrittenProgressForCloseCheck=0;
+  long bytesWrittenProgressForLog=0;
+  long bytesWrittenProgressForShippedCall=0;
   List<Cell> cells=new ArrayList<Cell>();
-  long closeCheckInterval=HStore.getCloseCheckInterval();
+  long closeCheckSizeLimit=HStore.getCloseCheckInterval();
   long lastMillis=0;
   if (LOG.isDebugEnabled()) {
     lastMillis=EnvironmentEdgeManager.currentTime();
@@ -12,6 +13,9 @@
   boolean hasMore;
   ScannerContext scannerContext=ScannerContext.newBuilder().setBatchLimit(compactionKVMax).build();
   throughputController.start(compactionName);
+  KeyValueScanner kvs=(scanner instanceof KeyValueScanner) ? (KeyValueScanner)scanner : null;
+  int minFilesToCompact=Math.max(2,conf.getInt(CompactionConfiguration.HBASE_HSTORE_COMPACTION_MIN_KEY,conf.getInt("hbase.hstore.compactionThreshold",3)));
+  long shippedCallSizeLimit=minFilesToCompact * HConstants.DEFAULT_BLOCKSIZE;
   try {
     do {
       hasMore=scanner.next(cells,scannerContext);
@@ -26,26 +30,31 @@
         int len=KeyValueUtil.length(c);
         ++progress.currentCompactedKVs;
         progress.totalCompactedSize+=len;
+        bytesWrittenProgressForShippedCall+=len;
         if (LOG.isDebugEnabled()) {
-          bytesWrittenProgress+=len;
+          bytesWrittenProgressForLog+=len;
         }
         throughputController.control(compactionName,len);
-        if (closeCheckInterval > 0) {
-          bytesWritten+=len;
-          if (bytesWritten > closeCheckInterval) {
-            bytesWritten=0;
+        if (closeCheckSizeLimit > 0) {
+          bytesWrittenProgressForCloseCheck+=len;
+          if (bytesWrittenProgressForCloseCheck > closeCheckSizeLimit) {
+            bytesWrittenProgressForCloseCheck=0;
             if (!store.areWritesEnabled()) {
               progress.cancel();
               return false;
             }
           }
         }
+        if (kvs != null && bytesWrittenProgressForShippedCall > shippedCallSizeLimit) {
+          kvs.shipped();
+          bytesWrittenProgressForShippedCall=0;
+        }
       }
       if (LOG.isDebugEnabled()) {
-        if ((now - lastMillis) >= 60 * 1000) {
-          LOG.debug("Compaction progress: " + compactionName + " "+ progress+ String.format(", rate=%.2f kB/sec",(bytesWrittenProgress / 1024.0) / ((now - lastMillis) / 1000.0))+ ", throughputController is "+ throughputController);
+        if ((now - lastMillis) >= COMPACTION_PROGRESS_LOG_INTERVAL) {
+          LOG.debug("Compaction progress: " + compactionName + " "+ progress+ String.format(", rate=%.2f kB/sec",(bytesWrittenProgressForLog / 1024.0) / ((now - lastMillis) / 1000.0))+ ", throughputController is "+ throughputController);
           lastMillis=now;
-          bytesWrittenProgress=0;
+          bytesWrittenProgressForLog=0;
         }
       }
       cells.clear();
