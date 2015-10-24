@@ -4,15 +4,15 @@
     return EmptyNormalizationPlan.getInstance();
   }
   List<HRegionInfo> tableRegions=masterServices.getAssignmentManager().getRegionStates().getRegionsOfTable(table);
-  if (tableRegions == null || tableRegions.size() < 3) {
-    LOG.debug("Table " + table + " has "+ tableRegions.size()+ " regions, required min number"+ " of regions for normalizer to run is 3, not running normalizer");
+  if (tableRegions == null || tableRegions.size() < MIN_REGION_COUNT) {
+    int nrRegions=tableRegions == null ? 0 : tableRegions.size();
+    LOG.debug("Table " + table + " has "+ nrRegions+ " regions, required min number"+ " of regions for normalizer to run is "+ MIN_REGION_COUNT+ ", not running normalizer");
     return EmptyNormalizationPlan.getInstance();
   }
   LOG.debug("Computing normalization plan for table: " + table + ", number of regions: "+ tableRegions.size());
   long totalSizeMb=0;
   Pair<HRegionInfo,Long> largestRegion=new Pair<>();
   Pair<HRegionInfo,Long> smallestRegion=new Pair<>();
-  Pair<HRegionInfo,Long> smallestNeighborOfSmallestRegion;
   int smallestRegionIndex=0;
   for (int i=0; i < tableRegions.size(); i++) {
     HRegionInfo hri=tableRegions.get(i);
@@ -29,13 +29,14 @@
     }
   }
   long leftNeighborSize=-1;
-  long rightNeighborSize=-1;
   if (smallestRegionIndex > 0) {
     leftNeighborSize=getRegionSize(tableRegions.get(smallestRegionIndex - 1));
   }
+  long rightNeighborSize=-1;
   if (smallestRegionIndex < tableRegions.size() - 1) {
     rightNeighborSize=getRegionSize(tableRegions.get(smallestRegionIndex + 1));
   }
+  Pair<HRegionInfo,Long> smallestNeighborOfSmallestRegion;
   if (leftNeighborSize == -1) {
     smallestNeighborOfSmallestRegion=new Pair<>(tableRegions.get(smallestRegionIndex + 1),rightNeighborSize);
   }
@@ -58,8 +59,8 @@
     return new SplitNormalizationPlan(largestRegion.getFirst(),null);
   }
  else {
-    if ((smallestRegion.getSecond() + smallestNeighborOfSmallestRegion.getSecond() < avgRegionSize)) {
-      LOG.debug("Table " + table + ", smallest region size: "+ smallestRegion.getSecond()+ " and its smallest neighbor size: "+ smallestNeighborOfSmallestRegion.getSecond()+ ", less than half the avg size, merging them");
+    if (smallestRegion.getSecond() + smallestNeighborOfSmallestRegion.getSecond() < avgRegionSize) {
+      LOG.debug("Table " + table + ", smallest region size: "+ smallestRegion.getSecond()+ " and its smallest neighbor size: "+ smallestNeighborOfSmallestRegion.getSecond()+ ", less than the avg size, merging them");
       return new MergeNormalizationPlan(smallestRegion.getFirst(),smallestNeighborOfSmallestRegion.getFirst());
     }
  else {
