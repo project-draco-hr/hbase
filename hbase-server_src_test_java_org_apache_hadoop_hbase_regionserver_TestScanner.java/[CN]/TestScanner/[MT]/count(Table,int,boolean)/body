@@ -1,0 +1,43 @@
+{
+  LOG.info("Taking out counting scan");
+  Scan scan=new Scan();
+  for (  byte[] qualifier : EXPLICIT_COLS) {
+    scan.addColumn(HConstants.CATALOG_FAMILY,qualifier);
+  }
+  ResultScanner s=countTable.getScanner(scan);
+  int count=0;
+  boolean justFlushed=false;
+  while (s.next() != null) {
+    if (justFlushed) {
+      LOG.info("after next() just after next flush");
+      justFlushed=false;
+    }
+    count++;
+    if (flushIndex == count) {
+      LOG.info("Starting flush at flush index " + flushIndex);
+      Thread t=new Thread(){
+        public void run(){
+          try {
+            region.flush(true);
+            LOG.info("Finishing flush");
+          }
+ catch (          IOException e) {
+            LOG.info("Failed flush cache");
+          }
+        }
+      }
+;
+      if (concurrent) {
+        t.start();
+      }
+ else {
+        t.run();
+      }
+      LOG.info("Continuing on after kicking off background flush");
+      justFlushed=true;
+    }
+  }
+  s.close();
+  LOG.info("Found " + count + " items");
+  return count;
+}
