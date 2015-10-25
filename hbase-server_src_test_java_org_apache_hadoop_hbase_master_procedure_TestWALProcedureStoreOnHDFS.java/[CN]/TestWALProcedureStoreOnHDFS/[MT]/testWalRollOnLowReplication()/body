@@ -1,37 +1,23 @@
 {
-  store.unregisterListener(stopProcedureListener);
-  store.registerListener(new ProcedureStore.ProcedureStoreListener(){
-    @Override public void postSync(){
-    }
-    @Override public void abortProcess(){
-      LOG.info("Aborted!!!!");
-    }
-  }
-);
-  int dnCount=0;
-  store.insert(new TestProcedure(1,-1),null);
-  UTIL.getDFSCluster().restartDataNode(dnCount);
-  for (long i=2; i < 100; ++i) {
-    try {
+  initConfig(UTIL.getConfiguration());
+  UTIL.getConfiguration().setInt("dfs.namenode.replication.min",1);
+  setup();
+  try {
+    int dnCount=0;
+    store.insert(new TestProcedure(1,-1),null);
+    UTIL.getDFSCluster().restartDataNode(dnCount);
+    for (long i=2; i < 100; ++i) {
       store.insert(new TestProcedure(i,-1),null);
-    }
- catch (    RuntimeException re) {
-      String msg=re.getMessage();
-      if (msg != null && msg.toLowerCase().contains("sync aborted")) {
-        LOG.info("i=" + i,re);
-        if (i > 50) {
-          LOG.info("Returning early... i=" + i + "...We ran enough of this test",re);
-          return;
-        }
+      waitForNumReplicas(3);
+      Thread.sleep(100);
+      if ((i % 30) == 0) {
+        LOG.info("Restart Data Node");
+        UTIL.getDFSCluster().restartDataNode(++dnCount % 3);
       }
-      throw re;
     }
-    waitForNumReplicas(3);
-    Thread.sleep(100);
-    if ((i % 30) == 0) {
-      LOG.info("Restart Data Node");
-      UTIL.getDFSCluster().restartDataNode(++dnCount % 3);
-    }
+    assertTrue(store.isRunning());
   }
-  assertTrue(store.isRunning());
+  finally {
+    tearDown();
+  }
 }
