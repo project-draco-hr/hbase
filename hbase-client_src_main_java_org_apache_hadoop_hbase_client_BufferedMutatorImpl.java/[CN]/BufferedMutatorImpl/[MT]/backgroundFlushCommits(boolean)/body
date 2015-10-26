@@ -1,14 +1,26 @@
 {
+  LinkedList<Mutation> buffer=new LinkedList<>();
+  long dequeuedSize=0;
   try {
+    Mutation m;
+    while ((writeBufferSize <= 0 || dequeuedSize < (writeBufferSize * 2) || synchronous) && (m=writeAsyncBuffer.poll()) != null) {
+      buffer.add(m);
+      long size=m.heapSize();
+      dequeuedSize+=size;
+      currentWriteBufferSize.addAndGet(-size);
+    }
+    if (!synchronous && dequeuedSize == 0) {
+      return;
+    }
     if (!synchronous) {
-      ap.submit(tableName,writeAsyncBuffer,true,null,false);
+      ap.submit(tableName,buffer,true,null,false);
       if (ap.hasError()) {
         LOG.debug(tableName + ": One or more of the operations have failed -" + " waiting for all operation in progress to finish (successfully or not)");
       }
     }
     if (synchronous || ap.hasError()) {
-      while (!writeAsyncBuffer.isEmpty()) {
-        ap.submit(tableName,writeAsyncBuffer,true,null,false);
+      while (!buffer.isEmpty()) {
+        ap.submit(tableName,buffer,true,null,false);
       }
       RetriesExhaustedWithDetailsException error=ap.waitForAllPreviousOpsAndReset(null);
       if (error != null) {
@@ -22,11 +34,11 @@
     }
   }
   finally {
-    currentWriteBufferSize=0;
-    for (    Row mut : writeAsyncBuffer) {
-      if (mut instanceof Mutation) {
-        currentWriteBufferSize+=((Mutation)mut).heapSize();
-      }
+    for (    Mutation mut : buffer) {
+      long size=mut.heapSize();
+      currentWriteBufferSize.addAndGet(size);
+      dequeuedSize-=size;
+      writeAsyncBuffer.add(mut);
     }
   }
 }
