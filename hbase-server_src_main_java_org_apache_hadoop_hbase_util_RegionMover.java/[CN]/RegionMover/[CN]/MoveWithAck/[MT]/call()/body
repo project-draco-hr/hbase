@@ -1,0 +1,35 @@
+{
+  boolean moved=false;
+  int count=0;
+  int retries=admin.getConfiguration().getInt(MOVE_RETRIES_MAX_KEY,DEFAULT_MOVE_RETRIES_MAX);
+  int maxWaitInSeconds=admin.getConfiguration().getInt(MOVE_WAIT_MAX_KEY,DEFAULT_MOVE_WAIT_MAX);
+  long startTime=EnvironmentEdgeManager.currentTime();
+  boolean sameServer=true;
+  isSuccessfulScan(admin,region);
+  LOG.info("Moving region:" + region.getEncodedName() + "from "+ sourceServer+ " to "+ targetServer);
+  while (count < retries && sameServer) {
+    if (count > 0) {
+      LOG.info("Retry " + Integer.toString(count) + " of maximum "+ Integer.toString(retries));
+    }
+    count=count + 1;
+    admin.move(region.getEncodedNameAsBytes(),Bytes.toBytes(targetServer));
+    long maxWait=startTime + (maxWaitInSeconds * 1000);
+    while (EnvironmentEdgeManager.currentTime() < maxWait) {
+      sameServer=isSameServer(admin,region,sourceServer);
+      if (!sameServer) {
+        break;
+      }
+      Thread.sleep(100);
+    }
+  }
+  if (sameServer) {
+    LOG.error("Region: " + region.getRegionNameAsString() + " stuck on "+ this.sourceServer+ ",newServer="+ this.targetServer);
+  }
+ else {
+    isSuccessfulScan(admin,region);
+    LOG.info("Moved Region " + region.getRegionNameAsString() + " cost:"+ String.format("%.3f",(float)(EnvironmentEdgeManager.currentTime() - startTime) / 1000));
+    moved=true;
+    movedRegions.add(region);
+  }
+  return moved;
+}
