@@ -2,7 +2,7 @@
   Configuration copyOfConf=new Configuration(conf);
   copyOfConf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY,0f);
   CacheConfig cacheConfig=new CacheConfig(copyOfConf);
-  Path mobDirPath=new Path(MobUtils.getMobRegionPath(conf,htd.getTableName()),hcd.getNameAsString());
+  Path mobDirPath=MobUtils.getMobFamilyPath(conf,htd.getTableName(),hcd.getNameAsString());
   List<StoreFile> sfs=new ArrayList<>();
   int numDelfiles=0;
   int size=0;
@@ -21,12 +21,11 @@
     long ttl=HStore.determineTTLFromFamily(hcd);
     ScanInfo scanInfo=new ScanInfo(copyOfConf,hcd,ttl,timeToPurgeDeletes,CellComparator.COMPARATOR);
     StoreScanner scanner=new StoreScanner(scan,scanInfo,ScanType.COMPACT_DROP_DELETES,null,scanners,0L,HConstants.LATEST_TIMESTAMP);
-    List<Cell> results=new ArrayList<>();
-    boolean hasMore=true;
-    while (hasMore) {
-      hasMore=scanner.next(results);
-      size+=results.size();
-      results.clear();
+    try {
+      size+=countRows(scanner);
+    }
+  finally {
+      scanner.close();
     }
   }
   assertEquals(expectedNumDelfiles,numDelfiles);
