@@ -1,0 +1,33 @@
+{
+  Configuration clientConfCopy=new Configuration(clientConf);
+  clientConfCopy.set(RpcClientFactory.CUSTOM_RPC_CLIENT_IMPL_CONF_KEY,rpcImplClass.getName());
+  Configuration conf=getSecuredConfiguration();
+  conf.setBoolean(RpcServer.FALLBACK_TO_INSECURE_CLIENT_AUTH,allowInsecureFallback);
+  SecurityInfo securityInfoMock=Mockito.mock(SecurityInfo.class);
+  Mockito.when(securityInfoMock.getServerPrincipal()).thenReturn(HBaseKerberosUtils.KRB_PRINCIPAL);
+  SecurityInfo.addInfo("TestDelayedService",securityInfoMock);
+  boolean delayReturnValue=false;
+  InetSocketAddress isa=new InetSocketAddress(HOST,0);
+  TestDelayedImplementation instance=new TestDelayedImplementation(delayReturnValue);
+  BlockingService service=TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
+  RpcServerInterface rpcServer=new RpcServer(null,"testSecuredDelayedRpc",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service,null)),isa,conf,new FifoRpcScheduler(conf,1));
+  rpcServer.start();
+  RpcClient rpcClient=RpcClientFactory.createClient(clientConfCopy,HConstants.DEFAULT_CLUSTER_ID.toString());
+  try {
+    InetSocketAddress address=rpcServer.getListenerAddress();
+    if (address == null) {
+      throw new IOException("Listener channel is closed");
+    }
+    BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(ServerName.valueOf(address.getHostName(),address.getPort(),System.currentTimeMillis()),clientUser,5000);
+    TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub=TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
+    List<Integer> results=new ArrayList<Integer>();
+    TestThread th1=new TestThread(stub,true,results);
+    th1.start();
+    th1.join();
+    assertEquals(0xDEADBEEF,results.get(0).intValue());
+  }
+  finally {
+    rpcClient.close();
+    rpcServer.stop();
+  }
+}
