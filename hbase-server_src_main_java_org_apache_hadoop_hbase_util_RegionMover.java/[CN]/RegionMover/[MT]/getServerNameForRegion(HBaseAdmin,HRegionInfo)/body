@@ -1,0 +1,52 @@
+{
+  String server=null;
+  if (!admin.isTableEnabled(region.getTable())) {
+    return null;
+  }
+  if (region.isMetaRegion()) {
+    ZooKeeperWatcher zkw=new ZooKeeperWatcher(admin.getConfiguration(),"region_mover",null);
+    MetaRegionTracker tracker=new MetaRegionTracker(zkw,new RegionMoverAbortable());
+    int maxWaitInSeconds=admin.getConfiguration().getInt(MOVE_WAIT_MAX_KEY,DEFAULT_MOVE_WAIT_MAX);
+    tracker.start();
+    try {
+      server=tracker.waitMetaRegionLocation(maxWaitInSeconds * 1000).toString() + ",";
+    }
+ catch (    InterruptedException e) {
+      LOG.error("Interrupted while waiting for location of Meta",e);
+    }
+ finally {
+      tracker.stop();
+      if (zkw != null) {
+        zkw.close();
+      }
+    }
+  }
+ else {
+    HTable table=null;
+    Result result=null;
+    try {
+      table=new HTable(admin.getConfiguration(),TableName.META_TABLE_NAME);
+      Get get=new Get(region.getRegionName());
+      get.addColumn(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+      get.addColumn(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
+      result=table.get(get);
+      if (result != null) {
+        byte[] servername=result.getValue(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+        byte[] startcode=result.getValue(HConstants.CATALOG_FAMILY,HConstants.STARTCODE_QUALIFIER);
+        if (servername != null) {
+          server=Bytes.toString(servername).replaceFirst(":",",") + "," + Bytes.toLong(startcode);
+        }
+      }
+    }
+ catch (    IOException e) {
+      LOG.error("Could not get Server Name for region:" + region.getEncodedName(),e);
+      throw e;
+    }
+ finally {
+      if (table != null) {
+        table.close();
+      }
+    }
+  }
+  return server;
+}
