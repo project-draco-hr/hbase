@@ -1,0 +1,37 @@
+{
+  if (args.length < 1 || args.length > 2) {
+    System.out.println("Usage: " + this.getClass().getName() + " tableName [num_operations]");
+    return -1;
+  }
+  final TableName tableName=TableName.valueOf(args[0]);
+  int numOperations=DEFAULT_NUM_OPERATIONS;
+  if (args.length == 2) {
+    numOperations=Integer.parseInt(args[1]);
+  }
+  ExecutorService service=new ForkJoinPool(threads * 2);
+  final Connection writeConnection=ConnectionFactory.createConnection(getConf(),service);
+  final Connection readConnection=ConnectionFactory.createConnection(getConf(),service);
+  warmUpConnectionCache(readConnection,tableName);
+  warmUpConnectionCache(writeConnection,tableName);
+  List<Future<Boolean>> futures=new ArrayList<>(numOperations);
+  for (int i=0; i < numOperations; i++) {
+    double r=ThreadLocalRandom.current().nextDouble();
+    Future<Boolean> f;
+    if (r < .30) {
+      f=internalPool.submit(new WriteExampleCallable(writeConnection,tableName));
+    }
+ else     if (r < .50) {
+      f=internalPool.submit(new SingleWriteExampleCallable(writeConnection,tableName));
+    }
+ else {
+      f=internalPool.submit(new ReadExampleCallable(writeConnection,tableName));
+    }
+    futures.add(f);
+  }
+  for (  Future<Boolean> f : futures) {
+    f.get(10,TimeUnit.MINUTES);
+  }
+  internalPool.shutdownNow();
+  service.shutdownNow();
+  return 0;
+}
