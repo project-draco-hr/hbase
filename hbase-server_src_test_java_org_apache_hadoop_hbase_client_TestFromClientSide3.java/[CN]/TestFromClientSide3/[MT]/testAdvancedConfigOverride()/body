@@ -1,18 +1,17 @@
 {
   TEST_UTIL.getConfiguration().setInt("hbase.hstore.compaction.min",3);
-  String tableName="testAdvancedConfigOverride";
-  TableName TABLE=TableName.valueOf(tableName);
-  Table hTable=TEST_UTIL.createTable(TABLE,FAMILY,10);
-  HBaseAdmin admin=TEST_UTIL.getHBaseAdmin();
+  TableName tableName=TableName.valueOf("testAdvancedConfigOverride");
+  Table hTable=TEST_UTIL.createTable(tableName,FAMILY,10);
+  Admin admin=TEST_UTIL.getHBaseAdmin();
   ClusterConnection connection=(ClusterConnection)TEST_UTIL.getConnection();
   byte[] row=Bytes.toBytes(random.nextInt());
-  performMultiplePutAndFlush(admin,hTable,row,FAMILY,3,100);
-  try (RegionLocator locator=TEST_UTIL.getConnection().getRegionLocator(TABLE)){
+  performMultiplePutAndFlush((HBaseAdmin)admin,hTable,row,FAMILY,3,100);
+  try (RegionLocator locator=TEST_UTIL.getConnection().getRegionLocator(tableName)){
     HRegionLocation loc=locator.getRegionLocation(row,true);
     byte[] regionName=loc.getRegionInfo().getRegionName();
     AdminProtos.AdminService.BlockingInterface server=connection.getAdmin(loc.getServerName());
     assertTrue(ProtobufUtil.getStoreFiles(server,regionName,FAMILY).size() > 1);
-    admin.compact(TABLE.getName());
+    admin.compact(tableName);
     for (int i=0; i < 10 * 1000 / 40; ++i) {
       loc=locator.getRegionLocation(row,true);
       if (!loc.getRegionInfo().isOffline()) {
@@ -28,15 +27,15 @@
     LOG.info("hbase.hstore.compaction.min should now be 5");
     HTableDescriptor htd=new HTableDescriptor(hTable.getTableDescriptor());
     htd.setValue("hbase.hstore.compaction.min",String.valueOf(5));
-    admin.modifyTable(TABLE,htd);
+    admin.modifyTable(tableName,htd);
     Pair<Integer,Integer> st;
-    while (null != (st=admin.getAlterStatus(TABLE)) && st.getFirst() > 0) {
+    while (null != (st=admin.getAlterStatus(tableName)) && st.getFirst() > 0) {
       LOG.debug(st.getFirst() + " regions left to update");
       Thread.sleep(40);
     }
     LOG.info("alter status finished");
-    performMultiplePutAndFlush(admin,hTable,row,FAMILY,3,10);
-    admin.compact(TABLE.getName());
+    performMultiplePutAndFlush((HBaseAdmin)admin,hTable,row,FAMILY,3,10);
+    admin.compact(tableName);
     Thread.sleep(10 * 1000);
     loc=locator.getRegionLocation(row,true);
     regionName=loc.getRegionInfo().getRegionName();
@@ -47,13 +46,13 @@
     HColumnDescriptor hcd=new HColumnDescriptor(htd.getFamily(FAMILY));
     hcd.setValue("hbase.hstore.compaction.min",String.valueOf(2));
     htd.modifyFamily(hcd);
-    admin.modifyTable(TABLE,htd);
-    while (null != (st=admin.getAlterStatus(TABLE)) && st.getFirst() > 0) {
+    admin.modifyTable(tableName,htd);
+    while (null != (st=admin.getAlterStatus(tableName)) && st.getFirst() > 0) {
       LOG.debug(st.getFirst() + " regions left to update");
       Thread.sleep(40);
     }
     LOG.info("alter status finished");
-    admin.compact(TABLE.getName());
+    admin.compact(tableName);
     for (int i=0; i < 10 * 1000 / 40; ++i) {
       loc=locator.getRegionLocation(row,true);
       regionName=loc.getRegionInfo().getRegionName();
@@ -74,8 +73,8 @@
     hcd=new HColumnDescriptor(htd.getFamily(FAMILY));
     hcd.setValue("hbase.hstore.compaction.min",null);
     htd.modifyFamily(hcd);
-    admin.modifyTable(TABLE,htd);
-    while (null != (st=admin.getAlterStatus(TABLE)) && st.getFirst() > 0) {
+    admin.modifyTable(tableName,htd);
+    while (null != (st=admin.getAlterStatus(tableName)) && st.getFirst() > 0) {
       LOG.debug(st.getFirst() + " regions left to update");
       Thread.sleep(40);
     }
