@@ -1,0 +1,29 @@
+{
+  Thread.currentThread().setName(clientId);
+  Random rand=new Random();
+  long endTime=System.currentTimeMillis() + NUM_SECONDS * 1000;
+  while (System.currentTimeMillis() < endTime) {
+    long id=rand.nextInt(NUM_IDS);
+    boolean readLock=rand.nextBoolean();
+    ReentrantReadWriteLock readWriteLock=idLock.getLock(id);
+    Lock lock=readLock ? readWriteLock.readLock() : readWriteLock.writeLock();
+    try {
+      lock.lock();
+      int sleepMs=1 + rand.nextInt(4);
+      String owner=idOwner.get(id);
+      if (owner != null && LOG.isDebugEnabled()) {
+        LOG.debug((readLock ? "Read" : "Write") + "lock of Id " + id+ " already taken by "+ owner+ ", we are "+ clientId);
+      }
+      idOwner.put(id,clientId);
+      Thread.sleep(sleepMs);
+      idOwner.remove(id);
+    }
+  finally {
+      lock.unlock();
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Release " + (readLock ? "Read" : "Write") + " lock of Id"+ id+ ", we are "+ clientId);
+      }
+    }
+  }
+  return true;
+}
