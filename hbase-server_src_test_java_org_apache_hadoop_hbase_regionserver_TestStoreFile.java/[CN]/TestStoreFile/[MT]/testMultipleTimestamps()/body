@@ -4,29 +4,38 @@
   int numRows=10;
   long[] timestamps=new long[]{20,10,5,1};
   Scan scan=new Scan();
-  Path storedir=new Path(new Path(testDir,"7e0102"),"familyname");
+  Path storedir=new Path(new Path(testDir,"7e0102"),Bytes.toString(family));
   Path dir=new Path(storedir,"1234567890");
   HFileContext meta=new HFileContextBuilder().withBlockSize(8 * 1024).build();
   StoreFile.Writer writer=new StoreFile.WriterBuilder(conf,cacheConf,this.fs).withOutputDir(dir).withFileContext(meta).build();
-  List<KeyValue> kvList=getKeyValueSet(timestamps,numRows,family,qualifier);
+  List<KeyValue> kvList=getKeyValueSet(timestamps,numRows,qualifier,family);
   for (  KeyValue kv : kvList) {
     writer.append(kv);
   }
   writer.appendMetadata(0,false);
   writer.close();
   StoreFile hsf=new StoreFile(this.fs,writer.getPath(),conf,cacheConf,BloomType.NONE);
+  Store store=mock(Store.class);
+  HColumnDescriptor hcd=mock(HColumnDescriptor.class);
+  when(hcd.getName()).thenReturn(family);
+  when(store.getFamily()).thenReturn(hcd);
   StoreFile.Reader reader=hsf.createReader();
   StoreFileScanner scanner=reader.getStoreFileScanner(false,false);
   TreeSet<byte[]> columns=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
   columns.add(qualifier);
   scan.setTimeRange(20,100);
-  assertTrue(scanner.shouldUseScanner(scan,columns,Long.MIN_VALUE));
+  assertTrue(scanner.shouldUseScanner(scan,store,Long.MIN_VALUE));
   scan.setTimeRange(1,2);
-  assertTrue(scanner.shouldUseScanner(scan,columns,Long.MIN_VALUE));
+  assertTrue(scanner.shouldUseScanner(scan,store,Long.MIN_VALUE));
   scan.setTimeRange(8,10);
-  assertTrue(scanner.shouldUseScanner(scan,columns,Long.MIN_VALUE));
-  scan.setTimeRange(7,50);
-  assertTrue(scanner.shouldUseScanner(scan,columns,Long.MIN_VALUE));
+  assertTrue(scanner.shouldUseScanner(scan,store,Long.MIN_VALUE));
+  scan.setColumnFamilyTimeRange(family,7,50);
+  assertTrue(scanner.shouldUseScanner(scan,store,Long.MIN_VALUE));
+  scan=new Scan();
   scan.setTimeRange(27,50);
-  assertTrue(!scanner.shouldUseScanner(scan,columns,Long.MIN_VALUE));
+  assertTrue(!scanner.shouldUseScanner(scan,store,Long.MIN_VALUE));
+  scan=new Scan();
+  scan.setTimeRange(27,50);
+  scan.setColumnFamilyTimeRange(family,7,50);
+  assertTrue(scanner.shouldUseScanner(scan,store,Long.MIN_VALUE));
 }
