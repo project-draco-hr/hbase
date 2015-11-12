@@ -1,53 +1,26 @@
 {
 switch (event.getState()) {
 case SyncConnected:
-    isConnected.set(true);
-  long finished=System.currentTimeMillis() + this.conf.getLong("hbase.zookeeper.watcher.sync.connected.wait",2000);
-while (System.currentTimeMillis() < finished) {
-  try {
-    Thread.sleep(1);
+    long finished=System.currentTimeMillis() + this.conf.getLong("hbase.zookeeper.watcher.sync.connected.wait",2000);
+  while (System.currentTimeMillis() < finished) {
+    try {
+      Thread.sleep(1);
+    }
+ catch (    InterruptedException e) {
+      LOG.warn("Interrupted while sleeping");
+      throw new RuntimeException("Interrupted while waiting for" + " recoverableZooKeeper is set");
+    }
+    if (this.recoverableZooKeeper != null)     break;
   }
- catch (  InterruptedException e) {
-    LOG.warn("Interrupted while sleeping");
-    throw new RuntimeException("Interrupted while waiting for" + " recoverableZooKeeper is set");
-  }
-  if (this.recoverableZooKeeper != null)   break;
-}
 if (this.recoverableZooKeeper == null) {
-LOG.error("ZK is null on connection event -- see stack trace " + "for the stack trace when constructor was called on this zkw",this.constructorCaller);
-throw new NullPointerException("ZK is null");
+  LOG.error("ZK is null on connection event -- see stack trace " + "for the stack trace when constructor was called on this zkw",this.constructorCaller);
+  throw new NullPointerException("ZK is null");
 }
 this.identifier=this.prefix + "-0x" + Long.toHexString(this.recoverableZooKeeper.getSessionId());
 LOG.debug(this.identifier + " connected");
 break;
 case Disconnected:
-LOG.debug("Received Disconnected from ZooKeeper.");
-isConnected.set(false);
-Thread t=new Thread(){
-public void run(){
-long startTime=EnvironmentEdgeManager.currentTime();
-while (EnvironmentEdgeManager.currentTime() - startTime < connWaitTimeOut) {
-if (isConnected.get()) {
-LOG.debug("Client got reconnected to zookeeper.");
-return;
-}
-try {
-Thread.sleep(100);
-}
- catch (InterruptedException e) {
-Thread.currentThread().interrupt();
-break;
-}
-}
-if (!isConnected.get() && abortable != null) {
-String msg=prefix("Couldn't connect to ZooKeeper after waiting " + connWaitTimeOut + " ms, aborting");
-abortable.abort(msg,new KeeperException.ConnectionLossException());
-}
-}
-}
-;
-t.setDaemon(true);
-t.start();
+LOG.debug(prefix("Received Disconnected from ZooKeeper, ignoring"));
 break;
 case Expired:
 String msg=prefix(this.identifier + " received expired from " + "ZooKeeper, aborting");
