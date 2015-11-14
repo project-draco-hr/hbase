@@ -68,11 +68,16 @@ class DodgyFSLog extends FSHLog {
     put.addColumn(COLUMN_FAMILY_BYTES,Bytes.toBytes("1"),bytes);
     WALKey key=new WALKey(region.getRegionInfo().getEncodedNameAsBytes(),htd.getTableName());
     WALEdit edit=new WALEdit();
+    CellScanner CellScanner=put.cellScanner();
+    assertTrue(CellScanner.advance());
+    edit.add(CellScanner.current());
     for (int i=0; i < 1000; i++) {
-      dodgyWAL.append(htd,region.getRegionInfo(),key,edit,true);
+      region.put(put);
     }
+    LOG.info("SET throwing of exception on append");
     dodgyWAL.throwException=true;
     dodgyWAL.append(htd,region.getRegionInfo(),key,edit,true);
+    while (dodgyWAL.latch.getCount() <= 0)     Threads.sleep(1);
     boolean exception=false;
     try {
       dodgyWAL.sync();
@@ -81,21 +86,24 @@ class DodgyFSLog extends FSHLog {
       exception=true;
     }
     assertTrue("Did not get sync exception",exception);
-    Thread t=new Thread("flusher"){
+    Thread t=new Thread("Flusher"){
       public void run(){
         try {
+          if (region.getMemstoreSize() <= 0) {
+            throw new IOException("memstore size=" + region.getMemstoreSize());
+          }
           region.flush(false);
         }
  catch (        IOException e) {
           LOG.info("In flush",e);
-          fail();
         }
+        LOG.info("Exiting");
       }
     }
 ;
     t.setDaemon(true);
     t.start();
-    while (!region.writestate.flushing)     Threads.sleep(1);
+    while (dodgyWAL.latch.getCount() > 0)     Threads.sleep(1);
     assertTrue(originalWAL != dodgyWAL.getCurrentFileName());
     dodgyWAL.throwException=false;
     try {
