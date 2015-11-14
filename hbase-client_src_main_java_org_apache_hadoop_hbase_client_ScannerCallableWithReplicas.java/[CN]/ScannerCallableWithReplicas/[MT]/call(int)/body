@@ -15,7 +15,7 @@
   try {
     Future<Pair<Result[],ScannerCallable>> f=cs.poll(timeBeforeReplicas,TimeUnit.MICROSECONDS);
     if (f != null) {
-      Pair<Result[],ScannerCallable> r=f.get();
+      Pair<Result[],ScannerCallable> r=f.get(timeout,TimeUnit.MILLISECONDS);
       if (r != null && r.getSecond() != null) {
         updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
       }
@@ -31,14 +31,19 @@ catch (  CancellationException e) {
 catch (  InterruptedException e) {
     throw new InterruptedIOException(e.getMessage());
   }
+catch (  TimeoutException e) {
+    throw new InterruptedIOException(e.getMessage());
+  }
   addCallsForOtherReplicas(cs,rl,0,rl.size() - 1);
   try {
-    Future<Pair<Result[],ScannerCallable>> f=cs.take();
-    Pair<Result[],ScannerCallable> r=f.get();
-    if (r != null && r.getSecond() != null) {
-      updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
+    Future<Pair<Result[],ScannerCallable>> f=cs.poll(timeout,TimeUnit.MILLISECONDS);
+    if (f != null) {
+      Pair<Result[],ScannerCallable> r=f.get(timeout,TimeUnit.MILLISECONDS);
+      if (r != null && r.getSecond() != null) {
+        updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
+      }
+      return r == null ? null : r.getFirst();
     }
-    return r == null ? null : r.getFirst();
   }
  catch (  ExecutionException e) {
     RpcRetryingCallerWithReadReplicas.throwEnrichedException(e,retries);
@@ -47,6 +52,9 @@ catch (  CancellationException e) {
     throw new InterruptedIOException(e.getMessage());
   }
 catch (  InterruptedException e) {
+    throw new InterruptedIOException(e.getMessage());
+  }
+catch (  TimeoutException e) {
     throw new InterruptedIOException(e.getMessage());
   }
  finally {
