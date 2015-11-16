@@ -17,6 +17,17 @@
     }
   }
 ;
+  AccessTestAction grantNamespaceAction=new AccessTestAction(){
+    @Override public Object run() throws Exception {
+      try (Connection conn=ConnectionFactory.createConnection(conf);Table acl=conn.getTable(AccessControlLists.ACL_TABLE_NAME)){
+        BlockingRpcChannel service=acl.coprocessorService(HConstants.EMPTY_START_ROW);
+        AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+        ProtobufUtil.grant(protocol,USER_GROUP_NS_ADMIN.getShortName(),TEST_NAMESPACE,Action.READ);
+      }
+       return null;
+    }
+  }
+;
   AccessTestAction revokeAction=new AccessTestAction(){
     public Object run() throws Exception {
       Connection connection=ConnectionFactory.createConnection(conf);
@@ -25,6 +36,23 @@
         BlockingRpcChannel service=acl.coprocessorService(HConstants.EMPTY_START_ROW);
         AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
         ProtobufUtil.revoke(protocol,testUser,TEST_NAMESPACE,Action.WRITE);
+      }
+  finally {
+        acl.close();
+        connection.close();
+      }
+      return null;
+    }
+  }
+;
+  AccessTestAction revokeNamespaceAction=new AccessTestAction(){
+    public Object run() throws Exception {
+      Connection connection=ConnectionFactory.createConnection(conf);
+      Table acl=connection.getTable(AccessControlLists.ACL_TABLE_NAME);
+      try {
+        BlockingRpcChannel service=acl.coprocessorService(HConstants.EMPTY_START_ROW);
+        AccessControlService.BlockingInterface protocol=AccessControlService.newBlockingStub(service);
+        ProtobufUtil.revoke(protocol,USER_GROUP_NS_ADMIN.getShortName(),TEST_NAMESPACE,Action.READ);
       }
   finally {
         acl.close();
@@ -51,10 +79,14 @@
     }
   }
 ;
-  verifyAllowed(grantAction,SUPERUSER,USER_GLOBAL_ADMIN,USER_GROUP_ADMIN);
-  verifyDenied(grantAction,USER_GLOBAL_CREATE,USER_GLOBAL_WRITE,USER_GLOBAL_READ,USER_GLOBAL_EXEC,USER_NS_ADMIN,USER_NS_CREATE,USER_NS_WRITE,USER_NS_READ,USER_NS_EXEC,USER_TABLE_CREATE,USER_TABLE_WRITE,USER_GROUP_READ,USER_GROUP_WRITE,USER_GROUP_CREATE);
-  verifyAllowed(revokeAction,SUPERUSER,USER_GLOBAL_ADMIN,USER_GROUP_ADMIN);
-  verifyDenied(revokeAction,USER_GLOBAL_CREATE,USER_GLOBAL_WRITE,USER_GLOBAL_READ,USER_GLOBAL_EXEC,USER_NS_ADMIN,USER_NS_CREATE,USER_NS_WRITE,USER_NS_READ,USER_NS_EXEC,USER_TABLE_CREATE,USER_TABLE_WRITE,USER_GROUP_READ,USER_GROUP_WRITE,USER_GROUP_CREATE);
+  verifyAllowed(grantAction,SUPERUSER,USER_GLOBAL_ADMIN,USER_GROUP_ADMIN,USER_NS_ADMIN);
+  verifyDenied(grantAction,USER_GLOBAL_CREATE,USER_GLOBAL_WRITE,USER_GLOBAL_READ,USER_GLOBAL_EXEC,USER_NS_CREATE,USER_NS_WRITE,USER_NS_READ,USER_NS_EXEC,USER_TABLE_CREATE,USER_TABLE_WRITE,USER_GROUP_READ,USER_GROUP_WRITE,USER_GROUP_CREATE);
+  verifyAllowed(grantNamespaceAction,SUPERUSER,USER_GLOBAL_ADMIN,USER_GROUP_ADMIN,USER_NS_ADMIN,USER_GROUP_NS_ADMIN);
+  verifyDenied(grantNamespaceAction,USER_GLOBAL_CREATE,USER_GLOBAL_WRITE,USER_GLOBAL_READ,USER_GLOBAL_EXEC,USER_NS_CREATE,USER_NS_WRITE,USER_NS_READ,USER_NS_EXEC,USER_TABLE_CREATE,USER_TABLE_WRITE,USER_GROUP_READ,USER_GROUP_WRITE,USER_GROUP_CREATE);
+  verifyAllowed(revokeAction,SUPERUSER,USER_GLOBAL_ADMIN,USER_GROUP_ADMIN,USER_NS_ADMIN);
+  verifyDenied(revokeAction,USER_GLOBAL_CREATE,USER_GLOBAL_WRITE,USER_GLOBAL_READ,USER_GLOBAL_EXEC,USER_NS_CREATE,USER_NS_WRITE,USER_NS_READ,USER_NS_EXEC,USER_TABLE_CREATE,USER_TABLE_WRITE,USER_GROUP_READ,USER_GROUP_WRITE,USER_GROUP_CREATE);
+  verifyAllowed(revokeNamespaceAction,SUPERUSER,USER_GLOBAL_ADMIN,USER_GROUP_ADMIN,USER_NS_ADMIN,USER_GROUP_NS_ADMIN);
+  verifyDenied(revokeNamespaceAction,USER_GLOBAL_CREATE,USER_GLOBAL_WRITE,USER_GLOBAL_READ,USER_GLOBAL_EXEC,USER_NS_CREATE,USER_NS_WRITE,USER_NS_READ,USER_NS_EXEC,USER_TABLE_CREATE,USER_TABLE_WRITE,USER_GROUP_READ,USER_GROUP_WRITE,USER_GROUP_CREATE);
   verifyAllowed(getPermissionsAction,SUPERUSER,USER_GLOBAL_ADMIN,USER_NS_ADMIN,USER_GROUP_ADMIN);
   verifyDenied(getPermissionsAction,USER_GLOBAL_CREATE,USER_GLOBAL_WRITE,USER_GLOBAL_READ,USER_GLOBAL_EXEC,USER_NS_CREATE,USER_NS_WRITE,USER_NS_READ,USER_NS_EXEC,USER_TABLE_CREATE,USER_TABLE_WRITE,USER_GROUP_READ,USER_GROUP_WRITE,USER_GROUP_CREATE);
 }
