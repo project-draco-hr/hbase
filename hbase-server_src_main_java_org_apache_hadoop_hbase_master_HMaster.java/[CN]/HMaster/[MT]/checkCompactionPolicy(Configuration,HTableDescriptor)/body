@@ -1,0 +1,52 @@
+{
+  String className=htd.getConfigurationValue(DefaultStoreEngine.DEFAULT_COMPACTION_POLICY_CLASS_KEY);
+  if (className == null) {
+    className=conf.get(DefaultStoreEngine.DEFAULT_COMPACTION_POLICY_CLASS_KEY,ExploringCompactionPolicy.class.getName());
+  }
+  long majorCompactionPeriod=Long.MAX_VALUE;
+  String sv=htd.getConfigurationValue(HConstants.MAJOR_COMPACTION_PERIOD);
+  if (sv != null) {
+    majorCompactionPeriod=Long.parseLong(sv);
+  }
+ else {
+    majorCompactionPeriod=conf.getLong(HConstants.MAJOR_COMPACTION_PERIOD,majorCompactionPeriod);
+  }
+  String splitPolicyClassName=htd.getRegionSplitPolicyClassName();
+  if (splitPolicyClassName == null) {
+    splitPolicyClassName=conf.get(HConstants.HBASE_REGION_SPLIT_POLICY_KEY);
+  }
+  int blockingFileCount=HStore.DEFAULT_BLOCKING_STOREFILE_COUNT;
+  sv=htd.getConfigurationValue(HStore.BLOCKING_STOREFILES_KEY);
+  if (sv != null) {
+    blockingFileCount=Integer.parseInt(sv);
+  }
+ else {
+    blockingFileCount=conf.getInt(HStore.BLOCKING_STOREFILES_KEY,blockingFileCount);
+  }
+  for (  HColumnDescriptor hcd : htd.getColumnFamilies()) {
+    String compactionPolicy=hcd.getConfigurationValue(DefaultStoreEngine.DEFAULT_COMPACTION_POLICY_CLASS_KEY);
+    if (compactionPolicy == null) {
+      compactionPolicy=className;
+    }
+    if (className.equals(FIFOCompactionPolicy.class.getName()) == false) {
+      continue;
+    }
+    String message=null;
+    if (hcd.getTimeToLive() == HColumnDescriptor.DEFAULT_TTL) {
+      message="Default TTL is not supported for FIFO compaction";
+      throw new IOException(message);
+    }
+    if (hcd.getMinVersions() > 0) {
+      message="MIN_VERSION > 0 is not supported for FIFO compaction";
+      throw new IOException(message);
+    }
+    String sbfc=htd.getConfigurationValue(HStore.BLOCKING_STOREFILES_KEY);
+    if (sbfc != null) {
+      blockingFileCount=Integer.parseInt(sbfc);
+    }
+    if (blockingFileCount < 1000) {
+      message="blocking file count '" + HStore.BLOCKING_STOREFILES_KEY + "' "+ blockingFileCount+ " is below recommended minimum of 1000";
+      throw new IOException(message);
+    }
+  }
+}
