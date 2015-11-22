@@ -1,24 +1,27 @@
 {
-  ByteBuffer bb=null;
-  lock.lock();
-  try {
-    bb=this.buffers.poll();
-    if (bb != null) {
-      this.totalReservoirCapacity-=bb.capacity();
-    }
-  }
-  finally {
-    lock.unlock();
-  }
+  ByteBuffer bb=buffers.poll();
   if (bb != null) {
+    long state;
+    while (true) {
+      long prevState=stateRef.get();
+      state=subtractOneBufferFromState(prevState,bb.capacity());
+      if (stateRef.compareAndSet(prevState,state)) {
+        break;
+      }
+    }
     bb.clear();
+    if (LOG.isTraceEnabled()) {
+      int countOfBuffers=toCountOfBuffers(state);
+      int totalCapacity=toTotalCapacity(state);
+      LOG.trace("totalCapacity=" + totalCapacity + ", count="+ countOfBuffers);
+    }
+    return bb;
   }
- else {
-    bb=ByteBuffer.allocateDirect(this.runningAverage);
-    this.allocations.incrementAndGet();
-  }
+  int runningAverage=runningAverageRef.get();
+  bb=ByteBuffer.allocateDirect(runningAverage);
   if (LOG.isTraceEnabled()) {
-    LOG.trace("runningAverage=" + this.runningAverage + ", totalCapacity="+ this.totalReservoirCapacity+ ", count="+ this.buffers.size()+ ", alloctions="+ this.allocations.get());
+    long allocations=allocationsRef.incrementAndGet();
+    LOG.trace("runningAverage=" + runningAverage + ", alloctions="+ allocations);
   }
   return bb;
 }
