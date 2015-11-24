@@ -19,7 +19,13 @@
   String znodeFileContent;
   try {
     znodeFileContent=ZNodeClearer.readMyEphemeralNodeOnDisk();
-    return MasterAddressTracker.deleteIfEquals(zkw,znodeFileContent);
+    if (ZNodeClearer.tablesOnMaster(conf)) {
+      ZKUtil.deleteNodeFailSilent(zkw,znodeFileContent);
+      return MasterAddressTracker.deleteIfEquals(zkw,ZNodeClearer.parseMasterServerName(znodeFileContent));
+    }
+ else {
+      return MasterAddressTracker.deleteIfEquals(zkw,znodeFileContent);
+    }
   }
  catch (  FileNotFoundException fnfe) {
     LOG.warn("Can't find the znode file; presume non-fatal",fnfe);
@@ -27,6 +33,10 @@
   }
 catch (  IOException e) {
     LOG.warn("Can't read the content of the znode file",e);
+    return false;
+  }
+catch (  KeeperException e) {
+    LOG.warn("Zookeeper exception deleting znode",e);
     return false;
   }
  finally {
