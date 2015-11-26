@@ -1,4 +1,5 @@
 {
+  CompletionService<Integer> pool=new ExecutorCompletionService<Integer>(this.exec);
   List<Entry> entries=replicateContext.getEntries();
   String walGroupId=replicateContext.getWalGroupId();
   int sleepMultiplier=1;
@@ -33,20 +34,21 @@
       if (LOG.isTraceEnabled()) {
         LOG.trace("Replicating " + entries.size() + " entries of total size "+ replicateContext.getSize());
       }
-      List<Future<Integer>> futures=new ArrayList<Future<Integer>>(entryLists.size());
+      int futures=0;
       for (int i=0; i < entryLists.size(); i++) {
         if (!entryLists.get(i).isEmpty()) {
           if (LOG.isTraceEnabled()) {
             LOG.trace("Submitting " + entryLists.get(i).size() + " entries of total size "+ replicateContext.getSize());
           }
-          futures.add(exec.submit(createReplicator(entryLists.get(i),i)));
+          pool.submit(createReplicator(entryLists.get(i),i));
+          futures++;
         }
       }
       IOException iox=null;
-      for (int index=futures.size() - 1; index >= 0; index--) {
+      for (int i=0; i < futures; i++) {
         try {
-          Future<Integer> f=futures.get(index);
-          entryLists.remove(f.get().intValue());
+          Future<Integer> f=pool.take();
+          entryLists.set(f.get().intValue(),Collections.<Entry>emptyList());
         }
  catch (        InterruptedException ie) {
           iox=new IOException(ie);
