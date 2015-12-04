@@ -9,7 +9,7 @@
     table.close();
     List<Pair<HRegionInfo,ServerName>> tableRegions=MetaTableAccessor.getTableRegionsAndLocations(master.getConnection(),tableName);
     HRegionInfo mergedRegionInfo=tableRegions.get(0).getFirst();
-    HTableDescriptor tableDescritor=master.getTableDescriptors().get(tableName);
+    HTableDescriptor tableDescriptor=master.getTableDescriptors().get(tableName);
     Result mergedRegionResult=MetaTableAccessor.getRegionResult(master.getConnection(),mergedRegionInfo.getRegionName());
     assertTrue(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,HConstants.MERGEA_QUALIFIER) != null);
     assertTrue(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,HConstants.MERGEB_QUALIFIER) != null);
@@ -23,16 +23,30 @@
     Path regionBdir=new Path(tabledir,regionB.getEncodedName());
     assertTrue(fs.exists(regionAdir));
     assertTrue(fs.exists(regionBdir));
+    HColumnDescriptor[] columnFamilies=tableDescriptor.getColumnFamilies();
+    HRegionFileSystem hrfs=new HRegionFileSystem(TEST_UTIL.getConfiguration(),fs,tabledir,mergedRegionInfo);
+    int count=0;
+    for (    HColumnDescriptor colFamily : columnFamilies) {
+      count+=hrfs.getStoreFiles(colFamily.getName()).size();
+    }
     admin.compactRegion(mergedRegionInfo.getRegionName());
     long timeout=System.currentTimeMillis() + waitTime;
-    HRegionFileSystem hrfs=new HRegionFileSystem(TEST_UTIL.getConfiguration(),fs,tabledir,mergedRegionInfo);
     while (System.currentTimeMillis() < timeout) {
-      if (!hrfs.hasReferences(tableDescritor)) {
+      if (!hrfs.hasReferences(tableDescriptor)) {
         break;
       }
       Thread.sleep(50);
     }
-    assertFalse(hrfs.hasReferences(tableDescritor));
+    int newcount=0;
+    for (    HColumnDescriptor colFamily : columnFamilies) {
+      newcount+=hrfs.getStoreFiles(colFamily.getName()).size();
+    }
+    assertTrue(newcount > count);
+    List<HRegion> regions=TEST_UTIL.getHBaseCluster().getRegions(tableDescriptor.getName());
+    for (    HRegion region : regions) {
+      CompactedHFilesDischarger cleaner=new CompactedHFilesDischarger(100,null,region);
+      cleaner.chore();
+    }
     int cleaned=admin.runCatalogScan();
     assertTrue(cleaned > 0);
     assertFalse(fs.exists(regionAdir));

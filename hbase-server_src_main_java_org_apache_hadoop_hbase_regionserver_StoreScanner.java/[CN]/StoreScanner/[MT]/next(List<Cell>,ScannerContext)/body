@@ -1,70 +1,69 @@
 {
-  lock.lock();
-  try {
-    if (scannerContext == null) {
-      throw new IllegalArgumentException("Scanner context cannot be null");
-    }
-    if (checkReseek()) {
-      return scannerContext.setScannerState(NextState.MORE_VALUES).hasMoreValues();
-    }
-    if (this.heap == null) {
-      close(false);
-      return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
-    }
-    Cell cell=this.heap.peek();
-    if (cell == null) {
-      close(false);
-      return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
-    }
-    if (!scannerContext.hasAnyLimit(LimitScope.BETWEEN_CELLS) || matcher.curCell == null || !CellUtil.matchingRow(cell,matcher.curCell)) {
-      this.countPerRow=0;
-      matcher.setToNewRow(cell);
-    }
-    if (!scannerContext.getKeepProgress())     scannerContext.clearProgress();
-    CellComparator comparator=store != null ? store.getComparator() : null;
-    int count=0;
-    long totalBytesRead=0;
-    LOOP:     do {
-      if ((kvsScanned % cellsPerHeartbeatCheck == 0)) {
-        scannerContext.updateTimeProgress();
-        if (scannerContext.checkTimeLimit(LimitScope.BETWEEN_CELLS)) {
-          return scannerContext.setScannerState(NextState.TIME_LIMIT_REACHED).hasMoreValues();
-        }
+  if (scannerContext == null) {
+    throw new IllegalArgumentException("Scanner context cannot be null");
+  }
+  checkResetHeap();
+  if (checkReseek()) {
+    return scannerContext.setScannerState(NextState.MORE_VALUES).hasMoreValues();
+  }
+  if (this.heap == null) {
+    close(false);
+    return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+  }
+  Cell cell=this.heap.peek();
+  if (cell == null) {
+    close(false);
+    return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+  }
+  if (!scannerContext.hasAnyLimit(LimitScope.BETWEEN_CELLS) || matcher.curCell == null || !CellUtil.matchingRow(cell,matcher.curCell)) {
+    this.countPerRow=0;
+    matcher.setToNewRow(cell);
+  }
+  if (!scannerContext.getKeepProgress())   scannerContext.clearProgress();
+  CellComparator comparator=store != null ? store.getComparator() : null;
+  int count=0;
+  long totalBytesRead=0;
+  LOOP:   do {
+    if ((kvsScanned % cellsPerHeartbeatCheck == 0)) {
+      scannerContext.updateTimeProgress();
+      if (scannerContext.checkTimeLimit(LimitScope.BETWEEN_CELLS)) {
+        return scannerContext.setScannerState(NextState.TIME_LIMIT_REACHED).hasMoreValues();
       }
-      if (prevCell != cell)       ++kvsScanned;
-      checkScanOrder(prevCell,cell,comparator);
-      prevCell=cell;
-      ScanQueryMatcher.MatchCode qcode=matcher.match(cell);
-      qcode=optimize(qcode,cell);
+    }
+    if (prevCell != cell)     ++kvsScanned;
+    checkScanOrder(prevCell,cell,comparator);
+    prevCell=cell;
+    ScanQueryMatcher.MatchCode qcode=matcher.match(cell);
+    qcode=optimize(qcode,cell);
 switch (qcode) {
 case INCLUDE:
 case INCLUDE_AND_SEEK_NEXT_ROW:
 case INCLUDE_AND_SEEK_NEXT_COL:
-        Filter f=matcher.getFilter();
-      if (f != null) {
-        cell=f.transformCell(cell);
-      }
-    this.countPerRow++;
-  if (storeLimit > -1 && this.countPerRow > (storeLimit + storeOffset)) {
-    if (!matcher.moreRowsMayExistAfter(cell)) {
-      return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+      Filter f=matcher.getFilter();
+    if (f != null) {
+      cell=f.transformCell(cell);
     }
-    seekToNextRow(cell);
-    break LOOP;
+  this.countPerRow++;
+if (storeLimit > -1 && this.countPerRow > (storeLimit + storeOffset)) {
+  if (!matcher.moreRowsMayExistAfter(cell)) {
+    return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
   }
+  seekToNextRow(cell);
+  break LOOP;
+}
 if (this.countPerRow > storeOffset) {
-  outResult.add(cell);
-  count++;
-  totalBytesRead+=CellUtil.estimatedSerializedSizeOf(cell);
-  scannerContext.incrementSizeProgress(CellUtil.estimatedHeapSizeOf(cell));
-  scannerContext.incrementBatchProgress(1);
-  if (totalBytesRead > maxRowSize) {
-    throw new RowTooBigException("Max row size allowed: " + maxRowSize + ", but the row is bigger than that.");
-  }
+outResult.add(cell);
+count++;
+totalBytesRead+=CellUtil.estimatedSerializedSizeOf(cell);
+scannerContext.incrementSizeProgress(CellUtil.estimatedHeapSizeOf(cell));
+scannerContext.incrementBatchProgress(1);
+if (totalBytesRead > maxRowSize) {
+  throw new RowTooBigException("Max row size allowed: " + maxRowSize + ", but the row is bigger than that.");
+}
 }
 if (qcode == ScanQueryMatcher.MatchCode.INCLUDE_AND_SEEK_NEXT_ROW) {
 if (!matcher.moreRowsMayExistAfter(cell)) {
-  return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
+return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
 }
 seekToNextRow(cell);
 }
@@ -117,8 +116,4 @@ return scannerContext.setScannerState(NextState.MORE_VALUES).hasMoreValues();
 }
 close(false);
 return scannerContext.setScannerState(NextState.NO_MORE_VALUES).hasMoreValues();
-}
-  finally {
-lock.unlock();
-}
 }

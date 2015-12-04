@@ -1,0 +1,44 @@
+{
+  CompactedHFilesDischarger cleaner=new CompactedHFilesDischarger(1000,(Stoppable)null,(HRegion)region);
+  for (int i=1; i < 10; i++) {
+    Put p=new Put(Bytes.toBytes("row" + i));
+    p.addColumn(fam,qual1,val);
+    region.put(p);
+  }
+  region.flush(true);
+  for (int i=11; i < 20; i++) {
+    Put p=new Put(Bytes.toBytes("row" + i));
+    p.addColumn(fam,qual1,val);
+    region.put(p);
+  }
+  region.flush(true);
+  for (int i=21; i < 30; i++) {
+    Put p=new Put(Bytes.toBytes("row" + i));
+    p.addColumn(fam,qual1,val);
+    region.put(p);
+  }
+  region.flush(true);
+  Store store=region.getStore(fam);
+  assertEquals(3,store.getStorefilesCount());
+  Collection<StoreFile> storefiles=store.getStorefiles();
+  Collection<StoreFile> compactedfiles=((HStore)store).getStoreEngine().getStoreFileManager().getCompactedfiles();
+  for (  StoreFile file : storefiles) {
+    assertFalse(file.isCompactedAway());
+  }
+  cleaner.chore();
+  storefiles=store.getStorefiles();
+  for (  StoreFile file : storefiles) {
+    assertFalse(file.isCompactedAway());
+  }
+  region.compact(true);
+  assertEquals(1,store.getStorefilesCount());
+  assertEquals(3,((HStore)store).getStoreEngine().getStoreFileManager().getCompactedfiles().size());
+  cleaner.chore();
+  assertEquals(1,store.getStorefilesCount());
+  storefiles=store.getStorefiles();
+  for (  StoreFile file : storefiles) {
+    assertFalse(file.isCompactedAway());
+  }
+  compactedfiles=((HStore)store).getStoreEngine().getStoreFileManager().getCompactedfiles();
+  assertTrue(compactedfiles.size() == 0);
+}

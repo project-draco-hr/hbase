@@ -7,6 +7,14 @@
   fs.checkRegionInfoOnFilesystem();
   status.setStatus("Initializing all the Stores");
   long maxSeqId=initializeStores(reporter,status);
+  if (this.getRegionServerServices() != null) {
+    ChoreService choreService=this.getRegionServerServices().getChoreService();
+    if (choreService != null) {
+      int cleanerInterval=conf.getInt("hbase.hfile.compactions.cleaner.interval",2 * 60 * 1000);
+      this.compactedFileDischarger=new CompactedHFilesDischarger(cleanerInterval,this.getRegionServerServices(),this);
+      choreService.scheduleChore(compactedFileDischarger);
+    }
+  }
   this.mvcc.advanceTo(maxSeqId);
   if (ServerRegionReplicaUtil.shouldReplayRecoveredEdits(this)) {
     maxSeqId=Math.max(maxSeqId,replayRecoveredEditsIfAny(this.fs.getRegionDir(),maxSeqIdInStores,reporter,status));
