@@ -1,0 +1,24 @@
+{
+  final TableName name=TableName.valueOf("testMultiLimits");
+  Table t=TEST_UTIL.createTable(name,FAMILY);
+  TEST_UTIL.loadTable(t,FAMILY,false);
+  try (final Admin admin=TEST_UTIL.getHBaseAdmin()){
+    admin.split(name);
+    TEST_UTIL.waitFor(60000,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return admin.getTableRegions(name).size() > 1;
+      }
+    }
+);
+  }
+   List<Get> gets=new ArrayList<>(MAX_SIZE);
+  for (int i=0; i < MAX_SIZE; i++) {
+    gets.add(new Get(HBaseTestingUtility.ROWS[i]));
+  }
+  Result[] results=t.get(gets);
+  assertEquals(MAX_SIZE,results.length);
+  RpcServerInterface rpcServer=TEST_UTIL.getHBaseCluster().getRegionServer(0).getRpcServer();
+  BaseSource s=rpcServer.getMetrics().getMetricsSource();
+  METRICS_ASSERT.assertCounterGt("exceptions",(MAX_SIZE * 25) / MAX_SIZE,s);
+  METRICS_ASSERT.assertCounterGt("exceptions.multiResponseTooLarge",(MAX_SIZE * 25) / MAX_SIZE,s);
+}
