@@ -12,9 +12,12 @@
   if (families != null) {
     conf.set(NAME + ".families",families);
   }
-  String peerQuorumAddress=getPeerQuorumAddress(conf);
+  Pair<ReplicationPeerConfig,Configuration> peerConfigPair=getPeerQuorumConfig(conf);
+  ReplicationPeerConfig peerConfig=peerConfigPair.getFirst();
+  String peerQuorumAddress=peerConfig.getClusterKey();
+  LOG.info("Peer Quorum Address: " + peerQuorumAddress + ", Peer Configuration: "+ peerConfig.getConfiguration());
   conf.set(NAME + ".peerQuorumAddress",peerQuorumAddress);
-  LOG.info("Peer Quorum Address: " + peerQuorumAddress);
+  HBaseConfiguration.setWithPrefix(conf,PEER_CONFIG_PREFIX,peerConfig.getConfiguration().entrySet());
   conf.setInt(NAME + ".versions",versions);
   LOG.info("Number of version: " + versions);
   Job job=Job.getInstance(conf,conf.get(JOB_NAME_CONF_KEY,NAME + "_" + tableName));
@@ -32,7 +35,8 @@
     }
   }
   TableMapReduceUtil.initTableMapperJob(tableName,scan,Verifier.class,null,null,job);
-  TableMapReduceUtil.initCredentialsForCluster(job,peerQuorumAddress);
+  Configuration peerClusterConf=peerConfigPair.getSecond();
+  TableMapReduceUtil.initCredentialsForCluster(job,peerClusterConf);
   job.setOutputFormatClass(NullOutputFormat.class);
   job.setNumReduceTasks(0);
   return job;
