@@ -1,0 +1,71 @@
+{
+  Map<String,Path> mapOfCopiedHFiles=new HashMap<String,Path>();
+  Pair<byte[],List<String>> familyHFilePathsPair;
+  List<String> hfilePaths;
+  byte[] family;
+  Path familyStagingDir;
+  int familyHFilePathsPairsListSize;
+  int totalNoOfHFiles;
+  List<Pair<byte[],List<String>>> familyHFilePathsPairsList;
+  FileSystem sourceFs=null;
+  try {
+    Path sourceClusterPath=new Path(sourceBaseNamespaceDirPath);
+    String sourceScheme=sourceClusterPath.toUri().getScheme();
+    String disableCacheName=String.format("fs.%s.impl.disable.cache",new Object[]{sourceScheme});
+    sourceClusterConf.setBoolean(disableCacheName,true);
+    sourceFs=sourceClusterPath.getFileSystem(sourceClusterConf);
+    User user=userProvider.getCurrent();
+    for (    Entry<String,List<Pair<byte[],List<String>>>> tableEntry : bulkLoadHFileMap.entrySet()) {
+      String tableName=tableEntry.getKey();
+      Path stagingDir=createStagingDir(new Path(hbaseStagingDir),user,TableName.valueOf(tableName));
+      familyHFilePathsPairsList=tableEntry.getValue();
+      familyHFilePathsPairsListSize=familyHFilePathsPairsList.size();
+      for (int i=0; i < familyHFilePathsPairsListSize; i++) {
+        familyHFilePathsPair=familyHFilePathsPairsList.get(i);
+        family=familyHFilePathsPair.getFirst();
+        hfilePaths=familyHFilePathsPair.getSecond();
+        familyStagingDir=new Path(stagingDir,Bytes.toString(family));
+        totalNoOfHFiles=hfilePaths.size();
+        List<Future<Void>> futures=new ArrayList<Future<Void>>();
+        Callable<Void> c;
+        Future<Void> future;
+        int currentCopied=0;
+        while (totalNoOfHFiles > currentCopied + this.copiesPerThread) {
+          c=new Copier(sourceFs,familyStagingDir,hfilePaths.subList(currentCopied,currentCopied + this.copiesPerThread));
+          future=exec.submit(c);
+          futures.add(future);
+          currentCopied+=this.copiesPerThread;
+        }
+        int remaining=totalNoOfHFiles - currentCopied;
+        if (remaining > 0) {
+          c=new Copier(sourceFs,familyStagingDir,hfilePaths.subList(currentCopied,currentCopied + remaining));
+          future=exec.submit(c);
+          futures.add(future);
+        }
+        for (        Future<Void> f : futures) {
+          try {
+            f.get();
+          }
+ catch (          InterruptedException e) {
+            InterruptedIOException iioe=new InterruptedIOException("Failed to copy HFiles to local file system. This will be retried again " + "by the source cluster.");
+            iioe.initCause(e);
+            throw iioe;
+          }
+catch (          ExecutionException e) {
+            throw new IOException("Failed to copy HFiles to local file system. This will " + "be retried again by the source cluster.",e);
+          }
+        }
+      }
+      mapOfCopiedHFiles.put(tableName,stagingDir);
+    }
+    return mapOfCopiedHFiles;
+  }
+  finally {
+    if (sourceFs != null) {
+      sourceFs.close();
+    }
+    if (exec != null) {
+      exec.shutdown();
+    }
+  }
+}

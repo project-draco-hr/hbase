@@ -1,0 +1,67 @@
+{
+  if (entries.isEmpty())   return;
+  if (cells == null)   throw new NullPointerException("TODO: Add handling of null CellScanner");
+  try {
+    long totalReplicated=0;
+    Map<TableName,Map<List<UUID>,List<Row>>> rowMap=new TreeMap<TableName,Map<List<UUID>,List<Row>>>();
+    Map<String,List<Pair<byte[],List<String>>>> bulkLoadHFileMap=null;
+    for (    WALEntry entry : entries) {
+      TableName table=TableName.valueOf(entry.getKey().getTableName().toByteArray());
+      Cell previousCell=null;
+      Mutation m=null;
+      int count=entry.getAssociatedCellCount();
+      for (int i=0; i < count; i++) {
+        if (!cells.advance()) {
+          throw new ArrayIndexOutOfBoundsException("Expected=" + count + ", index="+ i);
+        }
+        Cell cell=cells.current();
+        if (CellUtil.matchingQualifier(cell,WALEdit.BULK_LOAD)) {
+          if (bulkLoadHFileMap == null) {
+            bulkLoadHFileMap=new HashMap<String,List<Pair<byte[],List<String>>>>();
+          }
+          buildBulkLoadHFileMap(bulkLoadHFileMap,table,cell);
+        }
+ else {
+          if (isNewRowOrType(previousCell,cell)) {
+            m=CellUtil.isDelete(cell) ? new Delete(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength()) : new Put(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength());
+            List<UUID> clusterIds=new ArrayList<UUID>();
+            for (            HBaseProtos.UUID clusterId : entry.getKey().getClusterIdsList()) {
+              clusterIds.add(toUUID(clusterId));
+            }
+            m.setClusterIds(clusterIds);
+            addToHashMultiMap(rowMap,table,clusterIds,m);
+          }
+          if (CellUtil.isDelete(cell)) {
+            ((Delete)m).addDeleteMarker(cell);
+          }
+ else {
+            ((Put)m).add(cell);
+          }
+          previousCell=cell;
+        }
+      }
+      totalReplicated++;
+    }
+    if (!rowMap.isEmpty()) {
+      LOG.debug("Started replicating mutations.");
+      for (      Entry<TableName,Map<List<UUID>,List<Row>>> entry : rowMap.entrySet()) {
+        batch(entry.getKey(),entry.getValue().values());
+      }
+      LOG.debug("Finished replicating mutations.");
+    }
+    if (bulkLoadHFileMap != null && !bulkLoadHFileMap.isEmpty()) {
+      LOG.debug("Started replicating bulk loaded data.");
+      HFileReplicator hFileReplicator=new HFileReplicator(this.provider.getConf(this.conf,replicationClusterId),sourceBaseNamespaceDirPath,sourceHFileArchiveDirPath,bulkLoadHFileMap,conf,getConnection());
+      hFileReplicator.replicate();
+      LOG.debug("Finished replicating bulk loaded data.");
+    }
+    int size=entries.size();
+    this.metrics.setAgeOfLastAppliedOp(entries.get(size - 1).getKey().getWriteTime());
+    this.metrics.applyBatch(size + hfilesReplicated,hfilesReplicated);
+    this.totalReplicatedEdits.addAndGet(totalReplicated);
+  }
+ catch (  IOException ex) {
+    LOG.error("Unable to accept edit because:",ex);
+    throw ex;
+  }
+}

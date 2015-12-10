@@ -1,0 +1,33 @@
+{
+  byte[] fam;
+  BulkLoadDescriptor bld=null;
+  try {
+    bld=WALEdit.getBulkLoadDescriptor(cell);
+  }
+ catch (  IOException e) {
+    LOG.warn("Failed to get bulk load events information from the WAL file.",e);
+    return cell;
+  }
+  List<StoreDescriptor> storesList=bld.getStoresList();
+  List<StoreDescriptor> copiedStoresList=new ArrayList<StoreDescriptor>(storesList);
+  Iterator<StoreDescriptor> copiedStoresListIterator=copiedStoresList.iterator();
+  boolean anyStoreRemoved=false;
+  while (copiedStoresListIterator.hasNext()) {
+    StoreDescriptor sd=copiedStoresListIterator.next();
+    fam=sd.getFamilyName().toByteArray();
+    if (cfs != null && !cfs.contains(Bytes.toString(fam))) {
+      copiedStoresListIterator.remove();
+      anyStoreRemoved=true;
+    }
+  }
+  if (!anyStoreRemoved) {
+    return cell;
+  }
+ else   if (copiedStoresList.isEmpty()) {
+    return null;
+  }
+  BulkLoadDescriptor.Builder newDesc=BulkLoadDescriptor.newBuilder().setTableName(bld.getTableName()).setEncodedRegionName(bld.getEncodedRegionName()).setBulkloadSeqNum(bld.getBulkloadSeqNum());
+  newDesc.addAllStores(copiedStoresList);
+  BulkLoadDescriptor newBulkLoadDescriptor=newDesc.build();
+  return CellUtil.createCell(CellUtil.cloneRow(cell),WALEdit.METAFAMILY,WALEdit.BULK_LOAD,cell.getTimestamp(),cell.getTypeByte(),newBulkLoadDescriptor.toByteArray());
+}

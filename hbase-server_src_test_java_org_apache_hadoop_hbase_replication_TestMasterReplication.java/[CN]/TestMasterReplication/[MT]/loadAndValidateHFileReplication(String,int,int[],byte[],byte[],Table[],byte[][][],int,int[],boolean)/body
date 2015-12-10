@@ -1,0 +1,23 @@
+{
+  HBaseTestingUtility util=utilities[masterNumber];
+  Path dir=util.getDataTestDirOnTestFS(testName);
+  FileSystem fs=util.getTestFileSystem();
+  dir=dir.makeQualified(fs);
+  Path familyDir=new Path(dir,Bytes.toString(fam));
+  int hfileIdx=0;
+  for (  byte[][] range : hfileRanges) {
+    byte[] from=range[0];
+    byte[] to=range[1];
+    HFileTestUtil.createHFile(util.getConfiguration(),fs,new Path(familyDir,"hfile_" + hfileIdx++),fam,row,from,to,numOfRows);
+  }
+  Table source=tables[masterNumber];
+  final TableName tableName=source.getName();
+  LoadIncrementalHFiles loader=new LoadIncrementalHFiles(util.getConfiguration());
+  String[] args={dir.toString(),tableName.toString()};
+  loader.run(args);
+  if (toValidate) {
+    for (    int slaveClusterNumber : slaveNumbers) {
+      wait(slaveClusterNumber,tables[slaveClusterNumber],expectedCounts[slaveClusterNumber]);
+    }
+  }
+}

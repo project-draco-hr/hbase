@@ -1,0 +1,36 @@
+{
+  Map<String,Path> tableStagingDirsMap=copyHFilesToStagingDir();
+  int maxRetries=conf.getInt(HConstants.BULKLOAD_MAX_RETRIES_NUMBER,10);
+  for (  Entry<String,Path> tableStagingDir : tableStagingDirsMap.entrySet()) {
+    String tableNameString=tableStagingDir.getKey();
+    Path stagingDir=tableStagingDir.getValue();
+    LoadIncrementalHFiles loadHFiles=null;
+    try {
+      loadHFiles=new LoadIncrementalHFiles(conf);
+    }
+ catch (    Exception e) {
+      LOG.error("Failed to initialize LoadIncrementalHFiles for replicating bulk loaded" + " data.",e);
+      throw new IOException(e);
+    }
+    Configuration newConf=HBaseConfiguration.create(conf);
+    newConf.set(LoadIncrementalHFiles.CREATE_TABLE_CONF_KEY,"no");
+    loadHFiles.setConf(newConf);
+    TableName tableName=TableName.valueOf(tableNameString);
+    Table table=this.connection.getTable(tableName);
+    Deque<LoadQueueItem> queue=new LinkedList<LoadQueueItem>();
+    loadHFiles.prepareHFileQueue(stagingDir,table,queue,false);
+    if (queue.isEmpty()) {
+      LOG.warn("Replication process did not find any files to replicate in directory " + stagingDir.toUri());
+      return null;
+    }
+    try (RegionLocator locator=connection.getRegionLocator(tableName)){
+      fsDelegationToken.acquireDelegationToken(sinkFs);
+      loadHFiles.setBulkToken(stagingDir.toString());
+      doBulkLoad(loadHFiles,table,queue,locator,maxRetries);
+    }
+  finally {
+      cleanup(stagingDir.toString(),table);
+    }
+  }
+  return null;
+}
