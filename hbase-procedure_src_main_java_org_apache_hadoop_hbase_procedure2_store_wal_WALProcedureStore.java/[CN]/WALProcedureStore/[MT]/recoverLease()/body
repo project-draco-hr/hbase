@@ -1,21 +1,27 @@
 {
-  LOG.info("Starting WAL Procedure Store lease recovery");
-  FileStatus[] oldLogs=getLogFiles();
-  while (isRunning()) {
-    flushLogId=initOldLogs(oldLogs);
-    if (!rollWriter(flushLogId + 1)) {
-      LOG.debug("someone else has already created log " + flushLogId);
-      continue;
-    }
-    oldLogs=getLogFiles();
-    if (getMaxLogId(oldLogs) > flushLogId) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Someone else created new logs. Expected maxLogId < " + flushLogId);
+  lock.lock();
+  try {
+    LOG.info("Starting WAL Procedure Store lease recovery");
+    FileStatus[] oldLogs=getLogFiles();
+    while (isRunning()) {
+      flushLogId=initOldLogs(oldLogs);
+      if (!rollWriter(flushLogId + 1)) {
+        LOG.debug("someone else has already created log " + flushLogId);
+        continue;
       }
-      logs.getLast().removeFile();
-      continue;
+      oldLogs=getLogFiles();
+      if (getMaxLogId(oldLogs) > flushLogId) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Someone else created new logs. Expected maxLogId < " + flushLogId);
+        }
+        logs.getLast().removeFile();
+        continue;
+      }
+      LOG.info("Lease acquired for flushLogId: " + flushLogId);
+      break;
     }
-    LOG.info("Lease acquired for flushLogId: " + flushLogId);
-    break;
+  }
+  finally {
+    lock.unlock();
   }
 }

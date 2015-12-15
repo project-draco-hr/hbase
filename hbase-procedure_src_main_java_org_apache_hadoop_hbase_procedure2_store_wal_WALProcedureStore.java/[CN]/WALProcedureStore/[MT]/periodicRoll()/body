@@ -1,11 +1,21 @@
 {
-  long logId;
-  boolean removeOldLogs;
-synchronized (storeTracker) {
-    logId=flushLogId;
-    removeOldLogs=storeTracker.isEmpty();
+  if (storeTracker.isEmpty()) {
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("no active procedures");
+    }
+    tryRollWriter();
+    removeAllLogs(flushLogId - 1);
   }
-  if (checkAndTryRoll() && removeOldLogs) {
-    setInactiveLogsMaxId(logId);
+ else {
+    if (storeTracker.isUpdated()) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("all the active procedures are in the latest log");
+      }
+      removeAllLogs(flushLogId - 1);
+    }
+    if (totalSynced.get() > rollThreshold || getMillisToNextPeriodicRoll() <= 0) {
+      tryRollWriter();
+    }
+    removeInactiveLogs();
   }
 }
