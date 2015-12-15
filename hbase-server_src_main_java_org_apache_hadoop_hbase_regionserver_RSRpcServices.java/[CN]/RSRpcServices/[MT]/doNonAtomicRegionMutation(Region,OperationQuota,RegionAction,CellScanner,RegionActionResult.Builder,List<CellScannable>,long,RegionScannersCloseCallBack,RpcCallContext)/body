@@ -2,13 +2,14 @@
   List<ClientProtos.Action> mutations=null;
   long maxQuotaResultSize=Math.min(maxScannerResultSize,quota.getReadAvailable());
   IOException sizeIOE=null;
+  Object lastBlock=null;
   for (  ClientProtos.Action action : actions.getActionList()) {
     ClientProtos.ResultOrException.Builder resultOrExceptionBuilder=null;
     try {
       Result r=null;
-      if (context != null && context.isRetryImmediatelySupported() && context.getResponseCellSize() > maxQuotaResultSize) {
+      if (context != null && context.isRetryImmediatelySupported() && (context.getResponseCellSize() > maxQuotaResultSize || context.getResponseBlockSize() > maxQuotaResultSize)) {
         if (sizeIOE == null) {
-          sizeIOE=new MultiActionResultTooLarge("Max response size exceeded: " + context.getResponseCellSize());
+          sizeIOE=new MultiActionResultTooLarge("Max size exceeded" + " CellSize: " + context.getResponseCellSize() + " BlockSize: "+ context.getResponseBlockSize());
           rpcServer.getMetrics().exception(sizeIOE);
         }
         resultOrExceptionBuilder=ResultOrException.newBuilder().setException(ResponseConverter.buildException(sizeIOE));
@@ -76,9 +77,7 @@ cellsToReturn.add(r);
  else {
 pbResult=ProtobufUtil.toResult(r);
 }
-if (context != null) {
-context.incrementResponseCellSize(Result.getTotalSizeOfCells(r));
-}
+lastBlock=addSize(context,r,lastBlock);
 resultOrExceptionBuilder=ClientProtos.ResultOrException.newBuilder().setResult(pbResult);
 }
 }

@@ -1,0 +1,38 @@
+{
+  final TableName name=TableName.valueOf("testBlockMultiLimits");
+  Table t=TEST_UTIL.createTable(name,FAMILY);
+  final HRegionServer regionServer=TEST_UTIL.getHBaseCluster().getRegionServer(0);
+  RpcServerInterface rpcServer=regionServer.getRpcServer();
+  BaseSource s=rpcServer.getMetrics().getMetricsSource();
+  long startingExceptions=METRICS_ASSERT.getCounter("exceptions",s);
+  long startingMultiExceptions=METRICS_ASSERT.getCounter("exceptions.multiResponseTooLarge",s);
+  byte[] row=Bytes.toBytes("TEST");
+  byte[][] cols=new byte[][]{Bytes.toBytes("0"),Bytes.toBytes("1"),Bytes.toBytes("2"),Bytes.toBytes("3")};
+  byte[] value=new byte[MAX_SIZE - 200];
+  ThreadLocalRandom.current().nextBytes(value);
+  for (  byte[] col : cols) {
+    Put p=new Put(row);
+    p.addImmutable(FAMILY,col,value);
+    t.put(p);
+  }
+  try (final Admin admin=TEST_UTIL.getAdmin()){
+    admin.flush(name);
+    TEST_UTIL.waitFor(60000,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return regionServer.getOnlineRegions(name).get(0).getMaxFlushedSeqId() > 3;
+      }
+    }
+);
+  }
+   List<Get> gets=new ArrayList<>(2);
+  Get g0=new Get(row);
+  g0.addColumn(FAMILY,cols[0]);
+  gets.add(g0);
+  Get g2=new Get(row);
+  g2.addColumn(FAMILY,cols[2]);
+  gets.add(g2);
+  Result[] results=t.get(gets);
+  assertEquals(2,results.length);
+  METRICS_ASSERT.assertCounterGt("exceptions",startingExceptions,s);
+  METRICS_ASSERT.assertCounterGt("exceptions.multiResponseTooLarge",startingMultiExceptions,s);
+}
