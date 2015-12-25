@@ -1,0 +1,26 @@
+{
+  HFileContext meta=new HFileContextBuilder().withIncludesTags(withTag).build();
+  HFile.Writer writer=HFile.getWriterFactory(configuration,new CacheConfig(configuration)).withPath(fs,path).withFileContext(meta).create();
+  long now=System.currentTimeMillis();
+  try {
+    for (    byte[] key : Bytes.iterateOnSplits(startKey,endKey,numRows - 2)) {
+      KeyValue kv=new KeyValue(key,family,qualifier,now,key);
+      if (withTag) {
+        Tag tableNameTag=new Tag(TagType.MOB_TABLE_NAME_TAG_TYPE,key);
+        kv=MobUtils.createMobRefKeyValue(kv,key,tableNameTag);
+        byte[] ta=kv.getTagsArray();
+        int toff=kv.getTagsOffset();
+        int tlen=kv.getTagsLength();
+        Tag t=Tag.getTag(ta,toff,tlen,TagType.MOB_TABLE_NAME_TAG_TYPE);
+        if (t == null) {
+          throw new IllegalStateException("Tag didn't stick to KV " + kv.toString());
+        }
+      }
+      writer.append(kv);
+    }
+  }
+  finally {
+    writer.appendFileInfo(StoreFile.BULKLOAD_TIME_KEY,Bytes.toBytes(System.currentTimeMillis()));
+    writer.close();
+  }
+}
