@@ -1,0 +1,33 @@
+{
+  Path rootDir=FSUtils.getRootDir(c);
+  Path logDir=new Path(rootDir,HConstants.HREGION_LOGDIR_NAME);
+  Path oldLogDir=new Path(rootDir,HConstants.HREGION_OLDLOGDIR_NAME);
+  List<String> logFiles=new ArrayList<String>();
+  PathFilter filter=new PathFilter(){
+    @Override public boolean accept(    Path p){
+      try {
+        if (DefaultWALProvider.isMetaFile(p)) {
+          return false;
+        }
+        String host=BackupUtil.parseHostNameFromLogFile(p);
+        String oldTimestamp=hostTimestampMap.get(host);
+        String currentLogTS=getCreationTime(p,c);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("path=" + p);
+          LOG.debug("oldTimestamp=" + oldTimestamp);
+          LOG.debug("currentLogTS=" + currentLogTS);
+        }
+        return Long.parseLong(currentLogTS) <= Long.parseLong(oldTimestamp);
+      }
+ catch (      IOException e) {
+        LOG.error(e);
+        return false;
+      }
+    }
+  }
+;
+  FileSystem fs=FileSystem.get(c);
+  logFiles=getFiles(fs,logDir,logFiles,filter);
+  logFiles=getFiles(fs,oldLogDir,logFiles,filter);
+  return logFiles;
+}

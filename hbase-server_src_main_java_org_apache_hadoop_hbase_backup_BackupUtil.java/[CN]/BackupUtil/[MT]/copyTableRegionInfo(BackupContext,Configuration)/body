@@ -1,0 +1,39 @@
+{
+  Path rootDir=FSUtils.getRootDir(conf);
+  FileSystem fs=rootDir.getFileSystem(conf);
+  for (  String table : backupContext.getTables()) {
+    LOG.debug("Attempting to copy table info for:" + table);
+    TableDescriptor orig=FSTableDescriptors.getTableDescriptorFromFs(fs,rootDir,TableName.valueOf(table));
+    Path target=new Path(backupContext.getBackupStatus(table).getTargetDir());
+    FileSystem targetFs=target.getFileSystem(conf);
+    FSTableDescriptors descriptors=new FSTableDescriptors(conf,targetFs,FSUtils.getRootDir(conf));
+    descriptors.createTableDescriptorForTableDirectory(target,orig,false);
+    LOG.debug("Finished copying tableinfo.");
+    HBaseAdmin hbadmin=null;
+    Connection conn=null;
+    List<HRegionInfo> regions=null;
+    try {
+      conn=ConnectionFactory.createConnection(conf);
+      hbadmin=(HBaseAdmin)conn.getAdmin();
+      regions=hbadmin.getTableRegions(TableName.valueOf(table));
+    }
+ catch (    Exception e) {
+      throw new BackupException(e);
+    }
+ finally {
+      if (hbadmin != null) {
+        hbadmin.close();
+      }
+      if (conn != null) {
+        conn.close();
+      }
+    }
+    LOG.debug("Starting to write region info for table " + table);
+    for (    HRegionInfo regionInfo : regions) {
+      Path regionDir=HRegion.getRegionDir(new Path(backupContext.getBackupStatus(table).getTargetDir()),regionInfo);
+      regionDir=new Path(backupContext.getBackupStatus(table).getTargetDir(),regionDir.getName());
+      writeRegioninfoOnFilesystem(conf,targetFs,regionDir,regionInfo);
+    }
+    LOG.debug("Finished writing region info for table " + table);
+  }
+}

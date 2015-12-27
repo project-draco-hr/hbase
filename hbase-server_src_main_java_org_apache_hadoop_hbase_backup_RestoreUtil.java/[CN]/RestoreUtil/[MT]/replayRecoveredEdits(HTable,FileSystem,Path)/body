@@ -1,0 +1,36 @@
+{
+  LOG.debug("Replaying edits from " + edits + "; path="+ edits);
+  WAL.Reader reader=null;
+  try {
+    reader=WALFactory.createReader(fs,edits,this.conf);
+    long editsCount=0;
+    WAL.Entry entry;
+    try {
+      while ((entry=reader.next()) != null) {
+        restoreEdit(htable,entry.getKey(),entry.getEdit());
+        editsCount++;
+      }
+      LOG.debug(editsCount + " edits from " + edits+ " have been replayed.");
+    }
+ catch (    EOFException eof) {
+      Path p=WALSplitter.moveAsideBadEditsFile(fs,edits);
+      String msg="Encountered EOF. Most likely due to Master failure during " + "log spliting, so we have this data in another edit.  " + "Continuing, but renaming " + edits + " as "+ p;
+      LOG.warn(msg,eof);
+    }
+catch (    IOException ioe) {
+      if (ioe.getCause() instanceof ParseException) {
+        Path p=WALSplitter.moveAsideBadEditsFile(fs,edits);
+        String msg="File corruption encountered!  " + "Continuing, but renaming " + edits + " as "+ p;
+        LOG.warn(msg,ioe);
+      }
+ else {
+        throw ioe;
+      }
+    }
+  }
+  finally {
+    if (reader != null) {
+      reader.close();
+    }
+  }
+}

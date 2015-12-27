@@ -1,0 +1,37 @@
+{
+  LOG.info("HBase snapshot full backup for " + backupContext.getBackupId());
+  if (backupContext.isCancelled()) {
+    return;
+  }
+  HBaseAdmin hbadmin=null;
+  Connection conn=null;
+  for (  String table : backupContext.getTables()) {
+    if (backupContext.isCancelled()) {
+      return;
+    }
+    HBaseProtos.SnapshotDescription backupSnapshot;
+    try {
+      backupSnapshot=this.wrapSnapshotDescription(table);
+      backupContext.setSnapshotName(table,backupSnapshot.getName());
+      conn=ConnectionFactory.createConnection(conf);
+      hbadmin=(HBaseAdmin)conn.getAdmin();
+      hbadmin.snapshot(backupSnapshot);
+      if (LOG.isDebugEnabled() == false) {
+        LOG.info("Snapshot has been launched, waiting to finish ...");
+      }
+    }
+ catch (    Exception e) {
+      LOG.error("Snapshot failed to create " + getMessage(e));
+      throw new BackupException("Backup snapshot failed on table " + table,e);
+    }
+ finally {
+      if (hbadmin != null) {
+        hbadmin.close();
+      }
+      if (conn != null) {
+        conn.close();
+      }
+    }
+    backupContext.setSnapshotName(table,backupSnapshot.getName());
+  }
+}

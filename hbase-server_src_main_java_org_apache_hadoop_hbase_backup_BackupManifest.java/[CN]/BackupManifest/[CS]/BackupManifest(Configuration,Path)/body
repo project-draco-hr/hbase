@@ -1,0 +1,62 @@
+{
+  LOG.debug("Loading manifest from: " + backupPath.toString());
+  this.tableBackupDir=backupPath.toString();
+  this.config=conf;
+  try {
+    FileSystem fs=backupPath.getFileSystem(conf);
+    FileStatus[] subFiles=FSUtils.listStatus(fs,backupPath);
+    if (subFiles == null) {
+      String errorMsg=backupPath.toString() + " does not exist";
+      LOG.error(errorMsg);
+      throw new IOException(errorMsg);
+    }
+    for (    FileStatus subFile : subFiles) {
+      if (subFile.getPath().getName().equals(FILE_NAME)) {
+        FSDataInputStream in=fs.open(subFile.getPath());
+        Properties props=new Properties();
+        try {
+          props.load(in);
+        }
+ catch (        IOException e) {
+          LOG.error("Error when loading from manifest file!");
+          throw e;
+        }
+ finally {
+          in.close();
+        }
+        this.version=props.getProperty(TAG_VERSION);
+        this.token=props.getProperty(TAG_BACKUPID);
+        this.type=props.getProperty(TAG_BACKUPTYPE);
+        this.rootDir=backupPath.getParent().getParent().getParent().toString();
+        Path p=backupPath.getParent();
+        if (p.getName().equals(HConstants.HREGION_LOGDIR_NAME)) {
+          this.rootDir=p.getParent().toString();
+        }
+ else {
+          this.rootDir=p.getParent().getParent().toString();
+        }
+        this.loadTableSet(props.getProperty(TAG_TABLESET));
+        this.startTs=Long.parseLong(props.getProperty(TAG_STARTTS));
+        this.completeTs=Long.parseLong(props.getProperty(TAG_COMPLETETS));
+        this.tableBytes=Long.parseLong(props.getProperty(TAG_TABLEBYTES));
+        if (this.type.equals(BackupRestoreConstants.BACKUP_TYPE_INCR)) {
+          this.logBytes=(Long.parseLong(props.getProperty(TAG_LOGBYTES)));
+          LOG.debug("convert will be implemented by future jira");
+        }
+        this.loadIncrementalTimeRanges(props.getProperty(TAG_INCRTIMERANGE));
+        this.loadDependency(props.getProperty(TAG_DEPENDENCY));
+        this.imageState=props.getProperty(TAG_IMAGESTATE);
+        this.isCompacted=props.getProperty(TAG_COMPACTION).equalsIgnoreCase("TRUE") ? true : false;
+        LOG.debug("merge and from existing snapshot will be implemented by future jira");
+        LOG.debug("Loaded manifest instance from manifest file: " + FSUtils.getPath(subFile.getPath()));
+        return;
+      }
+    }
+    String errorMsg="No manifest file found in: " + backupPath.toString();
+    LOG.error(errorMsg);
+    throw new IOException(errorMsg);
+  }
+ catch (  IOException e) {
+    throw new BackupException(e.getMessage());
+  }
+}

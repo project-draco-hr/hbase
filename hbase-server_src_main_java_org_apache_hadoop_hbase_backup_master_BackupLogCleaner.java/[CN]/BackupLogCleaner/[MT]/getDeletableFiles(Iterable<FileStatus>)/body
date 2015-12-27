@@ -1,0 +1,37 @@
+{
+  if (this.getConf() == null) {
+    return files;
+  }
+  try {
+    final BackupSystemTable table=BackupSystemTable.getTable(getConf());
+    if (table.hasBackupSessions() == false) {
+      return files;
+    }
+    return Iterables.filter(files,new Predicate<FileStatus>(){
+      @Override public boolean apply(      FileStatus file){
+        try {
+          String wal=file.getPath().toString();
+          boolean logInSystemTable=table.checkWALFile(wal);
+          if (LOG.isDebugEnabled()) {
+            if (logInSystemTable) {
+              LOG.debug("Found log file in hbase:backup, deleting: " + wal);
+            }
+ else {
+              LOG.debug("Didn't find this log in hbase:backup, keeping: " + wal);
+            }
+          }
+          return logInSystemTable;
+        }
+ catch (        IOException e) {
+          LOG.error(e);
+          return false;
+        }
+      }
+    }
+);
+  }
+ catch (  IOException e) {
+    LOG.error("Failed to get hbase:backup table, therefore will keep all files",e);
+    return new ArrayList<FileStatus>();
+  }
+}

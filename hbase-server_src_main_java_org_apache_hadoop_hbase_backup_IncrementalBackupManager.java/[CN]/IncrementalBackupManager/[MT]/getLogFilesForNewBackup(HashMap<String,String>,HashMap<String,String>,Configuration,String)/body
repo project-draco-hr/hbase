@@ -1,0 +1,75 @@
+{
+  LOG.debug("In getLogFilesForNewBackup()\n" + "olderTimestamps: " + olderTimestamps + "\n newestTimestamps: "+ newestTimestamps);
+  Path rootdir=FSUtils.getRootDir(conf);
+  Path logDir=new Path(rootdir,HConstants.HREGION_LOGDIR_NAME);
+  Path oldLogDir=new Path(rootdir,HConstants.HREGION_OLDLOGDIR_NAME);
+  FileSystem fs=rootdir.getFileSystem(conf);
+  NewestLogFilter pathFilter=new NewestLogFilter(conf);
+  List<String> resultLogFiles=new ArrayList<String>();
+  List<String> newestLogs=new ArrayList<String>();
+  FileStatus[] rss;
+  Path p;
+  String host;
+  String oldTimeStamp;
+  String currentLogFile;
+  String currentLogTS;
+  rss=fs.listStatus(logDir);
+  for (  FileStatus rs : rss) {
+    p=rs.getPath();
+    host=DefaultWALProvider.getServerNameFromWALDirectoryName(p).getHostname();
+    FileStatus[] logs;
+    oldTimeStamp=olderTimestamps.get(host);
+    if (oldTimeStamp == null) {
+      logs=fs.listStatus(p);
+    }
+ else {
+      pathFilter.setLastBackupTS(oldTimeStamp);
+      logs=fs.listStatus(p,pathFilter);
+    }
+    for (    FileStatus log : logs) {
+      LOG.debug("currentLogFile: " + log.getPath().toString());
+      if (DefaultWALProvider.isMetaFile(log.getPath())) {
+        LOG.debug("Skip hbase:meta log file: " + log.getPath().getName());
+        continue;
+      }
+      currentLogFile=log.getPath().toString();
+      resultLogFiles.add(currentLogFile);
+      currentLogTS=BackupUtil.getCreationTime(log.getPath(),conf);
+      if (Long.valueOf(currentLogTS) > Long.valueOf(newestTimestamps.get(host))) {
+        newestLogs.add(currentLogFile);
+      }
+    }
+  }
+  FileStatus[] oldlogs=fs.listStatus(oldLogDir);
+  for (  FileStatus oldlog : oldlogs) {
+    p=oldlog.getPath();
+    currentLogFile=p.toString();
+    if (DefaultWALProvider.isMetaFile(p)) {
+      LOG.debug("Skip .meta log file: " + currentLogFile);
+      continue;
+    }
+    host=BackupUtil.parseHostFromOldLog(p);
+    currentLogTS=BackupUtil.getCreationTime(p,conf);
+    oldTimeStamp=olderTimestamps.get(host);
+    if (oldTimeStamp == null) {
+      if (Long.valueOf(currentLogTS) < Long.valueOf(savedStartCode)) {
+        continue;
+      }
+ else {
+        resultLogFiles.add(currentLogFile);
+      }
+    }
+ else     if (Long.valueOf(currentLogTS) > Long.valueOf(oldTimeStamp)) {
+      resultLogFiles.add(currentLogFile);
+    }
+    LOG.debug("resultLogFiles before removal of newestLogs: " + resultLogFiles);
+    String newTimestamp=newestTimestamps.get(host);
+    if (newTimestamp != null && Long.valueOf(currentLogTS) > Long.valueOf(newTimestamp)) {
+      newestLogs.add(currentLogFile);
+    }
+  }
+  LOG.debug("newestLogs: " + newestLogs);
+  resultLogFiles.removeAll(newestLogs);
+  LOG.debug("resultLogFiles after removal of newestLogs: " + resultLogFiles);
+  return resultLogFiles;
+}

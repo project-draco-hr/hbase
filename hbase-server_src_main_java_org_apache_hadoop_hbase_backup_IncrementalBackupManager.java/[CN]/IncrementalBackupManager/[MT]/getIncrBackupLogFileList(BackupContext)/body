@@ -1,0 +1,34 @@
+{
+  List<String> logList;
+  HashMap<String,String> newTimestamps;
+  HashMap<String,String> previousTimestampMins;
+  Configuration conf=BackupUtil.getConf();
+  String savedStartCode=backupManager.readBackupStartCode();
+  HashMap<String,HashMap<String,String>> previousTimestampMap=backupManager.readLogTimestampMap();
+  previousTimestampMins=BackupUtil.getRSLogTimestampMins(previousTimestampMap);
+  LOG.debug("StartCode " + savedStartCode + "for backupID "+ backupContext.getBackupId());
+  LOG.debug("Timestamps " + previousTimestampMap);
+  if (savedStartCode == null || previousTimestampMins == null || previousTimestampMins.isEmpty()) {
+    throw new IOException("Cannot read any previous back up timestamps from hbase:backup. " + "In order to create an incremental backup, at least one full backup is needed.");
+  }
+  HBaseAdmin hbadmin=null;
+  Connection conn=null;
+  try {
+    LOG.info("Execute roll log procedure for incremental backup ...");
+    conn=ConnectionFactory.createConnection(conf);
+    hbadmin=(HBaseAdmin)conn.getAdmin();
+    hbadmin.execProcedure(LogRollMasterProcedureManager.ROLLLOG_PROCEDURE_SIGNATURE,LogRollMasterProcedureManager.ROLLLOG_PROCEDURE_NAME,new HashMap<String,String>());
+  }
+  finally {
+    if (hbadmin != null) {
+      hbadmin.close();
+    }
+    if (conn != null) {
+      conn.close();
+    }
+  }
+  newTimestamps=backupManager.readRegionServerLastLogRollResult();
+  logList=getLogFilesForNewBackup(previousTimestampMins,newTimestamps,conf,savedStartCode);
+  backupContext.setIncrBackupFileList(logList);
+  return newTimestamps;
+}

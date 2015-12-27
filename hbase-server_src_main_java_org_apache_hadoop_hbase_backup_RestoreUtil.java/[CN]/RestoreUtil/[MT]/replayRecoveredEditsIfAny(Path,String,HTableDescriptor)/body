@@ -1,0 +1,53 @@
+{
+  LOG.debug("Trying to replay the recovered.edits if exist to the target table " + newTableHtd.getNameAsString() + " from the backup of table "+ tableName+ ".");
+  FileSystem fs=tableBackupPath.getFileSystem(this.conf);
+  ArrayList<Path> regionDirs=hBackupFS.getRegionList(tableName);
+  if (regionDirs == null || regionDirs.size() == 0) {
+    LOG.warn("No recovered.edits to be replayed for empty backup of table " + tableName + ".");
+    return;
+  }
+  Connection conn=null;
+  try {
+    conn=ConnectionFactory.createConnection(conf);
+    for (    Path regionDir : regionDirs) {
+      NavigableSet<Path> files=WALSplitter.getSplitEditFilesSorted(fs,regionDir);
+      if (files == null || files.isEmpty()) {
+        LOG.warn("No recovered.edits found for the region " + regionDir.getName() + ".");
+        return;
+      }
+      for (      Path edits : files) {
+        if (edits == null || !fs.exists(edits)) {
+          LOG.warn("Null or non-existent edits file: " + edits);
+          continue;
+        }
+        HTable table=null;
+        try {
+          table=(HTable)conn.getTable(newTableHtd.getTableName());
+          replayRecoveredEdits(table,fs,edits);
+          table.flushCommits();
+          table.close();
+        }
+ catch (        IOException e) {
+          boolean skipErrors=conf.getBoolean("hbase.skip.errors",false);
+          if (skipErrors) {
+            Path p=WALSplitter.moveAsideBadEditsFile(fs,edits);
+            LOG.error(HConstants.HREGION_EDITS_REPLAY_SKIP_ERRORS + "=true so continuing. Renamed " + edits+ " as "+ p,e);
+          }
+ else {
+            throw e;
+          }
+        }
+ finally {
+          if (table != null) {
+            table.close();
+          }
+        }
+      }
+    }
+  }
+  finally {
+    if (conn != null) {
+      conn.close();
+    }
+  }
+}

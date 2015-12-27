@@ -1,0 +1,75 @@
+{
+  if (newTableName == null || newTableName.equals("")) {
+    newTableName=tableName;
+  }
+  FileSystem fileSys=tableBackupPath.getFileSystem(this.conf);
+  HTableDescriptor tableDescriptor=null;
+  Path tableSnapshotPath=hBackupFS.getTableSnapshotPath(tableName);
+  if (fileSys.exists(tableSnapshotPath)) {
+    if (snapshotMap.get(tableName) != null) {
+      SnapshotDescription desc=SnapshotDescriptionUtils.readSnapshotInfo(fileSys,tableSnapshotPath);
+      SnapshotManifest manifest=SnapshotManifest.open(conf,fileSys,tableSnapshotPath,desc);
+      tableDescriptor=manifest.getTableDescriptor();
+      LOG.debug("tableDescriptor.getNameAsString() = " + tableDescriptor.getNameAsString() + " while tableName = "+ tableName);
+    }
+ else {
+      tableDescriptor=hBackupFS.getTableDesc(tableName);
+      LOG.debug("tableSnapshotPath=" + tableSnapshotPath.toString());
+      snapshotMap.put(tableName,hBackupFS.getTableInfoPath(tableName));
+    }
+    if (tableDescriptor == null) {
+      LOG.debug("Found no table descriptor in the snapshot dir, previous schema would be lost");
+    }
+  }
+ else   if (converted) {
+    LOG.error("convert will be supported in a future jira");
+  }
+  Path tableArchivePath=hBackupFS.getTableArchivePath(tableName);
+  if (tableArchivePath == null) {
+    if (tableDescriptor != null) {
+      LOG.debug("find table descriptor but no archive dir for table " + tableName + ", will only create table");
+      tableDescriptor.setName(Bytes.toBytes(newTableName));
+      checkAndCreateTable(tableBackupPath,tableName,newTableName,null,tableDescriptor);
+      return;
+    }
+ else {
+      throw new IllegalStateException("Cannot restore hbase table because directory '" + " tableArchivePath is null.");
+    }
+  }
+  if (tableDescriptor == null) {
+    tableDescriptor=new HTableDescriptor(newTableName);
+  }
+ else {
+    tableDescriptor.setName(Bytes.toBytes(newTableName));
+  }
+  if (!converted) {
+    try {
+      ArrayList<Path> regionPathList=hBackupFS.getRegionList(tableName);
+      checkAndCreateTable(tableBackupPath,tableName,newTableName,regionPathList,tableDescriptor);
+      if (tableArchivePath != null) {
+        Path tempTableArchivePath=hBackupFS.checkLocalAndBackup(tableArchivePath);
+        if (tempTableArchivePath.equals(tableArchivePath)) {
+          LOG.debug("TableArchivePath for bulkload using existPath: " + tableArchivePath);
+        }
+ else {
+          regionPathList=hBackupFS.getRegionList(tempTableArchivePath);
+          LOG.debug("TableArchivePath for bulkload using tempPath: " + tempTableArchivePath);
+        }
+        LoadIncrementalHFiles loader=createLoader(tempTableArchivePath,false);
+        for (        Path regionPath : regionPathList) {
+          String regionName=regionPath.toString();
+          LOG.debug("Restoring HFiles from directory " + regionName);
+          String[] args={regionName,newTableName};
+          loader.run(args);
+        }
+      }
+      replayRecoveredEditsIfAny(tableBackupPath,tableName,tableDescriptor);
+    }
+ catch (    Exception e) {
+      throw new IllegalStateException("Cannot restore hbase table",e);
+    }
+  }
+ else {
+    LOG.debug("convert will be supported in a future jira");
+  }
+}

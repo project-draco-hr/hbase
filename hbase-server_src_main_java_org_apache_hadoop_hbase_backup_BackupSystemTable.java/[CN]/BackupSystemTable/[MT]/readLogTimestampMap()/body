@@ -1,0 +1,46 @@
+{
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("read RS log ts from HBASE_BACKUP");
+  }
+  Table table=null;
+  ResultScanner scanner=null;
+  HashMap<String,HashMap<String,String>> tableTimestampMap=new HashMap<String,HashMap<String,String>>();
+  try {
+    table=connection.getTable(tableName);
+    Scan scan=BackupSystemTableHelper.createScanForReadLogTimestampMap();
+    scanner=table.getScanner(scan);
+    Result res=null;
+    while ((res=scanner.next()) != null) {
+      res.advance();
+      Cell cell=res.current();
+      byte[] row=CellUtil.cloneRow(cell);
+      String tabName=BackupSystemTableHelper.getTableNameForReadLogTimestampMap(row);
+      HashMap<String,String> lastBackup=new HashMap<String,String>();
+      byte[] data=CellUtil.cloneValue(cell);
+      if (data == null) {
+        throw new IOException("Data of last backup data from HBASE_BACKUP " + "is empty. Create a backup first.");
+      }
+      if (data != null && data.length > 0) {
+        String s=new String(data);
+        String[] records=s.split(BackupUtil.RECORD_SEPARATOR);
+        for (        String record : records) {
+          String[] flds=record.split(BackupUtil.FIELD_SEPARATOR);
+          if (flds.length != 2) {
+            throw new IOException("data from HBASE_BACKUP is corrupted: " + Arrays.toString(flds));
+          }
+          lastBackup.put(flds[0],flds[1]);
+        }
+        tableTimestampMap.put(tabName,lastBackup);
+      }
+    }
+    return tableTimestampMap;
+  }
+  finally {
+    if (scanner != null) {
+      scanner.close();
+    }
+    if (table != null) {
+      table.close();
+    }
+  }
+}
