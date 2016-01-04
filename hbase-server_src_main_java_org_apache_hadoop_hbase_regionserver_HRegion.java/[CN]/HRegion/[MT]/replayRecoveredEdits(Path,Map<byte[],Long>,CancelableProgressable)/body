@@ -61,16 +61,18 @@
             continue;
           }
         }
+        boolean checkRowWithinBoundary=false;
         if (!Bytes.equals(key.getEncodedRegionName(),this.getRegionInfo().getEncodedNameAsBytes())) {
-          skippedEdits++;
-          continue;
+          checkRowWithinBoundary=true;
         }
         boolean flush=false;
         for (        Cell cell : val.getCells()) {
           if (CellUtil.matchingFamily(cell,WALEdit.METAFAMILY)) {
-            CompactionDescriptor compaction=WALEdit.getCompaction(cell);
-            if (compaction != null) {
-              replayWALCompactionMarker(compaction,false,true,Long.MAX_VALUE);
+            if (!checkRowWithinBoundary) {
+              CompactionDescriptor compaction=WALEdit.getCompaction(cell);
+              if (compaction != null) {
+                replayWALCompactionMarker(compaction,false,true,Long.MAX_VALUE);
+              }
             }
             skippedEdits++;
             continue;
@@ -80,6 +82,11 @@
           }
           if (store == null) {
             LOG.warn("No family for " + cell);
+            skippedEdits++;
+            continue;
+          }
+          if (checkRowWithinBoundary && !rowIsInRange(this.getRegionInfo(),cell.getRowArray(),cell.getRowOffset(),cell.getRowLength())) {
+            LOG.warn("Row of " + cell + " is not within region boundary");
             skippedEdits++;
             continue;
           }
