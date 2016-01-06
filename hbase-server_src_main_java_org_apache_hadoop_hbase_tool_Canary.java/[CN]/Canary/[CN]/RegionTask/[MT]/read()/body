@@ -2,6 +2,9 @@
   Table table=null;
   HTableDescriptor tableDesc=null;
   try {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(String.format("reading table descriptor for table %s",region.getTable()));
+    }
     table=connection.getTable(region.getTable());
     tableDesc=table.getTableDescriptor();
   }
@@ -40,20 +43,22 @@
       scan.setFilter(new FirstKeyOnlyFilter());
       scan.addFamily(column.getName());
       scan.setMaxResultSize(1L);
+      scan.setSmall(true);
+    }
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(String.format("reading from table %s region %s column family %s and key %s",tableDesc.getTableName(),region.getRegionNameAsString(),column.getNameAsString(),Bytes.toStringBinary(startKey)));
     }
     try {
+      stopWatch.start();
       if (startKey.length > 0) {
-        stopWatch.start();
         table.get(get);
-        stopWatch.stop();
-        sink.publishReadTiming(region,column,stopWatch.getTime());
       }
  else {
-        stopWatch.start();
         rs=table.getScanner(scan);
-        stopWatch.stop();
-        sink.publishReadTiming(region,column,stopWatch.getTime());
+        rs.next();
       }
+      stopWatch.stop();
+      sink.publishReadTiming(region,column,stopWatch.getTime());
     }
  catch (    Exception e) {
       sink.publishReadFailure(region,column,e);
