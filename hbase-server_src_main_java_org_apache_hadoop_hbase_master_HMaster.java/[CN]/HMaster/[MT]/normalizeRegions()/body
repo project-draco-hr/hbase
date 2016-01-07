@@ -12,11 +12,19 @@ synchronized (this.normalizer) {
     Collections.shuffle(allEnabledTables);
     for (    TableName table : allEnabledTables) {
       TableDescriptor tblDesc=getTableDescriptors().getDescriptor(table);
-      if (table.isSystemTable() || (tblDesc != null && tblDesc.getHTableDescriptor() != null && !tblDesc.getHTableDescriptor().isNormalizationEnabled())) {
-        LOG.debug("Skipping normalization for table: " + table + ", as it's either system"+ " table or doesn't have auto normalization turned on");
+      if (table.isSystemTable()) {
+        LOG.debug("Skipping normalization for table: " + table + ", as it's system table");
         continue;
       }
-      NormalizationPlan plan=this.normalizer.computePlanForTable(table);
+      List<PlanType> types=null;
+      if (tblDesc != null && tblDesc.getHTableDescriptor() != null) {
+        types=tblDesc.getHTableDescriptor().getDesiredNormalizationTypes();
+        if (types == null) {
+          LOG.debug("Skipping normalization for table: " + table + ", as it"+ " doesn't have auto normalization turned on");
+          continue;
+        }
+      }
+      NormalizationPlan plan=this.normalizer.computePlanForTable(table,types);
       plan.execute(clusterConnection.getAdmin());
     }
   }
