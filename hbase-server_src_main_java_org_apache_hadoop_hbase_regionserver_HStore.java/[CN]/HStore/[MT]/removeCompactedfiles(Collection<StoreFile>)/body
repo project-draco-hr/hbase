@@ -1,0 +1,37 @@
+{
+  final List<StoreFile> filesToRemove=new ArrayList<StoreFile>(compactedfiles.size());
+  for (  final StoreFile file : compactedfiles) {
+synchronized (file) {
+      try {
+        StoreFile.Reader r=file.getReader();
+        if (r == null) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("The file " + file + " was closed but still not archived.");
+          }
+          filesToRemove.add(file);
+        }
+        if (r != null && r.isCompactedAway() && !r.isReferencedInReads()) {
+          if (LOG.isTraceEnabled()) {
+            LOG.trace("Closing and archiving the file " + file.getPath());
+          }
+          r.close(true);
+          filesToRemove.add(file);
+        }
+      }
+ catch (      Exception e) {
+        LOG.error("Exception while trying to close the compacted store file " + file.getPath().getName());
+      }
+    }
+  }
+  if (this.isPrimaryReplicaStore()) {
+    if (!filesToRemove.isEmpty()) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Moving the files " + filesToRemove + " to archive");
+      }
+      this.fs.removeStoreFiles(this.getFamily().getNameAsString(),filesToRemove);
+    }
+  }
+  if (!filesToRemove.isEmpty()) {
+    clearCompactedfiles(filesToRemove);
+  }
+}

@@ -31,21 +31,32 @@
     }
     admin.compactRegion(mergedRegionInfo.getRegionName());
     long timeout=System.currentTimeMillis() + waitTime;
+    int newcount=0;
     while (System.currentTimeMillis() < timeout) {
-      if (!hrfs.hasReferences(tableDescriptor)) {
+      for (      HColumnDescriptor colFamily : columnFamilies) {
+        newcount+=hrfs.getStoreFiles(colFamily.getName()).size();
+      }
+      if (newcount > count) {
         break;
       }
       Thread.sleep(50);
     }
-    int newcount=0;
-    for (    HColumnDescriptor colFamily : columnFamilies) {
-      newcount+=hrfs.getStoreFiles(colFamily.getName()).size();
-    }
     assertTrue(newcount > count);
-    List<HRegion> regions=TEST_UTIL.getHBaseCluster().getRegions(tableDescriptor.getName());
-    for (    HRegion region : regions) {
-      CompactedHFilesDischarger cleaner=new CompactedHFilesDischarger(100,null,region);
+    List<RegionServerThread> regionServerThreads=TEST_UTIL.getHBaseCluster().getRegionServerThreads();
+    for (    RegionServerThread rs : regionServerThreads) {
+      CompactedHFilesDischarger cleaner=new CompactedHFilesDischarger(100,null,rs.getRegionServer(),false);
       cleaner.chore();
+      Thread.sleep(1000);
+    }
+    int newcount1=0;
+    while (System.currentTimeMillis() < timeout) {
+      for (      HColumnDescriptor colFamily : columnFamilies) {
+        newcount1+=hrfs.getStoreFiles(colFamily.getName()).size();
+      }
+      if (newcount1 <= 1) {
+        break;
+      }
+      Thread.sleep(50);
     }
     int cleaned=admin.runCatalogScan();
     assertTrue(cleaned > 0);
