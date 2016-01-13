@@ -1,0 +1,80 @@
+{
+  StepDirection newTuneDirection=StepDirection.NEUTRAL;
+  long blockedFlushCount=context.getBlockedFlushCount();
+  long unblockedFlushCount=context.getUnblockedFlushCount();
+  long evictCount=context.getEvictCount();
+  long cacheMissCount=context.getCacheMissCount();
+  long totalFlushCount=blockedFlushCount + unblockedFlushCount;
+  float curMemstoreSize=context.getCurMemStoreSize();
+  float curBlockCacheSize=context.getCurBlockCacheSize();
+  StringBuilder tunerLog=new StringBuilder();
+  boolean earlyMemstoreSufficientCheck=totalFlushCount == 0 || context.getCurMemStoreUsed() < curMemstoreSize * sufficientMemoryLevel;
+  boolean earlyBlockCacheSufficientCheck=evictCount == 0 || context.getCurBlockCacheUsed() < curBlockCacheSize * sufficientMemoryLevel;
+  if (earlyMemstoreSufficientCheck && earlyBlockCacheSufficientCheck) {
+    newTuneDirection=StepDirection.NEUTRAL;
+  }
+ else   if (earlyMemstoreSufficientCheck) {
+    newTuneDirection=StepDirection.INCREASE_BLOCK_CACHE_SIZE;
+  }
+ else   if (earlyBlockCacheSufficientCheck) {
+    newTuneDirection=StepDirection.INCREASE_MEMSTORE_SIZE;
+  }
+ else {
+    boolean isReverting=false;
+switch (prevTuneDirection) {
+case INCREASE_BLOCK_CACHE_SIZE:
+      if ((double)evictCount > rollingStatsForEvictions.getMean() || (double)totalFlushCount > rollingStatsForFlushes.getMean() + rollingStatsForFlushes.getDeviation() / 2.00) {
+        newTuneDirection=StepDirection.INCREASE_MEMSTORE_SIZE;
+        tunerLog.append("We will revert previous tuning");
+        if ((double)evictCount > rollingStatsForEvictions.getMean()) {
+          tunerLog.append(" because we could not decrease evictions sufficiently.");
+        }
+ else {
+          tunerLog.append(" because the number of flushes rose significantly.");
+        }
+        isReverting=true;
+      }
+    break;
+case INCREASE_MEMSTORE_SIZE:
+  if ((double)totalFlushCount > rollingStatsForFlushes.getMean() || (double)evictCount > rollingStatsForEvictions.getMean() + rollingStatsForEvictions.getDeviation() / 2.00) {
+    newTuneDirection=StepDirection.INCREASE_BLOCK_CACHE_SIZE;
+    tunerLog.append("We will revert previous tuning");
+    if ((double)totalFlushCount > rollingStatsForFlushes.getMean()) {
+      tunerLog.append(" because we could not decrease flushes sufficiently.");
+    }
+ else {
+      tunerLog.append(" because number of evictions rose significantly.");
+    }
+    isReverting=true;
+  }
+break;
+default :
+break;
+}
+if (!isReverting) {
+if ((double)cacheMissCount < rollingStatsForCacheMisses.getMean() - rollingStatsForCacheMisses.getDeviation() * 0.80 && (double)totalFlushCount < rollingStatsForFlushes.getMean() - rollingStatsForFlushes.getDeviation() * 0.80) {
+newTuneDirection=StepDirection.NEUTRAL;
+}
+ else if ((double)cacheMissCount > rollingStatsForCacheMisses.getMean() + rollingStatsForCacheMisses.getDeviation() * 0.80 && (double)totalFlushCount < rollingStatsForFlushes.getMean() - rollingStatsForFlushes.getDeviation() * 0.80) {
+newTuneDirection=StepDirection.INCREASE_BLOCK_CACHE_SIZE;
+tunerLog.append("Going to increase block cache size due to increase in number of cache misses.");
+}
+ else if ((double)cacheMissCount < rollingStatsForCacheMisses.getMean() - rollingStatsForCacheMisses.getDeviation() * 0.80 && (double)totalFlushCount > rollingStatsForFlushes.getMean() + rollingStatsForFlushes.getDeviation() * 0.80) {
+newTuneDirection=StepDirection.INCREASE_MEMSTORE_SIZE;
+tunerLog.append("Going to increase memstore size due to increase in number of flushes.");
+}
+ else if (blockedFlushCount > 0 && prevTuneDirection == StepDirection.NEUTRAL) {
+newTuneDirection=StepDirection.INCREASE_MEMSTORE_SIZE;
+tunerLog.append("Going to increase memstore size due to" + blockedFlushCount + " blocked flushes.");
+}
+ else {
+tunerLog.append("Going to do nothing because we " + "could not determine best tuning direction");
+newTuneDirection=StepDirection.NEUTRAL;
+}
+}
+}
+if (LOG.isDebugEnabled()) {
+LOG.debug(tunerLog.toString());
+}
+return newTuneDirection;
+}
