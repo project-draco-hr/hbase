@@ -1,0 +1,34 @@
+{
+  TableName tableName=TableName.valueOf("testServerCrashProcedureEventTb");
+  HMaster master=UTIL.getMiniHBaseCluster().getMaster();
+  ProcedureExecutor<MasterProcedureEnv> procExec=master.getMasterProcedureExecutor();
+  MasterProcedureScheduler procSched=procExec.getEnvironment().getProcedureQueue();
+  while (!master.isServerCrashProcessingEnabled() || !master.isInitialized() || master.getAssignmentManager().getRegionStates().isRegionsInTransition()) {
+    Thread.sleep(25);
+  }
+  UTIL.createTable(tableName,HBaseTestingUtility.COLUMNS[0]);
+  try (Table t=UTIL.getConnection().getTable(tableName)){
+    UTIL.loadTable(t,HBaseTestingUtility.COLUMNS[0]);
+  }
+   master.setServerCrashProcessingEnabled(false);
+  long pollCalls=procSched.getPollCalls();
+  long nullPollCalls=procSched.getNullPollCalls();
+  HRegionServer hrs=getServerWithRegions();
+  boolean carryingMeta=master.getAssignmentManager().isCarryingMeta(hrs.getServerName());
+  UTIL.getHBaseCluster().killRegionServer(hrs.getServerName());
+  hrs.join();
+  while (!master.getServerManager().isServerDead(hrs.getServerName()))   Thread.sleep(10);
+  master.getServerManager().moveFromOnelineToDeadServers(hrs.getServerName());
+  long procId=procExec.submitProcedure(new ServerCrashProcedure(hrs.getServerName(),true,carryingMeta));
+  for (int i=0; i < 10; ++i) {
+    Thread.sleep(100);
+    assertEquals(pollCalls + 1,procSched.getPollCalls());
+    assertEquals(nullPollCalls,procSched.getNullPollCalls());
+  }
+  master.setServerCrashProcessingEnabled(true);
+  ProcedureTestingUtility.waitProcedure(procExec,procId);
+  LOG.debug("server crash processing poll calls: " + procSched.getPollCalls());
+  assertTrue(procSched.getPollCalls() >= (pollCalls + 2));
+  assertEquals(nullPollCalls,procSched.getNullPollCalls());
+  UTIL.deleteTable(tableName);
+}

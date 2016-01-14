@@ -1,0 +1,33 @@
+{
+  TableName tableName=TableName.valueOf("testtb");
+  queue.addBack(new TestTableProcedure(1,tableName,TableProcedureInterface.TableOperationType.EDIT));
+  queue.addBack(new TestTableProcedure(2,tableName,TableProcedureInterface.TableOperationType.READ));
+  queue.addBack(new TestTableProcedure(3,tableName,TableProcedureInterface.TableOperationType.EDIT));
+  queue.addBack(new TestTableProcedure(4,tableName,TableProcedureInterface.TableOperationType.READ));
+  queue.addBack(new TestTableProcedure(5,tableName,TableProcedureInterface.TableOperationType.READ));
+  long procId=queue.poll().getProcId();
+  assertEquals(1,procId);
+  assertEquals(true,queue.tryAcquireTableExclusiveLock(tableName,"write " + procId));
+  assertEquals(null,queue.poll(0));
+  queue.releaseTableExclusiveLock(tableName);
+  procId=queue.poll().getProcId();
+  assertEquals(2,procId);
+  assertEquals(true,queue.tryAcquireTableSharedLock(tableName,"read " + procId));
+  procId=queue.poll().getProcId();
+  assertEquals(3,procId);
+  assertEquals(false,queue.tryAcquireTableExclusiveLock(tableName,"write " + procId));
+  queue.releaseTableSharedLock(tableName);
+  assertEquals(true,queue.tryAcquireTableExclusiveLock(tableName,"write " + procId));
+  assertEquals(null,queue.poll(0));
+  queue.releaseTableExclusiveLock(tableName);
+  procId=queue.poll().getProcId();
+  assertEquals(4,procId);
+  assertEquals(true,queue.tryAcquireTableSharedLock(tableName,"read " + procId));
+  procId=queue.poll().getProcId();
+  assertEquals(5,procId);
+  assertEquals(true,queue.tryAcquireTableSharedLock(tableName,"read " + procId));
+  queue.releaseTableSharedLock(tableName);
+  queue.releaseTableSharedLock(tableName);
+  assertEquals(0,queue.size());
+  assertTrue("queue should be deleted",queue.markTableAsDeleted(tableName));
+}

@@ -1,0 +1,30 @@
+{
+  final int NUM_TABLES=10;
+  final int NUM_ITEMS=10;
+  int count=0;
+  for (int i=1; i <= NUM_TABLES; ++i) {
+    TableName tableName=TableName.valueOf(String.format("test-%04d",i));
+    for (int j=1; j <= NUM_ITEMS; ++j) {
+      queue.addBack(new TestTableProcedure(i * 1000 + j,tableName,TableProcedureInterface.TableOperationType.EDIT));
+      assertEquals(++count,queue.size());
+    }
+  }
+  assertEquals(NUM_TABLES * NUM_ITEMS,queue.size());
+  for (int j=1; j <= NUM_ITEMS; ++j) {
+    for (int i=1; i <= NUM_TABLES; ++i) {
+      Procedure proc=queue.poll();
+      assertTrue(proc != null);
+      TableName tableName=((TestTableProcedure)proc).getTableName();
+      queue.tryAcquireTableExclusiveLock(tableName,"test");
+      queue.releaseTableExclusiveLock(tableName);
+      queue.completionCleanup(proc);
+      assertEquals(--count,queue.size());
+      assertEquals(i * 1000 + j,proc.getProcId());
+    }
+  }
+  assertEquals(0,queue.size());
+  for (int i=1; i <= NUM_TABLES; ++i) {
+    TableName tableName=TableName.valueOf(String.format("test-%04d",i));
+    assertTrue(queue.markTableAsDeleted(tableName));
+  }
+}
