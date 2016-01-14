@@ -1,17 +1,21 @@
 {
   schedLock.lock();
   TableQueue queue=getTableQueue(table);
-  boolean hasXLock=queue.tryExclusiveLock();
-  if (!hasXLock) {
+  if (!queue.getNamespaceQueue().trySharedLock()) {
+    return false;
+  }
+  if (!queue.tryExclusiveLock()) {
+    queue.getNamespaceQueue().releaseSharedLock();
     schedLock.unlock();
     return false;
   }
   removeFromRunQueue(tableRunQueue,queue);
   schedLock.unlock();
-  hasXLock=queue.tryZkExclusiveLock(lockManager,purpose);
+  boolean hasXLock=queue.tryZkExclusiveLock(lockManager,purpose);
   if (!hasXLock) {
     schedLock.lock();
     queue.releaseExclusiveLock();
+    queue.getNamespaceQueue().releaseSharedLock();
     addToRunQueue(tableRunQueue,queue);
     schedLock.unlock();
   }

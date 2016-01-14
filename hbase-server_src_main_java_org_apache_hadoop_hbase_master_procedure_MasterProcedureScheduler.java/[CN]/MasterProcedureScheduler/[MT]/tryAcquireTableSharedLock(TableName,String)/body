@@ -1,3 +1,21 @@
 {
-  return getTableQueueWithLock(table).trySharedLock(lockManager,purpose);
+  schedLock.lock();
+  TableQueue queue=getTableQueue(table);
+  if (!queue.getNamespaceQueue().trySharedLock()) {
+    return false;
+  }
+  if (!queue.trySharedLock()) {
+    queue.getNamespaceQueue().releaseSharedLock();
+    schedLock.unlock();
+    return false;
+  }
+  schedLock.unlock();
+  boolean hasXLock=queue.tryZkSharedLock(lockManager,purpose);
+  if (!hasXLock) {
+    schedLock.lock();
+    queue.releaseSharedLock();
+    queue.getNamespaceQueue().releaseSharedLock();
+    schedLock.unlock();
+  }
+  return hasXLock;
 }

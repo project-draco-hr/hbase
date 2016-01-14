@@ -1,0 +1,31 @@
+{
+  String nsName1="ns1";
+  String nsName2="ns2";
+  TableName tableName1=TableName.valueOf(nsName1,"testtb");
+  TableName tableName2=TableName.valueOf(nsName2,"testtb");
+  queue.addBack(new TestNamespaceProcedure(1,nsName1,TableProcedureInterface.TableOperationType.EDIT));
+  queue.addBack(new TestTableProcedure(2,tableName1,TableProcedureInterface.TableOperationType.EDIT));
+  queue.addBack(new TestTableProcedure(3,tableName2,TableProcedureInterface.TableOperationType.EDIT));
+  queue.addBack(new TestNamespaceProcedure(4,nsName2,TableProcedureInterface.TableOperationType.EDIT));
+  long procId=queue.poll().getProcId();
+  assertEquals(1,procId);
+  assertEquals(true,queue.tryAcquireNamespaceExclusiveLock(nsName1));
+  Procedure proc=queue.poll();
+  assertEquals(4,proc.getProcId());
+  assertEquals(true,queue.tryAcquireNamespaceExclusiveLock(nsName2));
+  queue.releaseNamespaceExclusiveLock(nsName2);
+  queue.yield(proc);
+  procId=queue.poll().getProcId();
+  assertEquals(3,procId);
+  assertEquals(true,queue.tryAcquireTableExclusiveLock(tableName2,"lock " + procId));
+  proc=queue.poll();
+  assertEquals(4,proc.getProcId());
+  assertEquals(false,queue.tryAcquireNamespaceExclusiveLock(nsName2));
+  queue.yield(proc);
+  queue.releaseNamespaceExclusiveLock(nsName1);
+  procId=queue.poll().getProcId();
+  assertEquals(2,procId);
+  queue.releaseTableExclusiveLock(tableName2);
+  procId=queue.poll().getProcId();
+  assertEquals(4,procId);
+}
