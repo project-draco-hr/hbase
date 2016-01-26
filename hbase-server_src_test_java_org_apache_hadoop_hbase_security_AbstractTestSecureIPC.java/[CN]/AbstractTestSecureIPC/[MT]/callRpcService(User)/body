@@ -1,23 +1,19 @@
 {
   SecurityInfo securityInfoMock=Mockito.mock(SecurityInfo.class);
   Mockito.when(securityInfoMock.getServerPrincipal()).thenReturn(HBaseKerberosUtils.KRB_PRINCIPAL);
-  SecurityInfo.addInfo("TestDelayedService",securityInfoMock);
-  boolean delayReturnValue=false;
+  SecurityInfo.addInfo("TestProtobufRpcProto",securityInfoMock);
   InetSocketAddress isa=new InetSocketAddress(HOST,0);
-  TestDelayedImplementation instance=new TestDelayedImplementation(delayReturnValue);
-  BlockingService service=TestDelayedRpcProtos.TestDelayedService.newReflectiveBlockingService(instance);
-  RpcServerInterface rpcServer=new RpcServer(null,"testSecuredDelayedRpc",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(service,null)),isa,serverConf,new FifoRpcScheduler(serverConf,1));
+  RpcServerInterface rpcServer=new RpcServer(null,"AbstractTestSecureIPC",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(SERVICE,null)),isa,serverConf,new FifoRpcScheduler(serverConf,1));
   rpcServer.start();
-  RpcClient rpcClient=RpcClientFactory.createClient(clientConf,HConstants.DEFAULT_CLUSTER_ID.toString());
-  try {
+  try (RpcClient rpcClient=RpcClientFactory.createClient(clientConf,HConstants.DEFAULT_CLUSTER_ID.toString())){
     InetSocketAddress address=rpcServer.getListenerAddress();
     if (address == null) {
       throw new IOException("Listener channel is closed");
     }
     BlockingRpcChannel channel=rpcClient.createBlockingRpcChannel(ServerName.valueOf(address.getHostName(),address.getPort(),System.currentTimeMillis()),clientUser,0);
-    TestDelayedRpcProtos.TestDelayedService.BlockingInterface stub=TestDelayedRpcProtos.TestDelayedService.newBlockingStub(channel);
-    List<Integer> results=new ArrayList<>();
-    TestThread th1=new TestThread(stub,true,results);
+    TestRpcServiceProtos.TestProtobufRpcProto.BlockingInterface stub=TestRpcServiceProtos.TestProtobufRpcProto.newBlockingStub(channel);
+    List<String> results=new ArrayList<>();
+    TestThread th1=new TestThread(stub,results);
     final Throwable exception[]=new Throwable[1];
     Collections.synchronizedList(new ArrayList<Throwable>());
     Thread.UncaughtExceptionHandler exceptionHandler=new Thread.UncaughtExceptionHandler(){
@@ -35,10 +31,8 @@
       }
       throw (Exception)exception[0];
     }
-    assertEquals(0xDEADBEEF,results.get(0).intValue());
   }
   finally {
-    rpcClient.close();
     rpcServer.stop();
   }
 }
