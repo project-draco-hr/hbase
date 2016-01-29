@@ -1,0 +1,35 @@
+{
+  int compactionKVMax=conf.getInt(HConstants.COMPACTION_KV_MAX,HConstants.COMPACTION_KV_MAX_DEFAULT);
+  ScannerContext scannerContext=ScannerContext.newBuilder().setBatchLimit(compactionKVMax).build();
+  List<Cell> kvs=new ArrayList<Cell>();
+  boolean hasMore;
+  String flushName=ThroughputControlUtil.getNameForThrottling(store,"flush");
+  boolean control=throughputController != null && !store.getRegionInfo().isSystemTable();
+  if (control) {
+    throughputController.start(flushName);
+  }
+  try {
+    do {
+      hasMore=scanner.next(kvs,scannerContext);
+      if (!kvs.isEmpty()) {
+        for (        Cell c : kvs) {
+          sink.append(c);
+          int len=KeyValueUtil.length(c);
+          if (control) {
+            throughputController.control(flushName,len);
+          }
+        }
+        kvs.clear();
+      }
+    }
+ while (hasMore);
+  }
+ catch (  InterruptedException e) {
+    throw new InterruptedIOException("Interrupted while control throughput of flushing " + flushName);
+  }
+ finally {
+    if (control) {
+      throughputController.finish(flushName);
+    }
+  }
+}
