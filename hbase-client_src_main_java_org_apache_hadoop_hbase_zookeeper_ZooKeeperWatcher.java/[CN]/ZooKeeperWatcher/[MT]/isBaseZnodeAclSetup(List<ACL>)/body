@@ -1,10 +1,16 @@
 {
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Checking znode ACLs");
+  }
   String[] superUsers=conf.getStrings(Superusers.SUPERUSER_CONF_KEY);
   if (superUsers != null && !checkACLForSuperUsers(superUsers,acls)) {
     return false;
   }
   String hbaseUser=UserGroupInformation.getCurrentUser().getShortUserName();
   if (acls.isEmpty()) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("ACL is empty");
+    }
     return false;
   }
   for (  ACL acl : acls) {
@@ -12,20 +18,45 @@
     Id id=acl.getId();
     if (Ids.ANYONE_ID_UNSAFE.equals(id)) {
       if (perms != Perms.READ) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(String.format("permissions for '%s' are not correct: have %0x, want %0x",id,perms,Perms.READ));
+        }
         return false;
       }
     }
  else     if (superUsers != null && isSuperUserId(superUsers,id)) {
       if (perms != Perms.ALL) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(String.format("permissions for '%s' are not correct: have %0x, want %0x",id,perms,Perms.ALL));
+        }
         return false;
       }
     }
- else     if (new Id("sasl",hbaseUser).equals(id)) {
-      if (perms != Perms.ALL) {
+ else     if ("sasl".equals(id.getScheme())) {
+      String name=id.getId();
+      Matcher match=NAME_PATTERN.matcher(name);
+      if (match.matches()) {
+        name=match.group(1);
+      }
+      if (name.equals(hbaseUser)) {
+        if (perms != Perms.ALL) {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(String.format("permissions for '%s' are not correct: have %0x, want %0x",id,perms,Perms.ALL));
+          }
+          return false;
+        }
+      }
+ else {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Unexpected shortname in SASL ACL: " + id);
+        }
         return false;
       }
     }
  else {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("unexpected ACL id '" + id + "'");
+      }
       return false;
     }
   }
