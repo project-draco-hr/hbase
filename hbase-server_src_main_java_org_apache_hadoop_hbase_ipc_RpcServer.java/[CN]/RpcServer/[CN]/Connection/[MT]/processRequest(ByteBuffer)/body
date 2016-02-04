@@ -1,11 +1,11 @@
 {
-  long totalRequestSize=buf.length;
+  long totalRequestSize=buf.limit();
   int offset=0;
-  CodedInputStream cis=CodedInputStream.newInstance(buf,offset,buf.length);
+  CodedInputStream cis=CodedInputStream.newInstance(buf.array(),offset,buf.limit());
   int headerSize=cis.readRawVarint32();
   offset=cis.getTotalBytesRead();
   Message.Builder builder=RequestHeader.newBuilder();
-  ProtobufUtil.mergeFrom(builder,buf,offset,headerSize);
+  ProtobufUtil.mergeFrom(builder,cis,headerSize);
   RequestHeader header=(RequestHeader)builder.build();
   offset+=headerSize;
   int id=header.getCallId();
@@ -29,17 +29,18 @@
       md=this.service.getDescriptorForType().findMethodByName(header.getMethodName());
       if (md == null)       throw new UnsupportedOperationException(header.getMethodName());
       builder=this.service.getRequestPrototype(md).newBuilderForType();
-      cis=CodedInputStream.newInstance(buf,offset,buf.length);
+      cis.resetSizeCounter();
       int paramSize=cis.readRawVarint32();
       offset+=cis.getTotalBytesRead();
       if (builder != null) {
-        ProtobufUtil.mergeFrom(builder,buf,offset,paramSize);
+        ProtobufUtil.mergeFrom(builder,cis,paramSize);
         param=builder.build();
       }
       offset+=paramSize;
     }
     if (header.hasCellBlockMeta()) {
-      cellScanner=ipcUtil.createCellScanner(this.codec,this.compressionCodec,buf,offset,buf.length);
+      buf.position(offset);
+      cellScanner=ipcUtil.createCellScanner(this.codec,this.compressionCodec,buf);
     }
   }
  catch (  Throwable t) {
