@@ -1,0 +1,38 @@
+{
+  for (  Metric metric : Metric.values()) {
+    requestsMapPrev.put(metric,requestsMap.get(metric));
+  }
+  ServerLoad serverLoad=null;
+  RegionLoad regionLoadOuter=null;
+  boolean metricsUpdated=false;
+  for (int i=0; i < MAX_TRY; i++) {
+    for (    ServerName serverName : serverNames) {
+      serverLoad=admin.getClusterStatus().getLoad(serverName);
+      Map<byte[],RegionLoad> regionsLoad=serverLoad.getRegionsLoad();
+      for (      HRegionInfo tableRegion : tableRegions) {
+        RegionLoad regionLoad=regionsLoad.get(tableRegion.getRegionName());
+        if (regionLoad != null) {
+          regionLoadOuter=regionLoad;
+          for (          Metric metric : Metric.values()) {
+            if (getReadRequest(serverLoad,regionLoad,metric) > requestsMapPrev.get(metric)) {
+              for (              Metric metricInner : Metric.values()) {
+                requestsMap.put(metricInner,getReadRequest(serverLoad,regionLoad,metricInner));
+              }
+              metricsUpdated=true;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (metricsUpdated) {
+      break;
+    }
+    Thread.sleep(SLEEP_MS);
+  }
+  if (!metricsUpdated) {
+    for (    Metric metric : Metric.values()) {
+      requestsMap.put(metric,getReadRequest(serverLoad,regionLoadOuter,metric));
+    }
+  }
+}
