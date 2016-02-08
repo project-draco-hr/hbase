@@ -3,27 +3,27 @@
   if (retryCount <= 0) {
     return false;
   }
-  int cnt=retryInQueue.incrementAndGet();
-  if (cnt > maxRetryInQueue) {
-    retryInQueue.decrementAndGet();
+  int cnt=getRetryInQueue().incrementAndGet();
+  if (cnt > getMaxRetryInQueue()) {
+    getRetryInQueue().decrementAndGet();
     return false;
   }
   final Put failedPut=ps.put;
   final TableName tableName=ps.regionInfo.getTable();
-  long delayMs=ConnectionUtils.getPauseTime(multiplexer.flushPeriod,multiplexer.maxAttempts - retryCount - 1);
+  long delayMs=getNextDelay(retryCount);
   if (LOG.isDebugEnabled()) {
     LOG.debug("resubmitting after " + delayMs + "ms: "+ retryCount);
   }
-  executor.schedule(new Runnable(){
+  getExecutor().schedule(new Runnable(){
     @Override public void run(){
       boolean succ=false;
       try {
-        succ=FlushWorker.this.multiplexer.put(tableName,failedPut,retryCount);
+        succ=FlushWorker.this.getMultiplexer()._put(tableName,failedPut,retryCount,true);
       }
   finally {
-        FlushWorker.this.retryInQueue.decrementAndGet();
+        FlushWorker.this.getRetryInQueue().decrementAndGet();
         if (!succ) {
-          FlushWorker.this.totalFailedPutCount.incrementAndGet();
+          FlushWorker.this.getTotalFailedPutCount().incrementAndGet();
         }
       }
     }
