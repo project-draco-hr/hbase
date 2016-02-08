@@ -8,13 +8,7 @@
   checkResources();
   startRegionOperation();
   WALEdit walEdit=new WALEdit();
-  try {
-    processor.preProcess(this,walEdit);
-  }
- catch (  IOException e) {
-    closeRegionOperation();
-    throw e;
-  }
+  preProcess(processor,walEdit);
   if (processor.readOnly()) {
     try {
       long now=EnvironmentEdgeManager.currentTime();
@@ -26,15 +20,12 @@
     }
     return;
   }
-  MultiVersionConcurrencyControl.WriteEntry writeEntry=null;
   boolean locked;
-  boolean walSyncSuccessful=false;
   List<RowLock> acquiredRowLocks;
   long addedSize=0;
   List<Mutation> mutations=new ArrayList<Mutation>();
   Collection<byte[]> rowsToLock=processor.getRowsToLock();
-  long mvccNum=0;
-  WALKey walKey=null;
+  WriteEntry writeEntry=null;
   try {
     acquiredRowLocks=new ArrayList<RowLock>(rowsToLock.size());
     for (    byte[] row : rowsToLock) {
@@ -42,68 +33,49 @@
     }
     lock(this.updatesLock.readLock(),acquiredRowLocks.size() == 0 ? 1 : acquiredRowLocks.size());
     locked=true;
+    boolean success=false;
     long now=EnvironmentEdgeManager.currentTime();
     try {
       doProcessRowWithTimeout(processor,now,this,mutations,walEdit,timeout);
       if (!mutations.isEmpty()) {
         processor.preBatchMutate(this,walEdit);
-        long txid=0;
         if (!walEdit.isEmpty()) {
-          walKey=new HLogKey(this.getRegionInfo().getEncodedNameAsBytes(),this.htableDescriptor.getTableName(),WALKey.NO_SEQUENCE_ID,now,processor.getClusterIds(),nonceGroup,nonce,mvcc);
-          txid=this.wal.append(this.htableDescriptor,this.getRegionInfo(),walKey,walEdit,false);
+          writeEntry=doWALAppend(walEdit,getEffectiveDurability(processor.useDurability()),processor.getClusterIds(),now,nonceGroup,nonce);
         }
-        if (walKey == null) {
-          walKey=this.appendEmptyEdit(this.wal);
+ else {
+          writeEntry=this.mvcc.begin();
         }
-        writeEntry=walKey.getWriteEntry();
-        mvccNum=walKey.getSequenceId();
+        long sequenceId=writeEntry.getWriteNumber();
         for (        Mutation m : mutations) {
           rewriteCellTags(m.getFamilyCellMap(),m);
           for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
             Cell cell=cellScanner.current();
-            CellUtil.setSequenceId(cell,mvccNum);
-            Store store=getStore(cell);
-            if (store == null) {
-              checkFamily(CellUtil.cloneFamily(cell));
+            if (walEdit.isEmpty()) {
+              CellUtil.setSequenceId(cell,sequenceId);
             }
-            addedSize+=store.add(cell);
+            Store store=getStore(cell);
+            addedSize+=applyToMemstore(store,cell,sequenceId);
           }
         }
+        mvcc.completeAndWait(writeEntry);
+        writeEntry=null;
         if (locked) {
           this.updatesLock.readLock().unlock();
           locked=false;
         }
         releaseRowLocks(acquiredRowLocks);
-        if (txid != 0) {
-          syncOrDefer(txid,getEffectiveDurability(processor.useDurability()));
-        }
-        walSyncSuccessful=true;
         processor.postBatchMutate(this);
       }
+      success=true;
     }
   finally {
-      if (!mutations.isEmpty() && !walSyncSuccessful) {
-        LOG.warn("Wal sync failed. Roll back " + mutations.size() + " memstore keyvalues for row(s):"+ StringUtils.byteToHexString(processor.getRowsToLock().iterator().next())+ "...");
-        for (        Mutation m : mutations) {
-          for (CellScanner cellScanner=m.cellScanner(); cellScanner.advance(); ) {
-            Cell cell=cellScanner.current();
-            getStore(cell).rollback(cell);
-          }
-        }
-        if (writeEntry != null) {
-          mvcc.complete(writeEntry);
-          writeEntry=null;
-        }
-      }
-      if (writeEntry != null) {
-        mvcc.completeAndWait(writeEntry);
-      }
+      if (writeEntry != null)       mvcc.complete(writeEntry);
       if (locked) {
         this.updatesLock.readLock().unlock();
       }
       releaseRowLocks(acquiredRowLocks);
     }
-    processor.postProcess(this,walEdit,walSyncSuccessful);
+    processor.postProcess(this,walEdit,success);
   }
   finally {
     closeRegionOperation();

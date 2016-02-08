@@ -1,0 +1,215 @@
+{
+  boolean replay=batchOp.isInReplay();
+  boolean putsCfSetConsistent=true;
+  boolean deletesCfSetConsistent=true;
+  Set<byte[]> putsCfSet=null;
+  Set<byte[]> deletesCfSet=null;
+  long currentNonceGroup=HConstants.NO_NONCE;
+  long currentNonce=HConstants.NO_NONCE;
+  WALEdit walEdit=new WALEdit(replay);
+  boolean locked=false;
+  Map<byte[],List<Cell>>[] familyMaps=new Map[batchOp.operations.length];
+  int firstIndex=batchOp.nextIndexToProcess;
+  int lastIndexExclusive=firstIndex;
+  boolean success=false;
+  int noOfPuts=0;
+  int noOfDeletes=0;
+  WriteEntry writeEntry=null;
+  List<RowLock> acquiredRowLocks=Lists.newArrayListWithCapacity(batchOp.operations.length);
+  try {
+    int numReadyToWrite=0;
+    long now=EnvironmentEdgeManager.currentTime();
+    while (lastIndexExclusive < batchOp.operations.length) {
+      if (checkBatchOp(batchOp,lastIndexExclusive,familyMaps,now)) {
+        lastIndexExclusive++;
+        continue;
+      }
+      Mutation mutation=batchOp.getMutation(lastIndexExclusive);
+      RowLock rowLock=null;
+      try {
+        rowLock=getRowLock(mutation.getRow(),true);
+      }
+ catch (      IOException ioe) {
+        LOG.warn("Failed getting lock, row=" + Bytes.toStringBinary(mutation.getRow()),ioe);
+      }
+      if (rowLock == null) {
+        break;
+      }
+ else {
+        acquiredRowLocks.add(rowLock);
+      }
+      lastIndexExclusive++;
+      numReadyToWrite++;
+      if (mutation instanceof Put) {
+        if (putsCfSet == null) {
+          putsCfSet=mutation.getFamilyCellMap().keySet();
+        }
+ else {
+          putsCfSetConsistent=putsCfSetConsistent && mutation.getFamilyCellMap().keySet().equals(putsCfSet);
+        }
+      }
+ else {
+        if (deletesCfSet == null) {
+          deletesCfSet=mutation.getFamilyCellMap().keySet();
+        }
+ else {
+          deletesCfSetConsistent=deletesCfSetConsistent && mutation.getFamilyCellMap().keySet().equals(deletesCfSet);
+        }
+      }
+    }
+    now=EnvironmentEdgeManager.currentTime();
+    byte[] byteNow=Bytes.toBytes(now);
+    if (numReadyToWrite <= 0) {
+      return 0L;
+    }
+    for (int i=firstIndex; !replay && i < lastIndexExclusive; i++) {
+      if (batchOp.retCodeDetails[i].getOperationStatusCode() != OperationStatusCode.NOT_RUN) {
+        continue;
+      }
+      Mutation mutation=batchOp.getMutation(i);
+      if (mutation instanceof Put) {
+        updateCellTimestamps(familyMaps[i].values(),byteNow);
+        noOfPuts++;
+      }
+ else {
+        prepareDeleteTimestamps(mutation,familyMaps[i],byteNow);
+        noOfDeletes++;
+      }
+      rewriteCellTags(familyMaps[i],mutation);
+    }
+    lock(this.updatesLock.readLock(),numReadyToWrite);
+    locked=true;
+    if (!replay && coprocessorHost != null) {
+      MiniBatchOperationInProgress<Mutation> miniBatchOp=new MiniBatchOperationInProgress<Mutation>(batchOp.getMutationsForCoprocs(),batchOp.retCodeDetails,batchOp.walEditsFromCoprocessors,firstIndex,lastIndexExclusive);
+      if (coprocessorHost.preBatchMutate(miniBatchOp)) {
+        return 0L;
+      }
+    }
+    Durability durability=Durability.USE_DEFAULT;
+    for (int i=firstIndex; i < lastIndexExclusive; i++) {
+      if (batchOp.retCodeDetails[i].getOperationStatusCode() != OperationStatusCode.NOT_RUN) {
+        continue;
+      }
+      Mutation m=batchOp.getMutation(i);
+      Durability tmpDur=getEffectiveDurability(m.getDurability());
+      if (tmpDur.ordinal() > durability.ordinal()) {
+        durability=tmpDur;
+      }
+      if (tmpDur == Durability.SKIP_WAL) {
+        recordMutationWithoutWal(m.getFamilyCellMap());
+        continue;
+      }
+      long nonceGroup=batchOp.getNonceGroup(i);
+      long nonce=batchOp.getNonce(i);
+      if (nonceGroup != currentNonceGroup || nonce != currentNonce) {
+        appendCurrentNonces(m,replay,walEdit,now,currentNonceGroup,currentNonce);
+        walEdit=new WALEdit(replay);
+        currentNonceGroup=nonceGroup;
+        currentNonce=nonce;
+      }
+      WALEdit fromCP=batchOp.walEditsFromCoprocessors[i];
+      if (fromCP != null) {
+        for (        Cell cell : fromCP.getCells()) {
+          walEdit.add(cell);
+        }
+      }
+      addFamilyMapToWALEdit(familyMaps[i],walEdit);
+    }
+    Mutation mutation=batchOp.getMutation(firstIndex);
+    WALKey walKey=null;
+    if (replay) {
+      walKey=new ReplayHLogKey(this.getRegionInfo().getEncodedNameAsBytes(),this.htableDescriptor.getTableName(),WALKey.NO_SEQUENCE_ID,now,mutation.getClusterIds(),currentNonceGroup,currentNonce,mvcc);
+      walKey.setOrigLogSeqNum(batchOp.getReplaySequenceId());
+    }
+    if (!walEdit.isEmpty()) {
+      if (!replay) {
+        walKey=new HLogKey(this.getRegionInfo().getEncodedNameAsBytes(),this.htableDescriptor.getTableName(),WALKey.NO_SEQUENCE_ID,now,mutation.getClusterIds(),currentNonceGroup,currentNonce,mvcc);
+      }
+      try {
+        long txid=this.wal.append(this.htableDescriptor,this.getRegionInfo(),walKey,walEdit,true);
+        if (txid != 0)         sync(txid,durability);
+        writeEntry=walKey.getWriteEntry();
+      }
+ catch (      IOException ioe) {
+        if (walKey != null)         mvcc.complete(walKey.getWriteEntry());
+        throw ioe;
+      }
+    }
+    if (walKey == null) {
+      writeEntry=mvcc.begin();
+    }
+    long addedSize=0;
+    for (int i=firstIndex; i < lastIndexExclusive; i++) {
+      if (batchOp.retCodeDetails[i].getOperationStatusCode() != OperationStatusCode.NOT_RUN) {
+        continue;
+      }
+      addedSize+=applyFamilyMapToMemstore(familyMaps[i],replay,replay ? batchOp.getReplaySequenceId() : writeEntry.getWriteNumber());
+    }
+    if (replay) {
+      this.mvcc.advanceTo(batchOp.getReplaySequenceId());
+    }
+ else     if (writeEntry != null) {
+      mvcc.completeAndWait(writeEntry);
+      writeEntry=null;
+    }
+    if (locked) {
+      this.updatesLock.readLock().unlock();
+      locked=false;
+    }
+    releaseRowLocks(acquiredRowLocks);
+    if (!replay && coprocessorHost != null) {
+      MiniBatchOperationInProgress<Mutation> miniBatchOp=new MiniBatchOperationInProgress<Mutation>(batchOp.getMutationsForCoprocs(),batchOp.retCodeDetails,batchOp.walEditsFromCoprocessors,firstIndex,lastIndexExclusive);
+      coprocessorHost.postBatchMutate(miniBatchOp);
+    }
+    for (int i=firstIndex; i < lastIndexExclusive; i++) {
+      if (batchOp.retCodeDetails[i] == OperationStatus.NOT_RUN) {
+        batchOp.retCodeDetails[i]=OperationStatus.SUCCESS;
+      }
+    }
+    if (!replay && coprocessorHost != null) {
+      for (int i=firstIndex; i < lastIndexExclusive; i++) {
+        if (batchOp.retCodeDetails[i].getOperationStatusCode() != OperationStatusCode.SUCCESS) {
+          continue;
+        }
+        Mutation m=batchOp.getMutation(i);
+        if (m instanceof Put) {
+          coprocessorHost.postPut((Put)m,walEdit,m.getDurability());
+        }
+ else {
+          coprocessorHost.postDelete((Delete)m,walEdit,m.getDurability());
+        }
+      }
+    }
+    success=true;
+    return addedSize;
+  }
+  finally {
+    if (writeEntry != null)     mvcc.complete(writeEntry);
+    if (locked) {
+      this.updatesLock.readLock().unlock();
+    }
+    releaseRowLocks(acquiredRowLocks);
+    if (noOfPuts > 0) {
+      if (this.metricsRegion != null) {
+        this.metricsRegion.updatePut();
+      }
+    }
+    if (noOfDeletes > 0) {
+      if (this.metricsRegion != null) {
+        this.metricsRegion.updateDelete();
+      }
+    }
+    if (!success) {
+      for (int i=firstIndex; i < lastIndexExclusive; i++) {
+        if (batchOp.retCodeDetails[i].getOperationStatusCode() == OperationStatusCode.NOT_RUN) {
+          batchOp.retCodeDetails[i]=OperationStatus.FAILURE;
+        }
+      }
+    }
+    if (coprocessorHost != null && !batchOp.isInReplay()) {
+      MiniBatchOperationInProgress<Mutation> miniBatchOp=new MiniBatchOperationInProgress<Mutation>(batchOp.getMutationsForCoprocs(),batchOp.retCodeDetails,batchOp.walEditsFromCoprocessors,firstIndex,lastIndexExclusive);
+      coprocessorHost.postBatchMutateIndispensably(miniBatchOp,success);
+    }
+    batchOp.nextIndexToProcess=lastIndexExclusive;
+  }
+}

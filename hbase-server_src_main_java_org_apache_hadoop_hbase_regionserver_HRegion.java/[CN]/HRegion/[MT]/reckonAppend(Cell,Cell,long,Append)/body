@@ -1,0 +1,30 @@
+{
+  List<Tag> tags=TagUtil.carryForwardTags(delta);
+  long ts=now;
+  Cell newCell=null;
+  byte[] row=mutation.getRow();
+  if (currentValue != null) {
+    tags=TagUtil.carryForwardTags(tags,currentValue);
+    ts=Math.max(now,currentValue.getTimestamp());
+    tags=TagUtil.carryForwardTTLTag(tags,mutation.getTTL());
+    byte[] tagBytes=TagUtil.fromList(tags);
+    newCell=new KeyValue(row.length,delta.getFamilyLength(),delta.getQualifierLength(),ts,KeyValue.Type.Put,delta.getValueLength() + currentValue.getValueLength(),tagBytes == null ? 0 : tagBytes.length);
+    System.arraycopy(row,0,newCell.getRowArray(),newCell.getRowOffset(),row.length);
+    System.arraycopy(delta.getFamilyArray(),delta.getFamilyOffset(),newCell.getFamilyArray(),newCell.getFamilyOffset(),delta.getFamilyLength());
+    System.arraycopy(delta.getQualifierArray(),delta.getQualifierOffset(),newCell.getQualifierArray(),newCell.getQualifierOffset(),delta.getQualifierLength());
+    CellUtil.copyValueTo(currentValue,newCell.getValueArray(),newCell.getValueOffset());
+    System.arraycopy(delta.getValueArray(),delta.getValueOffset(),newCell.getValueArray(),newCell.getValueOffset() + currentValue.getValueLength(),delta.getValueLength());
+    if (tagBytes != null) {
+      System.arraycopy(tagBytes,0,newCell.getTagsArray(),newCell.getTagsOffset(),tagBytes.length);
+    }
+  }
+ else {
+    CellUtil.updateLatestStamp(delta,now);
+    newCell=delta;
+    tags=TagUtil.carryForwardTTLTag(tags,mutation.getTTL());
+    if (tags != null) {
+      newCell=new TagRewriteCell(delta,TagUtil.fromList(tags));
+    }
+  }
+  return newCell;
+}

@@ -1,0 +1,57 @@
+{
+  checkReadOnly();
+  checkResources();
+  checkRow(mutation.getRow(),op.toString());
+  checkFamilies(mutation.getFamilyCellMap().keySet());
+  this.writeRequestsCount.increment();
+  WriteEntry writeEntry=null;
+  startRegionOperation(op);
+  long accumulatedResultSize=0;
+  List<Cell> results=returnResults ? new ArrayList<Cell>(mutation.size()) : null;
+  RowLock rowLock=getRowLock(mutation.getRow());
+  try {
+    lock(this.updatesLock.readLock());
+    try {
+      Result cpResult=doCoprocessorPreCall(op,mutation);
+      if (cpResult != null)       return cpResult;
+      Durability effectiveDurability=getEffectiveDurability(mutation.getDurability());
+      Map<Store,List<Cell>> forMemStore=new HashMap<Store,List<Cell>>(mutation.getFamilyCellMap().size());
+      WALEdit walEdit=reckonDeltas(op,mutation,effectiveDurability,forMemStore,results);
+      if (walEdit != null && !walEdit.isEmpty()) {
+        writeEntry=doWALAppend(walEdit,durability,nonceGroup,nonce);
+      }
+ else {
+        recordMutationWithoutWal(mutation.getFamilyCellMap());
+        writeEntry=mvcc.begin();
+      }
+      long sequenceId=writeEntry.getWriteNumber();
+      for (      Map.Entry<Store,List<Cell>> e : forMemStore.entrySet()) {
+        accumulatedResultSize+=applyToMemstore(e.getKey(),e.getValue(),true,false,sequenceId);
+      }
+      mvcc.completeAndWait(writeEntry);
+      writeEntry=null;
+    }
+  finally {
+      this.updatesLock.readLock().unlock();
+    }
+    return results != null ? Result.create(results) : null;
+  }
+  finally {
+    if (writeEntry != null)     mvcc.complete(writeEntry);
+    rowLock.release();
+    if (isFlushSize(this.addAndGetGlobalMemstoreSize(accumulatedResultSize)))     requestFlush();
+    closeRegionOperation(op);
+    if (this.metricsRegion != null) {
+switch (op) {
+case INCREMENT:
+        this.metricsRegion.updateIncrement();
+      break;
+case APPEND:
+    this.metricsRegion.updateAppend();
+  break;
+default :
+break;
+}
+}
+}
+}

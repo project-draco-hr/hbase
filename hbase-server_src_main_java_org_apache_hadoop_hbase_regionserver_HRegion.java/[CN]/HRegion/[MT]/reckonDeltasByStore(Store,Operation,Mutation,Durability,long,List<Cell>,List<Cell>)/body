@@ -1,0 +1,43 @@
+{
+  byte[] columnFamily=store.getFamily().getName();
+  List<Cell> toApply=new ArrayList<Cell>(deltas.size());
+  List<Cell> currentValues=get(mutation,store,deltas,null,op == Operation.INCREMENT ? ((Increment)mutation).getTimeRange() : null);
+  int currentValuesIndex=0;
+  for (int i=0; i < deltas.size(); i++) {
+    Cell delta=deltas.get(i);
+    Cell currentValue=null;
+    if (currentValuesIndex < currentValues.size() && CellUtil.matchingQualifier(currentValues.get(currentValuesIndex),delta)) {
+      currentValue=currentValues.get(currentValuesIndex);
+      if (i < (deltas.size() - 1) && !CellUtil.matchingQualifier(delta,deltas.get(i + 1))) {
+        currentValuesIndex++;
+      }
+    }
+    Cell newCell=null;
+    MutationType mutationType=null;
+    boolean apply=true;
+switch (op) {
+case INCREMENT:
+      mutationType=MutationType.INCREMENT;
+    long deltaAmount=getLongValue(delta);
+  apply=deltaAmount != 0;
+newCell=reckonIncrement(delta,deltaAmount,currentValue,columnFamily,now,(Increment)mutation);
+break;
+case APPEND:
+mutationType=MutationType.APPEND;
+newCell=reckonAppend(delta,currentValue,now,(Append)mutation);
+break;
+default :
+throw new UnsupportedOperationException(op.toString());
+}
+if (coprocessorHost != null) {
+newCell=coprocessorHost.postMutationBeforeWAL(mutationType,mutation,currentValue,newCell);
+}
+if (apply) {
+toApply.add(newCell);
+}
+if (results != null) {
+results.add(newCell);
+}
+}
+return toApply;
+}
