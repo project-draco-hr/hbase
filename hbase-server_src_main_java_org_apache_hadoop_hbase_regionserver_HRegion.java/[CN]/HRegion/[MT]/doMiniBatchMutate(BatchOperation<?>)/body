@@ -6,7 +6,7 @@
   Set<byte[]> deletesCfSet=null;
   long currentNonceGroup=HConstants.NO_NONCE;
   long currentNonce=HConstants.NO_NONCE;
-  WALEdit walEdit=new WALEdit(replay);
+  WALEdit walEdit=null;
   boolean locked=false;
   Map<byte[],List<Cell>>[] familyMaps=new Map[batchOp.operations.length];
   int firstIndex=batchOp.nextIndexToProcess;
@@ -15,6 +15,7 @@
   int noOfPuts=0;
   int noOfDeletes=0;
   WriteEntry writeEntry=null;
+  int cellCount=0;
   List<RowLock> acquiredRowLocks=Lists.newArrayListWithCapacity(batchOp.operations.length);
   try {
     int numReadyToWrite=0;
@@ -40,6 +41,11 @@
       }
       lastIndexExclusive++;
       numReadyToWrite++;
+      if (replay) {
+        for (        List<Cell> cells : mutation.getFamilyCellMap().values()) {
+          cellCount+=cells.size();
+        }
+      }
       if (mutation instanceof Put) {
         if (putsCfSet == null) {
           putsCfSet=mutation.getFamilyCellMap().keySet();
@@ -76,7 +82,15 @@
         noOfDeletes++;
       }
       rewriteCellTags(familyMaps[i],mutation);
+      WALEdit fromCP=batchOp.walEditsFromCoprocessors[i];
+      if (fromCP != null) {
+        cellCount+=fromCP.size();
+      }
+      for (      List<Cell> cells : familyMaps[i].values()) {
+        cellCount+=cells.size();
+      }
     }
+    walEdit=new WALEdit(cellCount,replay);
     lock(this.updatesLock.readLock(),numReadyToWrite);
     locked=true;
     if (!replay && coprocessorHost != null) {
@@ -103,7 +117,7 @@
       long nonce=batchOp.getNonce(i);
       if (nonceGroup != currentNonceGroup || nonce != currentNonce) {
         appendCurrentNonces(m,replay,walEdit,now,currentNonceGroup,currentNonce);
-        walEdit=new WALEdit(replay);
+        walEdit=new WALEdit(cellCount,replay);
         currentNonceGroup=nonceGroup;
         currentNonce=nonce;
       }
