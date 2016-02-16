@@ -1,23 +1,23 @@
 {
   LOG.info("Starting testCleanMergeReference");
-  admin.enableCatalogJanitor(false);
+  ADMIN.enableCatalogJanitor(false);
   try {
     final TableName tableName=TableName.valueOf("testCleanMergeReference");
-    Table table=createTableAndLoadData(master,tableName);
-    mergeRegionsAndVerifyRegionNum(master,tableName,0,1,INITIAL_REGION_NUM - 1);
+    Table table=createTableAndLoadData(MASTER,tableName);
+    mergeRegionsAndVerifyRegionNum(MASTER,tableName,0,1,INITIAL_REGION_NUM - 1);
     verifyRowCount(table,ROWSIZE);
     table.close();
-    List<Pair<HRegionInfo,ServerName>> tableRegions=MetaTableAccessor.getTableRegionsAndLocations(master.getConnection(),tableName);
+    List<Pair<HRegionInfo,ServerName>> tableRegions=MetaTableAccessor.getTableRegionsAndLocations(MASTER.getConnection(),tableName);
     HRegionInfo mergedRegionInfo=tableRegions.get(0).getFirst();
-    HTableDescriptor tableDescriptor=master.getTableDescriptors().get(tableName);
-    Result mergedRegionResult=MetaTableAccessor.getRegionResult(master.getConnection(),mergedRegionInfo.getRegionName());
+    HTableDescriptor tableDescriptor=MASTER.getTableDescriptors().get(tableName);
+    Result mergedRegionResult=MetaTableAccessor.getRegionResult(MASTER.getConnection(),mergedRegionInfo.getRegionName());
     assertTrue(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,HConstants.MERGEA_QUALIFIER) != null);
     assertTrue(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,HConstants.MERGEB_QUALIFIER) != null);
     PairOfSameType<HRegionInfo> p=MetaTableAccessor.getMergeRegions(mergedRegionResult);
     HRegionInfo regionA=p.getFirst();
     HRegionInfo regionB=p.getSecond();
-    FileSystem fs=master.getMasterFileSystem().getFileSystem();
-    Path rootDir=master.getMasterFileSystem().getRootDir();
+    FileSystem fs=MASTER.getMasterFileSystem().getFileSystem();
+    Path rootDir=MASTER.getMasterFileSystem().getRootDir();
     Path tabledir=FSUtils.getTableDir(rootDir,mergedRegionInfo.getTable());
     Path regionAdir=new Path(tabledir,regionA.getEncodedName());
     Path regionBdir=new Path(tabledir,regionB.getEncodedName());
@@ -29,7 +29,7 @@
     for (    HColumnDescriptor colFamily : columnFamilies) {
       count+=hrfs.getStoreFiles(colFamily.getName()).size();
     }
-    admin.compactRegion(mergedRegionInfo.getRegionName());
+    ADMIN.compactRegion(mergedRegionInfo.getRegionName());
     long timeout=System.currentTimeMillis() + waitTime;
     int newcount=0;
     while (System.currentTimeMillis() < timeout) {
@@ -60,18 +60,18 @@
     }
     int cleaned=0;
     while (cleaned == 0) {
-      cleaned=admin.runCatalogScan();
+      cleaned=ADMIN.runCatalogScan();
       LOG.debug("catalog janitor returned " + cleaned);
       Thread.sleep(50);
     }
     assertFalse(regionAdir.toString(),fs.exists(regionAdir));
     assertFalse(regionBdir.toString(),fs.exists(regionBdir));
     assertTrue(cleaned > 0);
-    mergedRegionResult=MetaTableAccessor.getRegionResult(master.getConnection(),mergedRegionInfo.getRegionName());
+    mergedRegionResult=MetaTableAccessor.getRegionResult(TEST_UTIL.getConnection(),mergedRegionInfo.getRegionName());
     assertFalse(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,HConstants.MERGEA_QUALIFIER) != null);
     assertFalse(mergedRegionResult.getValue(HConstants.CATALOG_FAMILY,HConstants.MERGEB_QUALIFIER) != null);
   }
   finally {
-    admin.enableCatalogJanitor(true);
+    ADMIN.enableCatalogJanitor(true);
   }
 }
