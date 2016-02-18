@@ -1,0 +1,28 @@
+{
+  long dstMinLogSeqNum=-1L;
+  try (WAL.Reader reader=walFactory.createReader(fs,dst)){
+    WAL.Entry entry=reader.next();
+    if (entry != null) {
+      dstMinLogSeqNum=entry.getKey().getSequenceId();
+    }
+  }
+ catch (  EOFException e) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Got EOF when reading first WAL entry from " + dst + ", an empty or broken WAL file?",e);
+    }
+  }
+  if (wap.minLogSeqNum < dstMinLogSeqNum) {
+    LOG.warn("Found existing old edits file. It could be the result of a previous failed" + " split attempt or we have duplicated wal entries. Deleting " + dst + ", length="+ fs.getFileStatus(dst).getLen());
+    if (!fs.delete(dst,false)) {
+      LOG.warn("Failed deleting of old " + dst);
+      throw new IOException("Failed deleting of old " + dst);
+    }
+  }
+ else {
+    LOG.warn("Found existing old edits file and we have less entries. Deleting " + wap.p + ", length="+ fs.getFileStatus(wap.p).getLen());
+    if (!fs.delete(wap.p,false)) {
+      LOG.warn("Failed deleting of " + wap.p);
+      throw new IOException("Failed deleting of " + wap.p);
+    }
+  }
+}

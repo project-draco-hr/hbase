@@ -1,0 +1,33 @@
+{
+  final TableName tableName=TableName.valueOf("testReplayEditsWrittenIntoWAL");
+  final MultiVersionConcurrencyControl mvcc=new MultiVersionConcurrencyControl();
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(tableName);
+  final Path basedir=FSUtils.getTableDir(hbaseRootDir,tableName);
+  deleteDir(basedir);
+  final HTableDescriptor htd=createBasic1FamilyHTD(tableName);
+  HRegion region=HBaseTestingUtility.createRegionAndWAL(hri,hbaseRootDir,this.conf,htd);
+  HBaseTestingUtility.closeRegionAndWAL(region);
+  final byte[] family=htd.getColumnFamilies()[0].getName();
+  final byte[] rowName=tableName.getName();
+  FSWALEntry entry1=createFSWALEntry(htd,hri,1L,rowName,family,ee,mvcc,1);
+  FSWALEntry entry2=createFSWALEntry(htd,hri,2L,rowName,family,ee,mvcc,2);
+  Path largeFile=new Path(logDir,"wal-1");
+  Path smallFile=new Path(logDir,"wal-2");
+  writerWALFile(largeFile,Arrays.asList(entry1,entry2));
+  writerWALFile(smallFile,Arrays.asList(entry2));
+  FileStatus first, second;
+  if (largeFirst) {
+    first=fs.getFileStatus(largeFile);
+    second=fs.getFileStatus(smallFile);
+  }
+ else {
+    first=fs.getFileStatus(smallFile);
+    second=fs.getFileStatus(largeFile);
+  }
+  WALSplitter.splitLogFile(hbaseRootDir,first,fs,conf,null,null,null,RecoveryMode.LOG_SPLITTING,wals);
+  WALSplitter.splitLogFile(hbaseRootDir,second,fs,conf,null,null,null,RecoveryMode.LOG_SPLITTING,wals);
+  WAL wal=createWAL(this.conf);
+  region=HRegion.openHRegion(conf,this.fs,hbaseRootDir,hri,htd,wal);
+  assertTrue(region.getOpenSeqNum() > mvcc.getWritePoint());
+  assertEquals(2,region.get(new Get(rowName)).size());
+}
