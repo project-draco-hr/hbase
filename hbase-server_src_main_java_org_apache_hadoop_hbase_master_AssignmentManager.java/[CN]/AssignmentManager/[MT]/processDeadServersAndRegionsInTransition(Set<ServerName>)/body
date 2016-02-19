@@ -4,27 +4,35 @@
     if (LOG.isDebugEnabled()) {
       LOG.debug("Found dead servers out on cluster " + serverManager.getDeadServers());
     }
-  }
- else {
-    Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
-    for (    Map.Entry<HRegionInfo,ServerName> en : regionStates.getRegionAssignments().entrySet()) {
-      HRegionInfo hri=en.getKey();
-      if (!hri.isMetaTable() && onlineServers.contains(en.getValue())) {
-        LOG.debug("Found " + hri + " out on cluster");
+    failover=false;
+    for (    ServerName serverName : serverManager.getDeadServers().copyServerNames()) {
+      if (regionStates.getRegionAssignments().values().contains(serverName)) {
+        LOG.debug("Found regions on dead server: " + serverName);
         failover=true;
         break;
       }
     }
-    if (!failover) {
-      Map<String,RegionState> regionsInTransition=regionStates.getRegionsInTransition();
-      if (!regionsInTransition.isEmpty()) {
-        for (        RegionState regionState : regionsInTransition.values()) {
-          ServerName serverName=regionState.getServerName();
-          if (!regionState.getRegion().isMetaRegion() && serverName != null && onlineServers.contains(serverName)) {
-            LOG.debug("Found " + regionState + " in RITs");
-            failover=true;
-            break;
-          }
+  }
+  Set<ServerName> onlineServers=serverManager.getOnlineServers().keySet();
+  if (!failover) {
+    for (    Map.Entry<HRegionInfo,ServerName> en : regionStates.getRegionAssignments().entrySet()) {
+      HRegionInfo hri=en.getKey();
+      if (!hri.isMetaTable() && onlineServers.contains(en.getValue())) {
+        LOG.debug("Found region " + hri + " out on cluster");
+        failover=true;
+        break;
+      }
+    }
+  }
+  if (!failover) {
+    Map<String,RegionState> regionsInTransition=regionStates.getRegionsInTransition();
+    if (!regionsInTransition.isEmpty()) {
+      for (      RegionState regionState : regionsInTransition.values()) {
+        ServerName serverName=regionState.getServerName();
+        if (!regionState.getRegion().isMetaRegion() && serverName != null && onlineServers.contains(serverName)) {
+          LOG.debug("Found " + regionState + " for region "+ regionState.getRegion().getRegionNameAsString()+ " for server "+ serverName+ "in RITs");
+          failover=true;
+          break;
         }
       }
     }
@@ -38,7 +46,7 @@
       for (      ServerName serverName : queuedDeadServers) {
         Path logDir=new Path(rootdir,DefaultWALProvider.getWALDirectoryName(serverName.toString()));
         Path splitDir=logDir.suffix(DefaultWALProvider.SPLITTING_EXT);
-        if (fs.exists(logDir) || fs.exists(splitDir)) {
+        if (checkWals(fs,logDir) || checkWals(fs,splitDir)) {
           LOG.debug("Found queued dead server " + serverName);
           failover=true;
           break;
@@ -69,8 +77,11 @@
   }
   failoverCleanupDone();
   if (!failover) {
-    LOG.info("Clean cluster startup. Assigning user regions");
+    LOG.info("Clean cluster startup. Don't reassign user regions");
     assignAllUserRegions(allRegions);
+  }
+ else {
+    LOG.info("Failover! Reassign user regions");
   }
   for (  HRegionInfo h : replicasToClose) {
     unassign(h);
