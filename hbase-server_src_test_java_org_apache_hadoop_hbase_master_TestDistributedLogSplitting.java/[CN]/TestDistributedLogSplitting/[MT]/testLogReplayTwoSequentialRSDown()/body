@@ -1,0 +1,60 @@
+{
+  LOG.info("testRecoveredEditsReplayTwoSequentialRSDown");
+  conf.setBoolean(HConstants.DISTRIBUTED_LOG_REPLAY_KEY,true);
+  startCluster(NUM_RS);
+  final int NUM_REGIONS_TO_CREATE=40;
+  final int NUM_LOG_LINES=1000;
+  master.balanceSwitch(false);
+  List<RegionServerThread> rsts=cluster.getLiveRegionServerThreads();
+  final ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"table-creation",null);
+  Table ht=installTable(zkw,"table","family",NUM_REGIONS_TO_CREATE);
+  try {
+    List<HRegionInfo> regions=null;
+    HRegionServer hrs1=findRSToKill(false,"table");
+    regions=ProtobufUtil.getOnlineRegions(hrs1.getRSRpcServices());
+    makeWAL(hrs1,regions,"table","family",NUM_LOG_LINES,100);
+    LOG.info("Aborting region server: " + hrs1.getServerName());
+    hrs1.abort("testing");
+    TEST_UTIL.waitFor(120000,200,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return (cluster.getLiveRegionServerThreads().size() <= (NUM_RS - 1));
+      }
+    }
+);
+    TEST_UTIL.waitFor(180000,200,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return (HBaseTestingUtility.getAllOnlineRegions(cluster).size() >= (NUM_REGIONS_TO_CREATE + 1));
+      }
+    }
+);
+    Thread.sleep(300);
+    rsts=cluster.getLiveRegionServerThreads();
+    HRegionServer hrs2=rsts.get(0).getRegionServer();
+    LOG.info("Aborting one more region server: " + hrs2.getServerName());
+    hrs2.abort("testing");
+    TEST_UTIL.waitFor(120000,200,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return (cluster.getLiveRegionServerThreads().size() <= (NUM_RS - 2));
+      }
+    }
+);
+    TEST_UTIL.waitFor(180000,200,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return (HBaseTestingUtility.getAllOnlineRegions(cluster).size() >= (NUM_REGIONS_TO_CREATE + 1));
+      }
+    }
+);
+    TEST_UTIL.waitFor(180000,200,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        List<String> recoveringRegions=zkw.getRecoverableZooKeeper().getChildren(zkw.recoveringRegionsZNode,false);
+        return (recoveringRegions != null && recoveringRegions.size() == 0);
+      }
+    }
+);
+    assertEquals(NUM_LOG_LINES,TEST_UTIL.countRows(ht));
+  }
+  finally {
+    if (ht != null)     ht.close();
+    if (zkw != null)     zkw.close();
+  }
+}
