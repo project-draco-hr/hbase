@@ -1,0 +1,37 @@
+{
+  this.path=filePath;
+  this.size=capacity;
+  long fileSize=0;
+  try {
+    raf=new RandomAccessFile(filePath,"rw");
+    fileSize=roundUp(capacity,ByteBufferArray.DEFAULT_BUFFER_SIZE);
+    raf.setLength(fileSize);
+    fileChannel=raf.getChannel();
+    LOG.info("Allocating " + StringUtils.byteDesc(fileSize) + ", on the path:"+ filePath);
+  }
+ catch (  java.io.FileNotFoundException fex) {
+    LOG.error("Can't create bucket cache file " + filePath,fex);
+    throw fex;
+  }
+catch (  IOException ioex) {
+    LOG.error("Can't extend bucket cache file; insufficient space for " + StringUtils.byteDesc(fileSize),ioex);
+    shutdown();
+    throw ioex;
+  }
+  ByteBufferAllocator allocator=new ByteBufferAllocator(){
+    int pos=0;
+    @Override public ByteBuffer allocate(    long size,    boolean directByteBuffer) throws IOException {
+      ByteBuffer buffer=null;
+      if (directByteBuffer) {
+        buffer=fileChannel.map(java.nio.channels.FileChannel.MapMode.READ_WRITE,pos * size,size);
+      }
+ else {
+        throw new IllegalArgumentException("Only Direct Bytebuffers allowed with FileMMap engine");
+      }
+      pos++;
+      return buffer;
+    }
+  }
+;
+  bufferArray=new ByteBufferArray(fileSize,true,allocator);
+}
