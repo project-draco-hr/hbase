@@ -1,0 +1,40 @@
+{
+  channel.pipeline().addLast(new IdleStateHandler(timeoutMs,0,0,TimeUnit.MILLISECONDS),new ProtobufVarint32FrameDecoder(),new ProtobufDecoder(BlockOpResponseProto.getDefaultInstance()),new SimpleChannelInboundHandler<BlockOpResponseProto>(){
+    @Override protected void channelRead0(    ChannelHandlerContext ctx,    BlockOpResponseProto resp) throws Exception {
+      Status pipelineStatus=resp.getStatus();
+      if (PipelineAck.isRestartOOBStatus(pipelineStatus)) {
+        throw new IOException("datanode " + dnInfo + " is restarting");
+      }
+      String logInfo="ack with firstBadLink as " + resp.getFirstBadLink();
+      if (resp.getStatus() != Status.SUCCESS) {
+        if (resp.getStatus() == Status.ERROR_ACCESS_TOKEN) {
+          throw new InvalidBlockTokenException("Got access token error" + ", status message " + resp.getMessage() + ", "+ logInfo);
+        }
+ else {
+          throw new IOException("Got error" + ", status=" + resp.getStatus().name() + ", status message "+ resp.getMessage()+ ", "+ logInfo);
+        }
+      }
+      ChannelPipeline p=ctx.pipeline();
+      while (p.first() != null) {
+        p.removeFirst();
+      }
+      ctx.channel().config().setAutoRead(false);
+      promise.trySuccess(ctx.channel());
+    }
+    @Override public void channelInactive(    ChannelHandlerContext ctx) throws Exception {
+      promise.tryFailure(new IOException("connection to " + dnInfo + " is closed"));
+    }
+    @Override public void userEventTriggered(    ChannelHandlerContext ctx,    Object evt) throws Exception {
+      if (evt instanceof IdleStateEvent && ((IdleStateEvent)evt).state() == IdleState.READER_IDLE) {
+        promise.tryFailure(new IOException("Timeout(" + timeoutMs + "ms) waiting for response"));
+      }
+ else {
+        super.userEventTriggered(ctx,evt);
+      }
+    }
+    @Override public void exceptionCaught(    ChannelHandlerContext ctx,    Throwable cause) throws Exception {
+      promise.tryFailure(cause);
+    }
+  }
+);
+}

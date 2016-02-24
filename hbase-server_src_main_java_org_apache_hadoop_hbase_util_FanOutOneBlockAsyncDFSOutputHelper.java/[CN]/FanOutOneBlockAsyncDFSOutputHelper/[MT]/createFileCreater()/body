@@ -1,0 +1,51 @@
+{
+  for (  Method method : ClientProtocol.class.getMethods()) {
+    if (method.getName().equals("create")) {
+      final Method createMethod=method;
+      Class<?>[] paramTypes=createMethod.getParameterTypes();
+      if (paramTypes[paramTypes.length - 1] == long.class) {
+        return new FileCreater(){
+          @Override public HdfsFileStatus create(          ClientProtocol namenode,          String src,          FsPermission masked,          String clientName,          EnumSetWritable<CreateFlag> flag,          boolean createParent,          short replication,          long blockSize) throws IOException {
+            try {
+              return (HdfsFileStatus)createMethod.invoke(namenode,src,masked,clientName,flag,createParent,replication,blockSize);
+            }
+ catch (            IllegalAccessException e) {
+              throw new RuntimeException(e);
+            }
+catch (            InvocationTargetException e) {
+              Throwables.propagateIfPossible(e.getTargetException(),IOException.class);
+              throw new RuntimeException(e);
+            }
+          }
+        }
+;
+      }
+ else {
+        try {
+          Class<?> cryptoProtocolVersionClass=Class.forName("org.apache.hadoop.crypto.CryptoProtocolVersion");
+          Method supportedMethod=cryptoProtocolVersionClass.getMethod("supported");
+          final Object supported=supportedMethod.invoke(null);
+          return new FileCreater(){
+            @Override public HdfsFileStatus create(            ClientProtocol namenode,            String src,            FsPermission masked,            String clientName,            EnumSetWritable<CreateFlag> flag,            boolean createParent,            short replication,            long blockSize) throws IOException {
+              try {
+                return (HdfsFileStatus)createMethod.invoke(namenode,src,masked,clientName,flag,createParent,replication,blockSize,supported);
+              }
+ catch (              IllegalAccessException e) {
+                throw new RuntimeException(e);
+              }
+catch (              InvocationTargetException e) {
+                Throwables.propagateIfPossible(e.getTargetException(),IOException.class);
+                throw new RuntimeException(e);
+              }
+            }
+          }
+;
+        }
+ catch (        ClassNotFoundException|NoSuchMethodException|IllegalAccessException|InvocationTargetException e) {
+          throw new Error(e);
+        }
+      }
+    }
+  }
+  throw new Error("No create method found for " + ClientProtocol.class.getName());
+}

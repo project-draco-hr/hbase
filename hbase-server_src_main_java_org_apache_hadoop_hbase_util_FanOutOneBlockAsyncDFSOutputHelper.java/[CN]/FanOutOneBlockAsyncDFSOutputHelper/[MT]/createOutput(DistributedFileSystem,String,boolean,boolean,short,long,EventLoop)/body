@@ -1,0 +1,30 @@
+{
+  Configuration conf=dfs.getConf();
+  FSUtils fsUtils=FSUtils.getInstance(dfs,conf);
+  DFSClient client=dfs.getClient();
+  String clientName=client.getClientName();
+  ClientProtocol namenode=client.getNamenode();
+  HdfsFileStatus stat=FILE_CREATER.create(namenode,src,FsPermission.getFileDefault().applyUMask(FsPermission.getUMask(conf)),clientName,new EnumSetWritable<CreateFlag>(overwrite ? EnumSet.of(CREATE,OVERWRITE) : EnumSet.of(CREATE)),createParent,replication,blockSize);
+  beginFileLease(client,src,stat.getFileId());
+  boolean succ=false;
+  LocatedBlock locatedBlock=null;
+  List<Channel> datanodeList=new ArrayList<>();
+  try {
+    DataChecksum summer=createChecksum(client);
+    locatedBlock=namenode.addBlock(src,client.getClientName(),null,null,stat.getFileId(),null);
+    for (    Future<Channel> future : connectToDataNodes(conf,clientName,locatedBlock,0L,0L,PIPELINE_SETUP_CREATE,summer,eventLoop)) {
+      datanodeList.add(future.syncUninterruptibly().getNow());
+    }
+    succ=true;
+    return new FanOutOneBlockAsyncDFSOutput(conf,fsUtils,dfs,client,namenode,clientName,src,stat.getFileId(),locatedBlock,eventLoop,datanodeList,summer,ALLOC);
+  }
+  finally {
+    if (!succ) {
+      for (      Channel c : datanodeList) {
+        c.close();
+      }
+      endFileLease(client,src,stat.getFileId());
+      fsUtils.recoverFileLease(dfs,new Path(src),conf,new CancelOnClose(client));
+    }
+  }
+}

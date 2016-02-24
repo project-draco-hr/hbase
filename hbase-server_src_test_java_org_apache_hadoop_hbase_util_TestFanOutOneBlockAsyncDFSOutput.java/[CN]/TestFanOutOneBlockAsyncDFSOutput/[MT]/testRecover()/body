@@ -1,0 +1,39 @@
+{
+  Path f=new Path("/" + name.getMethodName());
+  EventLoop eventLoop=EVENT_LOOP_GROUP.next();
+  final FanOutOneBlockAsyncDFSOutput out=FanOutOneBlockAsyncDFSOutputHelper.createOutput(FS,f,true,false,(short)3,FS.getDefaultBlockSize(),eventLoop);
+  final byte[] b=new byte[10];
+  ThreadLocalRandom.current().nextBytes(b);
+  final FanOutOneBlockAsyncDFSOutputFlushHandler handler=new FanOutOneBlockAsyncDFSOutputFlushHandler();
+  eventLoop.execute(new Runnable(){
+    @Override public void run(){
+      out.write(b,0,b.length);
+      out.flush(null,handler,false);
+    }
+  }
+);
+  handler.get();
+  TEST_UTIL.getDFSCluster().restartDataNode(0);
+  handler.reset();
+  eventLoop.execute(new Runnable(){
+    @Override public void run(){
+      out.write(b,0,b.length);
+      out.flush(null,handler,false);
+    }
+  }
+);
+  try {
+    handler.get();
+    fail("flush should fail");
+  }
+ catch (  ExecutionException e) {
+    e.printStackTrace();
+  }
+  out.recoverAndClose(null);
+  assertEquals(b.length,FS.getFileStatus(f).getLen());
+  byte[] actual=new byte[b.length];
+  try (FSDataInputStream in=FS.open(f)){
+    in.readFully(actual);
+  }
+   assertArrayEquals(b,actual);
+}

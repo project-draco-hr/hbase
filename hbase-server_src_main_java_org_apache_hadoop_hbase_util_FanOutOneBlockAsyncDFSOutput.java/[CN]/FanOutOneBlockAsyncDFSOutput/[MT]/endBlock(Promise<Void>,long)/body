@@ -1,0 +1,23 @@
+{
+  if (state != State.STREAMING) {
+    promise.tryFailure(new IOException("stream already broken"));
+    return;
+  }
+  if (!waitingAckQueue.isEmpty()) {
+    promise.tryFailure(new IllegalStateException("should call flush first before calling close"));
+    return;
+  }
+  state=State.CLOSING;
+  PacketHeader header=new PacketHeader(4,size,nextPacketSeqno,true,0,false);
+  buf.release();
+  buf=null;
+  int headerLen=header.getSerializedSize();
+  ByteBuf headerBuf=alloc.buffer(headerLen);
+  header.putInBuffer(headerBuf.nioBuffer(0,headerLen));
+  headerBuf.writerIndex(headerLen);
+  waitingAckQueue.add(new Callback(promise,size,datanodeList));
+  for (  Channel ch : datanodeList) {
+    ch.writeAndFlush(headerBuf.duplicate().retain());
+  }
+  headerBuf.release();
+}

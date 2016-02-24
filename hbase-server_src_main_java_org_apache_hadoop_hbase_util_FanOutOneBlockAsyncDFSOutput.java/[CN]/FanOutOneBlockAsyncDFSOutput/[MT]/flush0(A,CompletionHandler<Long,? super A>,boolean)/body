@@ -1,0 +1,58 @@
+{
+  if (state != State.STREAMING) {
+    handler.failed(new IOException("stream already broken"),attachment);
+    return;
+  }
+  int dataLen=buf.readableBytes();
+  final long ackedLength=nextPacketOffsetInBlock + dataLen;
+  if (ackedLength == locatedBlock.getBlock().getNumBytes()) {
+    handler.completed(locatedBlock.getBlock().getNumBytes(),attachment);
+    return;
+  }
+  Promise<Void> promise=eventLoop.newPromise();
+  promise.addListener(new FutureListener<Void>(){
+    @Override public void operationComplete(    Future<Void> future) throws Exception {
+      if (future.isSuccess()) {
+        locatedBlock.getBlock().setNumBytes(ackedLength);
+        handler.completed(ackedLength,attachment);
+      }
+ else {
+        handler.failed(future.cause(),attachment);
+      }
+    }
+  }
+);
+  Callback c=waitingAckQueue.peekLast();
+  if (c != null && ackedLength == c.ackedLength) {
+    waitingAckQueue.addLast(new Callback(promise,ackedLength,Collections.<Channel>emptyList()));
+    return;
+  }
+  int chunkLen=summer.getBytesPerChecksum();
+  int trailingPartialChunkLen=dataLen % chunkLen;
+  int numChecks=dataLen / chunkLen + (trailingPartialChunkLen != 0 ? 1 : 0);
+  int checksumLen=numChecks * summer.getChecksumSize();
+  ByteBuf checksumBuf=alloc.directBuffer(checksumLen);
+  summer.calculateChunkedSums(buf.nioBuffer(),checksumBuf.nioBuffer(0,checksumLen));
+  checksumBuf.writerIndex(checksumLen);
+  PacketHeader header=new PacketHeader(4 + checksumLen + dataLen,nextPacketOffsetInBlock,nextPacketSeqno,false,dataLen,syncBlock);
+  int headerLen=header.getSerializedSize();
+  ByteBuf headerBuf=alloc.buffer(headerLen);
+  header.putInBuffer(headerBuf.nioBuffer(0,headerLen));
+  headerBuf.writerIndex(headerLen);
+  waitingAckQueue.addLast(new Callback(promise,ackedLength,datanodeList));
+  for (  Channel ch : datanodeList) {
+    ch.write(headerBuf.duplicate().retain());
+    ch.write(checksumBuf.duplicate().retain());
+    ch.writeAndFlush(buf.duplicate().retain());
+  }
+  checksumBuf.release();
+  headerBuf.release();
+  ByteBuf newBuf=alloc.directBuffer().ensureWritable(trailingPartialChunkLen);
+  if (trailingPartialChunkLen != 0) {
+    buf.readerIndex(dataLen - trailingPartialChunkLen).readBytes(newBuf,trailingPartialChunkLen);
+  }
+  buf.release();
+  this.buf=newBuf;
+  nextPacketOffsetInBlock+=dataLen - trailingPartialChunkLen;
+  nextPacketSeqno++;
+}
