@@ -1,4 +1,5 @@
 {
+  long totalSyncedToStore=0;
   inSync.set(false);
   lock.lock();
   try {
@@ -17,17 +18,28 @@
             continue;
           }
         }
-        long syncWaitSt=System.currentTimeMillis();
+        final long syncWaitSt=System.currentTimeMillis();
         if (slotIndex != slots.length) {
           slotCond.await(syncWaitMsec,TimeUnit.MILLISECONDS);
         }
-        long syncWaitMs=System.currentTimeMillis() - syncWaitSt;
+        final long currentTs=System.currentTimeMillis();
+        final long syncWaitMs=currentTs - syncWaitSt;
+        final float rollSec=getMillisFromLastRoll() / 1000.0f;
+        final float syncedPerSec=totalSyncedToStore / rollSec;
         if (LOG.isTraceEnabled() && (syncWaitMs > 10 || slotIndex < slots.length)) {
-          float rollSec=getMillisFromLastRoll() / 1000.0f;
-          LOG.trace(String.format("Sync wait %s, slotIndex=%s , totalSynced=%s (%s/sec)",StringUtils.humanTimeDiff(syncWaitMs),slotIndex,StringUtils.humanSize(totalSynced.get()),StringUtils.humanSize(totalSynced.get() / rollSec)));
+          LOG.trace(String.format("Sync wait %s, slotIndex=%s , totalSynced=%s (%s/sec)",StringUtils.humanTimeDiff(syncWaitMs),slotIndex,StringUtils.humanSize(totalSyncedToStore),StringUtils.humanSize(syncedPerSec)));
         }
+        final SyncMetrics syncMetrics=new SyncMetrics();
+        syncMetrics.timestamp=currentTs;
+        syncMetrics.syncWaitMs=syncWaitMs;
+        syncMetrics.syncedEntries=slotIndex;
+        syncMetrics.totalSyncedBytes=totalSyncedToStore;
+        syncMetrics.syncedPerSec=syncedPerSec;
+        syncMetricsBuffer.add(syncMetrics);
         inSync.set(true);
-        totalSynced.addAndGet(syncSlots());
+        long slotSize=syncSlots();
+        logs.getLast().addToSize(slotSize);
+        totalSyncedToStore=totalSynced.addAndGet(slotSize);
         slotIndex=0;
         inSync.set(false);
       }
