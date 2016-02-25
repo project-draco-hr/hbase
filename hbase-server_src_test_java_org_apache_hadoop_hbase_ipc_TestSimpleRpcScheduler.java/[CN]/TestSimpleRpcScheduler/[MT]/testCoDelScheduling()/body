@@ -1,0 +1,34 @@
+{
+  Configuration schedConf=HBaseConfiguration.create();
+  schedConf.set(SimpleRpcScheduler.CALL_QUEUE_TYPE_CONF_KEY,SimpleRpcScheduler.CALL_QUEUE_TYPE_CODEL_CONF_VALUE);
+  PriorityFunction priority=mock(PriorityFunction.class);
+  when(priority.getPriority(any(RPCProtos.RequestHeader.class),any(Message.class),any(User.class))).thenReturn(HConstants.NORMAL_QOS);
+  SimpleRpcScheduler scheduler=new SimpleRpcScheduler(schedConf,1,1,1,priority,HConstants.QOS_THRESHOLD);
+  try {
+    scheduler.start();
+    for (int i=0; i < 100; i++) {
+      CallRunner cr=getMockedCallRunner();
+      Thread.sleep(5);
+      scheduler.dispatch(cr);
+    }
+    Thread.sleep(100);
+    assertEquals("None of these calls should have been discarded",0,scheduler.getNumGeneralCallsDropped());
+    for (int i=0; i < 20; i++) {
+      CallRunner cr=getMockedCallRunner();
+      Thread.sleep(6);
+      scheduler.dispatch(cr);
+    }
+    Thread.sleep(100);
+    assertEquals("None of these calls should have been discarded",0,scheduler.getNumGeneralCallsDropped());
+    for (int i=0; i < 20; i++) {
+      CallRunner cr=getMockedCallRunner();
+      Thread.sleep(12);
+      scheduler.dispatch(cr);
+    }
+    Thread.sleep(100);
+    assertTrue("There should have been at least 12 calls dropped",scheduler.getNumGeneralCallsDropped() > 12);
+  }
+  finally {
+    scheduler.stop();
+  }
+}
