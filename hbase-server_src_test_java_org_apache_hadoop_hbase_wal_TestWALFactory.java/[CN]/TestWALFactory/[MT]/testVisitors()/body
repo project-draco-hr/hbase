@@ -7,20 +7,24 @@
   long timestamp=System.currentTimeMillis();
   HTableDescriptor htd=new HTableDescriptor(tableName);
   htd.addFamily(new HColumnDescriptor("column"));
+  NavigableMap<byte[],Integer> scopes=new TreeMap<byte[],Integer>(Bytes.BYTES_COMPARATOR);
+  for (  byte[] fam : htd.getFamiliesKeys()) {
+    scopes.put(fam,0);
+  }
   HRegionInfo hri=new HRegionInfo(tableName,HConstants.EMPTY_START_ROW,HConstants.EMPTY_END_ROW);
   final WAL log=wals.getWAL(hri.getEncodedNameAsBytes(),hri.getTable().getNamespace());
   log.registerWALActionsListener(visitor);
   for (int i=0; i < COL_COUNT; i++) {
     WALEdit cols=new WALEdit();
     cols.add(new KeyValue(row,Bytes.toBytes("column"),Bytes.toBytes(Integer.toString(i)),timestamp,new byte[]{(byte)(i + '0')}));
-    log.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,System.currentTimeMillis(),mvcc),cols,true);
+    log.append(hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,System.currentTimeMillis(),mvcc,scopes),cols,true);
   }
   log.sync();
   assertEquals(COL_COUNT,visitor.increments);
   log.unregisterWALActionsListener(visitor);
   WALEdit cols=new WALEdit();
   cols.add(new KeyValue(row,Bytes.toBytes("column"),Bytes.toBytes(Integer.toString(11)),timestamp,new byte[]{(byte)(11 + '0')}));
-  log.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,System.currentTimeMillis(),mvcc),cols,true);
+  log.append(hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,System.currentTimeMillis(),mvcc,scopes),cols,true);
   log.sync();
   assertEquals(COL_COUNT,visitor.increments);
 }

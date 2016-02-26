@@ -12,8 +12,12 @@
   final byte[] regionName=hri.getEncodedNameAsBytes();
   final int countPerFamily=1000;
   Set<byte[]> familyNames=new HashSet<byte[]>();
+  NavigableMap<byte[],Integer> scopes=new TreeMap<byte[],Integer>(Bytes.BYTES_COMPARATOR);
+  for (  byte[] fam : htd.getFamiliesKeys()) {
+    scopes.put(fam,0);
+  }
   for (  HColumnDescriptor hcd : htd.getFamilies()) {
-    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal,htd,mvcc);
+    addWALEdits(tableName,hri,rowName,hcd.getName(),countPerFamily,ee,wal,htd,mvcc,scopes);
     familyNames.add(hcd.getName());
   }
   wal.startCacheFlush(regionName,familyNames);
@@ -21,11 +25,11 @@
   WALEdit edit=new WALEdit();
   long now=ee.currentTime();
   edit.add(new KeyValue(rowName,Bytes.toBytes("another family"),rowName,now,rowName));
-  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,now,mvcc),edit,true);
+  wal.append(hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,now,mvcc,scopes),edit,true);
   edit=new WALEdit();
   now=ee.currentTime();
   edit.add(new KeyValue(rowName,Bytes.toBytes("c"),null,now,KeyValue.Type.DeleteFamily));
-  wal.append(htd,hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,now,mvcc),edit,true);
+  wal.append(hri,new WALKey(hri.getEncodedNameAsBytes(),tableName,now,mvcc,scopes),edit,true);
   wal.sync();
   final Configuration newConf=HBaseConfiguration.create(this.conf);
   User user=HBaseTestingUtility.getDifferentUser(newConf,".replay.wal.secondtime");

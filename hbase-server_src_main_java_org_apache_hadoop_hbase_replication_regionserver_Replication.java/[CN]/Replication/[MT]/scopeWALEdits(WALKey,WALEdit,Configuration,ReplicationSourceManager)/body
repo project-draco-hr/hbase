@@ -1,0 +1,31 @@
+{
+  boolean replicationForBulkLoadEnabled=isReplicationForBulkLoadDataEnabled(conf);
+  byte[] family;
+  boolean foundOtherEdits=false;
+  for (  Cell cell : logEdit.getCells()) {
+    if (CellUtil.matchingFamily(cell,WALEdit.METAFAMILY)) {
+      if (replicationForBulkLoadEnabled && CellUtil.matchingQualifier(cell,WALEdit.BULK_LOAD)) {
+        try {
+          BulkLoadDescriptor bld=WALEdit.getBulkLoadDescriptor(cell);
+          for (          StoreDescriptor s : bld.getStoresList()) {
+            family=s.getFamilyName().toByteArray();
+            addHFileRefsToQueue(replicationManager,logKey.getTablename(),family,s);
+          }
+        }
+ catch (        IOException e) {
+          LOG.error("Failed to get bulk load events information from the wal file.",e);
+          throw e;
+        }
+      }
+ else {
+        continue;
+      }
+    }
+ else {
+      foundOtherEdits=true;
+    }
+  }
+  if ((!replicationForBulkLoadEnabled && !foundOtherEdits) || logEdit.isReplay()) {
+    logKey.serializeReplicationScope(false);
+  }
+}
