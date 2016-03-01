@@ -1,0 +1,26 @@
+{
+  String bucketCacheDataFile=(new Path(TEST_UTIL.getDataTestDir(),"bucketcache.data")).toString();
+  (new File(bucketCacheDataFile)).getParentFile().mkdirs();
+  this.conf.set("hbase.bucketcache.ioengine","file:" + bucketCacheDataFile);
+  this.conf.set("hbase.bucketcache.persistent.path",bucketCacheDataFile + ".map");
+  this.conf.setStrings("hbase.bucketcache.bucket.sizes",Integer.toString(BUCKETSIZE));
+  this.conf.setInt("hbase.bucketcache.size",1);
+  CacheConfig cacheConfig=new CacheConfig(conf);
+  Path hfilePath=new Path(TEST_UTIL.getDataTestDir(),this.name.getMethodName());
+  final int count=8;
+  final int hfileBlockCount=4;
+  List<Cell> writtenCells=writeFile(hfilePath,Compression.Algorithm.NONE,cacheConfig,count);
+  CacheStats stats=cacheConfig.getBlockCache().getStats();
+  List<Cell> readCells=readFile(hfilePath,cacheConfig);
+  assertTrue(!writtenCells.isEmpty());
+  assertEquals(writtenCells.size(),readCells.size());
+  assertEquals(hfileBlockCount,stats.getMissCount());
+  assertEquals(1,stats.getHitCount());
+  cacheConfig.getBlockCache().shutdown();
+  CacheConfig.GLOBAL_BLOCK_CACHE_INSTANCE=null;
+  cacheConfig=new CacheConfig(conf);
+  stats=cacheConfig.getBlockCache().getStats();
+  assertEquals(0,stats.getHitCachingCount());
+  readCells=readFile(hfilePath,cacheConfig);
+  assertEquals(hfileBlockCount + 1,stats.getHitCachingCount());
+}
