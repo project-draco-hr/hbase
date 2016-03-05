@@ -18,13 +18,15 @@
   RegionScannersCloseCallBack closeCallBack=null;
   RpcCallContext context=RpcServer.getCurrentCall();
   this.rpcMultiRequestCount.increment();
+  Map<RegionSpecifier,ClientProtos.RegionLoadStats> regionStats=new HashMap<>(request.getRegionActionCount());
   for (  RegionAction regionAction : request.getRegionActionList()) {
     this.requestCount.add(regionAction.getActionCount());
     OperationQuota quota;
     Region region;
     regionActionResultBuilder.clear();
+    RegionSpecifier regionSpecifier=regionAction.getRegion();
     try {
-      region=getRegion(regionAction.getRegion());
+      region=getRegion(regionSpecifier);
       quota=getQuotaManager().checkQuota(region,regionAction.getActionList());
     }
  catch (    IOException e) {
@@ -45,13 +47,10 @@
           byte[] qualifier=condition.getQualifier().toByteArray();
           CompareOp compareOp=CompareOp.valueOf(condition.getCompareType().name());
           ByteArrayComparable comparator=ProtobufUtil.toComparator(condition.getComparator());
-          processed=checkAndRowMutate(region,regionAction.getActionList(),cellScanner,row,family,qualifier,compareOp,comparator);
+          processed=checkAndRowMutate(region,regionAction.getActionList(),cellScanner,row,family,qualifier,compareOp,comparator,regionActionResultBuilder);
         }
  else {
-          ClientProtos.RegionLoadStats stats=mutateRows(region,regionAction.getActionList(),cellScanner);
-          if (stats != null) {
-            responseBuilder.addRegionActionResult(RegionActionResult.newBuilder().addResultOrException(ResultOrException.newBuilder().setLoadStats(stats)));
-          }
+          mutateRows(region,regionAction.getActionList(),cellScanner,regionActionResultBuilder);
           processed=Boolean.TRUE;
         }
       }
@@ -69,6 +68,10 @@
     }
     responseBuilder.addRegionActionResult(regionActionResultBuilder.build());
     quota.close();
+    ClientProtos.RegionLoadStats regionLoadStats=((HRegion)region).getLoadStatistics();
+    if (regionLoadStats != null) {
+      regionStats.put(regionSpecifier,regionLoadStats);
+    }
   }
   if (cellsToReturn != null && !cellsToReturn.isEmpty() && controller != null) {
     controller.setCellScanner(CellUtil.createCellScanner(cellsToReturn));
@@ -76,5 +79,11 @@
   if (processed != null) {
     responseBuilder.setProcessed(processed);
   }
+  MultiRegionLoadStats.Builder builder=MultiRegionLoadStats.newBuilder();
+  for (  Entry<RegionSpecifier,ClientProtos.RegionLoadStats> stat : regionStats.entrySet()) {
+    builder.addRegion(stat.getKey());
+    builder.addStat(stat.getValue());
+  }
+  responseBuilder.setRegionStatistics(builder);
   return responseBuilder.build();
 }

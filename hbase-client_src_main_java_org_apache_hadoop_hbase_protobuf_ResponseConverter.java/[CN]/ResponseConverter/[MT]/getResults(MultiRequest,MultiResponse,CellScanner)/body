@@ -2,7 +2,7 @@
   int requestRegionActionCount=request.getRegionActionCount();
   int responseRegionActionResultCount=response.getRegionActionResultCount();
   if (requestRegionActionCount != responseRegionActionResultCount) {
-    throw new IllegalStateException("Request mutation count=" + responseRegionActionResultCount + " does not match response mutation result count="+ responseRegionActionResultCount);
+    throw new IllegalStateException("Request mutation count=" + requestRegionActionCount + " does not match response mutation result count="+ responseRegionActionResultCount);
   }
   org.apache.hadoop.hbase.client.MultiResponse results=new org.apache.hadoop.hbase.client.MultiResponse();
   for (int i=0; i < responseRegionActionResultCount; i++) {
@@ -28,17 +28,20 @@
       }
  else       if (roe.hasResult()) {
         responseValue=ProtobufUtil.toResult(roe.getResult(),cells);
-        if (roe.hasLoadStats()) {
-          ((Result)responseValue).addResults(roe.getLoadStats());
-        }
       }
  else       if (roe.hasServiceResult()) {
         responseValue=roe.getServiceResult();
       }
  else {
-        throw new IllegalStateException("No result & no exception roe=" + roe + " for region "+ actions.getRegion());
+        responseValue=response.getProcessed() ? ProtobufUtil.EMPTY_RESULT_EXISTS_TRUE : ProtobufUtil.EMPTY_RESULT_EXISTS_FALSE;
       }
       results.add(regionName,roe.getIndex(),responseValue);
+    }
+  }
+  if (response.hasRegionStatistics()) {
+    ClientProtos.MultiRegionLoadStats stats=response.getRegionStatistics();
+    for (int i=0; i < stats.getRegionCount(); i++) {
+      results.addStatistic(stats.getRegion(i).getValue().toByteArray(),stats.getStat(i));
     }
   }
   return results;

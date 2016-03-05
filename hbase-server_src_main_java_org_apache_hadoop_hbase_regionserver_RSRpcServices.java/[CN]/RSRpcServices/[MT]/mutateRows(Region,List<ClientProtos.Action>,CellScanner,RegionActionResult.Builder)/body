@@ -1,0 +1,31 @@
+{
+  if (!region.getRegionInfo().isMetaTable()) {
+    regionServer.cacheFlusher.reclaimMemStoreMemory();
+  }
+  RowMutations rm=null;
+  int i=0;
+  ClientProtos.ResultOrException.Builder resultOrExceptionOrBuilder=ClientProtos.ResultOrException.newBuilder();
+  for (  ClientProtos.Action action : actions) {
+    if (action.hasGet()) {
+      throw new DoNotRetryIOException("Atomic put and/or delete only, not a Get=" + action.getGet());
+    }
+    MutationType type=action.getMutation().getMutateType();
+    if (rm == null) {
+      rm=new RowMutations(action.getMutation().getRow().toByteArray());
+    }
+switch (type) {
+case PUT:
+      rm.add(ProtobufUtil.toPut(action.getMutation(),cellScanner));
+    break;
+case DELETE:
+  rm.add(ProtobufUtil.toDelete(action.getMutation(),cellScanner));
+break;
+default :
+throw new DoNotRetryIOException("Atomic put and/or delete only, not " + type.name());
+}
+resultOrExceptionOrBuilder.clear();
+resultOrExceptionOrBuilder.setIndex(i++);
+builder.addResultOrException(resultOrExceptionOrBuilder.build());
+}
+region.mutateRow(rm);
+}

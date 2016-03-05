@@ -1,9 +1,14 @@
 {
-  RegionServerCallable<Boolean> callable=new RegionServerCallable<Boolean>(connection,getName(),row){
-    @Override public Boolean call(    int callTimeout) throws IOException {
-      PayloadCarryingRpcController controller=rpcControllerFactory.newController();
+  final RetryingTimeTracker tracker=new RetryingTimeTracker();
+  PayloadCarryingServerCallable<MultiResponse> callable=new PayloadCarryingServerCallable<MultiResponse>(connection,getName(),rm.getRow(),rpcControllerFactory){
+    @Override public MultiResponse call(    int callTimeout) throws IOException {
+      tracker.start();
       controller.setPriority(tableName);
-      controller.setCallTimeout(callTimeout);
+      int remainingTime=tracker.getRemainingTime(callTimeout);
+      if (remainingTime == 0) {
+        throw new DoNotRetryIOException("Timeout for mutate row");
+      }
+      controller.setCallTimeout(remainingTime);
       try {
         CompareType compareType=CompareType.valueOf(compareOp.name());
         MultiRequest request=RequestConverter.buildMutateRequest(getLocation().getRegionInfo().getRegionName(),row,family,qualifier,new BinaryComparator(value),compareType,rm);
@@ -16,7 +21,7 @@
           }
           throw new IOException("Failed to checkAndMutate row: " + Bytes.toStringBinary(rm.getRow()),ex);
         }
-        return Boolean.valueOf(response.getProcessed());
+        return ResponseConverter.getResults(request,response,controller.cellScanner());
       }
  catch (      ServiceException se) {
         throw ProtobufUtil.getRemoteException(se);
@@ -24,5 +29,11 @@
     }
   }
 ;
-  return rpcCallerFactory.<Boolean>newCaller().callWithRetries(callable,this.operationTimeout);
+  Object[] results=new Object[rm.getMutations().size()];
+  AsyncRequestFuture ars=multiAp.submitAll(pool,tableName,rm.getMutations(),null,results,callable,operationTimeout);
+  ars.waitUntilDone();
+  if (ars.hasError()) {
+    throw ars.getErrors();
+  }
+  return ((Result)results[0]).getExists();
 }
