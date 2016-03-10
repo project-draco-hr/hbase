@@ -3,6 +3,7 @@
   Map<byte[],List<Path>> storeFiles=new TreeMap<byte[],List<Path>>(Bytes.BYTES_COMPARATOR);
   Preconditions.checkNotNull(familyPaths);
   startBulkRegionOperation(hasMultipleColumnFamilies(familyPaths));
+  boolean isSuccessful=false;
   try {
     this.writeRequestsCount.increment();
     List<IOException> ioes=new ArrayList<IOException>();
@@ -38,7 +39,7 @@ catch (        IOException ioe) {
         list.append("\n").append(Bytes.toString(p.getFirst())).append(" : ").append(p.getSecond());
       }
       LOG.warn("There was a recoverable bulk load failure likely due to a" + " split.  These (family, HFile) pairs were not loaded: " + list);
-      return false;
+      return isSuccessful;
     }
     if (assignSeqId) {
       FlushResult fs=flushcache(true,false);
@@ -87,7 +88,7 @@ catch (        IOException ioe) {
         throw ioe;
       }
     }
-    return true;
+    isSuccessful=true;
   }
   finally {
     if (wal != null && !storeFiles.isEmpty()) {
@@ -97,10 +98,12 @@ catch (        IOException ioe) {
       }
  catch (      IOException ioe) {
         if (this.rsServices != null) {
+          isSuccessful=false;
           this.rsServices.abort("Failed to write bulk load event into WAL.",ioe);
         }
       }
     }
     closeBulkRegionOperation();
   }
+  return isSuccessful;
 }
