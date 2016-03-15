@@ -1,0 +1,51 @@
+{
+  List<RSGroupInfo> groupList=new LinkedList<RSGroupInfo>();
+  if (forceOnline || isOnline()) {
+    LOG.debug("Refreshing in Online mode.");
+    if (rsGroupTable == null) {
+      rsGroupTable=conn.getTable(RSGROUP_TABLE_NAME);
+    }
+    groupList.addAll(rsGroupSerDe.retrieveGroupList(rsGroupTable));
+  }
+ else {
+    LOG.debug("Refershing in Offline mode.");
+    String groupBasePath=ZKUtil.joinZNode(watcher.baseZNode,rsGroupZNode);
+    groupList.addAll(rsGroupSerDe.retrieveGroupList(watcher,groupBasePath));
+  }
+  NavigableSet<TableName> orphanTables=new TreeSet<TableName>();
+  for (  String entry : master.getTableDescriptors().getAll().keySet()) {
+    orphanTables.add(TableName.valueOf(entry));
+  }
+  List<TableName> specialTables;
+  if (!master.isInitialized()) {
+    specialTables=new ArrayList<TableName>();
+    specialTables.add(AccessControlLists.ACL_TABLE_NAME);
+    specialTables.add(TableName.META_TABLE_NAME);
+    specialTables.add(TableName.NAMESPACE_TABLE_NAME);
+    specialTables.add(RSGROUP_TABLE_NAME);
+  }
+ else {
+    specialTables=master.listTableNamesByNamespace(NamespaceDescriptor.SYSTEM_NAMESPACE_NAME_STR);
+  }
+  for (  TableName table : specialTables) {
+    orphanTables.add(table);
+  }
+  for (  RSGroupInfo group : groupList) {
+    if (!group.getName().equals(RSGroupInfo.DEFAULT_GROUP)) {
+      orphanTables.removeAll(group.getTables());
+    }
+  }
+  groupList.add(new RSGroupInfo(RSGroupInfo.DEFAULT_GROUP,Sets.newHashSet(getDefaultServers()),orphanTables));
+  HashMap<String,RSGroupInfo> newGroupMap=Maps.newHashMap();
+  HashMap<TableName,String> newTableMap=Maps.newHashMap();
+  for (  RSGroupInfo group : groupList) {
+    newGroupMap.put(group.getName(),group);
+    for (    TableName table : group.getTables()) {
+      newTableMap.put(table,group.getName());
+    }
+  }
+  rsGroupMap=Collections.unmodifiableMap(newGroupMap);
+  tableMap=Collections.unmodifiableMap(newTableMap);
+  prevRSGroups.clear();
+  prevRSGroups.addAll(rsGroupMap.keySet());
+}

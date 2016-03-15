@@ -1,0 +1,46 @@
+{
+  ServerManager serverManager=master.getServerManager();
+  AssignmentManager assignmentManager=master.getAssignmentManager();
+  LoadBalancer balancer=master.getLoadBalancer();
+  boolean balancerRan;
+synchronized (balancer) {
+    if (master.getMasterCoprocessorHost() != null) {
+      master.getMasterCoprocessorHost().preBalanceRSGroup(groupName);
+    }
+    if (getRSGroupInfo(groupName) == null) {
+      throw new ConstraintException("Group does not exist: " + groupName);
+    }
+    Map<String,RegionState> groupRIT=rsGroupGetRegionsInTransition(groupName);
+    if (groupRIT.size() > 0) {
+      LOG.debug("Not running balancer because " + groupRIT.size() + " region(s) in transition: "+ StringUtils.abbreviate(master.getAssignmentManager().getRegionStates().getRegionsInTransition().toString(),256));
+      return false;
+    }
+    if (serverManager.areDeadServersInProgress()) {
+      LOG.debug("Not running balancer because processing dead regionserver(s): " + serverManager.getDeadServers());
+      return false;
+    }
+    List<RegionPlan> plans=new ArrayList<RegionPlan>();
+    for (    Map.Entry<TableName,Map<ServerName,List<HRegionInfo>>> tableMap : getRSGroupAssignmentsByTable(groupName).entrySet()) {
+      LOG.info("Creating partial plan for table " + tableMap.getKey() + ": "+ tableMap.getValue());
+      List<RegionPlan> partialPlans=balancer.balanceCluster(tableMap.getValue());
+      LOG.info("Partial plan for table " + tableMap.getKey() + ": "+ partialPlans);
+      if (partialPlans != null) {
+        plans.addAll(partialPlans);
+      }
+    }
+    long startTime=System.currentTimeMillis();
+    balancerRan=plans != null;
+    if (plans != null && !plans.isEmpty()) {
+      LOG.info("Group balance " + groupName + " starting with plan count: "+ plans.size());
+      for (      RegionPlan plan : plans) {
+        LOG.info("balance " + plan);
+        assignmentManager.balance(plan);
+      }
+      LOG.info("Group balance " + groupName + " completed after "+ (System.currentTimeMillis() - startTime)+ " seconds");
+    }
+    if (master.getMasterCoprocessorHost() != null) {
+      master.getMasterCoprocessorHost().postBalanceRSGroup(groupName,balancerRan);
+    }
+  }
+  return balancerRan;
+}

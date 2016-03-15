@@ -1,0 +1,61 @@
+{
+  final TableName failoverTable=TableName.valueOf("testOffline");
+  TEST_UTIL.createTable(failoverTable,Bytes.toBytes("f"));
+  RSGroupAdmin groupAdmin=RSGroupAdmin.newClient(TEST_UTIL.getConnection());
+  final HRegionServer killRS=((MiniHBaseCluster)cluster).getRegionServer(0);
+  final HRegionServer groupRS=((MiniHBaseCluster)cluster).getRegionServer(1);
+  final HRegionServer failoverRS=((MiniHBaseCluster)cluster).getRegionServer(2);
+  String newGroup="my_group";
+  groupAdmin.addRSGroup(newGroup);
+  if (master.getAssignmentManager().getRegionStates().getRegionAssignments().containsValue(failoverRS.getServerName())) {
+    for (    HRegionInfo regionInfo : hbaseAdmin.getOnlineRegions(failoverRS.getServerName())) {
+      hbaseAdmin.move(regionInfo.getEncodedNameAsBytes(),Bytes.toBytes(failoverRS.getServerName().getServerName()));
+    }
+    LOG.info("Waiting for region unassignments on failover RS...");
+    TEST_UTIL.waitFor(WAIT_TIMEOUT,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return master.getServerManager().getLoad(failoverRS.getServerName()).getRegionsLoad().size() > 0;
+      }
+    }
+);
+  }
+  groupAdmin.moveServers(Sets.newHashSet(groupRS.getServerName().getHostPort()),newGroup);
+  TEST_UTIL.waitFor(WAIT_TIMEOUT,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return groupRS.getNumberOfOnlineRegions() < 1 && master.getAssignmentManager().getRegionStates().getRegionsInTransition().size() < 1;
+    }
+  }
+);
+  groupAdmin.moveTables(Sets.newHashSet(RSGroupInfoManager.RSGROUP_TABLE_NAME),newGroup);
+  LOG.info("Waiting for move table...");
+  TEST_UTIL.waitFor(WAIT_TIMEOUT,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return groupRS.getNumberOfOnlineRegions() == 1;
+    }
+  }
+);
+  groupRS.stop("die");
+  TEST_UTIL.getHBaseCluster().getMaster().stopMaster();
+  LOG.info("Waiting for offline mode...");
+  TEST_UTIL.waitFor(WAIT_TIMEOUT,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return TEST_UTIL.getHBaseCluster().getMaster() != null && TEST_UTIL.getHBaseCluster().getMaster().isActiveMaster() && TEST_UTIL.getHBaseCluster().getMaster().isInitialized() && TEST_UTIL.getHBaseCluster().getMaster().getServerManager().getOnlineServers().size() <= 3;
+    }
+  }
+);
+  RSGroupInfoManager groupMgr=RSGroupAdminEndpoint.getGroupInfoManager();
+  assertFalse(groupMgr.isOnline());
+  assertEquals(newGroup,groupMgr.getRSGroupOfTable(RSGroupInfoManager.RSGROUP_TABLE_NAME));
+  assertEquals(RSGroupInfo.DEFAULT_GROUP,groupMgr.getRSGroupOfTable(failoverTable));
+  killRS.stop("die");
+  master=TEST_UTIL.getHBaseCluster().getMaster();
+  LOG.info("Waiting for new table assignment...");
+  TEST_UTIL.waitFor(WAIT_TIMEOUT,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return failoverRS.getOnlineRegions(failoverTable).size() >= 1;
+    }
+  }
+);
+  Assert.assertEquals(0,failoverRS.getOnlineRegions(RSGroupInfoManager.RSGROUP_TABLE_NAME).size());
+  master.stopMaster();
+}

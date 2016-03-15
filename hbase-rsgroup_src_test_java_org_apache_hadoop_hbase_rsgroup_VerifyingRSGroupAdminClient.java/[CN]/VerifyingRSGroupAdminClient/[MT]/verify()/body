@@ -1,0 +1,33 @@
+{
+  Map<String,RSGroupInfo> groupMap=Maps.newHashMap();
+  Set<RSGroupInfo> zList=Sets.newHashSet();
+  for (  Result result : table.getScanner(new Scan())) {
+    RSGroupProtos.RSGroupInfo proto=RSGroupProtos.RSGroupInfo.parseFrom(result.getValue(RSGroupInfoManager.META_FAMILY_BYTES,RSGroupInfoManager.META_QUALIFIER_BYTES));
+    groupMap.put(proto.getName(),ProtobufUtil.toGroupInfo(proto));
+  }
+  Assert.assertEquals(Sets.newHashSet(groupMap.values()),Sets.newHashSet(wrapped.listRSGroups()));
+  try {
+    String groupBasePath=ZKUtil.joinZNode(zkw.baseZNode,"rsgroup");
+    for (    String znode : ZKUtil.listChildrenNoWatch(zkw,groupBasePath)) {
+      byte[] data=ZKUtil.getData(zkw,ZKUtil.joinZNode(groupBasePath,znode));
+      if (data.length > 0) {
+        ProtobufUtil.expectPBMagicPrefix(data);
+        ByteArrayInputStream bis=new ByteArrayInputStream(data,ProtobufUtil.lengthOfPBMagic(),data.length);
+        zList.add(ProtobufUtil.toGroupInfo(RSGroupProtos.RSGroupInfo.parseFrom(bis)));
+      }
+    }
+    Assert.assertEquals(zList.size(),groupMap.size());
+    for (    RSGroupInfo RSGroupInfo : zList) {
+      Assert.assertTrue(groupMap.get(RSGroupInfo.getName()).equals(RSGroupInfo));
+    }
+  }
+ catch (  KeeperException e) {
+    throw new IOException("ZK verification failed",e);
+  }
+catch (  DeserializationException e) {
+    throw new IOException("ZK verification failed",e);
+  }
+catch (  InterruptedException e) {
+    throw new IOException("ZK verification failed",e);
+  }
+}

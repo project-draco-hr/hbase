@@ -1,0 +1,28 @@
+{
+  Map<ServerName,List<HRegionInfo>> correctAssignments=new TreeMap<ServerName,List<HRegionInfo>>();
+  List<HRegionInfo> misplacedRegions=new LinkedList<HRegionInfo>();
+  correctAssignments.put(LoadBalancer.BOGUS_SERVER_NAME,new LinkedList<HRegionInfo>());
+  for (  ServerName sName : existingAssignments.keySet()) {
+    correctAssignments.put(sName,new LinkedList<HRegionInfo>());
+    List<HRegionInfo> regions=existingAssignments.get(sName);
+    for (    HRegionInfo region : regions) {
+      RSGroupInfo info=null;
+      try {
+        info=RSGroupInfoManager.getRSGroup(RSGroupInfoManager.getRSGroupOfTable(region.getTable()));
+      }
+ catch (      IOException exp) {
+        LOG.debug("Group information null for region of table " + region.getTable(),exp);
+      }
+      if ((info == null) || (!info.containsServer(sName.getHostPort()))) {
+        correctAssignments.get(LoadBalancer.BOGUS_SERVER_NAME).add(region);
+      }
+ else {
+        correctAssignments.get(sName).add(region);
+      }
+    }
+  }
+  for (  HRegionInfo info : misplacedRegions) {
+    this.masterServices.getAssignmentManager().unassign(info);
+  }
+  return correctAssignments;
+}

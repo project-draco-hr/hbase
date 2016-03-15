@@ -1,0 +1,47 @@
+{
+  try {
+    Map<ServerName,List<HRegionInfo>> assignments=new TreeMap<ServerName,List<HRegionInfo>>();
+    ListMultimap<String,HRegionInfo> groupToRegion=ArrayListMultimap.create();
+    Set<HRegionInfo> misplacedRegions=getMisplacedRegions(regions);
+    for (    HRegionInfo region : regions.keySet()) {
+      if (!misplacedRegions.contains(region)) {
+        String groupName=RSGroupInfoManager.getRSGroupOfTable(region.getTable());
+        groupToRegion.put(groupName,region);
+      }
+    }
+    for (    String key : groupToRegion.keySet()) {
+      Map<HRegionInfo,ServerName> currentAssignmentMap=new TreeMap<HRegionInfo,ServerName>();
+      List<HRegionInfo> regionList=groupToRegion.get(key);
+      RSGroupInfo info=RSGroupInfoManager.getRSGroup(key);
+      List<ServerName> candidateList=filterOfflineServers(info,servers);
+      for (      HRegionInfo region : regionList) {
+        currentAssignmentMap.put(region,regions.get(region));
+      }
+      if (candidateList.size() > 0) {
+        assignments.putAll(this.internalBalancer.retainAssignment(currentAssignmentMap,candidateList));
+      }
+    }
+    for (    HRegionInfo region : misplacedRegions) {
+      String groupName=RSGroupInfoManager.getRSGroupOfTable(region.getTable());
+      RSGroupInfo info=RSGroupInfoManager.getRSGroup(groupName);
+      List<ServerName> candidateList=filterOfflineServers(info,servers);
+      ServerName server=this.internalBalancer.randomAssignment(region,candidateList);
+      if (server != null && !assignments.containsKey(server)) {
+        assignments.put(server,new ArrayList<HRegionInfo>());
+      }
+ else       if (server != null) {
+        assignments.get(server).add(region);
+      }
+ else {
+        if (!assignments.containsKey(LoadBalancer.BOGUS_SERVER_NAME)) {
+          assignments.put(LoadBalancer.BOGUS_SERVER_NAME,new ArrayList<HRegionInfo>());
+        }
+        assignments.get(LoadBalancer.BOGUS_SERVER_NAME).add(region);
+      }
+    }
+    return assignments;
+  }
+ catch (  IOException e) {
+    throw new HBaseIOException("Failed to do online retain assignment",e);
+  }
+}

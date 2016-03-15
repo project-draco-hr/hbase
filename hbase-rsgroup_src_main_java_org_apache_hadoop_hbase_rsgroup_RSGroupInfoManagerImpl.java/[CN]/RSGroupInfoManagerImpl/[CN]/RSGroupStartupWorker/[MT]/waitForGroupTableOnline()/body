@@ -1,0 +1,94 @@
+{
+  final List<HRegionInfo> foundRegions=new LinkedList<HRegionInfo>();
+  final List<HRegionInfo> assignedRegions=new LinkedList<HRegionInfo>();
+  final AtomicBoolean found=new AtomicBoolean(false);
+  final TableStateManager tsm=masterServices.getTableStateManager();
+  boolean createSent=false;
+  while (!found.get() && isMasterRunning()) {
+    foundRegions.clear();
+    assignedRegions.clear();
+    found.set(true);
+    try {
+      final Table nsTable=conn.getTable(TableName.NAMESPACE_TABLE_NAME);
+      final Table groupTable=conn.getTable(RSGROUP_TABLE_NAME);
+      boolean rootMetaFound=masterServices.getMetaTableLocator().verifyMetaRegionLocation(conn,masterServices.getZooKeeper(),1);
+      final AtomicBoolean nsFound=new AtomicBoolean(false);
+      if (rootMetaFound) {
+        MetaTableAccessor.Visitor visitor=new DefaultVisitorBase(){
+          @Override public boolean visitInternal(          Result row) throws IOException {
+            HRegionInfo info=MetaTableAccessor.getHRegionInfo(row);
+            if (info != null) {
+              Cell serverCell=row.getColumnLatestCell(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+              if (RSGROUP_TABLE_NAME.equals(info.getTable()) && serverCell != null) {
+                ServerName sn=ServerName.parseVersionedServerName(CellUtil.cloneValue(serverCell));
+                if (sn == null) {
+                  found.set(false);
+                }
+ else                 if (tsm.isTableState(RSGROUP_TABLE_NAME,TableState.State.ENABLED)) {
+                  try {
+                    ClientProtos.ClientService.BlockingInterface rs=conn.getClient(sn);
+                    ClientProtos.GetRequest request=RequestConverter.buildGetRequest(info.getRegionName(),new Get(ROW_KEY));
+                    rs.get(null,request);
+                    assignedRegions.add(info);
+                  }
+ catch (                  Exception ex) {
+                    LOG.debug("Caught exception while verifying group region",ex);
+                  }
+                }
+                foundRegions.add(info);
+              }
+              if (TableName.NAMESPACE_TABLE_NAME.equals(info.getTable())) {
+                Cell cell=row.getColumnLatestCell(HConstants.CATALOG_FAMILY,HConstants.SERVER_QUALIFIER);
+                ServerName sn=null;
+                if (cell != null) {
+                  sn=ServerName.parseVersionedServerName(CellUtil.cloneValue(cell));
+                }
+                if (tsm.isTableState(TableName.NAMESPACE_TABLE_NAME,TableState.State.ENABLED)) {
+                  try {
+                    ClientProtos.ClientService.BlockingInterface rs=conn.getClient(sn);
+                    ClientProtos.GetRequest request=RequestConverter.buildGetRequest(info.getRegionName(),new Get(ROW_KEY));
+                    rs.get(null,request);
+                    nsFound.set(true);
+                  }
+ catch (                  Exception ex) {
+                    LOG.debug("Caught exception while verifying group region",ex);
+                  }
+                }
+              }
+            }
+            return true;
+          }
+        }
+;
+        MetaTableAccessor.fullScanRegions(conn,visitor);
+        if (foundRegions.size() < 1 && rootMetaFound && !createSent && nsFound.get()) {
+          groupInfoManager.createGroupTable(masterServices);
+          createSent=true;
+        }
+        LOG.info("Group table: " + RSGROUP_TABLE_NAME + " isOnline: "+ found.get()+ ", regionCount: "+ foundRegions.size()+ ", assignCount: "+ assignedRegions.size()+ ", rootMetaFound: "+ rootMetaFound);
+        found.set(found.get() && assignedRegions.size() == foundRegions.size() && foundRegions.size() > 0);
+      }
+ else {
+        LOG.info("Waiting for catalog tables to come online");
+        found.set(false);
+      }
+      if (found.get()) {
+        LOG.debug("With group table online, refreshing cached information.");
+        groupInfoManager.refresh(true);
+        isOnline=true;
+        groupInfoManager.flushConfig(groupInfoManager.rsGroupMap);
+      }
+    }
+ catch (    Exception e) {
+      found.set(false);
+      LOG.warn("Failed to perform check",e);
+    }
+    try {
+      Thread.sleep(100);
+    }
+ catch (    InterruptedException e) {
+      LOG.info("Sleep interrupted",e);
+    }
+  }
+  return found.get();
+}

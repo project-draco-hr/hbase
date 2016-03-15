@@ -1,0 +1,32 @@
+{
+  TableName tableName=TableName.valueOf("testRetainAssignmentFailed");
+  try {
+    HTableDescriptor desc=new HTableDescriptor(tableName);
+    desc.addFamily(new HColumnDescriptor(FAMILY));
+    admin.createTable(desc);
+    Table meta=TEST_UTIL.getConnection().getTable(TableName.META_TABLE_NAME);
+    HRegionInfo hri=new HRegionInfo(desc.getTableName(),Bytes.toBytes("A"),Bytes.toBytes("Z"));
+    MetaTableAccessor.addRegionToMeta(meta,hri);
+    MyLoadBalancer.controledRegion=hri;
+    HMaster master=TEST_UTIL.getHBaseCluster().getMaster();
+    AssignmentManager am=master.getAssignmentManager();
+    Map<HRegionInfo,ServerName> regions=new HashMap<HRegionInfo,ServerName>();
+    ServerName dest=TEST_UTIL.getHBaseCluster().getRegionServer(0).getServerName();
+    regions.put(hri,dest);
+    am.assign(regions);
+    assertFalse(am.waitForAssignment(hri));
+    RegionState state=am.getRegionStates().getRegionState(hri);
+    assertEquals(RegionState.State.FAILED_OPEN,state.getState());
+    assertNull(state.getServerName());
+    MyLoadBalancer.controledRegion=null;
+    am.assign(regions);
+    assertTrue(am.waitForAssignment(hri));
+    ServerName serverName=master.getAssignmentManager().getRegionStates().getRegionServerOfRegion(hri);
+    TEST_UTIL.assertRegionOnServer(hri,serverName,200);
+    assertEquals(serverName,dest);
+  }
+  finally {
+    MyLoadBalancer.controledRegion=null;
+    TEST_UTIL.deleteTable(tableName);
+  }
+}

@@ -1,0 +1,34 @@
+{
+  Map<TableName,Map<ServerName,List<HRegionInfo>>> result=Maps.newHashMap();
+  RSGroupInfo RSGroupInfo=getRSGroupInfo(groupName);
+  Map<TableName,Map<ServerName,List<HRegionInfo>>> assignments=Maps.newHashMap();
+  for (  Map.Entry<HRegionInfo,ServerName> entry : master.getAssignmentManager().getRegionStates().getRegionAssignments().entrySet()) {
+    TableName currTable=entry.getKey().getTable();
+    ServerName currServer=entry.getValue();
+    HRegionInfo currRegion=entry.getKey();
+    if (RSGroupInfo.getTables().contains(currTable)) {
+      if (!assignments.containsKey(entry.getKey().getTable())) {
+        assignments.put(currTable,new HashMap<ServerName,List<HRegionInfo>>());
+      }
+      if (!assignments.get(currTable).containsKey(currServer)) {
+        assignments.get(currTable).put(currServer,new ArrayList<HRegionInfo>());
+      }
+      assignments.get(currTable).get(currServer).add(currRegion);
+    }
+  }
+  Map<ServerName,List<HRegionInfo>> serverMap=Maps.newHashMap();
+  for (  ServerName serverName : master.getServerManager().getOnlineServers().keySet()) {
+    if (RSGroupInfo.getServers().contains(serverName.getHostPort())) {
+      serverMap.put(serverName,Collections.EMPTY_LIST);
+    }
+  }
+  for (  TableName tableName : RSGroupInfo.getTables()) {
+    if (assignments.containsKey(tableName)) {
+      result.put(tableName,new HashMap<ServerName,List<HRegionInfo>>());
+      result.get(tableName).putAll(serverMap);
+      result.get(tableName).putAll(assignments.get(tableName));
+      LOG.debug("Adding assignments for " + tableName + ": "+ assignments.get(tableName));
+    }
+  }
+  return result;
+}

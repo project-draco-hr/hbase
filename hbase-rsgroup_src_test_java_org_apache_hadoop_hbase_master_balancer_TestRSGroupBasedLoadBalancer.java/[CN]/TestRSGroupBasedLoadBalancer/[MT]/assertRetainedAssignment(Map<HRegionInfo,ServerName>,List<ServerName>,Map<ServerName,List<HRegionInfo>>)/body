@@ -1,0 +1,29 @@
+{
+  Set<ServerName> onlineServerSet=new TreeSet<ServerName>(servers);
+  Set<HRegionInfo> assignedRegions=new TreeSet<HRegionInfo>();
+  for (  Map.Entry<ServerName,List<HRegionInfo>> a : assignment.entrySet()) {
+    assertTrue("Region assigned to server that was not listed as online",onlineServerSet.contains(a.getKey()));
+    for (    HRegionInfo r : a.getValue())     assignedRegions.add(r);
+  }
+  assertEquals(existing.size(),assignedRegions.size());
+  Set<String> onlineHostNames=new TreeSet<String>();
+  for (  ServerName s : servers) {
+    onlineHostNames.add(s.getHostname());
+  }
+  for (  Map.Entry<ServerName,List<HRegionInfo>> a : assignment.entrySet()) {
+    ServerName currentServer=a.getKey();
+    for (    HRegionInfo r : a.getValue()) {
+      ServerName oldAssignedServer=existing.get(r);
+      TableName tableName=r.getTable();
+      String groupName=getMockedGroupInfoManager().getRSGroupOfTable(tableName);
+      assertTrue(StringUtils.isNotEmpty(groupName));
+      RSGroupInfo gInfo=getMockedGroupInfoManager().getRSGroup(groupName);
+      assertTrue("Region is not correctly assigned to group servers.",gInfo.containsServer(currentServer.getHostPort()));
+      if (oldAssignedServer != null && onlineHostNames.contains(oldAssignedServer.getHostname())) {
+        if (!oldAssignedServer.getHostPort().equals(currentServer.getHostPort())) {
+          assertFalse(gInfo.containsServer(oldAssignedServer.getHostPort()));
+        }
+      }
+    }
+  }
+}

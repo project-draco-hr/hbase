@@ -1,0 +1,46 @@
+{
+  if (tables == null) {
+    throw new ConstraintException("The list of servers cannot be null.");
+  }
+  if (tables.size() < 1) {
+    LOG.debug("moveTables() passed an empty set. Ignoring.");
+    return;
+  }
+  RSGroupInfoManager manager=getRSGroupInfoManager();
+synchronized (manager) {
+    if (master.getMasterCoprocessorHost() != null) {
+      master.getMasterCoprocessorHost().preMoveTables(tables,targetGroup);
+    }
+    if (targetGroup != null) {
+      RSGroupInfo destGroup=manager.getRSGroup(targetGroup);
+      if (destGroup == null) {
+        throw new ConstraintException("Target group does not exist: " + targetGroup);
+      }
+      if (destGroup.getServers().size() < 1) {
+        throw new ConstraintException("Target group must have at least one server.");
+      }
+    }
+    for (    TableName table : tables) {
+      String srcGroup=manager.getRSGroupOfTable(table);
+      if (srcGroup != null && srcGroup.equals(targetGroup)) {
+        throw new ConstraintException("Source group is the same as target group for table " + table + " :"+ srcGroup);
+      }
+    }
+    manager.moveTables(tables,targetGroup);
+    if (master.getMasterCoprocessorHost() != null) {
+      master.getMasterCoprocessorHost().postMoveTables(tables,targetGroup);
+    }
+  }
+  for (  TableName table : tables) {
+    TableLock lock=master.getTableLockManager().writeLock(table,"Group: table move");
+    try {
+      lock.acquire();
+      for (      HRegionInfo region : master.getAssignmentManager().getRegionStates().getRegionsOfTable(table)) {
+        master.getAssignmentManager().unassign(region);
+      }
+    }
+  finally {
+      lock.release();
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  List<HostAndPort> prevDefaultServers=new LinkedList<HostAndPort>();
+  while (!mgr.master.isAborted() || !mgr.master.isStopped()) {
+    try {
+      LOG.info("Updating default servers.");
+      List<HostAndPort> servers=mgr.getDefaultServers();
+      Collections.sort(servers,new Comparator<HostAndPort>(){
+        @Override public int compare(        HostAndPort o1,        HostAndPort o2){
+          int diff=o1.getHostText().compareTo(o2.getHostText());
+          if (diff != 0) {
+            return diff;
+          }
+          return o1.getPort() - o2.getPort();
+        }
+      }
+);
+      if (!servers.equals(prevDefaultServers)) {
+        mgr.updateDefaultServers(Sets.<HostAndPort>newHashSet(servers));
+        prevDefaultServers=servers;
+        LOG.info("Updated with servers: " + servers.size());
+      }
+      try {
+synchronized (this) {
+          if (!hasChanged) {
+            wait();
+          }
+          hasChanged=false;
+        }
+      }
+ catch (      InterruptedException e) {
+      }
+    }
+ catch (    IOException e) {
+      LOG.warn("Failed to update default servers",e);
+    }
+  }
+}

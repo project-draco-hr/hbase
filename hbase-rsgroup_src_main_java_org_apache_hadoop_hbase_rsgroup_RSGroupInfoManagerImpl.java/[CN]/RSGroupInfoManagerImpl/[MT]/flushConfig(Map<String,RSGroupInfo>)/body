@@ -1,0 +1,45 @@
+{
+  Map<TableName,String> newTableMap;
+  if (!isOnline()) {
+    Map<String,RSGroupInfo> m=Maps.newHashMap(rsGroupMap);
+    RSGroupInfo oldDefaultGroup=m.remove(RSGroupInfo.DEFAULT_GROUP);
+    RSGroupInfo newDefaultGroup=newGroupMap.remove(RSGroupInfo.DEFAULT_GROUP);
+    if (!m.equals(newGroupMap) || !oldDefaultGroup.getTables().equals(newDefaultGroup.getTables())) {
+      throw new IOException("Only default servers can be updated during offline mode");
+    }
+    newGroupMap.put(RSGroupInfo.DEFAULT_GROUP,newDefaultGroup);
+    rsGroupMap=newGroupMap;
+    return;
+  }
+  newTableMap=flushConfigTable(newGroupMap);
+  rsGroupMap=Collections.unmodifiableMap(newGroupMap);
+  tableMap=Collections.unmodifiableMap(newTableMap);
+  try {
+    String groupBasePath=ZKUtil.joinZNode(watcher.baseZNode,rsGroupZNode);
+    ZKUtil.createAndFailSilent(watcher,groupBasePath,ProtobufMagic.PB_MAGIC);
+    List<ZKUtil.ZKUtilOp> zkOps=new ArrayList<ZKUtil.ZKUtilOp>(newGroupMap.size());
+    for (    String groupName : prevRSGroups) {
+      if (!newGroupMap.containsKey(groupName)) {
+        String znode=ZKUtil.joinZNode(groupBasePath,groupName);
+        zkOps.add(ZKUtil.ZKUtilOp.deleteNodeFailSilent(znode));
+      }
+    }
+    for (    RSGroupInfo RSGroupInfo : newGroupMap.values()) {
+      String znode=ZKUtil.joinZNode(groupBasePath,RSGroupInfo.getName());
+      RSGroupProtos.RSGroupInfo proto=ProtobufUtil.toProtoGroupInfo(RSGroupInfo);
+      LOG.debug("Updating znode: " + znode);
+      ZKUtil.createAndFailSilent(watcher,znode);
+      zkOps.add(ZKUtil.ZKUtilOp.deleteNodeFailSilent(znode));
+      zkOps.add(ZKUtil.ZKUtilOp.createAndFailSilent(znode,ProtobufUtil.prependPBMagic(proto.toByteArray())));
+    }
+    LOG.debug("Writing ZK GroupInfo count: " + zkOps.size());
+    ZKUtil.multiOrSequential(watcher,zkOps,false);
+  }
+ catch (  KeeperException e) {
+    LOG.error("Failed to write to rsGroupZNode",e);
+    master.abort("Failed to write to rsGroupZNode",e);
+    throw new IOException("Failed to write to rsGroupZNode",e);
+  }
+  prevRSGroups.clear();
+  prevRSGroups.addAll(newGroupMap.keySet());
+}

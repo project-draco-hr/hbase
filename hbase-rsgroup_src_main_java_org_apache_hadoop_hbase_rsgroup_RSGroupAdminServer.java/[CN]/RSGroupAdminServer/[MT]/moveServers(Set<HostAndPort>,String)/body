@@ -1,0 +1,110 @@
+{
+  if (servers == null) {
+    throw new ConstraintException("The list of servers cannot be null.");
+  }
+  if (StringUtils.isEmpty(targetGroupName)) {
+    throw new ConstraintException("The target group cannot be null.");
+  }
+  if (servers.size() < 1) {
+    return;
+  }
+  RSGroupInfo targetGrp=getRSGroupInfo(targetGroupName);
+  if (targetGrp == null) {
+    throw new ConstraintException("Group does not exist: " + targetGroupName);
+  }
+  RSGroupInfoManager manager=getRSGroupInfoManager();
+synchronized (manager) {
+    if (master.getMasterCoprocessorHost() != null) {
+      master.getMasterCoprocessorHost().preMoveServers(servers,targetGroupName);
+    }
+    HostAndPort firstServer=servers.iterator().next();
+    RSGroupInfo srcGrp=manager.getRSGroupOfServer(firstServer);
+    if (srcGrp == null) {
+      throw new ConstraintException("Server " + firstServer + " does not have a group.");
+    }
+    if (RSGroupInfo.DEFAULT_GROUP.equals(srcGrp.getName())) {
+      Set<HostAndPort> onlineServers=new HashSet<HostAndPort>();
+      for (      ServerName server : master.getServerManager().getOnlineServers().keySet()) {
+        onlineServers.add(server.getHostPort());
+      }
+      for (      HostAndPort el : servers) {
+        if (!onlineServers.contains(el)) {
+          throw new ConstraintException("Server " + el + " is not an online server in default group.");
+        }
+      }
+    }
+    if (srcGrp.getServers().size() <= servers.size() && srcGrp.getTables().size() > 0) {
+      throw new ConstraintException("Cannot leave a group " + srcGrp.getName() + " that contains tables "+ "without servers.");
+    }
+    String sourceGroupName=getRSGroupInfoManager().getRSGroupOfServer(srcGrp.getServers().iterator().next()).getName();
+    if (getRSGroupInfo(targetGroupName) == null) {
+      throw new ConstraintException("Target group does not exist: " + targetGroupName);
+    }
+    for (    HostAndPort server : servers) {
+      if (serversInTransition.containsKey(server)) {
+        throw new ConstraintException("Server list contains a server that is already being moved: " + server);
+      }
+      String tmpGroup=getRSGroupInfoManager().getRSGroupOfServer(server).getName();
+      if (sourceGroupName != null && !tmpGroup.equals(sourceGroupName)) {
+        throw new ConstraintException("Move server request should only come from one source group. " + "Expecting only " + sourceGroupName + " but contains "+ tmpGroup);
+      }
+    }
+    if (sourceGroupName.equals(targetGroupName)) {
+      throw new ConstraintException("Target group is the same as source group: " + targetGroupName);
+    }
+    try {
+      for (      HostAndPort server : servers) {
+        serversInTransition.put(server,targetGroupName);
+      }
+      getRSGroupInfoManager().moveServers(servers,sourceGroupName,targetGroupName);
+      boolean found;
+      List<HostAndPort> tmpServers=Lists.newArrayList(servers);
+      do {
+        found=false;
+        for (Iterator<HostAndPort> iter=tmpServers.iterator(); iter.hasNext(); ) {
+          HostAndPort rs=iter.next();
+          List<HRegionInfo> regions=new LinkedList<HRegionInfo>();
+          for (          Map.Entry<HRegionInfo,ServerName> el : master.getAssignmentManager().getRegionStates().getRegionAssignments().entrySet()) {
+            if (el.getValue().getHostPort().equals(rs)) {
+              regions.add(el.getKey());
+            }
+          }
+          for (          RegionState state : master.getAssignmentManager().getRegionStates().getRegionsInTransition().values()) {
+            if (state.getServerName().getHostPort().equals(rs)) {
+              regions.add(state.getRegion());
+            }
+          }
+          LOG.info("Unassigning " + regions.size() + " regions from server "+ rs+ " for move to "+ targetGroupName);
+          if (regions.size() > 0) {
+            for (            HRegionInfo region : regions) {
+              if (!targetGrp.containsTable(region.getTable())) {
+                master.getAssignmentManager().unassign(region);
+                found=true;
+              }
+            }
+          }
+          if (!found) {
+            iter.remove();
+          }
+        }
+        try {
+          Thread.sleep(1000);
+        }
+ catch (        InterruptedException e) {
+          LOG.warn("Sleep interrupted",e);
+          Thread.currentThread().interrupt();
+        }
+      }
+ while (found);
+    }
+  finally {
+      for (      HostAndPort server : servers) {
+        serversInTransition.remove(server);
+      }
+    }
+    if (master.getMasterCoprocessorHost() != null) {
+      master.getMasterCoprocessorHost().postMoveServers(servers,targetGroupName);
+    }
+    LOG.info("Move server done: " + sourceGroupName + "->"+ targetGroupName);
+  }
+}

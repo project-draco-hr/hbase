@@ -1,0 +1,18 @@
+{
+  TEST_UTIL=new HBaseTestingUtility();
+  TEST_UTIL.getConfiguration().set(HConstants.HBASE_MASTER_LOADBALANCER_CLASS,RSGroupBasedLoadBalancer.class.getName());
+  TEST_UTIL.getConfiguration().set(CoprocessorHost.MASTER_COPROCESSOR_CONF_KEY,RSGroupAdminEndpoint.class.getName());
+  TEST_UTIL.getConfiguration().set(ServerManager.WAIT_ON_REGIONSERVERS_MINTOSTART,"1");
+  TEST_UTIL.startMiniCluster(2,3);
+  cluster=TEST_UTIL.getHBaseCluster();
+  master=((MiniHBaseCluster)cluster).getMaster();
+  master.balanceSwitch(false);
+  hbaseAdmin=TEST_UTIL.getHBaseAdmin();
+  TEST_UTIL.waitFor(WAIT_TIMEOUT,new Waiter.Predicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      return master.isInitialized() && ((RSGroupBasedLoadBalancer)master.getLoadBalancer()).isOnline() && master.getServerManager().getOnlineServersList().size() >= 3;
+    }
+  }
+);
+  RSGroupAdminEndpoint=master.getMasterCoprocessorHost().findCoprocessors(RSGroupAdminEndpoint.class).get(0);
+}
