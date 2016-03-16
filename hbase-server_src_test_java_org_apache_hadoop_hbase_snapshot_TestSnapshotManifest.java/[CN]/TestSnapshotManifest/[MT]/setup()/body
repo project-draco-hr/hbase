@@ -1,0 +1,35 @@
+{
+  TEST_UTIL=HBaseTestingUtility.createLocalHTU();
+  rootDir=TEST_UTIL.getDataTestDir(TABLE_NAME_STR);
+  fs=TEST_UTIL.getTestFileSystem();
+  conf=TEST_UTIL.getConfiguration();
+  SnapshotTestingUtils.SnapshotMock snapshotMock=new SnapshotTestingUtils.SnapshotMock(conf,fs,rootDir);
+  SnapshotTestingUtils.SnapshotMock.SnapshotBuilder builder=snapshotMock.createSnapshotV2("snapshot",TABLE_NAME_STR,0);
+  snapshotDir=builder.commit();
+  snapshotDesc=builder.getSnapshotDescription();
+  SnapshotDataManifest.Builder dataManifestBuilder=SnapshotDataManifest.newBuilder();
+  byte[] startKey=null;
+  byte[] stopKey=null;
+  for (int i=1; i <= TEST_NUM_REGIONS; i++) {
+    stopKey=Bytes.toBytes(String.format("%016d",i));
+    HRegionInfo regionInfo=new HRegionInfo(TABLE_NAME,startKey,stopKey,false);
+    SnapshotRegionManifest.Builder dataRegionManifestBuilder=SnapshotRegionManifest.newBuilder();
+    for (    HColumnDescriptor hcd : builder.getTableDescriptor().getFamilies()) {
+      SnapshotRegionManifest.FamilyFiles.Builder family=SnapshotRegionManifest.FamilyFiles.newBuilder();
+      family.setFamilyName(ByteStringer.wrap(hcd.getName()));
+      for (int j=0; j < 100; ++j) {
+        SnapshotRegionManifest.StoreFile.Builder sfManifest=SnapshotRegionManifest.StoreFile.newBuilder();
+        sfManifest.setName(String.format("%032d",i));
+        sfManifest.setFileSize((1 + i) * (1 + i) * 1024);
+        family.addStoreFiles(sfManifest.build());
+      }
+      dataRegionManifestBuilder.addFamilyFiles(family.build());
+    }
+    dataRegionManifestBuilder.setRegionInfo(HRegionInfo.convert(regionInfo));
+    dataManifestBuilder.addRegionManifests(dataRegionManifestBuilder.build());
+    startKey=stopKey;
+  }
+  dataManifestBuilder.setTableSchema(builder.getTableDescriptor().convert());
+  SnapshotDataManifest dataManifest=dataManifestBuilder.build();
+  writeDataManifest(dataManifest);
+}
