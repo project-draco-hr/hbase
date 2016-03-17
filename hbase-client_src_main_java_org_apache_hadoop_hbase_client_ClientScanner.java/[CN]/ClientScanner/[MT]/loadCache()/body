@@ -6,7 +6,9 @@
   callable.setCaching(this.caching);
   boolean retryAfterOutOfOrderException=true;
   boolean serverHasMoreResults=false;
+  boolean allResultsSkipped=false;
   do {
+    allResultsSkipped=false;
     try {
       values=call(callable,caller,scannerTimeout);
       if (values == null && callable.switchedToADifferentReplica()) {
@@ -37,11 +39,16 @@
         }
       }
       if (this.lastResult != null) {
-        if (scan.isReversed()) {
-          scan.setStartRow(createClosestRowBefore(lastResult.getRow()));
+        if (!this.lastResult.isPartial() && scan.getBatch() < 0) {
+          if (scan.isReversed()) {
+            scan.setStartRow(createClosestRowBefore(lastResult.getRow()));
+          }
+ else {
+            scan.setStartRow(Bytes.add(lastResult.getRow(),new byte[1]));
+          }
         }
  else {
-          scan.setStartRow(Bytes.add(lastResult.getRow(),new byte[1]));
+          scan.setStartRow(lastResult.getRow());
         }
       }
       if (e instanceof OutOfOrderScannerNextException) {
@@ -64,12 +71,26 @@
     List<Result> resultsToAddToCache=getResultsToAddToCache(values,callable.isHeartbeatMessage());
     if (!resultsToAddToCache.isEmpty()) {
       for (      Result rs : resultsToAddToCache) {
+        rs=filterLoadedCell(rs);
+        if (rs == null) {
+          continue;
+        }
         cache.add(rs);
         long estimatedHeapSizeOfResult=calcEstimatedSize(rs);
         countdown--;
         remainingResultSize-=estimatedHeapSizeOfResult;
         addEstimatedSize(estimatedHeapSizeOfResult);
         this.lastResult=rs;
+        if (this.lastResult.isPartial() || scan.getBatch() > 0) {
+          updateLastCellLoadedToCache(this.lastResult);
+        }
+ else {
+          this.lastCellLoadedToCache=null;
+        }
+      }
+      if (cache.isEmpty()) {
+        allResultsSkipped=true;
+        continue;
       }
     }
     if (callable.isHeartbeatMessage()) {
@@ -85,5 +106,5 @@
       serverHasMoreResults=callable.getServerHasMoreResults() && partialResults.isEmpty();
     }
   }
- while ((callable != null && callable.isHeartbeatMessage()) || (doneWithRegion(remainingResultSize,countdown,serverHasMoreResults) && (!partialResults.isEmpty() || possiblyNextScanner(countdown,values == null))));
+ while (allResultsSkipped || (callable != null && callable.isHeartbeatMessage()) || (doneWithRegion(remainingResultSize,countdown,serverHasMoreResults) && (!partialResults.isEmpty() || possiblyNextScanner(countdown,values == null))));
 }
