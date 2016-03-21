@@ -19,12 +19,26 @@
     if (cpHost != null) {
       cpHost.preRestoreSnapshot(reqSnapshot,snapshotTableDesc);
     }
+    int tableRegionCount=-1;
     try {
-      checkAndUpdateNamespaceRegionQuota(manifest,tableName);
+      tableRegionCount=getRegionCountOfTable(tableName);
+      int snapshotRegionCount=manifest.getRegionManifestsMap().size();
+      if (tableRegionCount > 0 && tableRegionCount < snapshotRegionCount) {
+        checkAndUpdateNamespaceRegionQuota(snapshotRegionCount,tableName);
+      }
       restoreSnapshot(snapshot,snapshotTableDesc);
+      if (tableRegionCount > 0 && tableRegionCount > snapshotRegionCount) {
+        checkAndUpdateNamespaceRegionQuota(snapshotRegionCount,tableName);
+      }
     }
- catch (    IOException e) {
-      this.master.getMasterQuotaManager().removeTableFromNamespaceQuota(tableName);
+ catch (    QuotaExceededException e) {
+      LOG.error("Region quota exceeded while restoring the snapshot " + snapshot.getName() + " as table "+ tableName.getNameAsString(),e);
+      throw e;
+    }
+catch (    IOException e) {
+      if (tableRegionCount > 0) {
+        checkAndUpdateNamespaceRegionQuota(tableRegionCount,tableName);
+      }
       LOG.error("Exception occurred while restoring the snapshot " + snapshot.getName() + " as table "+ tableName.getNameAsString(),e);
       throw e;
     }
