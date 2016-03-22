@@ -1,0 +1,27 @@
+{
+  Field xceiverServerDaemonField=DataNode.class.getDeclaredField("dataXceiverServer");
+  xceiverServerDaemonField.setAccessible(true);
+  Class<?> xceiverServerClass=Class.forName("org.apache.hadoop.hdfs.server.datanode.DataXceiverServer");
+  Method numPeersMethod=xceiverServerClass.getDeclaredMethod("getNumPeers");
+  numPeersMethod.setAccessible(true);
+  TEST_UTIL.getDFSCluster().getDataNodes().get(0).shutdownDatanode(true);
+  try {
+    Path f=new Path("/test");
+    EventLoop eventLoop=EVENT_LOOP_GROUP.next();
+    try {
+      FanOutOneBlockAsyncDFSOutputHelper.createOutput(FS,f,true,false,(short)3,FS.getDefaultBlockSize(),eventLoop);
+      fail("should fail with connection error");
+    }
+ catch (    IOException e) {
+      LOG.info("expected exception caught",e);
+    }
+    for (    DataNode dn : TEST_UTIL.getDFSCluster().getDataNodes()) {
+      Daemon daemon=(Daemon)xceiverServerDaemonField.get(dn);
+      assertEquals(0,numPeersMethod.invoke(daemon.getRunnable()));
+    }
+  }
+  finally {
+    TEST_UTIL.getDFSCluster().restartDataNode(0);
+    ensureAllDatanodeAlive();
+  }
+}
