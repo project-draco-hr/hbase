@@ -9,6 +9,7 @@
   status.setStatus(s);
   if (LOG.isTraceEnabled())   LOG.trace(s);
   boolean compactionRequested=false;
+  long flushedOutputFileSize=0;
   try {
     for (    StoreFlushContext flush : storeFlushCtxs.values()) {
       flush.flushCache(status);
@@ -25,6 +26,7 @@
       if (storeCommittedFiles == null || storeCommittedFiles.isEmpty()) {
         totalFlushableSizeOfFlushableStores-=prepareResult.storeFlushableSize.get(storeName);
       }
+      flushedOutputFileSize+=flush.getOutputFileSize();
     }
     storeFlushCtxs.clear();
     this.addAndGetGlobalMemstoreSize(-totalFlushableSizeOfFlushableStores);
@@ -72,5 +74,8 @@ synchronized (this) {
   String msg="Finished memstore flush of ~" + StringUtils.byteDesc(totalFlushableSizeOfFlushableStores) + "/"+ totalFlushableSizeOfFlushableStores+ ", currentsize="+ StringUtils.byteDesc(memstoresize)+ "/"+ memstoresize+ " for region "+ this+ " in "+ time+ "ms, sequenceid="+ flushOpSeqId+ ", compaction requested="+ compactionRequested+ ((wal == null) ? "; wal=null" : "");
   LOG.info(msg);
   status.setStatus(msg);
+  if (rsServices != null && rsServices.getMetrics() != null) {
+    rsServices.getMetrics().updateFlush(time - startTime,totalFlushableSizeOfFlushableStores,flushedOutputFileSize);
+  }
   return new FlushResultImpl(compactionRequested ? FlushResult.Result.FLUSHED_COMPACTION_NEEDED : FlushResult.Result.FLUSHED_NO_COMPACTION_NEEDED,flushOpSeqId);
 }
