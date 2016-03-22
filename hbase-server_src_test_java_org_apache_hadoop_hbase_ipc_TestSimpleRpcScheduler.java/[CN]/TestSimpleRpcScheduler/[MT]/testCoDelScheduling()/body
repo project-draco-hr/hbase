@@ -1,4 +1,7 @@
 {
+  CoDelEnvironmentEdge envEdge=new CoDelEnvironmentEdge();
+  envEdge.threadNamePrefixs.add("RW.default");
+  envEdge.threadNamePrefixs.add("B.default");
   Configuration schedConf=HBaseConfiguration.create();
   schedConf.set(SimpleRpcScheduler.CALL_QUEUE_TYPE_CONF_KEY,SimpleRpcScheduler.CALL_QUEUE_TYPE_CODEL_CONF_VALUE);
   PriorityFunction priority=mock(PriorityFunction.class);
@@ -6,25 +9,38 @@
   SimpleRpcScheduler scheduler=new SimpleRpcScheduler(schedConf,1,1,1,priority,HConstants.QOS_THRESHOLD);
   try {
     scheduler.start();
+    EnvironmentEdgeManager.injectEdge(envEdge);
+    envEdge.offset=5;
     for (int i=0; i < 100; i++) {
-      CallRunner cr=getMockedCallRunner();
+      long time=System.currentTimeMillis();
+      envEdge.timeQ.put(time);
+      CallRunner cr=getMockedCallRunner(time);
       Thread.sleep(5);
       scheduler.dispatch(cr);
     }
+    waitUntilQueueEmpty(scheduler);
     Thread.sleep(100);
     assertEquals("None of these calls should have been discarded",0,scheduler.getNumGeneralCallsDropped());
+    envEdge.offset=6;
     for (int i=0; i < 20; i++) {
-      CallRunner cr=getMockedCallRunner();
+      long time=System.currentTimeMillis();
+      envEdge.timeQ.put(time);
+      CallRunner cr=getMockedCallRunner(time);
       Thread.sleep(6);
       scheduler.dispatch(cr);
     }
+    waitUntilQueueEmpty(scheduler);
     Thread.sleep(100);
     assertEquals("None of these calls should have been discarded",0,scheduler.getNumGeneralCallsDropped());
+    envEdge.offset=12;
     for (int i=0; i < 20; i++) {
-      CallRunner cr=getMockedCallRunner();
+      long time=System.currentTimeMillis();
+      envEdge.timeQ.put(time);
+      CallRunner cr=getMockedCallRunner(time);
       Thread.sleep(12);
       scheduler.dispatch(cr);
     }
+    waitUntilQueueEmpty(scheduler);
     Thread.sleep(100);
     assertTrue("There should have been at least 12 calls dropped",scheduler.getNumGeneralCallsDropped() > 12);
   }
