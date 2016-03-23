@@ -1,0 +1,27 @@
+{
+  boolean doVerificationThruHBaseChecksum=streamWrapper.shouldUseHBaseChecksum();
+  FSDataInputStream is=streamWrapper.getStream(doVerificationThruHBaseChecksum);
+  HFileBlock blk=readBlockDataInternal(is,offset,onDiskSizeWithHeaderL,uncompressedSize,pread,doVerificationThruHBaseChecksum);
+  if (blk == null) {
+    HFile.LOG.warn("HBase checksum verification failed for file " + pathName + " at offset "+ offset+ " filesize "+ fileSize+ ". Retrying read with HDFS checksums turned on...");
+    if (!doVerificationThruHBaseChecksum) {
+      String msg="HBase checksum verification failed for file " + pathName + " at offset "+ offset+ " filesize "+ fileSize+ " but this cannot happen because doVerify is "+ doVerificationThruHBaseChecksum;
+      HFile.LOG.warn(msg);
+      throw new IOException(msg);
+    }
+    HFile.CHECKSUM_FAILURES.increment();
+    is=this.streamWrapper.fallbackToFsChecksum(CHECKSUM_VERIFICATION_NUM_IO_THRESHOLD);
+    doVerificationThruHBaseChecksum=false;
+    blk=readBlockDataInternal(is,offset,onDiskSizeWithHeaderL,uncompressedSize,pread,doVerificationThruHBaseChecksum);
+    if (blk != null) {
+      HFile.LOG.warn("HDFS checksum verification suceeded for file " + pathName + " at offset "+ offset+ " filesize "+ fileSize);
+    }
+  }
+  if (blk == null && !doVerificationThruHBaseChecksum) {
+    String msg="readBlockData failed, possibly due to " + "checksum verification failed for file " + pathName + " at offset "+ offset+ " filesize "+ fileSize;
+    HFile.LOG.warn(msg);
+    throw new IOException(msg);
+  }
+  streamWrapper.checksumOk();
+  return blk;
+}
