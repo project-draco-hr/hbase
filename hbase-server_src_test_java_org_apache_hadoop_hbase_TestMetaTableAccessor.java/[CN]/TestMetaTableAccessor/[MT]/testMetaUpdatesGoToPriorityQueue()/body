@@ -1,0 +1,29 @@
+{
+  Configuration c=UTIL.getConfiguration();
+  c.set(RSRpcServices.REGION_SERVER_RPC_SCHEDULER_FACTORY_CLASS,SpyingRpcSchedulerFactory.class.getName());
+  afterClass();
+  beforeClass();
+  TableName tableName=TableName.valueOf("foo");
+  try (Admin admin=connection.getAdmin();RegionLocator rl=connection.getRegionLocator(tableName)){
+    UTIL.createTable(tableName,"cf1");
+    HRegionLocation loc=rl.getAllRegionLocations().get(0);
+    HRegionInfo parent=loc.getRegionInfo();
+    long rid=1000;
+    byte[] splitKey=Bytes.toBytes("a");
+    HRegionInfo splitA=new HRegionInfo(parent.getTable(),parent.getStartKey(),splitKey,false,rid);
+    HRegionInfo splitB=new HRegionInfo(parent.getTable(),splitKey,parent.getEndKey(),false,rid);
+    MiniHBaseCluster cluster=UTIL.getMiniHBaseCluster();
+    int rsIndex=cluster.getServerWithMeta();
+    HRegionServer rs;
+    if (rsIndex >= 0) {
+      rs=cluster.getRegionServer(rsIndex);
+    }
+ else {
+      rs=cluster.getMaster();
+    }
+    SpyingRpcScheduler scheduler=(SpyingRpcScheduler)rs.getRpcServer().getScheduler();
+    long prevCalls=scheduler.numPriorityCalls;
+    MetaTableAccessor.splitRegion(connection,parent,splitA,splitB,loc.getServerName(),1);
+    assertTrue(prevCalls < scheduler.numPriorityCalls);
+  }
+ }
