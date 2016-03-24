@@ -1,0 +1,40 @@
+{
+  ByteBufInputStream in=new ByteBufInputStream(inBuffer);
+  int totalSize=inBuffer.readableBytes();
+  RPCProtos.ResponseHeader responseHeader=RPCProtos.ResponseHeader.parseDelimitedFrom(in);
+  int id=responseHeader.getCallId();
+  AsyncCall call=channel.removePendingCall(id);
+  if (call == null) {
+    int readSoFar=IPCUtil.getTotalSizeWhenWrittenDelimited(responseHeader);
+    int whatIsLeftToRead=totalSize - readSoFar;
+    inBuffer.skipBytes(whatIsLeftToRead);
+    return;
+  }
+  if (responseHeader.hasException()) {
+    RPCProtos.ExceptionResponse exceptionResponse=responseHeader.getException();
+    RemoteException re=createRemoteException(exceptionResponse);
+    if (exceptionResponse.getExceptionClassName().equals(FatalConnectionException.class.getName())) {
+      channel.close(re);
+    }
+ else {
+      call.setFailed(re);
+    }
+  }
+ else {
+    Message value=null;
+    if (call.responseDefaultType != null) {
+      Message.Builder builder=call.responseDefaultType.newBuilderForType();
+      ProtobufUtil.mergeDelimitedFrom(builder,in);
+      value=builder.build();
+    }
+    CellScanner cellBlockScanner=null;
+    if (responseHeader.hasCellBlockMeta()) {
+      int size=responseHeader.getCellBlockMeta().getLength();
+      byte[] cellBlock=new byte[size];
+      inBuffer.readBytes(cellBlock,0,cellBlock.length);
+      cellBlockScanner=channel.client.createCellScanner(cellBlock);
+    }
+    call.setSuccess(value,cellBlockScanner);
+    call.callStats.setResponseSizeBytes(totalSize);
+  }
+}

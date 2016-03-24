@@ -1,0 +1,34 @@
+{
+  List<AsyncCall> toCleanup;
+synchronized (pendingCalls) {
+    if (closed) {
+      return;
+    }
+    closed=true;
+    toCleanup=new ArrayList<AsyncCall>(pendingCalls.values());
+    pendingCalls.clear();
+  }
+  IOException closeException=null;
+  if (e != null) {
+    if (e instanceof IOException) {
+      closeException=(IOException)e;
+    }
+ else {
+      closeException=new IOException(e);
+    }
+  }
+  if (LOG.isDebugEnabled() && closeException != null) {
+    LOG.debug(name + ": closing ipc connection to " + address,closeException);
+  }
+  if (cleanupTimer != null) {
+    cleanupTimer.cancel();
+    cleanupTimer=null;
+  }
+  for (  AsyncCall call : toCleanup) {
+    call.setFailed(closeException != null ? closeException : new ConnectionClosingException("Call id=" + call.id + " on server "+ address+ " aborted: connection is closing"));
+  }
+  channel.disconnect().addListener(ChannelFutureListener.CLOSE);
+  if (LOG.isDebugEnabled()) {
+    LOG.debug(name + ": closed");
+  }
+}
