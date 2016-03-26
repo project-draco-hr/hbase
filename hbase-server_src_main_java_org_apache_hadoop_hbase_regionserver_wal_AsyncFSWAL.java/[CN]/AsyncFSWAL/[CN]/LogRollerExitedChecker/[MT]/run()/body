@@ -1,0 +1,33 @@
+{
+  if (!logRollerExited) {
+    return;
+  }
+synchronized (this) {
+    if (cancelled) {
+      return;
+    }
+  }
+  unackedEntries.clear();
+  waitingAppendEntries.clear();
+  IOException error=new IOException("sync failed but log roller exited");
+  for (SyncFuture future; (future=syncFutures.peek()) != null; ) {
+    future.done(highestProcessedTxid,error);
+    syncFutures.remove();
+  }
+synchronized (waitingConsumePayloads) {
+    for (    Payload p : waitingConsumePayloads) {
+      if (p.entry != null) {
+        try {
+          p.entry.stampRegionSequenceId();
+        }
+ catch (        IOException e) {
+          throw new AssertionError("should not happen",e);
+        }
+      }
+ else       if (p.sync != null) {
+        p.sync.done(nextTxid,error);
+      }
+    }
+    waitingConsumePayloads.clear();
+  }
+}

@@ -1,0 +1,36 @@
+{
+  boolean overwrite=false;
+  for (int retry=0; ; retry++) {
+    try {
+      return AsyncFSWALProvider.createAsyncWriter(conf,fs,path,overwrite,eventLoop);
+    }
+ catch (    RemoteException e) {
+      LOG.warn("create wal log writer " + path + " failed, retry = "+ retry,e);
+      if (shouldRetryCreate(e)) {
+        if (retry >= createMaxRetries) {
+          break;
+        }
+      }
+ else {
+        throw e.unwrapRemoteException();
+      }
+    }
+catch (    NameNodeException e) {
+      throw e;
+    }
+catch (    IOException e) {
+      LOG.warn("create wal log writer " + path + " failed, retry = "+ retry,e);
+      if (retry >= createMaxRetries) {
+        break;
+      }
+      overwrite=true;
+      try {
+        Thread.sleep(ConnectionUtils.getPauseTime(100,retry));
+      }
+ catch (      InterruptedException ie) {
+        throw new InterruptedIOException();
+      }
+    }
+  }
+  throw new IOException("Failed to create wal log writer " + path + " after retrying "+ createMaxRetries+ " time(s)");
+}

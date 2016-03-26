@@ -1,0 +1,40 @@
+{
+  final AsyncWriter writer=this.writer;
+  finishSync(false);
+  long newHighestProcessedTxid=-1L;
+  for (Iterator<FSWALEntry> iter=waitingAppendEntries.iterator(); iter.hasNext(); ) {
+    FSWALEntry entry=iter.next();
+    boolean appended;
+    try {
+      appended=append(writer,entry);
+    }
+ catch (    IOException e) {
+      throw new AssertionError("should not happen",e);
+    }
+    newHighestProcessedTxid=entry.getTxid();
+    iter.remove();
+    if (appended) {
+      unackedEntries.addLast(entry);
+      if (writer.getLength() - fileLengthAtLastSync >= batchSize) {
+        break;
+      }
+    }
+  }
+  if (newHighestProcessedTxid > 0) {
+    highestProcessedTxid=newHighestProcessedTxid;
+  }
+ else {
+    newHighestProcessedTxid=highestProcessedTxid;
+  }
+  if (writer.getLength() - fileLengthAtLastSync >= batchSize) {
+    sync(writer,newHighestProcessedTxid);
+  }
+ else   if ((!syncFutures.isEmpty() || rollPromise != null) && writer.getLength() > fileLengthAtLastSync) {
+    sync(writer,newHighestProcessedTxid);
+  }
+ else   if (writer.getLength() == fileLengthAtLastSync) {
+    highestSyncedTxid.set(newHighestProcessedTxid);
+    finishSync(false);
+    tryFinishRoll();
+  }
+}

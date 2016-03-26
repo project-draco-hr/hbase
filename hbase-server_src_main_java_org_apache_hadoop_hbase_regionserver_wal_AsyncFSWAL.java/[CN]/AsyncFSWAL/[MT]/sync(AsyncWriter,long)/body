@@ -1,0 +1,61 @@
+{
+  fileLengthAtLastSync=writer.getLength();
+  final long startTimeNs=System.nanoTime();
+  writer.sync(new CompletionHandler<Long,Void>(){
+    @Override public void completed(    Long result,    Void attachment){
+      highestSyncedTxid.set(processedTxid);
+      int syncCount=finishSync(true);
+      for (Iterator<FSWALEntry> iter=unackedEntries.iterator(); iter.hasNext(); ) {
+        if (iter.next().getTxid() <= processedTxid) {
+          iter.remove();
+        }
+ else {
+          break;
+        }
+      }
+      postSync(System.nanoTime() - startTimeNs,syncCount);
+      tryFinishRoll();
+      if (!rollWriterLock.tryLock()) {
+        return;
+      }
+      try {
+        if (writer.getLength() >= logrollsize) {
+          requestLogRoll();
+        }
+      }
+  finally {
+        rollWriterLock.unlock();
+      }
+    }
+    @Override public void failed(    Throwable exc,    Void attachment){
+      LOG.warn("sync failed",exc);
+synchronized (waitingConsumePayloads) {
+        if (writerBroken) {
+          return;
+        }
+        logRollerExitedChecker=new LogRollerExitedChecker();
+        logRollerExitedChecker.setFuture(eventLoop.scheduleAtFixedRate(logRollerExitedChecker,logRollerExitedCheckIntervalMs,logRollerExitedCheckIntervalMs,TimeUnit.MILLISECONDS));
+        writerBroken=true;
+      }
+      for (Iterator<FSWALEntry> iter=unackedEntries.descendingIterator(); iter.hasNext(); ) {
+        waitingAppendEntries.addFirst(iter.next());
+      }
+      highestUnsyncedTxid=highestSyncedTxid.get();
+      if (rollPromise != null) {
+        rollPromise.trySuccess(null);
+        rollPromise=null;
+        return;
+      }
+      if (!rollWriterLock.tryLock()) {
+        return;
+      }
+      try {
+        requestLogRoll();
+      }
+  finally {
+        rollWriterLock.unlock();
+      }
+    }
+  }
+,null);
+}

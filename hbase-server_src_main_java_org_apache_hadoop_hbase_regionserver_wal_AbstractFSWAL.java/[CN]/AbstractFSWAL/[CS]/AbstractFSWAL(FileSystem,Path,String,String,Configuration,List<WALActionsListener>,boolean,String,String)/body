@@ -1,0 +1,61 @@
+{
+  this.fs=fs;
+  this.walDir=new Path(rootDir,logDir);
+  this.walArchiveDir=new Path(rootDir,archiveDir);
+  this.conf=conf;
+  if (!fs.exists(walDir) && !fs.mkdirs(walDir)) {
+    throw new IOException("Unable to mkdir " + walDir);
+  }
+  if (!fs.exists(this.walArchiveDir)) {
+    if (!fs.mkdirs(this.walArchiveDir)) {
+      throw new IOException("Unable to mkdir " + this.walArchiveDir);
+    }
+  }
+  this.walFilePrefix=prefix == null || prefix.isEmpty() ? "wal" : URLEncoder.encode(prefix,"UTF8");
+  if (suffix != null && !(suffix.isEmpty()) && !(suffix.startsWith(WAL_FILE_NAME_DELIMITER))) {
+    throw new IllegalArgumentException("WAL suffix must start with '" + WAL_FILE_NAME_DELIMITER + "' but instead was '"+ suffix+ "'");
+  }
+  FSUtils.setStoragePolicy(fs,conf,this.walDir,HConstants.WAL_STORAGE_POLICY,HConstants.DEFAULT_WAL_STORAGE_POLICY);
+  this.walFileSuffix=(suffix == null) ? "" : URLEncoder.encode(suffix,"UTF8");
+  this.prefixPathStr=new Path(walDir,walFilePrefix + WAL_FILE_NAME_DELIMITER).toString();
+  this.ourFiles=new PathFilter(){
+    @Override public boolean accept(    final Path fileName){
+      final String fileNameString=fileName.toString();
+      if (!fileNameString.startsWith(prefixPathStr)) {
+        return false;
+      }
+      if (walFileSuffix.isEmpty()) {
+        return org.apache.commons.lang.StringUtils.isNumeric(fileNameString.substring(prefixPathStr.length()));
+      }
+ else       if (!fileNameString.endsWith(walFileSuffix)) {
+        return false;
+      }
+      return true;
+    }
+  }
+;
+  if (failIfWALExists) {
+    final FileStatus[] walFiles=FSUtils.listStatus(fs,walDir,ourFiles);
+    if (null != walFiles && 0 != walFiles.length) {
+      throw new IOException("Target WAL already exists within directory " + walDir);
+    }
+  }
+  if (listeners != null) {
+    for (    WALActionsListener i : listeners) {
+      registerWALActionsListener(i);
+    }
+  }
+  this.coprocessorHost=new WALCoprocessorHost(this,conf);
+  final long blocksize=this.conf.getLong("hbase.regionserver.hlog.blocksize",FSUtils.getDefaultBlockSize(this.fs,this.walDir));
+  this.logrollsize=(long)(blocksize * conf.getFloat("hbase.regionserver.logroll.multiplier",0.95f));
+  float memstoreRatio=conf.getFloat(HeapMemorySizeUtil.MEMSTORE_SIZE_KEY,conf.getFloat(HeapMemorySizeUtil.MEMSTORE_SIZE_OLD_KEY,HeapMemorySizeUtil.DEFAULT_MEMSTORE_SIZE));
+  boolean maxLogsDefined=conf.get("hbase.regionserver.maxlogs") != null;
+  if (maxLogsDefined) {
+    LOG.warn("'hbase.regionserver.maxlogs' was deprecated.");
+  }
+  this.maxLogs=conf.getInt("hbase.regionserver.maxlogs",Math.max(32,calculateMaxLogFiles(memstoreRatio,logrollsize)));
+  LOG.info("WAL configuration: blocksize=" + StringUtils.byteDesc(blocksize) + ", rollsize="+ StringUtils.byteDesc(this.logrollsize)+ ", prefix="+ this.walFilePrefix+ ", suffix="+ walFileSuffix+ ", logDir="+ this.walDir+ ", archiveDir="+ this.walArchiveDir);
+  this.slowSyncNs=1000000 * conf.getInt("hbase.regionserver.hlog.slowsync.ms",DEFAULT_SLOW_SYNC_TIME_MS);
+  int maxHandlersCount=conf.getInt(HConstants.REGION_SERVER_HANDLER_COUNT,200);
+  this.syncFuturesByHandler=new ConcurrentHashMap<Thread,SyncFuture>(maxHandlersCount);
+}

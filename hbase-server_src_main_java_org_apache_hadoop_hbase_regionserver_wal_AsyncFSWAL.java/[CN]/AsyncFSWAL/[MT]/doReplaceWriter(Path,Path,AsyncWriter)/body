@@ -1,0 +1,50 @@
+{
+  waitForSafePoint();
+  final AsyncWriter oldWriter=this.writer;
+  this.writer=nextWriter;
+  if (nextWriter != null && nextWriter instanceof AsyncProtobufLogWriter) {
+    this.hdfsOut=((AsyncProtobufLogWriter)nextWriter).getOutput();
+  }
+  this.fileLengthAtLastSync=0L;
+  boolean scheduleTask;
+synchronized (waitingConsumePayloads) {
+    writerBroken=waitingRoll=false;
+    if (logRollerExitedChecker != null) {
+      logRollerExitedChecker.cancel();
+      logRollerExitedChecker=null;
+    }
+    if (consumerScheduled) {
+      scheduleTask=false;
+    }
+ else {
+      if (waitingConsumePayloads.isEmpty() && waitingAppendEntries.isEmpty()) {
+        scheduleTask=false;
+      }
+ else {
+        scheduleTask=consumerScheduled=true;
+      }
+    }
+  }
+  if (scheduleTask) {
+    eventLoop.execute(consumer);
+  }
+  long oldFileLen;
+  if (oldWriter != null) {
+    oldFileLen=oldWriter.getLength();
+    closeExecutor.execute(new Runnable(){
+      @Override public void run(){
+        try {
+          oldWriter.close();
+        }
+ catch (        IOException e) {
+          LOG.warn("close old writer failed",e);
+        }
+      }
+    }
+);
+  }
+ else {
+    oldFileLen=0L;
+  }
+  return oldFileLen;
+}
