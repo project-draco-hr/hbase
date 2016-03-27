@@ -1,0 +1,54 @@
+{
+  SaslPropertiesResolver saslPropsResolver=SASL_ADAPTOR.getSaslPropsResolver(client);
+  TrustedChannelResolver trustedChannelResolver=SASL_ADAPTOR.getTrustedChannelResolver(client);
+  AtomicBoolean fallbackToSimpleAuth=SASL_ADAPTOR.getFallbackToSimpleAuth(client);
+  InetAddress addr=((InetSocketAddress)channel.remoteAddress()).getAddress();
+  if (trustedChannelResolver.isTrusted() || trustedChannelResolver.isTrusted(addr)) {
+    saslPromise.trySuccess(null);
+    return;
+  }
+  DataEncryptionKey encryptionKey;
+  try {
+    encryptionKey=SASL_ADAPTOR.createDataEncryptionKey(client);
+  }
+ catch (  Exception e) {
+    saslPromise.tryFailure(e);
+    return;
+  }
+  if (encryptionKey != null) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("SASL client doing encrypted handshake for addr = " + addr + ", datanodeId = "+ dnInfo);
+    }
+    doSaslNegotiation(conf,channel,timeoutMs,getUserNameFromEncryptionKey(encryptionKey),encryptionKeyToPassword(encryptionKey.encryptionKey),createSaslPropertiesForEncryption(encryptionKey.encryptionAlgorithm),saslPromise);
+  }
+ else   if (!UserGroupInformation.isSecurityEnabled()) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("SASL client skipping handshake in unsecured configuration for addr = " + addr + ", datanodeId = "+ dnInfo);
+    }
+    saslPromise.trySuccess(null);
+  }
+ else   if (dnInfo.getXferPort() < 1024) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("SASL client skipping handshake in secured configuration with " + "privileged port for addr = " + addr + ", datanodeId = "+ dnInfo);
+    }
+    saslPromise.trySuccess(null);
+  }
+ else   if (fallbackToSimpleAuth != null && fallbackToSimpleAuth.get()) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("SASL client skipping handshake in secured configuration with " + "unsecured cluster for addr = " + addr + ", datanodeId = "+ dnInfo);
+    }
+    saslPromise.trySuccess(null);
+  }
+ else   if (saslPropsResolver != null) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("SASL client doing general handshake for addr = " + addr + ", datanodeId = "+ dnInfo);
+    }
+    doSaslNegotiation(conf,channel,timeoutMs,buildUsername(accessToken),buildClientPassword(accessToken),saslPropsResolver.getClientProperties(addr),saslPromise);
+  }
+ else {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("SASL client skipping handshake in secured configuration with no SASL " + "protection configured for addr = " + addr + ", datanodeId = "+ dnInfo);
+    }
+    saslPromise.trySuccess(null);
+  }
+}

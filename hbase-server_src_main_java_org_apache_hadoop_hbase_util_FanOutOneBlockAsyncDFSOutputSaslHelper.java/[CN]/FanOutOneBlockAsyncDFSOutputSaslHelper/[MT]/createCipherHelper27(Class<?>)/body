@@ -1,0 +1,115 @@
+{
+  @SuppressWarnings("rawtypes") Class<? extends Enum> cipherSuiteClass=Class.forName("org.apache.hadoop.crypto.CipherSuite").asSubclass(Enum.class);
+  @SuppressWarnings("unchecked") final Enum<?> aesCipherSuite=Enum.valueOf(cipherSuiteClass,"AES_CTR_NOPADDING");
+  final Constructor<?> cipherOptionConstructor=cipherOptionClass.getConstructor(cipherSuiteClass);
+  final Constructor<?> cipherOptionWithKeyAndIvConstructor=cipherOptionClass.getConstructor(cipherSuiteClass,byte[].class,byte[].class,byte[].class,byte[].class);
+  final Method getCipherSuiteMethod=cipherOptionClass.getMethod("getCipherSuite");
+  final Method getInKeyMethod=cipherOptionClass.getMethod("getInKey");
+  final Method getInIvMethod=cipherOptionClass.getMethod("getInIv");
+  final Method getOutKeyMethod=cipherOptionClass.getMethod("getOutKey");
+  final Method getOutIvMethod=cipherOptionClass.getMethod("getOutIv");
+  final Method convertCipherOptionsMethod=PBHelper.class.getMethod("convertCipherOptions",List.class);
+  final Method convertCipherOptionProtosMethod=PBHelper.class.getMethod("convertCipherOptionProtos",List.class);
+  final Method addAllCipherOptionMethod=DataTransferEncryptorMessageProto.Builder.class.getMethod("addAllCipherOption",Iterable.class);
+  final Method getCipherOptionListMethod=DataTransferEncryptorMessageProto.class.getMethod("getCipherOptionList");
+  return new CipherHelper(){
+    @Override public byte[] getOutKey(    Object cipherOption){
+      try {
+        return (byte[])getOutKeyMethod.invoke(cipherOption);
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public byte[] getOutIv(    Object cipherOption){
+      try {
+        return (byte[])getOutIvMethod.invoke(cipherOption);
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public byte[] getInKey(    Object cipherOption){
+      try {
+        return (byte[])getInKeyMethod.invoke(cipherOption);
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public byte[] getInIv(    Object cipherOption){
+      try {
+        return (byte[])getInIvMethod.invoke(cipherOption);
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public Object getCipherSuite(    Object cipherOption){
+      try {
+        return getCipherSuiteMethod.invoke(cipherOption);
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public List<Object> getCipherOptions(    Configuration conf) throws IOException {
+      String cipherSuites=conf.get(DFS_ENCRYPT_DATA_TRANSFER_CIPHER_SUITES_KEY);
+      if (cipherSuites == null || cipherSuites.isEmpty()) {
+        return null;
+      }
+      if (!cipherSuites.equals(AES_CTR_NOPADDING)) {
+        throw new IOException(String.format("Invalid cipher suite, %s=%s",DFS_ENCRYPT_DATA_TRANSFER_CIPHER_SUITES_KEY,cipherSuites));
+      }
+      Object option;
+      try {
+        option=cipherOptionConstructor.newInstance(aesCipherSuite);
+      }
+ catch (      InstantiationException|IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+      List<Object> cipherOptions=Lists.newArrayListWithCapacity(1);
+      cipherOptions.add(option);
+      return cipherOptions;
+    }
+    private Object unwrap(    Object option,    SaslClient saslClient) throws IOException {
+      byte[] inKey=getInKey(option);
+      if (inKey != null) {
+        inKey=saslClient.unwrap(inKey,0,inKey.length);
+      }
+      byte[] outKey=getOutKey(option);
+      if (outKey != null) {
+        outKey=saslClient.unwrap(outKey,0,outKey.length);
+      }
+      try {
+        return cipherOptionWithKeyAndIvConstructor.newInstance(getCipherSuite(option),inKey,getInIv(option),outKey,getOutIv(option));
+      }
+ catch (      InstantiationException|IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @SuppressWarnings("unchecked") @Override public Object getCipherOption(    DataTransferEncryptorMessageProto proto,    boolean isNegotiatedQopPrivacy,    SaslClient saslClient) throws IOException {
+      List<Object> cipherOptions;
+      try {
+        cipherOptions=(List<Object>)convertCipherOptionProtosMethod.invoke(null,getCipherOptionListMethod.invoke(proto));
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+      if (cipherOptions == null || cipherOptions.isEmpty()) {
+        return null;
+      }
+      Object cipherOption=cipherOptions.get(0);
+      return isNegotiatedQopPrivacy ? unwrap(cipherOption,saslClient) : cipherOption;
+    }
+    @Override public void addCipherOptions(    Builder builder,    List<Object> cipherOptions){
+      try {
+        addAllCipherOptionMethod.invoke(builder,convertCipherOptionsMethod.invoke(null,cipherOptions));
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+;
+}
