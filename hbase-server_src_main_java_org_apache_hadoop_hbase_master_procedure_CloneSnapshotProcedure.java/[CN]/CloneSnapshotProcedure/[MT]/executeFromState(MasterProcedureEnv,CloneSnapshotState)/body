@@ -1,0 +1,43 @@
+{
+  if (isTraceEnabled()) {
+    LOG.trace(this + " execute state=" + state);
+  }
+  try {
+switch (state) {
+case CLONE_SNAPSHOT_PRE_OPERATION:
+      prepareClone(env);
+    preCloneSnapshot(env);
+  setNextState(CloneSnapshotState.CLONE_SNAPSHOT_WRITE_FS_LAYOUT);
+break;
+case CLONE_SNAPSHOT_WRITE_FS_LAYOUT:
+newRegions=createFilesystemLayout(env,hTableDescriptor,newRegions);
+setNextState(CloneSnapshotState.CLONE_SNAPSHOT_ADD_TO_META);
+break;
+case CLONE_SNAPSHOT_ADD_TO_META:
+addRegionsToMeta(env);
+setNextState(CloneSnapshotState.CLONE_SNAPSHOT_ASSIGN_REGIONS);
+break;
+case CLONE_SNAPSHOT_ASSIGN_REGIONS:
+CreateTableProcedure.assignRegions(env,getTableName(),newRegions);
+setNextState(CloneSnapshotState.CLONE_SNAPSHOT_UPDATE_DESC_CACHE);
+break;
+case CLONE_SNAPSHOT_UPDATE_DESC_CACHE:
+CreateTableProcedure.updateTableDescCache(env,getTableName());
+setNextState(CloneSnapshotState.CLONE_SNAPSHOT_POST_OPERATION);
+break;
+case CLONE_SNAPSHOT_POST_OPERATION:
+postCloneSnapshot(env);
+MetricsSnapshot metricsSnapshot=new MetricsSnapshot();
+metricsSnapshot.addSnapshotClone(getMonitorStatus().getCompletionTimestamp() - getMonitorStatus().getStartTime());
+getMonitorStatus().markComplete("Clone snapshot '" + snapshot.getName() + "' completed!");
+return Flow.NO_MORE_STATE;
+default :
+throw new UnsupportedOperationException("unhandled state=" + state);
+}
+}
+ catch (IOException e) {
+LOG.error("Error trying to create table=" + getTableName() + " state="+ state,e);
+setFailure("master-create-table",e);
+}
+return Flow.HAS_MORE_STATE;
+}

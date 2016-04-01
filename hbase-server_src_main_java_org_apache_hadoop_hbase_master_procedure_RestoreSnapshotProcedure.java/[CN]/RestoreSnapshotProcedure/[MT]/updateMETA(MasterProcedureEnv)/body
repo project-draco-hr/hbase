@@ -1,0 +1,31 @@
+{
+  try {
+    Connection conn=env.getMasterServices().getConnection();
+    forceRegionsOffline(env,regionsToAdd);
+    forceRegionsOffline(env,regionsToRestore);
+    forceRegionsOffline(env,regionsToRemove);
+    getMonitorStatus().setStatus("Preparing to restore each region");
+    if (regionsToRemove != null) {
+      MetaTableAccessor.deleteRegions(conn,regionsToRemove);
+    }
+    if (regionsToAdd != null) {
+      MetaTableAccessor.addRegionsToMeta(conn,regionsToAdd,modifiedHTableDescriptor.getRegionReplication());
+    }
+    if (regionsToRestore != null) {
+      MetaTableAccessor.overwriteRegions(conn,regionsToRestore,modifiedHTableDescriptor.getRegionReplication());
+    }
+    RestoreSnapshotHelper.RestoreMetaChanges metaChanges=new RestoreSnapshotHelper.RestoreMetaChanges(modifiedHTableDescriptor,parentsToChildrenPairMap);
+    metaChanges.updateMetaParentRegions(conn,regionsToAdd);
+    LOG.info("Restore snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot) + " on table="+ getTableName()+ " completed!");
+  }
+ catch (  IOException e) {
+    final ForeignExceptionDispatcher monitorException=new ForeignExceptionDispatcher();
+    String msg="restore snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot) + " failed in meta update. Try re-running the restore command.";
+    LOG.error(msg,e);
+    monitorException.receive(new ForeignException(env.getMasterServices().getServerName().toString(),e));
+    throw new IOException(msg,e);
+  }
+  monitorStatus.markComplete("Restore snapshot '" + snapshot.getName() + "'!");
+  MetricsSnapshot metricsSnapshot=new MetricsSnapshot();
+  metricsSnapshot.addSnapshotRestore(monitorStatus.getCompletionTimestamp() - monitorStatus.getStartTime());
+}

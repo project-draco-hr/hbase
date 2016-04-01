@@ -1,0 +1,23 @@
+{
+  MasterFileSystem fileSystemManager=env.getMasterServices().getMasterFileSystem();
+  FileSystem fs=fileSystemManager.getFileSystem();
+  Path rootDir=fileSystemManager.getRootDir();
+  final ForeignExceptionDispatcher monitorException=new ForeignExceptionDispatcher();
+  LOG.info("Starting restore snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot));
+  try {
+    Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot,rootDir);
+    SnapshotManifest manifest=SnapshotManifest.open(env.getMasterServices().getConfiguration(),fs,snapshotDir,snapshot);
+    RestoreSnapshotHelper restoreHelper=new RestoreSnapshotHelper(env.getMasterServices().getConfiguration(),fs,manifest,modifiedHTableDescriptor,rootDir,monitorException,getMonitorStatus());
+    RestoreSnapshotHelper.RestoreMetaChanges metaChanges=restoreHelper.restoreHdfsRegions();
+    regionsToRestore=metaChanges.getRegionsToRestore();
+    regionsToRemove=metaChanges.getRegionsToRemove();
+    regionsToAdd=metaChanges.getRegionsToAdd();
+    parentsToChildrenPairMap=metaChanges.getParentToChildrenPairMap();
+  }
+ catch (  IOException e) {
+    String msg="restore snapshot=" + ClientSnapshotDescriptionUtils.toString(snapshot) + " failed in on-disk restore. Try re-running the restore command.";
+    LOG.error(msg,e);
+    monitorException.receive(new ForeignException(env.getMasterServices().getServerName().toString(),e));
+    throw new IOException(msg,e);
+  }
+}

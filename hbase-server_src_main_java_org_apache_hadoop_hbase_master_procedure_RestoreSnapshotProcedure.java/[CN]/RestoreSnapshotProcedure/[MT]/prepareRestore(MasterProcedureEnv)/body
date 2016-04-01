@@ -1,0 +1,19 @@
+{
+  final TableName tableName=getTableName();
+  if (!MetaTableAccessor.tableExists(env.getMasterServices().getConnection(),tableName)) {
+    throw new TableNotFoundException(tableName);
+  }
+  env.getMasterServices().checkTableModifiable(tableName);
+  if (modifiedHTableDescriptor.getColumnFamilies().length == 0) {
+    throw new DoNotRetryIOException("Table " + getTableName().toString() + " should have at least one column family.");
+  }
+  if (!getTableName().isSystemTable()) {
+    final MasterFileSystem mfs=env.getMasterServices().getMasterFileSystem();
+    SnapshotManifest manifest=SnapshotManifest.open(env.getMasterConfiguration(),mfs.getFileSystem(),SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshot,mfs.getRootDir()),snapshot);
+    int snapshotRegionCount=manifest.getRegionManifestsMap().size();
+    int tableRegionCount=ProcedureSyncWait.getMasterQuotaManager(env).getRegionCountOfTable(tableName);
+    if (snapshotRegionCount > 0 && tableRegionCount != snapshotRegionCount) {
+      ProcedureSyncWait.getMasterQuotaManager(env).checkAndUpdateNamespaceRegionQuota(tableName,snapshotRegionCount);
+    }
+  }
+}

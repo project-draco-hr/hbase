@@ -1,0 +1,22 @@
+{
+  FileSystem fs=master.getMasterFileSystem().getFileSystem();
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(reqSnapshot,rootDir);
+  if (!fs.exists(snapshotDir)) {
+    LOG.error("A Snapshot named '" + reqSnapshot.getName() + "' does not exist.");
+    throw new SnapshotDoesNotExistException(reqSnapshot);
+  }
+  SnapshotDescription snapshot=SnapshotDescriptionUtils.readSnapshotInfo(fs,snapshotDir);
+  SnapshotManifest manifest=SnapshotManifest.open(master.getConfiguration(),fs,snapshotDir,snapshot);
+  HTableDescriptor snapshotTableDesc=manifest.getTableDescriptor();
+  TableName tableName=TableName.valueOf(reqSnapshot.getTable());
+  cleanupSentinels();
+  SnapshotReferenceUtil.verifySnapshot(master.getConfiguration(),fs,manifest);
+  long procId;
+  if (MetaTableAccessor.tableExists(master.getConnection(),tableName)) {
+    procId=restoreSnapshot(reqSnapshot,tableName,snapshot,snapshotTableDesc,nonceGroup,nonce);
+  }
+ else {
+    procId=cloneSnapshot(reqSnapshot,tableName,snapshot,snapshotTableDesc,nonceGroup,nonce);
+  }
+  return procId;
+}
