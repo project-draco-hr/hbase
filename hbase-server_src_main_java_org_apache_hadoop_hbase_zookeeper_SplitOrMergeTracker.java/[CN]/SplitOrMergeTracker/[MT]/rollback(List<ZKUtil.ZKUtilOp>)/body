@@ -1,0 +1,19 @@
+{
+  String splitOrMergeState=ZKUtil.joinZNode(watcher.getSwitchLockZNode(),SplitOrMergeTracker.STATE);
+  if (ZKUtil.checkExists(watcher,splitOrMergeState) != -1) {
+    byte[] bytes=ZKUtil.getData(watcher,splitOrMergeState);
+    ProtobufUtil.expectPBMagicPrefix(bytes);
+    ZooKeeperProtos.SplitAndMergeState.Builder builder=ZooKeeperProtos.SplitAndMergeState.newBuilder();
+    try {
+      int magicLen=ProtobufUtil.lengthOfPBMagic();
+      ProtobufUtil.mergeFrom(builder,bytes,magicLen,bytes.length - magicLen);
+    }
+ catch (    IOException e) {
+      throw new DeserializationException(e);
+    }
+    ZooKeeperProtos.SplitAndMergeState splitAndMergeState=builder.build();
+    splitStateTracker.setSwitchEnabled(splitAndMergeState.hasSplitEnabled());
+    mergeStateTracker.setSwitchEnabled(splitAndMergeState.hasMergeEnabled());
+    ops.add(ZKUtil.ZKUtilOp.deleteNodeFailSilent(splitOrMergeState));
+  }
+}
