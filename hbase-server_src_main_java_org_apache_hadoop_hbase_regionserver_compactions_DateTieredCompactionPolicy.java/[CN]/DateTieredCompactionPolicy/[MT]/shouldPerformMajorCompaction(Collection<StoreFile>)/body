@@ -1,0 +1,49 @@
+{
+  long mcTime=getNextMajorCompactTime(filesToCompact);
+  if (filesToCompact == null || mcTime == 0) {
+    return false;
+  }
+  long lowTimestamp=StoreUtils.getLowestTimestamp(filesToCompact);
+  long now=EnvironmentEdgeManager.currentTime();
+  if (lowTimestamp <= 0L || lowTimestamp >= (now - mcTime)) {
+    return false;
+  }
+  long cfTTL=this.storeConfigInfo.getStoreFileTtl();
+  HDFSBlocksDistribution hdfsBlocksDistribution=new HDFSBlocksDistribution();
+  long oldestToCompact=getOldestToCompact(comConf.getMaxStoreFileAgeMillis(),now);
+  List<Long> boundaries=getCompactBoundariesForMajor(filesToCompact,oldestToCompact,now);
+  boolean[] filesInWindow=new boolean[boundaries.size()];
+  for (  StoreFile file : filesToCompact) {
+    Long minTimestamp=file.getMinimumTimestamp();
+    long oldest=(minTimestamp == null) ? (Long)Long.MIN_VALUE : now - minTimestamp.longValue();
+    if (cfTTL != HConstants.FOREVER && oldest >= cfTTL) {
+      LOG.debug("Major compaction triggered on store " + this + "; for TTL maintenance");
+      return true;
+    }
+    if (!file.isMajorCompaction() || file.isBulkLoadResult()) {
+      LOG.debug("Major compaction triggered on store " + this + ", because there are new files and time since last major compaction "+ (now - lowTimestamp)+ "ms");
+      return true;
+    }
+    int lowerWindowIndex=Collections.binarySearch(boundaries,minTimestamp == null ? (Long)Long.MAX_VALUE : minTimestamp);
+    int upperWindowIndex=Collections.binarySearch(boundaries,file.getMaximumTimestamp() == null ? (Long)Long.MAX_VALUE : file.getMaximumTimestamp());
+    if (lowerWindowIndex != upperWindowIndex) {
+      LOG.debug("Major compaction triggered on store " + this + "; because file "+ file.getPath()+ " has data with timestamps cross window boundaries");
+      return true;
+    }
+ else     if (filesInWindow[upperWindowIndex]) {
+      LOG.debug("Major compaction triggered on store " + this + "; because there are more than one file in some windows");
+      return true;
+    }
+ else {
+      filesInWindow[upperWindowIndex]=true;
+    }
+    hdfsBlocksDistribution.add(file.getHDFSBlockDistribution());
+  }
+  float blockLocalityIndex=hdfsBlocksDistribution.getBlockLocalityIndex(RSRpcServices.getHostname(comConf.conf,false));
+  if (blockLocalityIndex < comConf.getMinLocalityToForceCompact()) {
+    LOG.debug("Major compaction triggered on store " + this + "; to make hdfs blocks local, current blockLocalityIndex is "+ blockLocalityIndex+ " (min "+ comConf.getMinLocalityToForceCompact()+ ")");
+    return true;
+  }
+  LOG.debug("Skipping major compaction of " + this + ", because the files are already major compacted");
+  return false;
+}

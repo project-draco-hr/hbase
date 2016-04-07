@@ -1,0 +1,37 @@
+{
+  long now=EnvironmentEdgeManager.currentTime();
+  long oldestToCompact=getOldestToCompact(comConf.getMaxStoreFileAgeMillis(),now);
+  List<StoreFile> storeFileList=Lists.newArrayList(filterOldStoreFiles(candidateSelection,oldestToCompact));
+  Collections.sort(storeFileList,StoreFile.Comparators.SEQ_ID_MAX_TIMESTAMP);
+  List<Pair<StoreFile,Long>> storefileMaxTimestampPairs=Lists.newArrayListWithCapacity(Iterables.size(storeFileList));
+  long maxTimestampSeen=Long.MIN_VALUE;
+  for (  StoreFile storeFile : storeFileList) {
+    maxTimestampSeen=Math.max(maxTimestampSeen,storeFile.getMaximumTimestamp() == null ? Long.MIN_VALUE : storeFile.getMaximumTimestamp());
+    storefileMaxTimestampPairs.add(new Pair<StoreFile,Long>(storeFile,maxTimestampSeen));
+  }
+  Collections.reverse(storefileMaxTimestampPairs);
+  Window window=getIncomingWindow(now,comConf.getBaseWindowMillis());
+  int minThreshold=comConf.getIncomingWindowMin();
+  PeekingIterator<Pair<StoreFile,Long>> it=Iterators.peekingIterator(storefileMaxTimestampPairs.iterator());
+  while (it.hasNext()) {
+    int compResult=window.compareToTimestamp(it.peek().getSecond());
+    if (compResult > 0) {
+      window=window.nextWindow(comConf.getWindowsPerTier(),oldestToCompact);
+      minThreshold=comConf.getMinFilesToCompact();
+    }
+ else {
+      ArrayList<StoreFile> fileList=Lists.newArrayList();
+      while (it.hasNext() && window.compareToTimestamp(it.peek().getSecond()) <= 0) {
+        fileList.add(it.next().getFirst());
+      }
+      if (fileList.size() >= minThreshold) {
+        LOG.debug("Processing files: " + fileList + " for window: "+ window);
+        DateTieredCompactionRequest request=generateCompactionRequest(fileList,window,mayUseOffPeak,mayBeStuck,minThreshold);
+        if (request != null) {
+          return request;
+        }
+      }
+    }
+  }
+  return new CompactionRequest(Collections.<StoreFile>emptyList());
+}

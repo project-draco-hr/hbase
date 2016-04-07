@@ -1,0 +1,22 @@
+{
+  ArrayList<StoreFile> candidateSelection=new ArrayList<StoreFile>(candidateFiles);
+  int futureFiles=filesCompacting.isEmpty() ? 0 : 1;
+  boolean mayBeStuck=(candidateFiles.size() - filesCompacting.size() + futureFiles) >= storeConfigInfo.getBlockingFileCount();
+  candidateSelection=getCurrentEligibleFiles(candidateSelection,filesCompacting);
+  LOG.debug("Selecting compaction from " + candidateFiles.size() + " store files, "+ filesCompacting.size()+ " compacting, "+ candidateSelection.size()+ " eligible, "+ storeConfigInfo.getBlockingFileCount()+ " blocking");
+  boolean isAllFiles=candidateFiles.size() == candidateSelection.size();
+  if (!(forceMajor && isAllFiles)) {
+    candidateSelection=skipLargeFiles(candidateSelection,mayUseOffPeak);
+    isAllFiles=candidateFiles.size() == candidateSelection.size();
+  }
+  boolean isTryingMajor=(forceMajor && isAllFiles && isUserCompaction) || (((forceMajor && isAllFiles) || shouldPerformMajorCompaction(candidateSelection)) && (candidateSelection.size() < comConf.getMaxFilesToCompact()));
+  boolean isAfterSplit=StoreUtils.hasReferences(candidateSelection);
+  CompactionRequest result=createCompactionRequest(candidateSelection,isTryingMajor || isAfterSplit,mayUseOffPeak,mayBeStuck);
+  ArrayList<StoreFile> filesToCompact=Lists.newArrayList(result.getFiles());
+  removeExcessFiles(filesToCompact,isUserCompaction,isTryingMajor);
+  result.updateFiles(filesToCompact);
+  isAllFiles=(candidateFiles.size() == filesToCompact.size());
+  result.setOffPeak(!filesToCompact.isEmpty() && !isAllFiles && mayUseOffPeak);
+  result.setIsMajor(isTryingMajor && isAllFiles,isAllFiles);
+  return result;
+}
