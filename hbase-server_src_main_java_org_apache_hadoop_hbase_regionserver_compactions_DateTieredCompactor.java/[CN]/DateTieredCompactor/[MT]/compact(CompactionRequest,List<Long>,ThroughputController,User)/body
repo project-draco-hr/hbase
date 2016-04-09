@@ -2,13 +2,11 @@
   if (LOG.isDebugEnabled()) {
     LOG.debug("Executing compaction with " + lowerBoundaries.size() + "windows, lower boundaries: "+ lowerBoundaries);
   }
-  DateTieredMultiFileWriter writer=new DateTieredMultiFileWriter(lowerBoundaries,needEmptyFile(request));
-  return compact(writer,request,new InternalScannerFactory(){
-    @Override public ScanType getScanType(    CompactionRequest request){
-      return request.isRetainDeleteMarkers() ? ScanType.COMPACT_RETAIN_DELETES : ScanType.COMPACT_DROP_DELETES;
-    }
-    @Override public InternalScanner createScanner(    List<StoreFileScanner> scanners,    ScanType scanType,    FileDetails fd,    long smallestReadPoint) throws IOException {
-      return DateTieredCompactor.this.createScanner(store,scanners,scanType,smallestReadPoint,fd.earliestPutTs);
+  return compact(request,defaultScannerFactory,new CellSinkFactory<DateTieredMultiFileWriter>(){
+    @Override public DateTieredMultiFileWriter createWriter(    InternalScanner scanner,    FileDetails fd,    boolean shouldDropBehind) throws IOException {
+      DateTieredMultiFileWriter writer=new DateTieredMultiFileWriter(lowerBoundaries,needEmptyFile(request));
+      initMultiWriter(writer,scanner,fd,shouldDropBehind);
+      return writer;
     }
   }
 ,throughputController,user);
