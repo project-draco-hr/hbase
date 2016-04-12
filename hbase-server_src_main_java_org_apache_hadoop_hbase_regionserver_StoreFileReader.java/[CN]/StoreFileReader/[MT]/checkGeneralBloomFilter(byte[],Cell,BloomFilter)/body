@@ -1,0 +1,56 @@
+{
+  if (reader.getTrailer().getEntryCount() == 0) {
+    return false;
+  }
+  HFileBlock bloomBlock=null;
+  try {
+    boolean shouldCheckBloom;
+    ByteBuff bloom;
+    if (bloomFilter.supportsAutoLoading()) {
+      bloom=null;
+      shouldCheckBloom=true;
+    }
+ else {
+      bloomBlock=reader.getMetaBlock(HFile.BLOOM_FILTER_DATA_KEY,true);
+      bloom=bloomBlock.getBufferWithoutHeader();
+      shouldCheckBloom=bloom != null;
+    }
+    if (shouldCheckBloom) {
+      boolean exists;
+      boolean keyIsAfterLast=(lastBloomKey != null);
+      if (keyIsAfterLast) {
+        if (bloomFilterType == BloomType.ROW) {
+          keyIsAfterLast=(Bytes.BYTES_RAWCOMPARATOR.compare(key,lastBloomKey) > 0);
+        }
+ else {
+          keyIsAfterLast=(CellComparator.COMPARATOR.compare(kvKey,lastBloomKeyOnlyKV)) > 0;
+        }
+      }
+      if (bloomFilterType == BloomType.ROWCOL) {
+        Cell rowBloomKey=CellUtil.createFirstOnRow(kvKey);
+        if (keyIsAfterLast && (CellComparator.COMPARATOR.compare(rowBloomKey,lastBloomKeyOnlyKV)) > 0) {
+          exists=false;
+        }
+ else {
+          exists=bloomFilter.contains(kvKey,bloom) || bloomFilter.contains(rowBloomKey,bloom);
+        }
+      }
+ else {
+        exists=!keyIsAfterLast && bloomFilter.contains(key,0,key.length,bloom);
+      }
+      return exists;
+    }
+  }
+ catch (  IOException e) {
+    LOG.error("Error reading bloom filter data -- proceeding without",e);
+    setGeneralBloomFilterFaulty();
+  }
+catch (  IllegalArgumentException e) {
+    LOG.error("Bad bloom filter data -- proceeding without",e);
+    setGeneralBloomFilterFaulty();
+  }
+ finally {
+    reader.returnBlock(bloomBlock);
+  }
+  return true;
+}
