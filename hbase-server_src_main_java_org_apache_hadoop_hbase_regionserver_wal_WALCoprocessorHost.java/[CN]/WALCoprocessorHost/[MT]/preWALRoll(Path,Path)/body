@@ -1,0 +1,27 @@
+{
+  if (this.coprocessors == null || this.coprocessors.isEmpty())   return;
+  ObserverContext<WALCoprocessorEnvironment> ctx=null;
+  List<WALEnvironment> envs=coprocessors.get();
+  for (int i=0; i < envs.size(); i++) {
+    WALEnvironment env=envs.get(i);
+    if (env.getInstance() instanceof WALObserver) {
+      final WALObserver observer=(WALObserver)env.getInstance();
+      ctx=ObserverContext.createAndPrepare(env,ctx);
+      Thread currentThread=Thread.currentThread();
+      ClassLoader cl=currentThread.getContextClassLoader();
+      try {
+        currentThread.setContextClassLoader(env.getClassLoader());
+        observer.preWALRoll(ctx,oldPath,newPath);
+      }
+ catch (      Throwable e) {
+        handleCoprocessorThrowable(env,e);
+      }
+ finally {
+        currentThread.setContextClassLoader(cl);
+      }
+      if (ctx.shouldComplete()) {
+        break;
+      }
+    }
+  }
+}
