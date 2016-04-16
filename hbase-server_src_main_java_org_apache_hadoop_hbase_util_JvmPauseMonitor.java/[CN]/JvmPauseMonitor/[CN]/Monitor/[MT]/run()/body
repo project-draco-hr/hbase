@@ -11,11 +11,22 @@
     }
     long extraSleepTime=sw.elapsedMillis() - SLEEP_INTERVAL_MS;
     Map<String,GcTimes> gcTimesAfterSleep=getGcTimes();
-    if (extraSleepTime > warnThresholdMs) {
-      LOG.warn(formatMessage(extraSleepTime,gcTimesAfterSleep,gcTimesBeforeSleep));
-    }
- else     if (extraSleepTime > infoThresholdMs) {
-      LOG.info(formatMessage(extraSleepTime,gcTimesAfterSleep,gcTimesBeforeSleep));
+    if (extraSleepTime > infoThresholdMs) {
+      Set<String> gcBeanNames=Sets.intersection(gcTimesAfterSleep.keySet(),gcTimesBeforeSleep.keySet());
+      List<String> gcDiffs=Lists.newArrayList();
+      for (      String name : gcBeanNames) {
+        GcTimes diff=gcTimesAfterSleep.get(name).subtract(gcTimesBeforeSleep.get(name));
+        if (diff.gcCount != 0) {
+          gcDiffs.add("GC pool '" + name + "' had collection(s): "+ diff.toString());
+        }
+      }
+      updateMetrics(extraSleepTime,!gcDiffs.isEmpty());
+      if (extraSleepTime > warnThresholdMs) {
+        LOG.warn(formatMessage(extraSleepTime,gcDiffs));
+      }
+ else {
+        LOG.info(formatMessage(extraSleepTime,gcDiffs));
+      }
     }
     gcTimesBeforeSleep=gcTimesAfterSleep;
   }
