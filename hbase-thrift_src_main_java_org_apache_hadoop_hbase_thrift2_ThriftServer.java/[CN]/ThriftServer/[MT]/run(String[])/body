@@ -64,6 +64,7 @@
   boolean nonblocking=cmd.hasOption("nonblocking");
   boolean hsha=cmd.hasOption("hsha");
   ThriftMetrics metrics=new ThriftMetrics(conf,ThriftMetrics.ThriftServerType.TWO);
+  final JvmPauseMonitor pauseMonitor=new JvmPauseMonitor(conf,metrics.getSource());
   String implType="threadpool";
   if (nonblocking) {
     implType="nonblocking";
@@ -135,8 +136,14 @@
   final TServer tserver=server;
   realUser.doAs(new PrivilegedAction<Object>(){
     @Override public Object run(){
-      tserver.serve();
-      return null;
+      pauseMonitor.start();
+      try {
+        tserver.serve();
+        return null;
+      }
+  finally {
+        pauseMonitor.stop();
+      }
     }
   }
 );
