@@ -1,0 +1,31 @@
+{
+  Map<TableName,MetricsTableValues> localMetricsTableMap=new HashMap<>();
+  for (  Region r : regionServer.getOnlineRegionsLocalContext()) {
+    TableName tbl=r.getTableDesc().getTableName();
+    MetricsTableValues metricsTable=localMetricsTableMap.get(tbl);
+    if (metricsTable == null) {
+      metricsTable=new MetricsTableValues();
+      localMetricsTableMap.put(tbl,metricsTable);
+    }
+    metricsTable.setReadRequestsCount(metricsTable.getReadRequestsCount() + r.getReadRequestsCount());
+    metricsTable.setWriteRequestsCount(metricsTable.getWriteRequestsCount() + r.getWriteRequestsCount());
+    metricsTable.setTotalRequestsCount(metricsTable.getReadRequestsCount() + metricsTable.getWriteRequestsCount());
+  }
+  for (  Map.Entry<TableName,MetricsTableValues> entry : localMetricsTableMap.entrySet()) {
+    TableName tbl=entry.getKey();
+    if (metricsTableMap.get(tbl) == null) {
+      MetricsTableSource tableSource=CompatibilitySingletonFactory.getInstance(MetricsRegionServerSourceFactory.class).createTable(tbl.getNameAsString(),MetricsTableWrapperAggregateImpl.this);
+      CompatibilitySingletonFactory.getInstance(MetricsRegionServerSourceFactory.class).getTableAggregate().register(tbl.getNameAsString(),tableSource);
+    }
+    metricsTableMap.put(entry.getKey(),entry.getValue());
+  }
+  Set<TableName> existingTableNames=Sets.newHashSet(metricsTableMap.keySet());
+  existingTableNames.removeAll(localMetricsTableMap.keySet());
+  MetricsTableAggregateSource agg=CompatibilitySingletonFactory.getInstance(MetricsRegionServerSourceFactory.class).getTableAggregate();
+  for (  TableName table : existingTableNames) {
+    agg.deregister(table.getNameAsString());
+    if (metricsTableMap.get(table) != null) {
+      metricsTableMap.remove(table);
+    }
+  }
+}
