@@ -1,21 +1,23 @@
 {
   long now=EnvironmentEdgeManager.currentTime();
-  long oldestToCompact=getOldestToCompact(comConf.getMaxStoreFileAgeMillis(),now);
-  List<StoreFile> storeFileList=Lists.newArrayList(filterOldStoreFiles(candidateSelection,oldestToCompact));
-  List<Pair<StoreFile,Long>> storefileMaxTimestampPairs=Lists.newArrayListWithCapacity(Iterables.size(storeFileList));
+  long oldestToCompact=getOldestToCompact(comConf.getDateTieredMaxStoreFileAgeMillis(),now);
+  List<Pair<StoreFile,Long>> storefileMaxTimestampPairs=Lists.newArrayListWithCapacity(candidateSelection.size());
   long maxTimestampSeen=Long.MIN_VALUE;
-  for (  StoreFile storeFile : storeFileList) {
+  for (  StoreFile storeFile : candidateSelection) {
     maxTimestampSeen=Math.max(maxTimestampSeen,storeFile.getMaximumTimestamp() == null ? Long.MIN_VALUE : storeFile.getMaximumTimestamp());
     storefileMaxTimestampPairs.add(new Pair<StoreFile,Long>(storeFile,maxTimestampSeen));
   }
   Collections.reverse(storefileMaxTimestampPairs);
-  Window window=getIncomingWindow(now,comConf.getBaseWindowMillis());
-  int minThreshold=comConf.getIncomingWindowMin();
+  CompactionWindow window=getIncomingWindow(now);
+  int minThreshold=comConf.getDateTieredIncomingWindowMin();
   PeekingIterator<Pair<StoreFile,Long>> it=Iterators.peekingIterator(storefileMaxTimestampPairs.iterator());
   while (it.hasNext()) {
+    if (window.compareToTimestamp(oldestToCompact) < 0) {
+      break;
+    }
     int compResult=window.compareToTimestamp(it.peek().getSecond());
     if (compResult > 0) {
-      window=window.nextWindow(comConf.getWindowsPerTier(),oldestToCompact);
+      window=window.nextEarlierWindow();
       minThreshold=comConf.getMinFilesToCompact();
     }
  else {
@@ -24,7 +26,9 @@
         fileList.add(it.next().getFirst());
       }
       if (fileList.size() >= minThreshold) {
-        LOG.debug("Processing files: " + fileList + " for window: "+ window);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Processing files: " + fileList + " for window: "+ window);
+        }
         DateTieredCompactionRequest request=generateCompactionRequest(fileList,window,mayUseOffPeak,mayBeStuck,minThreshold);
         if (request != null) {
           return request;
