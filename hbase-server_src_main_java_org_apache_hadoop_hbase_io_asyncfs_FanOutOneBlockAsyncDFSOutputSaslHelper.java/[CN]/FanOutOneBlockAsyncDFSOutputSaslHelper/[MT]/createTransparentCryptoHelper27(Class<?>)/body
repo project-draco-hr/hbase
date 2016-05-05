@@ -1,0 +1,33 @@
+{
+  final Method getFileEncryptionInfoMethod=HdfsFileStatus.class.getMethod("getFileEncryptionInfo");
+  final Method decryptEncryptedDataEncryptionKeyMethod=DFSClient.class.getDeclaredMethod("decryptEncryptedDataEncryptionKey",feInfoClass);
+  decryptEncryptedDataEncryptionKeyMethod.setAccessible(true);
+  final Method getCipherSuiteMethod=feInfoClass.getMethod("getCipherSuite");
+  Class<?> keyVersionClass=Class.forName("org.apache.hadoop.crypto.key.KeyProvider$KeyVersion");
+  final Method getMaterialMethod=keyVersionClass.getMethod("getMaterial");
+  final Method getIVMethod=feInfoClass.getMethod("getIV");
+  return new TransparentCryptoHelper(){
+    @Override public Object getFileEncryptionInfo(    HdfsFileStatus stat){
+      try {
+        return getFileEncryptionInfoMethod.invoke(stat);
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public CryptoCodec createCryptoCodec(    Configuration conf,    Object feInfo,    DFSClient client) throws IOException {
+      try {
+        Object decrypted=decryptEncryptedDataEncryptionKeyMethod.invoke(client,feInfo);
+        return new CryptoCodec(conf,getCipherSuiteMethod.invoke(feInfo),(byte[])getMaterialMethod.invoke(decrypted),(byte[])getIVMethod.invoke(feInfo));
+      }
+ catch (      InvocationTargetException e) {
+        Throwables.propagateIfPossible(e.getTargetException(),IOException.class);
+        throw new RuntimeException(e.getTargetException());
+      }
+catch (      IllegalAccessException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+;
+}
