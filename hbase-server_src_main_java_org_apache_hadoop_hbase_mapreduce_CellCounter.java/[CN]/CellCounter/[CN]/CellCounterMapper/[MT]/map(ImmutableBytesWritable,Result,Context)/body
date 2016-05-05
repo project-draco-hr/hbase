@@ -1,40 +1,39 @@
 {
   Preconditions.checkState(values != null,"values passed to the map is null");
-  String currentFamilyName=null;
-  String currentQualifierName=null;
-  String currentRowKey=null;
-  Configuration config=context.getConfiguration();
-  String separator=config.get("ReportSeparator",":");
   try {
-    context.getCounter(Counters.ROWS).increment(1);
-    context.write(new Text("Total ROWS"),new IntWritable(1));
-    if (values != null && !values.isEmpty()) {
+    byte[] currentRow=values.getRow();
+    if (lastRow == null || !Bytes.equals(lastRow,currentRow)) {
+      lastRow=currentRow;
+      currentRowKey=Bytes.toStringBinary(currentRow);
+      currentFamily=null;
+      currentQualifier=null;
+      context.getCounter(Counters.ROWS).increment(1);
+      context.write(new Text("Total ROWS"),new IntWritable(1));
+    }
+    if (!values.isEmpty()) {
+      int cellCount=0;
       for (      Cell value : values.listCells()) {
-        currentRowKey=Bytes.toStringBinary(CellUtil.cloneRow(value));
-        String thisRowFamilyName=Bytes.toStringBinary(CellUtil.cloneFamily(value));
-        if (!thisRowFamilyName.equals(currentFamilyName)) {
-          currentFamilyName=thisRowFamilyName;
-          context.getCounter("CF",thisRowFamilyName).increment(1);
-          if (1 == context.getCounter("CF",thisRowFamilyName).getValue()) {
+        cellCount++;
+        if (currentFamily == null || !CellUtil.matchingFamily(value,currentFamily)) {
+          currentFamily=CellUtil.cloneFamily(value);
+          currentFamilyName=Bytes.toStringBinary(currentFamily);
+          currentQualifier=null;
+          context.getCounter("CF",currentFamilyName).increment(1);
+          if (1 == context.getCounter("CF",currentFamilyName).getValue()) {
             context.write(new Text("Total Families Across all Rows"),new IntWritable(1));
-            context.write(new Text(thisRowFamilyName),new IntWritable(1));
+            context.write(new Text(currentFamily),new IntWritable(1));
           }
         }
-        String thisRowQualifierName=thisRowFamilyName + separator + Bytes.toStringBinary(CellUtil.cloneQualifier(value));
-        if (!thisRowQualifierName.equals(currentQualifierName)) {
-          currentQualifierName=thisRowQualifierName;
-          context.getCounter("CFQL",thisRowQualifierName).increment(1);
+        if (currentQualifier == null || !CellUtil.matchingQualifier(value,currentQualifier)) {
+          currentQualifier=CellUtil.cloneQualifier(value);
+          currentQualifierName=currentFamilyName + separator + Bytes.toStringBinary(currentQualifier);
+          currentRowQualifierName=currentRowKey + separator + currentQualifierName;
           context.write(new Text("Total Qualifiers across all Rows"),new IntWritable(1));
-          context.write(new Text(thisRowQualifierName),new IntWritable(1));
-          context.getCounter("QL_VERSIONS",currentRowKey + separator + thisRowQualifierName).increment(1);
-          context.write(new Text(currentRowKey + separator + thisRowQualifierName+ "_Versions"),new IntWritable(1));
+          context.write(new Text(currentQualifierName),new IntWritable(1));
         }
- else {
-          currentQualifierName=thisRowQualifierName;
-          context.getCounter("QL_VERSIONS",currentRowKey + separator + thisRowQualifierName).increment(1);
-          context.write(new Text(currentRowKey + separator + thisRowQualifierName+ "_Versions"),new IntWritable(1));
-        }
+        context.write(new Text(currentRowQualifierName + "_Versions"),new IntWritable(1));
       }
+      context.getCounter(Counters.CELLS).increment(cellCount);
     }
   }
  catch (  InterruptedException e) {
