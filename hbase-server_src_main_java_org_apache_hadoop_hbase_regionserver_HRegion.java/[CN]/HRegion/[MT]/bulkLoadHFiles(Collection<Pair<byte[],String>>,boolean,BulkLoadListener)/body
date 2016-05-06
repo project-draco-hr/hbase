@@ -1,6 +1,7 @@
 {
   long seqId=-1;
   Map<byte[],List<Path>> storeFiles=new TreeMap<byte[],List<Path>>(Bytes.BYTES_COMPARATOR);
+  Map<String,Long> storeFilesSizes=new HashMap<String,Long>();
   Preconditions.checkNotNull(familyPaths);
   startBulkRegionOperation(hasMultipleColumnFamilies(familyPaths));
   boolean isSuccessful=false;
@@ -63,6 +64,14 @@ catch (        IOException ioe) {
           finalPath=bulkLoadListener.prepareBulkLoad(familyName,path);
         }
         Path commitedStoreFile=store.bulkLoadHFile(finalPath,seqId);
+        try {
+          FileSystem fs=commitedStoreFile.getFileSystem(baseConf);
+          storeFilesSizes.put(commitedStoreFile.getName(),fs.getFileStatus(commitedStoreFile).getLen());
+        }
+ catch (        IOException e) {
+          LOG.warn("Failed to find the size of hfile " + commitedStoreFile);
+          storeFilesSizes.put(commitedStoreFile.getName(),0L);
+        }
         if (storeFiles.containsKey(familyName)) {
           storeFiles.get(familyName).add(commitedStoreFile);
         }
@@ -93,7 +102,7 @@ catch (        IOException ioe) {
   finally {
     if (wal != null && !storeFiles.isEmpty()) {
       try {
-        WALProtos.BulkLoadDescriptor loadDescriptor=ProtobufUtil.toBulkLoadDescriptor(this.getRegionInfo().getTable(),ByteStringer.wrap(this.getRegionInfo().getEncodedNameAsBytes()),storeFiles,seqId);
+        WALProtos.BulkLoadDescriptor loadDescriptor=ProtobufUtil.toBulkLoadDescriptor(this.getRegionInfo().getTable(),ByteStringer.wrap(this.getRegionInfo().getEncodedNameAsBytes()),storeFiles,storeFilesSizes,seqId);
         WALUtil.writeBulkLoadMarkerAndSync(this.wal,this.getReplicationScope(),getRegionInfo(),loadDescriptor,mvcc);
       }
  catch (      IOException ioe) {
