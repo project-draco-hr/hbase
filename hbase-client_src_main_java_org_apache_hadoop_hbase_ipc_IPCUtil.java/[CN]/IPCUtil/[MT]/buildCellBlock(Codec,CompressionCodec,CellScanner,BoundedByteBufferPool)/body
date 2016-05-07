@@ -1,8 +1,12 @@
 {
-  if (cellScanner == null)   return null;
-  if (codec == null)   throw new CellScannerButNoCodecException();
+  if (cellScanner == null) {
+    return null;
+  }
+  if (codec == null) {
+    throw new CellScannerButNoCodecException();
+  }
   int bufferSize=this.cellBlockBuildingInitialBufferSize;
-  ByteBufferOutputStream baos=null;
+  ByteBufferOutputStream baos;
   if (pool != null) {
     ByteBuffer bb=pool.getBuffer();
     bufferSize=bb.capacity();
@@ -18,29 +22,34 @@
     }
     baos=new ByteBufferOutputStream(bufferSize);
   }
-  OutputStream os=baos;
   Compressor poolCompressor=null;
-  try {
+  try (OutputStream os=baos){
+    OutputStream os2Compress=os;
     if (compressor != null) {
-      if (compressor instanceof Configurable)       ((Configurable)compressor).setConf(this.conf);
+      if (compressor instanceof Configurable) {
+        ((Configurable)compressor).setConf(this.conf);
+      }
       poolCompressor=CodecPool.getCompressor(compressor);
-      os=compressor.createOutputStream(os,poolCompressor);
+      os2Compress=compressor.createOutputStream(os,poolCompressor);
     }
-    Codec.Encoder encoder=codec.getEncoder(os);
+    Codec.Encoder encoder=codec.getEncoder(os2Compress);
     int count=0;
     while (cellScanner.advance()) {
       encoder.write(cellScanner.current());
       count++;
     }
     encoder.flush();
-    if (count == 0)     return null;
+    if (count == 0) {
+      return null;
+    }
   }
  catch (  BufferOverflowException e) {
     throw new DoNotRetryIOException(e);
   }
  finally {
-    os.close();
-    if (poolCompressor != null)     CodecPool.returnCompressor(poolCompressor);
+    if (poolCompressor != null) {
+      CodecPool.returnCompressor(poolCompressor);
+    }
   }
   if (LOG.isTraceEnabled()) {
     if (bufferSize < baos.size()) {
