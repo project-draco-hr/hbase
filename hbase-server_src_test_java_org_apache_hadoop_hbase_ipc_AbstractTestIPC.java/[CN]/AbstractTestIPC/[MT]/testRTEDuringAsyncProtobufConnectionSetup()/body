@@ -1,7 +1,6 @@
 {
   TestRpcServer rpcServer=new TestRpcServer();
-  AsyncRpcClient client=createRpcClientRTEDuringConnectionSetup(CONF);
-  try {
+  try (RpcClient client=createRpcClientRTEDuringConnectionSetup(CONF)){
     rpcServer.start();
     InetSocketAddress address=rpcServer.getListenerAddress();
     if (address == null) {
@@ -9,10 +8,10 @@
     }
     MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
     EchoRequestProto param=EchoRequestProto.newBuilder().setMessage("hello").build();
-    RpcChannel channel=client.createRpcChannel(ServerName.valueOf(address.getHostName(),address.getPort(),System.currentTimeMillis()),User.getCurrent(),0);
+    RpcChannel channel=client.createProtobufRpcChannel(ServerName.valueOf(address.getHostName(),address.getPort(),System.currentTimeMillis()),User.getCurrent(),0);
     final AtomicBoolean done=new AtomicBoolean(false);
     PayloadCarryingRpcController controller=new PayloadCarryingRpcController();
-    controller.notifyOnFail(new RpcCallback<IOException>(){
+    controller.notifyOnFail(new com.google.protobuf.RpcCallback<IOException>(){
       @Override public void run(      IOException e){
         done.set(true);
         LOG.info("Caught expected exception: " + e.toString());
@@ -20,7 +19,7 @@
       }
     }
 );
-    channel.callMethod(md,controller,param,md.getOutputType().toProto(),new RpcCallback<Message>(){
+    channel.callMethod(md,controller,param,md.getOutputType().toProto(),new com.google.protobuf.RpcCallback<Message>(){
       @Override public void run(      Message parameter){
         done.set(true);
         fail("Expected an exception to have been thrown!");
@@ -35,7 +34,6 @@
 );
   }
   finally {
-    client.close();
     rpcServer.stop();
   }
 }

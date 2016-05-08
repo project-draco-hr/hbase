@@ -1,0 +1,34 @@
+{
+  final PayloadCarryingRpcController pcrc=new PayloadCarryingRpcController(cellScanner);
+  pcrc.setPriority(priority);
+  pcrc.setCallTimeout((int)rpcTimeout);
+  final Promise<O> promise=new Promise<>(executor);
+  executor.execute(new Runnable(){
+    @Override public void run(){
+      try {
+        final MetricsConnection.CallStats cs=MetricsConnection.newCallStats();
+        cs.setStartTime(EnvironmentEdgeManager.currentTime());
+        Call call=call(method,request,responsePrototype,pcrc,ticket,isa,cs);
+        cs.setCallTimeMs(EnvironmentEdgeManager.currentTime() - cs.getStartTime());
+        if (metrics != null) {
+          metrics.updateRpc(method,request,cs);
+        }
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("Call: " + method.getName() + ", callTime: "+ cs.getCallTimeMs()+ "ms");
+        }
+        promise.setSuccess(messageConverter.convert((R)call.response,call.cells));
+      }
+ catch (      InterruptedException e) {
+        promise.cancel(true);
+      }
+catch (      IOException e) {
+        if (exceptionConverter != null) {
+          e=exceptionConverter.convert(e);
+        }
+        promise.setFailure(e);
+      }
+    }
+  }
+);
+  return promise;
+}
