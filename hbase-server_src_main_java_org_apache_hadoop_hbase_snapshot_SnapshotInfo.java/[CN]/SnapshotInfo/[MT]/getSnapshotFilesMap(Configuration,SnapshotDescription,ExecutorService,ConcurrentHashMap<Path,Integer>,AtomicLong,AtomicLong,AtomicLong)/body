@@ -1,0 +1,43 @@
+{
+  HBaseProtos.SnapshotDescription snapshotDesc=ProtobufUtil.createHBaseProtosSnapshotDesc(snapshot);
+  Path rootDir=FSUtils.getRootDir(conf);
+  final FileSystem fs=FileSystem.get(rootDir.toUri(),conf);
+  Path snapshotDir=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotDesc,rootDir);
+  SnapshotManifest manifest=SnapshotManifest.open(conf,fs,snapshotDir,snapshotDesc);
+  SnapshotReferenceUtil.concurrentVisitReferencedFiles(conf,fs,manifest,exec,new SnapshotReferenceUtil.SnapshotVisitor(){
+    @Override public void storeFile(    final HRegionInfo regionInfo,    final String family,    final SnapshotRegionManifest.StoreFile storeFile) throws IOException {
+      if (!storeFile.hasReference()) {
+        HFileLink link=HFileLink.build(conf,TableName.valueOf(snapshot.getTable()),regionInfo.getEncodedName(),family,storeFile.getName());
+        long size;
+        Integer count;
+        Path p;
+        AtomicLong al;
+        int c=0;
+        if (fs.exists(link.getArchivePath())) {
+          p=link.getArchivePath();
+          al=uniqueHFilesArchiveSize;
+          size=fs.getFileStatus(p).getLen();
+        }
+ else         if (fs.exists(link.getMobPath())) {
+          p=link.getMobPath();
+          al=uniqueHFilesMobSize;
+          size=fs.getFileStatus(p).getLen();
+        }
+ else {
+          p=link.getOriginPath();
+          al=uniqueHFilesSize;
+          size=link.getFileStatus(fs).getLen();
+        }
+        count=filesMap.get(p);
+        if (count != null) {
+          c=count.intValue();
+        }
+ else {
+          al.addAndGet(size);
+        }
+        filesMap.put(p,++c);
+      }
+    }
+  }
+);
+}
