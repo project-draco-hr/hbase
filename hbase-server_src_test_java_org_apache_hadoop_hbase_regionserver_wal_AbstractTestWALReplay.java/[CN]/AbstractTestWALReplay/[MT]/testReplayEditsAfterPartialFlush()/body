@@ -1,0 +1,37 @@
+{
+  final TableName tableName=TableName.valueOf("testReplayEditsWrittenViaHRegion");
+  final HRegionInfo hri=createBasic3FamilyHRegionInfo(tableName);
+  final Path basedir=FSUtils.getTableDir(this.hbaseRootDir,tableName);
+  deleteDir(basedir);
+  final byte[] rowName=tableName.getName();
+  final int countPerFamily=10;
+  final HTableDescriptor htd=createBasic3FamilyHTD(tableName);
+  HRegion region3=HBaseTestingUtility.createRegionAndWAL(hri,hbaseRootDir,this.conf,htd);
+  HBaseTestingUtility.closeRegionAndWAL(region3);
+  WAL wal=createWAL(this.conf,hbaseRootDir,logName);
+  HRegion region=HRegion.openHRegion(this.conf,this.fs,hbaseRootDir,hri,htd,wal);
+  long seqid=region.getOpenSeqNum();
+  for (  HColumnDescriptor hcd : htd.getFamilies()) {
+    addRegionEdits(rowName,hcd.getName(),countPerFamily,this.ee,region,"x");
+  }
+  final Get g=new Get(rowName);
+  Result result=region.get(g);
+  assertEquals(countPerFamily * htd.getFamilies().size(),result.size());
+  region.flush(true);
+  region.close(true);
+  wal.shutdown();
+  int cf_count=0;
+  for (  HColumnDescriptor hcd : htd.getFamilies()) {
+    cf_count++;
+    if (cf_count == 2) {
+      region.getRegionFileSystem().deleteFamily(hcd.getNameAsString());
+    }
+  }
+  runWALSplit(this.conf);
+  WAL wal2=createWAL(this.conf,hbaseRootDir,logName);
+  HRegion region2=HRegion.openHRegion(this.conf,this.fs,hbaseRootDir,hri,htd,wal2);
+  long seqid2=region2.getOpenSeqNum();
+  assertTrue(seqid + result.size() < seqid2);
+  final Result result1b=region2.get(g);
+  assertEquals(result.size(),result1b.size());
+}
