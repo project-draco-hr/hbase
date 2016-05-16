@@ -1,0 +1,31 @@
+{
+  HTableDescriptor hdt=TEST_UTIL.createTableDescriptor("HCM-testRpcRetryingCallerSleep");
+  hdt.addCoprocessorWithSpec("|" + SleepAndFailFirstTime.class.getName() + "||"+ SleepAndFailFirstTime.SLEEP_TIME_CONF_KEY+ "=2000");
+  TEST_UTIL.createTable(hdt,new byte[][]{FAM_NAM}).close();
+  Configuration c=new Configuration(TEST_UTIL.getConfiguration());
+  c.setInt(HConstants.HBASE_CLIENT_PAUSE,3000);
+  c.setInt(HConstants.HBASE_RPC_TIMEOUT_KEY,4000);
+  Connection connection=ConnectionFactory.createConnection(c);
+  Table t=connection.getTable(TableName.valueOf("HCM-testRpcRetryingCallerSleep"));
+  if (t instanceof HTable) {
+    HTable table=(HTable)t;
+    table.setOperationTimeout(8000);
+    table.get(new Get(FAM_NAM));
+    SleepAndFailFirstTime.ct.set(0);
+    try {
+      table.setOperationTimeout(6000);
+      table.get(new Get(FAM_NAM));
+      Assert.fail("We expect an exception here");
+    }
+ catch (    SocketTimeoutException e) {
+      LOG.info("We received an exception, as expected ",e);
+    }
+catch (    IOException e) {
+      Assert.fail("Wrong exception:" + e.getMessage());
+    }
+ finally {
+      table.close();
+      connection.close();
+    }
+  }
+}
