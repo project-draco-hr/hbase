@@ -1,3 +1,38 @@
 {
-  return call(service,md,param,cellScanner,receiveTime,status,0);
+  try {
+    status.setRPC(md.getName(),new Object[]{param},receiveTime);
+    status.setRPCPacket(param);
+    status.resume("Servicing call");
+    long startTime=System.currentTimeMillis();
+    PayloadCarryingRpcController controller=new PayloadCarryingRpcController(cellScanner);
+    Message result=service.callBlockingMethod(md,controller,param);
+    long endTime=System.currentTimeMillis();
+    int processingTime=(int)(endTime - startTime);
+    int qTime=(int)(startTime - receiveTime);
+    int totalTime=(int)(endTime - receiveTime);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(CurCall.get().toString() + ", response " + TextFormat.shortDebugString(result)+ " queueTime: "+ qTime+ " processingTime: "+ processingTime+ " totalTime: "+ totalTime);
+    }
+    long requestSize=param.getSerializedSize();
+    long responseSize=result.getSerializedSize();
+    metrics.dequeuedCall(qTime);
+    metrics.processedCall(processingTime);
+    metrics.totalCall(totalTime);
+    metrics.receivedRequest(requestSize);
+    metrics.sentResponse(responseSize);
+    boolean tooSlow=(processingTime > warnResponseTime && warnResponseTime > -1);
+    boolean tooLarge=(responseSize > warnResponseSize && warnResponseSize > -1);
+    if (tooSlow || tooLarge) {
+      logResponse(new Object[]{param},md.getName(),md.getName() + "(" + param.getClass().getName()+ ")",(tooLarge ? "TooLarge" : "TooSlow"),status.getClient(),startTime,processingTime,qTime,responseSize);
+    }
+    return new Pair<Message,CellScanner>(result,controller.cellScanner());
+  }
+ catch (  Throwable e) {
+    if (e instanceof ServiceException)     e=e.getCause();
+    metrics.exception(e);
+    if (e instanceof LinkageError)     throw new DoNotRetryIOException(e);
+    if (e instanceof IOException)     throw (IOException)e;
+    LOG.error("Unexpected throwable object ",e);
+    throw new IOException(e.getMessage(),e);
+  }
 }
