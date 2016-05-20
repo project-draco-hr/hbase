@@ -1,0 +1,28 @@
+{
+  List<String> logs=new ArrayList<String>();
+  try {
+    byte[] rowKey=this.queueIdToRowKey(queueId);
+    if (rowKey == null) {
+      String errMsg="Could not get logs from non-existent queueId=" + queueId;
+      abortable.abort(errMsg,new ReplicationException(errMsg));
+      return null;
+    }
+    Get getQueue=new Get(rowKey);
+    Result queue=replicationTable.get(getQueue);
+    if (queue.isEmpty()) {
+      return null;
+    }
+    Map<byte[],byte[]> familyMap=queue.getFamilyMap(CF);
+    for (    byte[] cQualifier : familyMap.keySet()) {
+      if (Arrays.equals(cQualifier,COL_OWNER) || Arrays.equals(cQualifier,COL_QUEUE_ID)) {
+        continue;
+      }
+      logs.add(Bytes.toString(cQualifier));
+    }
+  }
+ catch (  IOException e) {
+    abortable.abort("Could not get logs from queue queueId=" + queueId,e);
+    return null;
+  }
+  return logs;
+}
