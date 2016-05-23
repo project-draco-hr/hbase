@@ -4,21 +4,21 @@
     LOG.info("No partitions of mob files");
     return Collections.emptyList();
   }
-  List<Path> paths=new ArrayList<Path>();
-  Connection c=ConnectionFactory.createConnection(conf);
+  List<Path> paths=new ArrayList<>();
+  final Connection c=ConnectionFactory.createConnection(conf);
   final Table table=c.getTable(tableName);
   try {
-    Map<CompactionPartitionId,Future<List<Path>>> results=new HashMap<CompactionPartitionId,Future<List<Path>>>();
+    Map<CompactionPartitionId,Future<List<Path>>> results=new HashMap<>();
     for (    final CompactionPartition partition : partitions) {
       results.put(partition.getPartitionId(),pool.submit(new Callable<List<Path>>(){
         @Override public List<Path> call() throws Exception {
           LOG.info("Compacting mob files for partition " + partition.getPartitionId());
-          return compactMobFilePartition(request,partition,delFiles,table);
+          return compactMobFilePartition(request,partition,delFiles,c,table);
         }
       }
 ));
     }
-    List<CompactionPartitionId> failedPartitions=new ArrayList<CompactionPartitionId>();
+    List<CompactionPartitionId> failedPartitions=new ArrayList<>();
     for (    Entry<CompactionPartitionId,Future<List<Path>>> result : results.entrySet()) {
       try {
         paths.addAll(result.getValue().get());
@@ -37,7 +37,7 @@
       table.close();
     }
  catch (    IOException e) {
-      LOG.error("Failed to close the HTable",e);
+      LOG.error("Failed to close the Table",e);
     }
   }
   return paths;
