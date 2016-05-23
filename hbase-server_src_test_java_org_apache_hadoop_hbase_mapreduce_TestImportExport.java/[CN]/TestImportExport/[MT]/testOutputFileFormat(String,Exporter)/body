@@ -1,0 +1,32 @@
+{
+  String codec=BZip2Codec.class.getName();
+  String type=SequenceFile.CompressionType.RECORD.name();
+  try (Table t=UTIL.createTable(TableName.valueOf(exportTable),FAMILYA,3)){
+    Put p=new Put(ROW1);
+    p.addColumn(FAMILYA,QUAL,now,QUAL);
+    t.put(p);
+    p=new Put(ROW2);
+    p.addColumn(FAMILYA,QUAL,now,QUAL);
+    t.put(p);
+    p=new Put(ROW3);
+    p.addColumn(FAMILYA,QUAL,now,QUAL);
+    t.put(p);
+  }
+   String[] args=new String[]{"-D" + FileOutputFormat.COMPRESS + "=true","-D" + FileOutputFormat.COMPRESS_CODEC + "="+ codec,"-D" + FileOutputFormat.COMPRESS_TYPE + "="+ type,exportTable,FQ_OUTPUT_DIR};
+  assertTrue(exporter.toString(),exporter.runExport(args));
+  FileSystem fs=FileSystem.get(UTIL.getConfiguration());
+  List<FileStatus> files=Arrays.asList(fs.listStatus(new Path(FQ_OUTPUT_DIR)));
+  assertEquals(exporter.toString(),false,files.isEmpty());
+  Configuration copy=new Configuration(UTIL.getConfiguration());
+  copy.setStrings("io.serializations",copy.get("io.serializations"),ResultSerialization.class.getName());
+  for (  FileStatus file : files) {
+    Path path=file.getPath();
+    if (path.getName().equals("_SUCCESS")) {
+      continue;
+    }
+    try (SequenceFile.Reader reader=new SequenceFile.Reader(copy,SequenceFile.Reader.file(file.getPath()))){
+      assertEquals(exporter.toString(),reader.getCompressionCodec().getClass().getName(),codec);
+      assertEquals(exporter.toString(),reader.getCompressionType().name(),type);
+    }
+   }
+}

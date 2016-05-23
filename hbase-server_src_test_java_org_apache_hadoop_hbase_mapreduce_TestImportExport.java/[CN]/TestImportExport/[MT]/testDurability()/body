@@ -1,37 +1,12 @@
 {
-  String exportTableName="exporttestDurability";
-  try (Table exportTable=UTIL.createTable(TableName.valueOf(exportTableName),FAMILYA,3)){
-    Put put=new Put(ROW1);
-    put.addColumn(FAMILYA,QUAL,now,QUAL);
-    put.addColumn(FAMILYA,QUAL,now + 1,QUAL);
-    put.addColumn(FAMILYA,QUAL,now + 2,QUAL);
-    exportTable.put(put);
-    put=new Put(ROW2);
-    put.addColumn(FAMILYA,QUAL,now,QUAL);
-    put.addColumn(FAMILYA,QUAL,now + 1,QUAL);
-    put.addColumn(FAMILYA,QUAL,now + 2,QUAL);
-    exportTable.put(put);
-    String[] args=new String[]{exportTableName,FQ_OUTPUT_DIR,"1000"};
-    assertTrue(runExport(args));
-    String importTableName="importTestDurability1";
-    Table importTable=UTIL.createTable(TableName.valueOf(importTableName),FAMILYA,3);
-    HRegionInfo region=UTIL.getHBaseCluster().getRegionServerThreads().get(0).getRegionServer().getOnlineRegions(importTable.getName()).get(0).getRegionInfo();
-    TableWALActionListener walListener=new TableWALActionListener(region);
-    WAL wal=UTIL.getMiniHBaseCluster().getRegionServer(0).getWAL(region);
-    wal.registerWALActionsListener(walListener);
-    args=new String[]{"-D" + Import.WAL_DURABILITY + "="+ Durability.SKIP_WAL.name(),importTableName,FQ_OUTPUT_DIR};
-    assertTrue(runImport(args));
-    assertTrue(!walListener.isWALVisited());
-    assertTrue(getCount(importTable,null) == 2);
-    importTableName="importTestDurability2";
-    importTable=UTIL.createTable(TableName.valueOf(importTableName),FAMILYA,3);
-    region=UTIL.getHBaseCluster().getRegionServerThreads().get(0).getRegionServer().getOnlineRegions(importTable.getName()).get(0).getRegionInfo();
-    wal=UTIL.getMiniHBaseCluster().getRegionServer(0).getWAL(region);
-    walListener=new TableWALActionListener(region);
-    wal.registerWALActionsListener(walListener);
-    args=new String[]{importTableName,FQ_OUTPUT_DIR};
-    assertTrue(runImport(args));
-    assertTrue(walListener.isWALVisited());
-    assertTrue(getCount(importTable,null) == 2);
+  String exportTable="exporttestDurability";
+  String importTable="importTestDurability1";
+  String importTableV2="importTestDurability2";
+  for (  Exporter exporter : EXPORTERS) {
+    testDurability(exportTable,importTable,importTableV2,exporter);
+    UTIL.deleteTable(TableName.valueOf(exportTable));
+    UTIL.deleteTable(TableName.valueOf(importTable));
+    UTIL.deleteTable(TableName.valueOf(importTableV2));
+    deleteOutput();
   }
- }
+}

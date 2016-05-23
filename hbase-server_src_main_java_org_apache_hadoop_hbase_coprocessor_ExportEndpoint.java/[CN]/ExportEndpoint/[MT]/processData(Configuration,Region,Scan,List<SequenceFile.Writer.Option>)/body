@@ -1,0 +1,31 @@
+{
+  region.startRegionOperation();
+  try (SequenceFile.Writer out=SequenceFile.createWriter(conf,opts.toArray(new SequenceFile.Writer.Option[opts.size()]));RegionScanner scanner=region.getScanner(scan)){
+    ImmutableBytesWritable key=new ImmutableBytesWritable();
+    long rowCount=0;
+    long cellCount=0;
+    List<Cell> buf=new ArrayList<>();
+    boolean hasMore;
+    do {
+      hasMore=scanner.nextRaw(buf);
+      if (!buf.isEmpty()) {
+        Cell firstCell=buf.get(0);
+        for (        Cell cell : buf) {
+          if (Bytes.compareTo(firstCell.getRowArray(),firstCell.getRowOffset(),firstCell.getRowLength(),cell.getRowArray(),cell.getRowOffset(),cell.getRowLength()) != 0) {
+            throw new IOException("Why the RegionScanner#nextRaw returns the data of different rows??");
+          }
+        }
+        key.set(firstCell.getRowArray(),firstCell.getRowOffset(),firstCell.getRowLength());
+        out.append(key,Result.create(buf));
+        ++rowCount;
+        cellCount+=buf.size();
+        buf.clear();
+      }
+    }
+ while (hasMore);
+    return ExportProtos.ExportResponse.newBuilder().setRowCount(rowCount).setCellCount(cellCount).build();
+  }
+  finally {
+    region.closeRegionOperation();
+  }
+}
