@@ -1,3 +1,17 @@
 {
-  return getAdmin(serverName,false);
+  if (isDeadServer(serverName)) {
+    throw new RegionServerStoppedException(serverName + " is dead.");
+  }
+  String key=getStubKey(AdminProtos.AdminService.BlockingInterface.class.getName(),serverName.getHostname(),serverName.getPort(),this.hostnamesCanChange);
+  this.connectionLock.putIfAbsent(key,key);
+  AdminProtos.AdminService.BlockingInterface stub;
+synchronized (this.connectionLock.get(key)) {
+    stub=(AdminProtos.AdminService.BlockingInterface)this.stubs.get(key);
+    if (stub == null) {
+      BlockingRpcChannel channel=this.rpcClient.createBlockingRpcChannel(serverName,user,rpcTimeout);
+      stub=AdminProtos.AdminService.newBlockingStub(channel);
+      this.stubs.put(key,stub);
+    }
+  }
+  return stub;
 }
