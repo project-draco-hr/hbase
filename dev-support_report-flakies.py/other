@@ -1,8 +1,8 @@
 import argparse
 import findHangingTests
+from jinja2 import Template
 import logging
 import requests
-import sys
 parser = argparse.ArgumentParser()
 parser.add_argument('--urls', metavar='url[ max-builds]', action='append', required=True, help='Urls to analyze, which can refer to simple projects, multi-configuration projects or individual build run. Optionally, specify maximum builds to analyze for this url (if available on jenkins) using space as separator. By default, all available builds are analyzed.')
 parser.add_argument('--mvn', action='store_true', help='Writes two strings for including/excluding these flaky tests using maven flags. These strings are written to files so they can be saved as artifacts and easily imported in other projects. Also writes timeout and failing tests in separate files for reference.')
@@ -14,6 +14,8 @@ if args.verbose:
     logger.setLevel(logging.INFO)
 all_timeout_tests = set()
 all_failed_tests = set()
+all_hanging_tests = set()
+url_to_bad_test_results = {}
 expanded_urls = expand_multi_configuration_projects(args.urls)
 for url_max_build in expanded_urls:
     url = url_max_build['url']
@@ -43,28 +45,33 @@ for url_max_build in expanded_urls:
             break
     bad_tests = set()
     for build in build_id_to_results:
-        [_, timeout_tests, failed_tests] = build_id_to_results[build]
+        [_, failed_tests, timeout_tests, hanging_tests] = build_id_to_results[build]
         all_timeout_tests.update(timeout_tests)
         all_failed_tests.update(failed_tests)
-        bad_tests.update(timeout_tests.union(failed_tests))
-    build_counts = {key: {'total': 0, 'timeout': 0, 'fail': 0, } for key in bad_tests}
+        all_hanging_tests.update(hanging_tests)
+        bad_tests.update(failed_tests.union(hanging_tests))
+    test_to_build_ids = {key: {'all': set(), 'timeout': set(), 'failed': set(), 'hanging': set(), } for key in bad_tests}
     for build in build_id_to_results:
-        [all_tests, timeout_tests, failed_tests] = build_id_to_results[build]
-        for bad_test in bad_tests:
+        [all_tests, failed_tests, timeout_tests, hanging_tests] = build_id_to_results[build]
+        for bad_test in test_to_build_ids:
             if all_tests.issuperset([bad_test]):
-                build_counts[bad_test]['total'] += 1
+                test_to_build_ids[bad_test]['all'].add(build)
             if timeout_tests.issuperset([bad_test]):
-                build_counts[bad_test]['timeout'] += 1
+                test_to_build_ids[bad_test]['timeout'].add(build)
             if failed_tests.issuperset([bad_test]):
-                build_counts[bad_test]['fail'] += 1
-    if (len(bad_tests) > 0):
+                test_to_build_ids[bad_test]['failed'].add(build)
+            if hanging_tests.issuperset([bad_test]):
+                test_to_build_ids[bad_test]['hanging'].add(build)
+    url_to_bad_test_results[url] = test_to_build_ids
+    if (len(test_to_build_ids) > 0):
         print 'URL: {}'.format(url)
-        print '{:>60}  {:25}  {:10}  {}'.format('Test Name', 'Bad Runs(failed/timeout)', 'Total Runs', 'Flakyness')
-        for bad_test in bad_tests:
-            fail = build_counts[bad_test]['fail']
-            timeout = build_counts[bad_test]['timeout']
-            total = build_counts[bad_test]['total']
-            print '{:>60}  {:10} ({:4} / {:4})  {:10}  {:2.0f}%'.format(bad_test, (fail + timeout), fail, timeout, total, (((fail + timeout) * 100.0) / total))
+        print '{:>60}  {:10}  {:25}  {}'.format('Test Name', 'Total Runs', 'Bad Runs(failed/timeout/hanging)', 'Flakyness')
+        for bad_test in test_to_build_ids:
+            failed = len(test_to_build_ids[bad_test]['failed'])
+            timeout = len(test_to_build_ids[bad_test]['timeout'])
+            hanging = len(test_to_build_ids[bad_test]['hanging'])
+            total = len(test_to_build_ids[bad_test]['all'])
+            print '{:>60}  {:10}  {:7} ( {:4} / {:5} / {:5} )  {:2.0f}%'.format(bad_test, total, (failed + timeout), failed, timeout, hanging, (((failed + timeout) * 100.0) / total))
     else:
         print 'No flaky tests founds.'
         if (len(build_ids) == len(build_ids_without_tests_run)):
@@ -84,3 +91,6 @@ if args.mvn:
         file.write(','.join(all_timeout_tests))
     with open('./failed', 'w') as file:
         file.write(','.join(all_failed_tests))
+template = Template('\n    <!DOCTYPE html>\n    <html>\n        <head>\n        <title>Apache HBase Flaky Dashboard</title>\n        <style type="text/css">\n            table {\n                table-layout: fixed;\n            }\n            th {\n                font-size: 15px;\n            }\n            td {\n                font-size: 18px;\n                vertical-align: text-top;\n                overflow: hidden;\n                white-space: nowrap;\n            }\n            .show_hide_button {\n                font-size: 100%;\n                padding: .5em 1em;\n                border: 0 rgba(0,0,0,0);\n                border-radius: 10px;\n            }\n        </style>\n        </head>\n        <body>\n            <p>\n              <img style="vertical-align:middle; display:inline-block;" height="80px"\n                   src="https://hbase.apache.org/images/hbase_logo_with_orca_large.png">\n              &nbsp;&nbsp;&nbsp;&nbsp;\n              <span style="font-size:50px; vertical-align:middle; display:inline-block;">\n                  Apache HBase Flaky Tests Dashboard\n              </span>\n            </p>\n            <br><br>\n            {% set counter = 0 %}\n            {% for url in results %}\n                {% set result = results[url] %}\n                {# Dedup ids since test names may duplicate across urls #}\n                {% set counter = counter + 1 %}\n                <span style="font-size:20px; font-weight:bold;">Job : {{ url |e }}\n                <a href="{{ url |e }}" style="text-decoration:none;">&#x1f517;</a></span>\n                <br/><br/>\n                <table>\n                    <tr>\n                        <th width="400px">Test Name</th>\n                        <th width="150px">Flakyness</th>\n                        <th width="200px">Failed/Timeout/Hanging</th>\n                        <th>Run Ids</th>\n                    </tr>\n                    {% for test in result %}\n                        {% set all = result[test][\'all\'] %}\n                        {% set failed = result[test][\'failed\'] %}\n                        {% set timeout = result[test][\'timeout\'] %}\n                        {% set hanging = result[test][\'hanging\'] %}\n                        {% set success = all.difference(failed).difference(hanging) %}\n                        <tr>\n                            <td>{{ test |e }}</td>\n                            {% set flakyness =\n                                (failed|length + hanging|length) * 100 / all|length %}\n                            {% if flakyness == 100 %}\n                                <td align="middle" style="background-color:#FF9999;">\n                            {% else %}\n                                <td align="middle">\n                            {% endif %}\n                                    {{ "{:.1f}% ({} / {})".format(\n                                        flakyness, failed|length + hanging|length, all|length) }}\n                                </td>\n                            <td align="middle">\n                                {{ failed|length }} / {{ timeout|length }} / {{ hanging|length }}\n                            </td>\n                            <td>\n                                {% set id = "details_" ~ test ~ "_" ~ counter  %}\n                                <button class="show_hide_button" onclick="toggle(\'{{ id }}\')">\n                                    show/hide</button>\n                                <br/>\n                                <div id="{{ id }}"\n                                    style="display: none; width:500px; white-space: normal">\n                                {% macro print_run_ids(url, run_ids) -%}\n                                    {% for i in run_ids %}\n                                        <a href="{{ url }}/{{ i }}">{{ i }}</a>&nbsp;\n                                    {% endfor %}\n                                {%- endmacro %}\n                                    Failed : {{ print_run_ids(url, failed) }}<br/>\n                                    Timed Out : {{ print_run_ids(url, timeout) }}<br/>\n                                    Hanging : {{ print_run_ids(url, hanging) }}<br/>\n                                    Succeeded : {{ print_run_ids(url, success) }}\n                                </div>\n                            </td>\n                        </tr>\n                    {% endfor %}\n                </table>\n                <br><br><br>\n            {% endfor %}\n            <script type="text/javascript">\n                function toggle(id) {\n                    if (document.getElementById(id).style["display"] == "none") {\n                        document.getElementById(id).style["display"]  = "block";\n                    } else {\n                        document.getElementById(id).style["display"] = "none";\n                    }\n                }\n            </script>\n        </body>\n    </html>\n    ')
+with open('dashboard.html', 'w') as f:
+    f.write(template.render(results=url_to_bad_test_results))
