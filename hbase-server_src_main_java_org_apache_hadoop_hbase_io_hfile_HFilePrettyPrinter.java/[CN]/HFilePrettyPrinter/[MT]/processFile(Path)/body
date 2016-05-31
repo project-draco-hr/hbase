@@ -1,9 +1,19 @@
 {
-  if (verbose)   System.out.println("Scanning -> " + file);
+  if (verbose)   out.println("Scanning -> " + file);
+  Path rootPath=FSUtils.getRootDir(getConf());
+  String rootString=rootPath + rootPath.SEPARATOR;
+  if (!file.toString().startsWith(rootString)) {
+    FileSystem rootFS=rootPath.getFileSystem(getConf());
+    String qualifiedFile=rootFS.getUri().toString() + file.toString();
+    if (!qualifiedFile.startsWith(rootString)) {
+      err.println("ERROR, file (" + file + ") is not in HBase's root directory ("+ rootString+ ")");
+      return -2;
+    }
+  }
   FileSystem fs=file.getFileSystem(getConf());
   if (!fs.exists(file)) {
-    System.err.println("ERROR, file doesnt exist: " + file);
-    System.exit(-2);
+    err.println("ERROR, file doesnt exist: " + file);
+    return -2;
   }
   HFile.Reader reader=HFile.createReader(fs,file,new CacheConfig(getConf()),getConf());
   Map<byte[],byte[]> fileInfo=reader.loadFileInfo();
@@ -24,11 +34,11 @@
     printMeta(reader,fileInfo);
   }
   if (printBlockIndex) {
-    System.out.println("Block Index:");
-    System.out.println(reader.getDataBlockIndexReader());
+    out.println("Block Index:");
+    out.println(reader.getDataBlockIndexReader());
   }
   if (printBlockHeaders) {
-    System.out.println("Block Headers:");
+    out.println("Block Headers:");
     FSDataInputStreamWrapper fsdis=new FSDataInputStreamWrapper(fs,file);
     long fileSize=fs.getFileStatus(file).getLen();
     FixedFileTrailer trailer=FixedFileTrailer.readFromStream(fsdis.getStream(false),fileSize);
@@ -37,12 +47,13 @@
     while (offset <= max) {
       block=reader.readBlock(offset,-1,false,false,false,false,null,null);
       offset+=block.getOnDiskSizeWithHeader();
-      System.out.println(block);
+      out.println(block);
     }
   }
   if (printStats) {
     fileStats.finish();
-    System.out.println("Stats:\n" + fileStats);
+    out.println("Stats:\n" + fileStats);
   }
   reader.close();
+  return 0;
 }
