@@ -1,62 +1,29 @@
 {
-  String tableNameString="testRequestCount";
-  TableName tName=TableName.valueOf(tableNameString);
-  byte[] cfName=Bytes.toBytes("d");
-  byte[] row=Bytes.toBytes("rk");
-  byte[] qualifier=Bytes.toBytes("qual");
-  byte[] initValue=Bytes.toBytes("Value");
-  TEST_UTIL.createTable(tName,cfName);
-  Connection connection=TEST_UTIL.getConnection();
-  connection.getTable(tName).close();
-  Table table=connection.getTable(tName);
-  Put p=new Put(row);
-  p.addColumn(cfName,qualifier,initValue);
-  table.put(p);
+  doNPuts(1,false);
   metricsRegionServer.getRegionServerWrapper().forceRecompute();
   long requests=metricsHelper.getCounter("totalRequestCount",serverSource);
   long readRequests=metricsHelper.getCounter("readRequestCount",serverSource);
   long writeRequests=metricsHelper.getCounter("writeRequestCount",serverSource);
-  for (int i=0; i < 30; i++) {
-    table.put(p);
-  }
+  doNPuts(30,false);
   metricsRegionServer.getRegionServerWrapper().forceRecompute();
-  metricsHelper.assertCounter("totalRequestCount",requests + 30,serverSource);
-  metricsHelper.assertCounter("readRequestCount",readRequests,serverSource);
-  metricsHelper.assertCounter("writeRequestCount",writeRequests + 30,serverSource);
-  Get g=new Get(row);
-  for (int i=0; i < 10; i++) {
-    table.get(g);
-  }
+  assertCounter("totalRequestCount",requests + 30);
+  assertCounter("readRequestCount",readRequests);
+  assertCounter("writeRequestCount",writeRequests + 30);
+  doNGets(10,false);
   metricsRegionServer.getRegionServerWrapper().forceRecompute();
-  metricsHelper.assertCounter("totalRequestCount",requests + 40,serverSource);
-  metricsHelper.assertCounter("readRequestCount",readRequests + 10,serverSource);
-  metricsHelper.assertCounter("writeRequestCount",writeRequests + 30,serverSource);
-  try (RegionLocator locator=connection.getRegionLocator(tName)){
-    for (    HRegionLocation location : locator.getAllRegionLocations()) {
-      HRegionInfo i=location.getRegionInfo();
-      MetricsRegionAggregateSource agg=rs.getRegion(i.getRegionName()).getMetrics().getSource().getAggregateSource();
-      String prefix="namespace_" + NamespaceDescriptor.DEFAULT_NAMESPACE_NAME_STR + "_table_"+ tableNameString+ "_region_"+ i.getEncodedName()+ "_metric";
-      metricsHelper.assertCounter(prefix + "_getNumOps",10,agg);
-      metricsHelper.assertCounter(prefix + "_mutateCount",31,agg);
-    }
-  }
-   List<Get> gets=new ArrayList<Get>();
-  for (int i=0; i < 10; i++) {
-    gets.add(new Get(row));
-  }
-  table.get(gets);
+  assertCounter("totalRequestCount",requests + 40);
+  assertCounter("readRequestCount",readRequests + 10);
+  assertCounter("writeRequestCount",writeRequests + 30);
+  assertRegionMetrics("getNumOps",10);
+  assertRegionMetrics("mutateCount",31);
+  doNGets(10,true);
   metricsRegionServer.getRegionServerWrapper().forceRecompute();
-  metricsHelper.assertCounter("totalRequestCount",requests + 50,serverSource);
-  metricsHelper.assertCounter("readRequestCount",readRequests + 20,serverSource);
-  metricsHelper.assertCounter("writeRequestCount",writeRequests + 30,serverSource);
-  List<Put> puts=new ArrayList<>();
-  for (int i=0; i < 30; i++) {
-    puts.add(p);
-  }
-  table.put(puts);
+  assertCounter("totalRequestCount",requests + 50);
+  assertCounter("readRequestCount",readRequests + 20);
+  assertCounter("writeRequestCount",writeRequests + 30);
+  doNPuts(30,true);
   metricsRegionServer.getRegionServerWrapper().forceRecompute();
-  metricsHelper.assertCounter("totalRequestCount",requests + 80,serverSource);
-  metricsHelper.assertCounter("readRequestCount",readRequests + 20,serverSource);
-  metricsHelper.assertCounter("writeRequestCount",writeRequests + 60,serverSource);
-  table.close();
+  assertCounter("totalRequestCount",requests + 80);
+  assertCounter("readRequestCount",readRequests + 20);
+  assertCounter("writeRequestCount",writeRequests + 60);
 }
