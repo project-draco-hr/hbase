@@ -1,19 +1,31 @@
 {
+  Connection c;
   ServerSocketChannel server=(ServerSocketChannel)key.channel();
   SocketChannel channel;
   while ((channel=server.accept()) != null) {
-    channel.configureBlocking(false);
-    channel.socket().setTcpNoDelay(tcpNoDelay);
-    channel.socket().setKeepAlive(tcpKeepAlive);
-    Reader reader=getReader();
-    Connection c=connectionManager.register(channel);
-    if (c == null) {
-      if (channel.isOpen()) {
-        IOUtils.cleanup(null,channel);
-      }
-      continue;
+    try {
+      channel.configureBlocking(false);
+      channel.socket().setTcpNoDelay(tcpNoDelay);
+      channel.socket().setKeepAlive(tcpKeepAlive);
     }
-    key.attach(c);
-    reader.addConnection(c);
+ catch (    IOException ioe) {
+      channel.close();
+      throw ioe;
+    }
+    Reader reader=getReader();
+    try {
+      reader.startAdd();
+      SelectionKey readKey=reader.registerChannel(channel);
+      c=getConnection(channel,System.currentTimeMillis());
+      readKey.attach(c);
+synchronized (connectionList) {
+        connectionList.add(numConnections,c);
+        numConnections++;
+      }
+      if (LOG.isDebugEnabled())       LOG.debug(getName() + ": connection from " + c.toString()+ "; # active connections: "+ numConnections);
+    }
+  finally {
+      reader.finishAdd();
+    }
   }
 }

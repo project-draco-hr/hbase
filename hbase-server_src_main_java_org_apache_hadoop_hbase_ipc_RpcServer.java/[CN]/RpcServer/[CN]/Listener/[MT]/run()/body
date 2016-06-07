@@ -1,6 +1,5 @@
 {
   LOG.info(getName() + ": starting");
-  connectionManager.startIdleScan();
   while (running) {
     SelectionKey key=null;
     try {
@@ -25,25 +24,27 @@
         if (errorHandler.checkOOME(e)) {
           LOG.info(getName() + ": exiting on OutOfMemoryError");
           closeCurrentConnection(key,e);
-          connectionManager.closeIdle(true);
+          cleanupConnections(true);
           return;
         }
       }
  else {
         LOG.warn(getName() + ": OutOfMemoryError in server select",e);
         closeCurrentConnection(key,e);
-        connectionManager.closeIdle(true);
+        cleanupConnections(true);
         try {
           Thread.sleep(60000);
         }
  catch (        InterruptedException ex) {
           LOG.debug("Interrupted while sleeping");
+          return;
         }
       }
     }
 catch (    Exception e) {
       closeCurrentConnection(key,e);
     }
+    cleanupConnections(false);
   }
   LOG.info(getName() + ": stopping");
 synchronized (this) {
@@ -56,7 +57,8 @@ synchronized (this) {
     }
     selector=null;
     acceptChannel=null;
-    connectionManager.stopIdleScan();
-    connectionManager.closeAll();
+    while (!connectionList.isEmpty()) {
+      closeConnection(connectionList.remove(0));
+    }
   }
 }
