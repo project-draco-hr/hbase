@@ -1,0 +1,28 @@
+{
+  final TableName tableName=TableName.valueOf("testVerifySubProcRegionLocks");
+  final HRegionInfo regionA=new HRegionInfo(tableName,Bytes.toBytes("a"),Bytes.toBytes("b"));
+  final HRegionInfo regionB=new HRegionInfo(tableName,Bytes.toBytes("b"),Bytes.toBytes("c"));
+  final HRegionInfo regionC=new HRegionInfo(tableName,Bytes.toBytes("c"),Bytes.toBytes("d"));
+  queue.addBack(new TestTableProcedure(1,tableName,TableProcedureInterface.TableOperationType.ENABLE));
+  Procedure rootProc=queue.poll();
+  assertEquals(1,rootProc.getProcId());
+  assertEquals(true,queue.tryAcquireTableExclusiveLock(rootProc,tableName));
+  assertEquals(null,queue.poll(0));
+  Procedure[] subProcs=new Procedure[]{new TestRegionProcedure(1,2,tableName,TableProcedureInterface.TableOperationType.ASSIGN,regionA),new TestRegionProcedure(1,3,tableName,TableProcedureInterface.TableOperationType.ASSIGN,regionB),new TestRegionProcedure(1,4,tableName,TableProcedureInterface.TableOperationType.ASSIGN,regionC)};
+  for (int i=subProcs.length - 1; i >= 0; --i) {
+    queue.addFront(subProcs[i]);
+  }
+  assertEquals(subProcs.length,queue.size());
+  for (int i=0; i < subProcs.length; ++i) {
+    TestRegionProcedure regionProc=(TestRegionProcedure)queue.poll(0);
+    assertEquals(subProcs[i].getProcId(),regionProc.getProcId());
+    assertEquals(true,queue.waitRegions(regionProc,tableName,regionProc.getRegionInfo()));
+  }
+  assertEquals(null,queue.poll(0));
+  for (int i=0; i < subProcs.length; ++i) {
+    TestRegionProcedure regionProc=(TestRegionProcedure)subProcs[i];
+    queue.wakeRegions(regionProc,tableName,regionProc.getRegionInfo());
+  }
+  assertEquals(null,queue.poll(0));
+  queue.releaseTableExclusiveLock(rootProc,tableName);
+}
