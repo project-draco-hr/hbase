@@ -99,6 +99,27 @@
       if (coprocessorHost.preBatchMutate(miniBatchOp)) {
         return 0L;
       }
+ else {
+        for (int i=firstIndex; i < lastIndexExclusive; i++) {
+          if (batchOp.retCodeDetails[i].getOperationStatusCode() != OperationStatusCode.NOT_RUN) {
+            continue;
+          }
+          Mutation[] cpMutations=miniBatchOp.getOperationsFromCoprocessors(i - firstIndex);
+          if (cpMutations == null) {
+            continue;
+          }
+          for (int j=0; j < cpMutations.length; j++) {
+            Mutation cpMutation=cpMutations[j];
+            Map<byte[],List<Cell>> cpFamilyMap=cpMutation.getFamilyCellMap();
+            checkAndPrepareMutation(cpMutation,replay,cpFamilyMap,now);
+            acquiredRowLocks.add(getRowLockInternal(cpMutation.getRow(),true));
+            if (cpMutation.getDurability() == Durability.SKIP_WAL) {
+              recordMutationWithoutWal(cpFamilyMap);
+            }
+            mergeFamilyMaps(familyMaps[i],cpFamilyMap);
+          }
+        }
+      }
     }
     Durability durability=Durability.USE_DEFAULT;
     for (int i=firstIndex; i < lastIndexExclusive; i++) {
