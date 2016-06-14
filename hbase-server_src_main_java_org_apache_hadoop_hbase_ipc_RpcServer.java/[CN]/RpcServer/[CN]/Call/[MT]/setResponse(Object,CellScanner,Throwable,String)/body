@@ -7,26 +7,36 @@
     Message result=(Message)m;
     headerBuilder.setCallId(this.id);
     if (t != null) {
-      ExceptionResponse.Builder exceptionBuilder=ExceptionResponse.newBuilder();
-      exceptionBuilder.setExceptionClassName(t.getClass().getName());
-      exceptionBuilder.setStackTrace(errorMsg);
-      exceptionBuilder.setDoNotRetry(t instanceof DoNotRetryIOException);
-      if (t instanceof RegionMovedException) {
-        RegionMovedException rme=(RegionMovedException)t;
-        exceptionBuilder.setHostname(rme.getHostname());
-        exceptionBuilder.setPort(rme.getPort());
-      }
-      headerBuilder.setException(exceptionBuilder.build());
+      setExceptionResponse(t,errorMsg,headerBuilder);
     }
-    this.cellBlock=ipcUtil.buildCellBlock(this.connection.codec,this.connection.compressionCodec,cells,reservoir);
-    if (this.cellBlock != null) {
+    List<ByteBuffer> cellBlock=null;
+    int cellBlockSize=0;
+    if (reservoir != null) {
+      this.cellBlockStream=ipcUtil.buildCellBlockStream(this.connection.codec,this.connection.compressionCodec,cells,reservoir);
+      if (this.cellBlockStream != null) {
+        cellBlock=this.cellBlockStream.getByteBuffers();
+        cellBlockSize=this.cellBlockStream.size();
+      }
+    }
+ else {
+      ByteBuffer b=ipcUtil.buildCellBlock(this.connection.codec,this.connection.compressionCodec,cells);
+      if (b != null) {
+        cellBlockSize=b.remaining();
+        cellBlock=new ArrayList<ByteBuffer>(1);
+        cellBlock.add(b);
+      }
+    }
+    if (cellBlockSize > 0) {
       CellBlockMeta.Builder cellBlockBuilder=CellBlockMeta.newBuilder();
-      cellBlockBuilder.setLength(this.cellBlock.limit());
+      cellBlockBuilder.setLength(cellBlockSize);
       headerBuilder.setCellBlockMeta(cellBlockBuilder.build());
     }
     Message header=headerBuilder.build();
-    byte[] b=createHeaderAndMessageBytes(result,header);
-    bc=new BufferChain(ByteBuffer.wrap(b),this.cellBlock);
+    byte[] b=createHeaderAndMessageBytes(result,header,cellBlockSize);
+    List<ByteBuffer> responseBufs=new ArrayList<ByteBuffer>((cellBlock == null ? 1 : cellBlock.size()) + 1);
+    responseBufs.add(ByteBuffer.wrap(b));
+    if (cellBlock != null)     responseBufs.addAll(cellBlock);
+    bc=new BufferChain(responseBufs);
     if (connection.useWrap) {
       bc=wrapWithSasl(bc);
     }
