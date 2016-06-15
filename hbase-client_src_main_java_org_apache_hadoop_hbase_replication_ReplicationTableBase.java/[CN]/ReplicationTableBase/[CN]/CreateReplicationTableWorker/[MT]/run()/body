@@ -1,0 +1,21 @@
+{
+  try {
+    admin=connection.getAdmin();
+    if (!replicationTableExists()) {
+      createReplicationTable();
+    }
+    int maxRetries=conf.getInt("hbase.replication.queues.createtable.retries.number",CLIENT_RETRIES);
+    RetryCounterFactory counterFactory=new RetryCounterFactory(maxRetries,RPC_TIMEOUT);
+    RetryCounter retryCounter=counterFactory.create();
+    while (!replicationTableExists()) {
+      retryCounter.sleepUntilNextRetry();
+      if (!retryCounter.shouldRetry()) {
+        throw new IOException("Unable to acquire the Replication Table");
+      }
+    }
+    replicationTableInitialized.countDown();
+  }
+ catch (  IOException|InterruptedException e) {
+    abortable.abort("Failed building Replication Table",e);
+  }
+}

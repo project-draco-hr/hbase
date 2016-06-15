@@ -1,0 +1,39 @@
+{
+  utility=new HBaseTestingUtility();
+  utility.startMiniZKCluster();
+  conf=utility.getConfiguration();
+  conf.setClass("hbase.region.replica.replication.ReplicationQueuesType",TableBasedReplicationQueuesImpl.class,ReplicationQueues.class);
+  conf.setClass("hbase.region.replica.replication.ReplicationQueuesClientType",TableBasedReplicationQueuesClientImpl.class,ReplicationQueuesClient.class);
+  zkw=HBaseTestingUtility.getZooKeeperWatcher(utility);
+  utility.waitFor(0,TIME_OUT_MILLIS,new Waiter.ExplainingPredicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      rb=new ReplicationTableBase(conf,zkw){
+      }
+;
+      rq=ReplicationFactory.getReplicationQueues(new ReplicationQueuesArguments(conf,zkw,zkw));
+      rqc=ReplicationFactory.getReplicationQueuesClient(new ReplicationQueuesClientArguments(conf,zkw,zkw));
+      return true;
+    }
+    @Override public String explainFailure() throws Exception {
+      return "Failed to initialize ReplicationTableBase, TableBasedReplicationQueuesClient and " + "TableBasedReplicationQueues after a timeout=" + TIME_OUT_MILLIS + " ms. Their initialization "+ "should be non-blocking";
+    }
+  }
+);
+  final RequestReplicationQueueData async=new RequestReplicationQueueData();
+  async.start();
+  Thread.sleep(SLEEP_MILLIS);
+  assertFalse(rb.getInitializationStatus());
+  assertFalse(asyncRequestSuccess);
+  utility.startMiniCluster();
+  utility.waitFor(0,TIME_OUT_MILLIS,new Waiter.ExplainingPredicate<Exception>(){
+    @Override public boolean evaluate() throws Exception {
+      async.join();
+      return true;
+    }
+    @Override public String explainFailure() throws Exception {
+      return "ReplicationQueue failed to return list of replicators even after Replication Table " + "was initialized timeout=" + TIME_OUT_MILLIS + " ms";
+    }
+  }
+);
+  assertTrue(asyncRequestSuccess);
+}
