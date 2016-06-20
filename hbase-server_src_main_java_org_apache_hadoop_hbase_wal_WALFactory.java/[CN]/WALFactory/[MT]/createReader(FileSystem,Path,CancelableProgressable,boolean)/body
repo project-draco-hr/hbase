@@ -5,10 +5,11 @@
     long openTimeout=timeoutMillis + startWaiting;
     int nbAttempt=0;
     FSDataInputStream stream=null;
+    AbstractFSWALProvider.Reader reader=null;
     while (true) {
       try {
         if (lrClass != ProtobufLogReader.class) {
-          AbstractFSWALProvider.Reader reader=lrClass.newInstance();
+          reader=lrClass.newInstance();
           reader.init(fs,path,conf,null);
           return reader;
         }
@@ -16,20 +17,29 @@
           stream=fs.open(path);
           byte[] magic=new byte[ProtobufLogReader.PB_WAL_MAGIC.length];
           boolean isPbWal=(stream.read(magic) == magic.length) && Arrays.equals(magic,ProtobufLogReader.PB_WAL_MAGIC);
-          AbstractFSWALProvider.Reader reader=isPbWal ? new ProtobufLogReader() : new SequenceFileLogReader();
+          reader=isPbWal ? new ProtobufLogReader() : new SequenceFileLogReader();
           reader.init(fs,path,conf,stream);
           return reader;
         }
       }
  catch (      IOException e) {
-        try {
-          if (stream != null) {
+        if (stream != null) {
+          try {
             stream.close();
           }
+ catch (          IOException exception) {
+            LOG.warn("Could not close AbstractFSWALProvider.Reader" + exception.getMessage());
+            LOG.debug("exception details",exception);
+          }
         }
- catch (        IOException exception) {
-          LOG.warn("Could not close FSDataInputStream" + exception.getMessage());
-          LOG.debug("exception details",exception);
+        if (reader != null) {
+          try {
+            reader.close();
+          }
+ catch (          IOException exception) {
+            LOG.warn("Could not close FSDataInputStream" + exception.getMessage());
+            LOG.debug("exception details",exception);
+          }
         }
         String msg=e.getMessage();
         if (msg != null && (msg.contains("Cannot obtain block length") || msg.contains("Could not obtain the last block") || msg.matches("Blocklist for [^ ]* has changed.*"))) {
