@@ -23,24 +23,35 @@ synchronized (scannerReadPoints) {
   }
   List<KeyValueScanner> scanners=new ArrayList<KeyValueScanner>(scan.getFamilyMap().size());
   List<KeyValueScanner> joinedScanners=new ArrayList<KeyValueScanner>(scan.getFamilyMap().size());
-  if (additionalScanners != null) {
+  List<KeyValueScanner> instantiatedScanners=new ArrayList<KeyValueScanner>();
+  if (additionalScanners != null && !additionalScanners.isEmpty()) {
     scanners.addAll(additionalScanners);
+    instantiatedScanners.addAll(additionalScanners);
   }
-  for (  Map.Entry<byte[],NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
-    Store store=stores.get(entry.getKey());
-    KeyValueScanner scanner;
-    try {
-      scanner=store.getScanner(scan,entry.getValue(),this.readPt);
-    }
- catch (    FileNotFoundException e) {
-      throw handleFileNotFound(e);
-    }
-    if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand() || this.filter.isFamilyEssential(entry.getKey())) {
-      scanners.add(scanner);
-    }
+  try {
+    for (    Map.Entry<byte[],NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
+      Store store=stores.get(entry.getKey());
+      KeyValueScanner scanner;
+      try {
+        scanner=store.getScanner(scan,entry.getValue(),this.readPt);
+      }
+ catch (      FileNotFoundException e) {
+        throw handleFileNotFound(e);
+      }
+      instantiatedScanners.add(scanner);
+      if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand() || this.filter.isFamilyEssential(entry.getKey())) {
+        scanners.add(scanner);
+      }
  else {
-      joinedScanners.add(scanner);
+        joinedScanners.add(scanner);
+      }
     }
+    initializeKVHeap(scanners,joinedScanners,region);
   }
-  initializeKVHeap(scanners,joinedScanners,region);
+ catch (  IOException e) {
+    for (    KeyValueScanner scanner : instantiatedScanners) {
+      scanner.close();
+    }
+    throw e;
+  }
 }
