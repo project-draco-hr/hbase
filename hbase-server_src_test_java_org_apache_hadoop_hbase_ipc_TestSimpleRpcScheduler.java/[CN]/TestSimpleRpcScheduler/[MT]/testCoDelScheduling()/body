@@ -1,8 +1,8 @@
 {
   CoDelEnvironmentEdge envEdge=new CoDelEnvironmentEdge();
-  envEdge.threadNamePrefixs.add("RW.default");
-  envEdge.threadNamePrefixs.add("B.default");
+  envEdge.threadNamePrefixs.add("RpcServer.CodelBQ.default.handler");
   Configuration schedConf=HBaseConfiguration.create();
+  schedConf.setInt(RpcScheduler.IPC_SERVER_MAX_CALLQUEUE_LENGTH,250);
   schedConf.set(SimpleRpcScheduler.CALL_QUEUE_TYPE_CONF_KEY,SimpleRpcScheduler.CALL_QUEUE_TYPE_CODEL_CONF_VALUE);
   PriorityFunction priority=mock(PriorityFunction.class);
   when(priority.getPriority(any(RPCProtos.RequestHeader.class),any(Message.class),any(User.class))).thenReturn(HConstants.NORMAL_QOS);
@@ -14,35 +14,32 @@
     for (int i=0; i < 100; i++) {
       long time=System.currentTimeMillis();
       envEdge.timeQ.put(time);
-      CallRunner cr=getMockedCallRunner(time);
-      Thread.sleep(5);
+      CallRunner cr=getMockedCallRunner(time,2);
       scheduler.dispatch(cr);
     }
     waitUntilQueueEmpty(scheduler);
     Thread.sleep(100);
     assertEquals("None of these calls should have been discarded",0,scheduler.getNumGeneralCallsDropped());
-    envEdge.offset=6;
+    envEdge.offset=151;
     for (int i=0; i < 20; i++) {
       long time=System.currentTimeMillis();
       envEdge.timeQ.put(time);
-      CallRunner cr=getMockedCallRunner(time);
-      Thread.sleep(6);
+      CallRunner cr=getMockedCallRunner(time,2);
       scheduler.dispatch(cr);
     }
     waitUntilQueueEmpty(scheduler);
     Thread.sleep(100);
     assertEquals("None of these calls should have been discarded",0,scheduler.getNumGeneralCallsDropped());
-    envEdge.offset=12;
-    for (int i=0; i < 20; i++) {
+    envEdge.offset=2000;
+    for (int i=0; i < 60; i++) {
       long time=System.currentTimeMillis();
       envEdge.timeQ.put(time);
-      CallRunner cr=getMockedCallRunner(time);
-      Thread.sleep(12);
+      CallRunner cr=getMockedCallRunner(time,100);
       scheduler.dispatch(cr);
     }
     waitUntilQueueEmpty(scheduler);
     Thread.sleep(100);
-    assertTrue("There should have been at least 12 calls dropped",scheduler.getNumGeneralCallsDropped() > 12);
+    assertTrue("There should have been at least 12 calls dropped however there were " + scheduler.getNumGeneralCallsDropped(),scheduler.getNumGeneralCallsDropped() > 12);
   }
   finally {
     scheduler.stop();
