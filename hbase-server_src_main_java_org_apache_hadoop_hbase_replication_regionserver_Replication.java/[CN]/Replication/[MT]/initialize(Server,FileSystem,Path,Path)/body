@@ -1,7 +1,6 @@
 {
   this.server=server;
   this.conf=this.server.getConfiguration();
-  this.replication=isReplication(this.conf);
   this.replicationForBulkLoadData=isReplicationForBulkLoadDataEnabled(this.conf);
   this.scheduleThreadPool=Executors.newScheduledThreadPool(1,new ThreadFactoryBuilder().setNameFormat(server.getServerName().toShortString() + "Replication Statistics #%d").setDaemon(true).build());
   if (this.replicationForBulkLoadData) {
@@ -9,34 +8,25 @@
       throw new IllegalArgumentException(HConstants.REPLICATION_CLUSTER_ID + " cannot be null/empty when " + HConstants.REPLICATION_BULKLOAD_ENABLE_KEY+ " is set to true.");
     }
   }
-  if (replication) {
-    try {
-      this.replicationQueues=ReplicationFactory.getReplicationQueues(new ReplicationQueuesArguments(conf,this.server,server.getZooKeeper()));
-      this.replicationQueues.init(this.server.getServerName().toString());
-      this.replicationPeers=ReplicationFactory.getReplicationPeers(server.getZooKeeper(),this.conf,this.server);
-      this.replicationPeers.init();
-      this.replicationTracker=ReplicationFactory.getReplicationTracker(server.getZooKeeper(),this.replicationPeers,this.conf,this.server,this.server);
-    }
- catch (    Exception e) {
-      throw new IOException("Failed replication handler create",e);
-    }
-    UUID clusterId=null;
-    try {
-      clusterId=ZKClusterId.getUUIDForCluster(this.server.getZooKeeper());
-    }
- catch (    KeeperException ke) {
-      throw new IOException("Could not read cluster id",ke);
-    }
-    this.replicationManager=new ReplicationSourceManager(replicationQueues,replicationPeers,replicationTracker,conf,this.server,fs,logDir,oldLogDir,clusterId);
-    this.statsThreadPeriod=this.conf.getInt("replication.stats.thread.period.seconds",5 * 60);
-    LOG.debug("ReplicationStatisticsThread " + this.statsThreadPeriod);
-    this.replicationLoad=new ReplicationLoad();
+  try {
+    this.replicationQueues=ReplicationFactory.getReplicationQueues(new ReplicationQueuesArguments(conf,this.server,server.getZooKeeper()));
+    this.replicationQueues.init(this.server.getServerName().toString());
+    this.replicationPeers=ReplicationFactory.getReplicationPeers(server.getZooKeeper(),this.conf,this.server);
+    this.replicationPeers.init();
+    this.replicationTracker=ReplicationFactory.getReplicationTracker(server.getZooKeeper(),this.replicationPeers,this.conf,this.server,this.server);
   }
- else {
-    this.replicationManager=null;
-    this.replicationQueues=null;
-    this.replicationPeers=null;
-    this.replicationTracker=null;
-    this.replicationLoad=null;
+ catch (  Exception e) {
+    throw new IOException("Failed replication handler create",e);
   }
+  UUID clusterId=null;
+  try {
+    clusterId=ZKClusterId.getUUIDForCluster(this.server.getZooKeeper());
+  }
+ catch (  KeeperException ke) {
+    throw new IOException("Could not read cluster id",ke);
+  }
+  this.replicationManager=new ReplicationSourceManager(replicationQueues,replicationPeers,replicationTracker,conf,this.server,fs,logDir,oldLogDir,clusterId);
+  this.statsThreadPeriod=this.conf.getInt("replication.stats.thread.period.seconds",5 * 60);
+  LOG.debug("ReplicationStatisticsThread " + this.statsThreadPeriod);
+  this.replicationLoad=new ReplicationLoad();
 }
