@@ -4,11 +4,37 @@
   while (iter.hasNext()) {
     TreeSet<KeyValue> map=new TreeSet<KeyValue>(CellComparator.COMPARATOR);
     long curSize=0;
+    List<Tag> tags=new ArrayList<Tag>();
     while (iter.hasNext() && curSize < threshold) {
+      tags.clear();
       Put p=iter.next();
+      long t=p.getTTL();
+      if (t != Long.MAX_VALUE) {
+        tags.add(new ArrayBackedTag(TagType.TTL_TAG_TYPE,Bytes.toBytes(t)));
+      }
+      byte[] acl=p.getACL();
+      if (acl != null) {
+        tags.add(new ArrayBackedTag(TagType.ACL_TAG_TYPE,acl));
+      }
+      try {
+        CellVisibility cellVisibility=p.getCellVisibility();
+        if (cellVisibility != null) {
+          tags.addAll(kvCreator.getVisibilityExpressionResolver().createVisibilityExpTags(cellVisibility.getExpression()));
+        }
+      }
+ catch (      DeserializationException e) {
+        throw new IOException("Invalid visibility expression found in mutation " + p,e);
+      }
       for (      List<Cell> cells : p.getFamilyCellMap().values()) {
         for (        Cell cell : cells) {
-          KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+          KeyValue kv=null;
+          TagUtil.carryForwardTags(tags,cell);
+          if (!tags.isEmpty()) {
+            kv=(KeyValue)kvCreator.create(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),cell.getFamilyArray(),cell.getFamilyOffset(),cell.getFamilyLength(),cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength(),cell.getTimestamp(),cell.getValueArray(),cell.getValueOffset(),cell.getValueLength(),tags);
+          }
+ else {
+            kv=KeyValueUtil.ensureKeyValue(cell);
+          }
           if (map.add(kv)) {
             curSize+=kv.heapSize();
           }

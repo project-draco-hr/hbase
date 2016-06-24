@@ -14,13 +14,15 @@
     hostnames[i]="datanode_" + i;
   }
   util.startMiniCluster(1,hostCount,hostnames);
-  Table table=util.createTable(TABLE_NAME,FAMILIES,splitKeys);
+  TableName tableName=TableName.valueOf(tableStr);
+  Table table=util.createTable(tableName,FAMILIES,splitKeys);
   Path testDir=util.getDataTestDirOnTestFS("testLocalMRIncrementalLoad");
-  try (RegionLocator r=util.getConnection().getRegionLocator(TABLE_NAME);Admin admin=util.getConnection().getAdmin()){
+  FileSystem fs=testDir.getFileSystem(conf);
+  try (RegionLocator r=util.getConnection().getRegionLocator(tableName);Admin admin=util.getConnection().getAdmin()){
     assertEquals("Should start with empty table",0,util.countRows(table));
     int numRegions=r.getStartKeys().length;
     assertEquals("Should make " + regionNum + " regions",numRegions,regionNum);
-    runIncrementalPELoad(conf,table.getTableDescriptor(),r,testDir);
+    runIncrementalPELoad(conf,table.getTableDescriptor(),r,testDir,putSortReducer);
     assertEquals("HFOF should not touch actual table",0,util.countRows(table));
     int dir=0;
     for (    FileStatus f : testDir.getFileSystem(conf).listStatus(testDir)) {
@@ -37,29 +39,35 @@
       util.waitUntilNoRegionsInTransition();
       util.deleteTable(table.getName());
       byte[][] newSplitKeys=generateRandomSplitKeys(14);
-      table=util.createTable(TABLE_NAME,FAMILIES,newSplitKeys);
-      while (util.getConnection().getRegionLocator(TABLE_NAME).getAllRegionLocations().size() != 15 || !admin.isTableAvailable(table.getName())) {
+      table=util.createTable(tableName,FAMILIES,newSplitKeys);
+      while (util.getConnection().getRegionLocator(tableName).getAllRegionLocations().size() != 15 || !admin.isTableAvailable(table.getName())) {
         Thread.sleep(200);
         LOG.info("Waiting for new region assignment to happen");
       }
     }
     new LoadIncrementalHFiles(conf).doBulkLoad(testDir,admin,table,r);
-    int expectedRows=NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
-    assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
-    Scan scan=new Scan();
-    ResultScanner results=table.getScanner(scan);
-    for (    Result res : results) {
-      assertEquals(FAMILIES.length,res.rawCells().length);
-      Cell first=res.rawCells()[0];
-      for (      Cell kv : res.rawCells()) {
-        assertTrue(CellUtil.matchingRow(first,kv));
-        assertTrue(Bytes.equals(CellUtil.cloneValue(first),CellUtil.cloneValue(kv)));
-      }
+    int expectedRows=0;
+    if (putSortReducer) {
+      assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
     }
-    results.close();
+ else {
+      expectedRows=NMapInputFormat.getNumMapTasks(conf) * ROWSPERSPLIT;
+      assertEquals("LoadIncrementalHFiles should put expected data in table",expectedRows,util.countRows(table));
+      Scan scan=new Scan();
+      ResultScanner results=table.getScanner(scan);
+      for (      Result res : results) {
+        assertEquals(FAMILIES.length,res.rawCells().length);
+        Cell first=res.rawCells()[0];
+        for (        Cell kv : res.rawCells()) {
+          assertTrue(CellUtil.matchingRow(first,kv));
+          assertTrue(Bytes.equals(CellUtil.cloneValue(first),CellUtil.cloneValue(kv)));
+        }
+      }
+      results.close();
+    }
     String tableDigestBefore=util.checksumRows(table);
     HDFSBlocksDistribution hbd=new HDFSBlocksDistribution();
-    for (    HRegion region : util.getHBaseCluster().getRegions(TABLE_NAME)) {
+    for (    HRegion region : util.getHBaseCluster().getRegions(tableName)) {
       hbd.add(region.getHDFSBlocksDistribution());
     }
     for (    String hostname : hostnames) {
@@ -67,18 +75,18 @@
       LOG.info("locality of [" + hostname + "]: "+ locality);
       assertEquals(100,(int)(locality * 100));
     }
-    admin.disableTable(TABLE_NAME);
-    while (!admin.isTableDisabled(TABLE_NAME)) {
+    admin.disableTable(tableName);
+    while (!admin.isTableDisabled(tableName)) {
       Thread.sleep(200);
       LOG.info("Waiting for table to disable");
     }
-    admin.enableTable(TABLE_NAME);
-    util.waitTableAvailable(TABLE_NAME);
+    admin.enableTable(tableName);
+    util.waitTableAvailable(tableName);
     assertEquals("Data should remain after reopening of regions",tableDigestBefore,util.checksumRows(table));
   }
   finally {
     testDir.getFileSystem(conf).delete(testDir,true);
-    util.deleteTable(TABLE_NAME);
+    util.deleteTable(tableName);
     util.shutdownMiniCluster();
   }
 }
