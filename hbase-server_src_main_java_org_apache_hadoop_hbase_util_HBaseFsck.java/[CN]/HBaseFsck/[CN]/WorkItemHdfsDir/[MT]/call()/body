@@ -1,41 +1,82 @@
 {
+  final Vector<Exception> exceptions=new Vector<Exception>();
   try {
-    FileStatus[] regionDirs=fs.listStatus(tableDir.getPath());
-    for (    FileStatus regionDir : regionDirs) {
+    final FileStatus[] regionDirs=fs.listStatus(tableDir.getPath());
+    final List<Future<?>> futures=new ArrayList<Future<?>>(regionDirs.length);
+    for (    final FileStatus regionDir : regionDirs) {
       errors.progress();
-      String encodedName=regionDir.getPath().getName();
+      final String encodedName=regionDir.getPath().getName();
       if (!encodedName.toLowerCase(Locale.ROOT).matches("[0-9a-f]+")) {
         continue;
       }
-      LOG.debug("Loading region info from hdfs:" + regionDir.getPath());
-      HbckInfo hbi=hbck.getOrCreateInfo(encodedName);
-      HdfsEntry he=new HdfsEntry();
+      if (!exceptions.isEmpty()) {
+        break;
+      }
+      futures.add(executor.submit(new Runnable(){
+        @Override public void run(){
+          try {
+            LOG.debug("Loading region info from hdfs:" + regionDir.getPath());
+            Path regioninfoFile=new Path(regionDir.getPath(),HRegionFileSystem.REGION_INFO_FILE);
+            boolean regioninfoFileExists=fs.exists(regioninfoFile);
+            if (!regioninfoFileExists) {
+              if (!fs.exists(regionDir.getPath())) {
+                LOG.warn("By the time we tried to process this region dir it was already gone: " + regionDir.getPath());
+                return;
+              }
+            }
+            HbckInfo hbi=HBaseFsck.this.getOrCreateInfo(encodedName);
+            HdfsEntry he=new HdfsEntry();
 synchronized (hbi) {
-        if (hbi.getHdfsRegionDir() != null) {
-          errors.print("Directory " + encodedName + " duplicate??"+ hbi.getHdfsRegionDir());
-        }
-        he.hdfsRegionDir=regionDir.getPath();
-        he.hdfsRegionDirModTime=regionDir.getModificationTime();
-        Path regioninfoFile=new Path(he.hdfsRegionDir,HRegionFileSystem.REGION_INFO_FILE);
-        he.hdfsRegioninfoFilePresent=fs.exists(regioninfoFile);
-        he.hdfsOnlyEdits=true;
-        FileStatus[] subDirs=fs.listStatus(regionDir.getPath());
-        Path ePath=WALSplitter.getRegionDirRecoveredEditsDir(regionDir.getPath());
-        for (        FileStatus subDir : subDirs) {
-          errors.progress();
-          String sdName=subDir.getPath().getName();
-          if (!sdName.startsWith(".") && !sdName.equals(ePath.getName())) {
-            he.hdfsOnlyEdits=false;
-            break;
+              if (hbi.getHdfsRegionDir() != null) {
+                errors.print("Directory " + encodedName + " duplicate??"+ hbi.getHdfsRegionDir());
+              }
+              he.hdfsRegionDir=regionDir.getPath();
+              he.hdfsRegionDirModTime=regionDir.getModificationTime();
+              he.hdfsRegioninfoFilePresent=regioninfoFileExists;
+              he.hdfsOnlyEdits=true;
+              FileStatus[] subDirs=fs.listStatus(regionDir.getPath());
+              Path ePath=WALSplitter.getRegionDirRecoveredEditsDir(regionDir.getPath());
+              for (              FileStatus subDir : subDirs) {
+                errors.progress();
+                String sdName=subDir.getPath().getName();
+                if (!sdName.startsWith(".") && !sdName.equals(ePath.getName())) {
+                  he.hdfsOnlyEdits=false;
+                  break;
+                }
+              }
+              hbi.hdfsEntry=he;
+            }
+          }
+ catch (          Exception e) {
+            LOG.error("Could not load region dir",e);
+            exceptions.add(e);
           }
         }
-        hbi.hdfsEntry=he;
       }
+));
+    }
+    for (    Future<?> f : futures) {
+      if (!exceptions.isEmpty()) {
+        break;
+      }
+      try {
+        f.get();
+      }
+ catch (      ExecutionException e) {
+        LOG.error("Unexpected exec exception!  Should've been caught already.  (Bug?)",e);
+      }
+      ;
     }
   }
  catch (  IOException e) {
-    errors.reportError(ERROR_CODE.RS_CONNECT_FAILURE,"Table Directory: " + tableDir.getPath().getName() + " Unable to fetch region information. "+ e);
-    throw e;
+    LOG.error("Cannot execute WorkItemHdfsDir for " + tableDir,e);
+    exceptions.add(e);
+  }
+ finally {
+    if (!exceptions.isEmpty()) {
+      errors.reportError(ERROR_CODE.RS_CONNECT_FAILURE,"Table Directory: " + tableDir.getPath().getName() + " Unable to fetch all HDFS region information. ");
+      throw new ExecutionException("First exception in WorkItemHdfsDir",exceptions.firstElement());
+    }
   }
   return null;
 }

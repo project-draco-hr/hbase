@@ -1,0 +1,95 @@
+{
+  final Map<String,Path> finalResultMap=resultMap == null ? new ConcurrentHashMap<String,Path>(128,0.75f,32) : resultMap;
+  Path tableDir=FSUtils.getTableDir(hbaseRootDir,tableName);
+  final FamilyDirFilter familyFilter=new FamilyDirFilter(fs);
+  final Vector<Exception> exceptions=new Vector<Exception>();
+  try {
+    List<FileStatus> regionDirs=FSUtils.listStatusWithStatusFilter(fs,tableDir,new RegionDirFilter(fs));
+    if (regionDirs == null) {
+      return finalResultMap;
+    }
+    final List<Future<?>> futures=new ArrayList<Future<?>>(regionDirs.size());
+    for (    FileStatus regionDir : regionDirs) {
+      if (null != errors) {
+        errors.progress();
+      }
+      final Path dd=regionDir.getPath();
+      if (!exceptions.isEmpty()) {
+        break;
+      }
+      Runnable getRegionStoreFileMapCall=new Runnable(){
+        @Override public void run(){
+          try {
+            HashMap<String,Path> regionStoreFileMap=new HashMap<String,Path>();
+            List<FileStatus> familyDirs=FSUtils.listStatusWithStatusFilter(fs,dd,familyFilter);
+            if (familyDirs == null) {
+              if (!fs.exists(dd)) {
+                LOG.warn("Skipping region because it no longer exists: " + dd);
+              }
+ else {
+                LOG.warn("Skipping region because it has no family dirs: " + dd);
+              }
+              return;
+            }
+            for (            FileStatus familyDir : familyDirs) {
+              if (null != errors) {
+                errors.progress();
+              }
+              Path family=familyDir.getPath();
+              if (family.getName().equals(HConstants.RECOVERED_EDITS_DIR)) {
+                continue;
+              }
+              FileStatus[] familyStatus=fs.listStatus(family);
+              for (              FileStatus sfStatus : familyStatus) {
+                if (null != errors) {
+                  errors.progress();
+                }
+                Path sf=sfStatus.getPath();
+                if (sfFilter == null || sfFilter.accept(sf)) {
+                  regionStoreFileMap.put(sf.getName(),sf);
+                }
+              }
+            }
+            finalResultMap.putAll(regionStoreFileMap);
+          }
+ catch (          Exception e) {
+            LOG.error("Could not get region store file map for region: " + dd,e);
+            exceptions.add(e);
+          }
+        }
+      }
+;
+      if (executor != null) {
+        Future<?> future=executor.submit(getRegionStoreFileMapCall);
+        futures.add(future);
+      }
+ else {
+        FutureTask<?> future=new FutureTask<Object>(getRegionStoreFileMapCall,null);
+        future.run();
+        futures.add(future);
+      }
+    }
+    for (    Future<?> f : futures) {
+      if (!exceptions.isEmpty()) {
+        break;
+      }
+      try {
+        f.get();
+      }
+ catch (      ExecutionException e) {
+        LOG.error("Unexpected exec exception!  Should've been caught already.  (Bug?)",e);
+      }
+    }
+  }
+ catch (  IOException e) {
+    LOG.error("Cannot execute getTableStoreFilePathMap for " + tableName,e);
+    exceptions.add(e);
+  }
+ finally {
+    if (!exceptions.isEmpty()) {
+      Throwables.propagateIfInstanceOf(exceptions.firstElement(),IOException.class);
+      throw Throwables.propagate(exceptions.firstElement());
+    }
+  }
+  return finalResultMap;
+}
