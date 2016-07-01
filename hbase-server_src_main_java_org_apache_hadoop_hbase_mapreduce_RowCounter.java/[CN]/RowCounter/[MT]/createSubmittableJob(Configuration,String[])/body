@@ -1,7 +1,6 @@
 {
   String tableName=args[0];
-  String startKey=null;
-  String endKey=null;
+  List<MultiRowRangeFilter.RowRange> rowRangeList=null;
   long startTime=0;
   long endTime=0;
   StringBuilder sb=new StringBuilder();
@@ -11,13 +10,12 @@
   final String expectedCountArg="--expected-count=";
   for (int i=1; i < args.length; i++) {
     if (args[i].startsWith(rangeSwitch)) {
-      String[] startEnd=args[i].substring(rangeSwitch.length()).split(",",2);
-      if (startEnd.length != 2 || startEnd[1].contains(",")) {
-        printUsage("Please specify range in such format as \"--range=a,b\" " + "or, with only one boundary, \"--range=,b\" or \"--range=a,\"");
+      try {
+        rowRangeList=parseRowRangeParameter(args[i],rangeSwitch);
+      }
+ catch (      IllegalArgumentException e) {
         return null;
       }
-      startKey=startEnd[0];
-      endKey=startEnd[1];
       continue;
     }
     if (args[i].startsWith(startTimeArgKey)) {
@@ -43,12 +41,7 @@
   job.setJarByClass(RowCounter.class);
   Scan scan=new Scan();
   scan.setCacheBlocks(false);
-  if (startKey != null && !startKey.equals("")) {
-    scan.setStartRow(Bytes.toBytesBinary(startKey));
-  }
-  if (endKey != null && !endKey.equals("")) {
-    scan.setStopRow(Bytes.toBytesBinary(endKey));
-  }
+  setScanFilter(scan,rowRangeList);
   if (sb.length() > 0) {
     for (    String columnName : sb.toString().trim().split(" ")) {
       String family=StringUtils.substringBefore(columnName,":");
@@ -61,7 +54,6 @@
       }
     }
   }
-  scan.setFilter(new FirstKeyOnlyFilter());
   scan.setTimeRange(startTime,endTime == 0 ? HConstants.LATEST_TIMESTAMP : endTime);
   job.setOutputFormatClass(NullOutputFormat.class);
   TableMapReduceUtil.initTableMapperJob(tableName,scan,RowCounterMapper.class,ImmutableBytesWritable.class,Result.class,job);
