@@ -34,6 +34,7 @@
       }
       if (peer == null || peerConfig == null) {
         LOG.warn("Skipping failover for peer:" + actualPeerId + " of node"+ rsZnode);
+        replicationQueues.removeQueue(peerId);
         continue;
       }
       Map<String,SortedSet<String>> walsByGroup=new HashMap<String,SortedSet<String>>();
@@ -48,15 +49,18 @@
         wals.add(wal);
       }
       ReplicationSourceInterface src=getReplicationSource(conf,fs,ReplicationSourceManager.this,this.rq,this.rp,server,peerId,this.clusterId,peerConfig,peer);
-      if (!this.rp.getConnectedPeerIds().contains((src.getPeerClusterId()))) {
-        src.terminate("Recovered queue doesn't belong to any current peer");
-        break;
+synchronized (oldsources) {
+        if (!this.rp.getConnectedPeerIds().contains(src.getPeerClusterId())) {
+          src.terminate("Recovered queue doesn't belong to any current peer");
+          closeRecoveredQueue(src);
+          continue;
+        }
+        oldsources.add(src);
+        for (        String wal : walsSet) {
+          src.enqueueLog(new Path(oldLogDir,wal));
+        }
+        src.startup();
       }
-      oldsources.add(src);
-      for (      String wal : walsSet) {
-        src.enqueueLog(new Path(oldLogDir,wal));
-      }
-      src.startup();
     }
  catch (    IOException e) {
       LOG.error("Failed creating a source",e);
