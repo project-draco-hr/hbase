@@ -1,0 +1,37 @@
+{
+  long maxSize=100000;
+  int numBlocks=9;
+  int testRuns=10;
+  final long blockSize=calculateBlockSizeDefault(maxSize,numBlocks);
+  assertTrue("calculateBlockSize appears broken.",blockSize * numBlocks <= maxSize);
+  final LruBlockCache cache=new LruBlockCache(maxSize,blockSize);
+  EvictionThread evictionThread=cache.getEvictionThread();
+  assertTrue(evictionThread != null);
+  while (!evictionThread.isEnteringRun()) {
+    Thread.sleep(1);
+  }
+  final String hfileName="hfile";
+  int threads=10;
+  final int blocksPerThread=5 * numBlocks;
+  for (int run=0; run != testRuns; ++run) {
+    final AtomicInteger blockCount=new AtomicInteger(0);
+    ExecutorService service=Executors.newFixedThreadPool(threads);
+    for (int i=0; i != threads; ++i) {
+      service.execute(new Runnable(){
+        @Override public void run(){
+          for (int blockIndex=0; blockIndex < blocksPerThread || (!cache.isEvictionInProgress()); ++blockIndex) {
+            CachedItem block=new CachedItem(hfileName,(int)blockSize,blockCount.getAndIncrement());
+            boolean inMemory=Math.random() > 0.5;
+            cache.cacheBlock(block.cacheKey,block,inMemory,false);
+          }
+          cache.evictBlocksByHfileName(hfileName);
+        }
+      }
+);
+    }
+    service.shutdown();
+    service.awaitTermination(10,TimeUnit.MINUTES);
+    assertEquals(0,cache.getBlockCount());
+    assertEquals(cache.getOverhead(),cache.getCurrentSize());
+  }
+}
