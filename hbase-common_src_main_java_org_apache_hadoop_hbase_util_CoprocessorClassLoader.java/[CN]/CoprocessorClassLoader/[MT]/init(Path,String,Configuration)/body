@@ -11,28 +11,44 @@ synchronized (parentDirLockSet) {
       }
     }
   }
-  FileSystem fs=path.getFileSystem(conf);
-  File dst=new File(parentDirStr,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ ".jar");
-  fs.copyToLocalFile(path,new Path(dst.toString()));
-  dst.deleteOnExit();
-  addURL(dst.getCanonicalFile().toURI().toURL());
-  JarFile jarFile=new JarFile(dst.toString());
-  try {
-    Enumeration<JarEntry> entries=jarFile.entries();
-    while (entries.hasMoreElements()) {
-      JarEntry entry=entries.nextElement();
-      Matcher m=libJarPattern.matcher(entry.getName());
-      if (m.matches()) {
-        File file=new File(parentDirStr,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ "."+ m.group(1));
-        try (FileOutputStream outStream=new FileOutputStream(file)){
-          IOUtils.copyBytes(jarFile.getInputStream(entry),outStream,conf,true);
+  FileSystem fs=pathPattern.getFileSystem(conf);
+  Path pathPattern1=fs.isDirectory(pathPattern) ? new Path(pathPattern,"*.jar") : pathPattern;
+  FileStatus[] fileStatuses=fs.globStatus(pathPattern1);
+  if (fileStatuses == null || fileStatuses.length == 0) {
+    throw new FileNotFoundException(pathPattern1.toString());
+  }
+ else {
+    boolean validFileEncountered=false;
+    for (    Path path : FileUtil.stat2Paths(fileStatuses)) {
+      if (fs.isFile(path)) {
+        File dst=new File(parentDirStr,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ ".jar");
+        fs.copyToLocalFile(path,new Path(dst.toString()));
+        dst.deleteOnExit();
+        addURL(dst.getCanonicalFile().toURI().toURL());
+        JarFile jarFile=new JarFile(dst.toString());
+        try {
+          Enumeration<JarEntry> entries=jarFile.entries();
+          while (entries.hasMoreElements()) {
+            JarEntry entry=entries.nextElement();
+            Matcher m=libJarPattern.matcher(entry.getName());
+            if (m.matches()) {
+              File file=new File(parentDirStr,"." + pathPrefix + "."+ path.getName()+ "."+ System.currentTimeMillis()+ "."+ m.group(1));
+              try (FileOutputStream outStream=new FileOutputStream(file)){
+                IOUtils.copyBytes(jarFile.getInputStream(entry),outStream,conf,true);
+              }
+               file.deleteOnExit();
+              addURL(file.toURI().toURL());
+            }
+          }
         }
-         file.deleteOnExit();
-        addURL(file.toURI().toURL());
+  finally {
+          jarFile.close();
+        }
+        validFileEncountered=true;
       }
     }
-  }
-  finally {
-    jarFile.close();
+    if (validFileEncountered == false) {
+      throw new FileNotFoundException("No file found matching " + pathPattern1.toString());
+    }
   }
 }
