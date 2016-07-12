@@ -1,0 +1,36 @@
+{
+  final Method getFlagListMethod=PipelineAckProto.class.getMethod("getFlagList");
+  @SuppressWarnings("rawtypes") Class<? extends Enum> ecnClass;
+  try {
+    ecnClass=Class.forName("org.apache.hadoop.hdfs.protocol.datatransfer.PipelineAck$ECN").asSubclass(Enum.class);
+  }
+ catch (  ClassNotFoundException e) {
+    final String msg="Couldn't properly initialize the PipelineAck.ECN class. Please " + "update your WAL Provider to not make use of the 'asyncfs' provider. See " + "HBASE-16110 for more information.";
+    LOG.error(msg,e);
+    throw new Error(msg,e);
+  }
+  @SuppressWarnings("unchecked") final Enum<?> disabledECN=Enum.valueOf(ecnClass,"DISABLED");
+  final Method getReplyMethod=PipelineAckProto.class.getMethod("getReply",int.class);
+  final Method combineHeaderMethod=PipelineAck.class.getMethod("combineHeader",ecnClass,Status.class);
+  final Method getStatusFromHeaderMethod=PipelineAck.class.getMethod("getStatusFromHeader",int.class);
+  return new PipelineAckStatusGetter(){
+    @Override public Status get(    PipelineAckProto ack){
+      try {
+        @SuppressWarnings("unchecked") List<Integer> flagList=(List<Integer>)getFlagListMethod.invoke(ack);
+        Integer headerFlag;
+        if (flagList.isEmpty()) {
+          Status reply=(Status)getReplyMethod.invoke(ack,0);
+          headerFlag=(Integer)combineHeaderMethod.invoke(null,disabledECN,reply);
+        }
+ else {
+          headerFlag=flagList.get(0);
+        }
+        return (Status)getStatusFromHeaderMethod.invoke(null,headerFlag);
+      }
+ catch (      IllegalAccessException|InvocationTargetException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+;
+}
