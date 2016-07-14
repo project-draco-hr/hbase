@@ -27,19 +27,10 @@
   status.setStatus("Initializing master service threads");
   startServiceThreads();
   sleeper.skipSleepCycle();
-  this.serverManager.waitForRegionServers(status);
-  for (  ServerName sn : this.regionServerTracker.getOnlineServers()) {
-    if (!this.serverManager.isServerOnline(sn) && serverManager.checkAndRecordNewServer(sn,ServerLoad.EMPTY_SERVERLOAD)) {
-      LOG.info("Registered server found up in zk but who has not yet reported in: " + sn);
-    }
-  }
-  Set<ServerName> previouslyFailedServers=this.walManager.getFailedServersFromLogFolders();
-  ServerName oldMetaServerLocation=metaTableLocator.getMetaRegionLocation(this.getZooKeeper());
-  if (oldMetaServerLocation != null && previouslyFailedServers.contains(oldMetaServerLocation)) {
-    splitMetaLogBeforeAssignment(oldMetaServerLocation);
-  }
-  Set<ServerName> previouslyFailedMetaRSs=getPreviouselyFailedMetaServersFromZK();
-  previouslyFailedMetaRSs.addAll(previouslyFailedServers);
+  status.setStatus("Wait for region servers to report in");
+  waitForRegionServers(status);
+  MasterMetaBootstrap metaBootstrap=createMetaBootstrap(this,status);
+  metaBootstrap.splitMetaLogsBeforeAssignment();
   this.initializationBeforeMetaAssignment=true;
   if (BaseLoadBalancer.tablesOnMaster(conf)) {
     waitForServerOnline();
@@ -49,7 +40,7 @@
   this.balancer.initialize();
   if (isStopped())   return;
   status.setStatus("Assigning Meta Region");
-  assignMeta(status,previouslyFailedMetaRSs,HRegionInfo.DEFAULT_REPLICA_ID);
+  metaBootstrap.assignMeta();
   if (isStopped())   return;
   for (  Map.Entry<TableName,TableState.State> entry : ZKDataMigrator.queryForTableStates(getZooKeeper()).entrySet()) {
     LOG.info("Converting state from zk to new states:" + entry);
@@ -57,9 +48,7 @@
   }
   ZKUtil.deleteChildrenRecursively(getZooKeeper(),getZooKeeper().tableZNode);
   status.setStatus("Submitting log splitting work for previously failed region servers");
-  for (  ServerName tmpServer : previouslyFailedServers) {
-    this.serverManager.processDeadServer(tmpServer,true);
-  }
+  metaBootstrap.processDeadServers();
   status.setStatus("Starting assignment manager");
   this.assignmentManager.joinCluster();
   this.balancer.setClusterStatus(getClusterStatus());
@@ -88,29 +77,16 @@
   LOG.info("Master has completed initialization");
   configurationManager.registerObserver(this.balancer);
   setInitialized(true);
-  Set<ServerName> EMPTY_SET=new HashSet<ServerName>();
-  int numReplicas=conf.getInt(HConstants.META_REPLICAS_NUM,HConstants.DEFAULT_META_REPLICA_NUM);
-  for (int i=1; i < numReplicas; i++) {
-    assignMeta(status,EMPTY_SET,i);
-  }
-  unassignExcessMetaReplica(zooKeeper,numReplicas);
+  status.setStatus("Assign meta replicas");
+  metaBootstrap.assignMetaReplicas();
   status.setStatus("Starting quota manager");
   initQuotaManager();
   this.serverManager.clearDeadServersWithSameHostNameAndPortOfOnlineServer();
   status.setStatus("Checking ZNode ACLs");
   zooKeeper.checkAndSetZNodeAcls();
+  status.setStatus("Initializing MOB Cleaner");
+  initMobCleaner();
   status.setStatus("Calling postStartMaster coprocessors");
-  this.expiredMobFileCleanerChore=new ExpiredMobFileCleanerChore(this);
-  getChoreService().scheduleChore(expiredMobFileCleanerChore);
-  int mobCompactionPeriod=conf.getInt(MobConstants.MOB_COMPACTION_CHORE_PERIOD,MobConstants.DEFAULT_MOB_COMPACTION_CHORE_PERIOD);
-  if (mobCompactionPeriod > 0) {
-    this.mobCompactChore=new MobCompactionChore(this,mobCompactionPeriod);
-    getChoreService().scheduleChore(mobCompactChore);
-  }
- else {
-    LOG.info("The period is " + mobCompactionPeriod + " seconds, MobCompactionChore is disabled");
-  }
-  this.mobCompactThread=new MasterMobCompactionThread(this);
   if (this.cpHost != null) {
     try {
       this.cpHost.postStartMaster();

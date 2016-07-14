@@ -1,26 +1,27 @@
 {
+  final AssignmentManager assignmentManager=master.getAssignmentManager();
   int assigned=0;
-  long timeout=this.conf.getLong("hbase.catalog.verification.timeout",1000);
+  long timeout=master.getConfiguration().getLong("hbase.catalog.verification.timeout",1000);
   if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID) {
     status.setStatus("Assigning hbase:meta region");
   }
  else {
     status.setStatus("Assigning hbase:meta region, replicaId " + replicaId);
   }
-  RegionState metaState=MetaTableLocator.getMetaRegionState(getZooKeeper(),replicaId);
+  RegionState metaState=MetaTableLocator.getMetaRegionState(master.getZooKeeper(),replicaId);
   HRegionInfo hri=RegionReplicaUtil.getRegionInfoForReplica(HRegionInfo.FIRST_META_REGIONINFO,replicaId);
   RegionStates regionStates=assignmentManager.getRegionStates();
   regionStates.createRegionState(hri,metaState.getState(),metaState.getServerName(),null);
-  if (!metaState.isOpened() || !metaTableLocator.verifyMetaRegionLocation(this.getClusterConnection(),this.getZooKeeper(),timeout,replicaId)) {
+  if (!metaState.isOpened() || !master.getMetaTableLocator().verifyMetaRegionLocation(master.getClusterConnection(),master.getZooKeeper(),timeout,replicaId)) {
     ServerName currentMetaServer=metaState.getServerName();
-    if (serverManager.isServerOnline(currentMetaServer)) {
+    if (master.getServerManager().isServerOnline(currentMetaServer)) {
       if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID) {
         LOG.info("Meta was in transition on " + currentMetaServer);
       }
  else {
         LOG.info("Meta with replicaId " + replicaId + " was in transition on "+ currentMetaServer);
       }
-      assignmentManager.processRegionsInTransition(Arrays.asList(metaState));
+      assignmentManager.processRegionsInTransition(Collections.singletonList(metaState));
     }
  else {
       if (currentMetaServer != null) {
@@ -36,15 +37,15 @@
     assigned++;
   }
   if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID) {
-    getTableStateManager().setTableState(TableName.META_TABLE_NAME,TableState.State.ENABLED);
+    master.getTableStateManager().setTableState(TableName.META_TABLE_NAME,TableState.State.ENABLED);
   }
-  if ((RecoveryMode.LOG_REPLAY == this.getMasterWalManager().getLogRecoveryMode()) && (!previouslyFailedMetaRSs.isEmpty())) {
+  if ((RecoveryMode.LOG_REPLAY == master.getMasterWalManager().getLogRecoveryMode()) && (!previouslyFailedMetaRSs.isEmpty())) {
     status.setStatus("replaying log for Meta Region");
-    this.walManager.splitMetaLog(previouslyFailedMetaRSs);
+    master.getMasterWalManager().splitMetaLog(previouslyFailedMetaRSs);
   }
-  this.assignmentManager.setEnabledTable(TableName.META_TABLE_NAME);
-  tableStateManager.start();
+  assignmentManager.setEnabledTable(TableName.META_TABLE_NAME);
+  master.getTableStateManager().start();
   if (replicaId == HRegionInfo.DEFAULT_REPLICA_ID)   enableCrashedServerProcessing(assigned != 0);
-  LOG.info("hbase:meta with replicaId " + replicaId + " assigned="+ assigned+ ", location="+ metaTableLocator.getMetaRegionLocation(this.getZooKeeper(),replicaId));
+  LOG.info("hbase:meta with replicaId " + replicaId + " assigned="+ assigned+ ", location="+ master.getMetaTableLocator().getMetaRegionLocation(master.getZooKeeper(),replicaId));
   status.setStatus("META assigned.");
 }
