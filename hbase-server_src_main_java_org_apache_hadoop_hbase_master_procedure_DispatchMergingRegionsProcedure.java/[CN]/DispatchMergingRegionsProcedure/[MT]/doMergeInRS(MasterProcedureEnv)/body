@@ -1,0 +1,32 @@
+{
+  long duration=0;
+  long startTime=EnvironmentEdgeManager.currentTime();
+  do {
+    try {
+      if (getServerName(env) == null) {
+        RegionState regionState=getAssignmentManager(env).getRegionStates().getRegionState(regionsToMerge[0].getEncodedName());
+        if (regionState.isMerging() || regionState.isMerged()) {
+          LOG.info("Merge regions " + getRegionsToMergeListEncodedNameString() + " is in progress or completed.  No need to send a new request.");
+        }
+ else {
+          LOG.warn("Cannot sending merge to hosting server of the regions " + getRegionsToMergeListEncodedNameString() + " as the server is unknown");
+        }
+        return;
+      }
+      env.getMasterServices().getServerManager().sendRegionsMerge(getServerName(env),regionsToMerge[0],regionsToMerge[1],forcible,user);
+      LOG.info("Sent merge to server " + getServerName(env) + " for region "+ getRegionsToMergeListEncodedNameString()+ ", focible="+ forcible);
+      return;
+    }
+ catch (    RegionOpeningException roe) {
+      LOG.warn("Failed mergering regions in " + getServerName(env) + ", retrying...",roe);
+    }
+catch (    Exception ie) {
+      LOG.warn("Failed sending merge to " + getServerName(env) + " for regions "+ getRegionsToMergeListEncodedNameString()+ ", focible="+ forcible,ie);
+      return;
+    }
+  }
+ while ((duration=EnvironmentEdgeManager.currentTime() - startTime) <= getTimeout(env));
+  String msg="Failed sending merge to " + getServerName(env) + " after "+ duration+ "ms";
+  LOG.warn(msg);
+  throw new IOException(msg);
+}

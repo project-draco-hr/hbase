@@ -1,0 +1,24 @@
+{
+  CatalogJanitor catalogJanitor=env.getMasterServices().getCatalogJanitor();
+  boolean regionAHasMergeQualifier=!catalogJanitor.cleanMergeQualifier(regionsToMerge[0]);
+  if (regionAHasMergeQualifier || !catalogJanitor.cleanMergeQualifier(regionsToMerge[1])) {
+    String msg="Skip merging regions " + regionsToMerge[0].getRegionNameAsString() + ", "+ regionsToMerge[1].getRegionNameAsString()+ ", because region "+ (regionAHasMergeQualifier ? regionsToMerge[0].getEncodedName() : regionsToMerge[1].getEncodedName())+ " has merge qualifier";
+    LOG.info(msg);
+    throw new MergeRegionException(msg);
+  }
+  RegionStates regionStates=getAssignmentManager(env).getRegionStates();
+  RegionState regionStateA=regionStates.getRegionState(regionsToMerge[0].getEncodedName());
+  RegionState regionStateB=regionStates.getRegionState(regionsToMerge[1].getEncodedName());
+  if (regionStateA == null || regionStateB == null) {
+    throw new UnknownRegionException(regionStateA == null ? regionsToMerge[0].getEncodedName() : regionsToMerge[1].getEncodedName());
+  }
+  if (!regionStateA.isOpened() || !regionStateB.isOpened()) {
+    throw new MergeRegionException("Unable to merge regions not online " + regionStateA + ", "+ regionStateB);
+  }
+  if (regionsToMerge[0].getReplicaId() != HRegionInfo.DEFAULT_REPLICA_ID || regionsToMerge[1].getReplicaId() != HRegionInfo.DEFAULT_REPLICA_ID) {
+    throw new MergeRegionException("Can't merge non-default replicas");
+  }
+  if (!forcible && !HRegionInfo.areAdjacent(regionsToMerge[0],regionsToMerge[1])) {
+    throw new MergeRegionException("Unable to merge not adjacent regions " + regionsToMerge[0].getRegionNameAsString() + ", "+ regionsToMerge[1].getRegionNameAsString()+ " where forcible = "+ forcible);
+  }
+}

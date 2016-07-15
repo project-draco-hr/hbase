@@ -1,0 +1,38 @@
+{
+  if (isTraceEnabled()) {
+    LOG.trace(this + " execute state=" + state);
+  }
+  try {
+switch (state) {
+case DISPATCH_MERGING_REGIONS_PREPARE:
+      prepareMergeRegion(env);
+    setNextState(DispatchMergingRegionsState.DISPATCH_MERGING_REGIONS_PRE_OPERATION);
+  break;
+case DISPATCH_MERGING_REGIONS_PRE_OPERATION:
+setNextState(DispatchMergingRegionsState.DISPATCH_MERGING_REGIONS_MOVE_REGION_TO_SAME_RS);
+break;
+case DISPATCH_MERGING_REGIONS_MOVE_REGION_TO_SAME_RS:
+if (MoveRegionsToSameRS(env)) {
+setNextState(DispatchMergingRegionsState.DISPATCH_MERGING_REGIONS_DO_MERGE_IN_RS);
+}
+ else {
+LOG.info("Cancel merging regions " + getRegionsToMergeListFullNameString() + ", because can't move them to the same RS");
+setNextState(DispatchMergingRegionsState.DISPATCH_MERGING_REGIONS_POST_OPERATION);
+}
+break;
+case DISPATCH_MERGING_REGIONS_DO_MERGE_IN_RS:
+doMergeInRS(env);
+setNextState(DispatchMergingRegionsState.DISPATCH_MERGING_REGIONS_POST_OPERATION);
+break;
+case DISPATCH_MERGING_REGIONS_POST_OPERATION:
+return Flow.NO_MORE_STATE;
+default :
+throw new UnsupportedOperationException(this + " unhandled state=" + state);
+}
+}
+ catch (IOException e) {
+LOG.warn("Error trying to merge regions " + getRegionsToMergeListFullNameString() + " in the table "+ tableName+ " (in state="+ state+ ")",e);
+setFailure("master-merge-regions",e);
+}
+return Flow.HAS_MORE_STATE;
+}

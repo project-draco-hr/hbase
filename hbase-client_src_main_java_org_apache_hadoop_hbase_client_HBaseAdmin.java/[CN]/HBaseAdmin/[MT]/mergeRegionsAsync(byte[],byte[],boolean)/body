@@ -1,0 +1,43 @@
+{
+  final byte[] encodedNameOfRegionA=isEncodedRegionName(nameOfRegionA) ? nameOfRegionA : HRegionInfo.encodeRegionName(nameOfRegionA).getBytes();
+  final byte[] encodedNameOfRegionB=isEncodedRegionName(nameOfRegionB) ? nameOfRegionB : HRegionInfo.encodeRegionName(nameOfRegionB).getBytes();
+  TableName tableName;
+  Pair<HRegionInfo,ServerName> pair=getRegion(nameOfRegionA);
+  if (pair != null) {
+    if (pair.getFirst().getReplicaId() != HRegionInfo.DEFAULT_REPLICA_ID) {
+      throw new IllegalArgumentException("Can't invoke merge on non-default regions directly");
+    }
+    tableName=pair.getFirst().getTable();
+  }
+ else {
+    throw new UnknownRegionException("Can't invoke merge on unknown region " + Bytes.toStringBinary(encodedNameOfRegionA));
+  }
+  pair=getRegion(nameOfRegionB);
+  if (pair != null) {
+    if (pair.getFirst().getReplicaId() != HRegionInfo.DEFAULT_REPLICA_ID) {
+      throw new IllegalArgumentException("Can't invoke merge on non-default regions directly");
+    }
+    if (!tableName.equals(pair.getFirst().getTable())) {
+      throw new IllegalArgumentException("Cannot merge regions from two different tables " + tableName + " and "+ pair.getFirst().getTable());
+    }
+  }
+ else {
+    throw new UnknownRegionException("Can't invoke merge on unknown region " + Bytes.toStringBinary(encodedNameOfRegionB));
+  }
+  DispatchMergingRegionsResponse response=executeCallable(new MasterCallable<DispatchMergingRegionsResponse>(getConnection()){
+    @Override public DispatchMergingRegionsResponse call(    int callTimeout) throws ServiceException {
+      PayloadCarryingRpcController controller=rpcControllerFactory.newController();
+      controller.setCallTimeout(callTimeout);
+      try {
+        DispatchMergingRegionsRequest request=RequestConverter.buildDispatchMergingRegionsRequest(encodedNameOfRegionA,encodedNameOfRegionB,forcible);
+        return master.dispatchMergingRegions(controller,request);
+      }
+ catch (      DeserializationException de) {
+        LOG.error("Could not parse destination server name: " + de);
+        throw new ServiceException(new DoNotRetryIOException(de));
+      }
+    }
+  }
+);
+  return new DispatchMergingRegionsFuture(this,tableName,response);
+}
