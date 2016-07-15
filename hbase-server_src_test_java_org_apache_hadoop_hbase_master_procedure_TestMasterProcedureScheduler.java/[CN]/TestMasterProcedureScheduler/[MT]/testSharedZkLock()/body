@@ -1,0 +1,22 @@
+{
+  final HBaseTestingUtility TEST_UTIL=new HBaseTestingUtility();
+  final String dir=TEST_UTIL.getDataTestDir("TestSharedZkLock").toString();
+  MiniZooKeeperCluster zkCluster=new MiniZooKeeperCluster(conf);
+  int zkPort=zkCluster.startup(new File(dir));
+  try {
+    conf.set("hbase.zookeeper.quorum","localhost:" + zkPort);
+    ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"testSchedWithZkLock",null,false);
+    ServerName mockName=ServerName.valueOf("localhost",60000,1);
+    MasterProcedureScheduler procQueue=new MasterProcedureScheduler(conf,TableLockManager.createTableLockManager(conf,zkw,mockName));
+    final TableName tableName=TableName.valueOf("testtb");
+    TestTableProcedure procA=new TestTableProcedure(1,tableName,TableProcedureInterface.TableOperationType.READ);
+    TestTableProcedure procB=new TestTableProcedure(2,tableName,TableProcedureInterface.TableOperationType.READ);
+    assertTrue(procQueue.tryAcquireTableSharedLock(procA,tableName));
+    assertTrue(procQueue.tryAcquireTableSharedLock(procB,tableName));
+    procQueue.releaseTableSharedLock(procA,tableName);
+    procQueue.releaseTableSharedLock(procB,tableName);
+  }
+  finally {
+    zkCluster.shutdown();
+  }
+}
