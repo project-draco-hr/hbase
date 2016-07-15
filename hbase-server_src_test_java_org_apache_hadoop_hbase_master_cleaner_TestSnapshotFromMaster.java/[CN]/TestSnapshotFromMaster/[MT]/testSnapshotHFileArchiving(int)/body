@@ -1,0 +1,73 @@
+{
+  Admin admin=UTIL.getHBaseAdmin();
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  UTIL.deleteTable(TABLE_NAME);
+  HTableDescriptor htd=new HTableDescriptor(TABLE_NAME);
+  htd.setCompactionEnabled(false);
+  UTIL.createTable(htd,new byte[][]{TEST_FAM},null);
+  while (true) {
+    UTIL.loadTable(UTIL.getConnection().getTable(TABLE_NAME),TEST_FAM);
+    UTIL.flush(TABLE_NAME);
+    Collection<String> hfiles=getHFiles(rootDir,fs,TABLE_NAME);
+    if (hfiles.size() >= hfileCount) {
+      break;
+    }
+  }
+  admin.disableTable(TABLE_NAME);
+  htd.setCompactionEnabled(true);
+  String snapshotName="snapshot";
+  byte[] snapshotNameBytes=Bytes.toBytes(snapshotName);
+  admin.snapshot(snapshotNameBytes,TABLE_NAME);
+  LOG.info("After snapshot File-System state");
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  SnapshotTestingUtils.assertOneSnapshotThatMatches(admin,snapshotNameBytes,TABLE_NAME);
+  admin.modifyTable(TABLE_NAME,htd);
+  admin.enableTable(TABLE_NAME);
+  List<HRegion> regions=UTIL.getHBaseCluster().getRegions(TABLE_NAME);
+  for (  HRegion region : regions) {
+    region.waitForFlushesAndCompactions();
+    region.compactStores();
+  }
+  List<RegionServerThread> regionServerThreads=UTIL.getMiniHBaseCluster().getRegionServerThreads();
+  HRegionServer hrs=null;
+  for (  RegionServerThread rs : regionServerThreads) {
+    if (!rs.getRegionServer().getOnlineRegions(TABLE_NAME).isEmpty()) {
+      hrs=rs.getRegionServer();
+      break;
+    }
+  }
+  CompactedHFilesDischarger cleaner=new CompactedHFilesDischarger(100,null,hrs,false);
+  cleaner.chore();
+  LOG.info("After compaction File-System state");
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  LOG.debug("Running hfile cleaners");
+  ensureHFileCleanersRun();
+  LOG.info("After cleaners File-System state: " + rootDir);
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  Path snapshotTable=SnapshotDescriptionUtils.getCompletedSnapshotDir(snapshotName,rootDir);
+  Set<String> snapshotHFiles=SnapshotReferenceUtil.getHFileNames(UTIL.getConfiguration(),fs,snapshotTable);
+  LOG.debug("Have snapshot hfiles:");
+  for (  String fileName : snapshotHFiles) {
+    LOG.debug(fileName);
+  }
+  Collection<String> archives=getHFiles(archiveDir,fs,TABLE_NAME);
+  Collection<String> hfiles=getHFiles(rootDir,fs,TABLE_NAME);
+  for (  String fileName : snapshotHFiles) {
+    boolean exist=archives.contains(fileName) || hfiles.contains(fileName);
+    assertTrue("Archived hfiles " + archives + " and table hfiles "+ hfiles+ " is missing snapshot file:"+ fileName,exist);
+  }
+  admin.deleteSnapshot(snapshotNameBytes);
+  SnapshotTestingUtils.assertNoSnapshots(admin);
+  List<BaseHFileCleanerDelegate> delegates=UTIL.getMiniHBaseCluster().getMaster().getHFileCleaner().cleanersChain;
+  for (  BaseHFileCleanerDelegate delegate : delegates) {
+    if (delegate instanceof SnapshotHFileCleaner) {
+      ((SnapshotHFileCleaner)delegate).getFileCacheForTesting().triggerCacheRefreshForTesting();
+    }
+  }
+  LOG.debug("Running hfile cleaners");
+  ensureHFileCleanersRun();
+  LOG.info("After delete snapshot cleaners run File-System state");
+  FSUtils.logFileSystemState(fs,rootDir,LOG);
+  archives=getHFiles(archiveDir,fs,TABLE_NAME);
+  assertEquals("Still have some hfiles in the archive, when their snapshot has been deleted.",0,archives.size());
+}
