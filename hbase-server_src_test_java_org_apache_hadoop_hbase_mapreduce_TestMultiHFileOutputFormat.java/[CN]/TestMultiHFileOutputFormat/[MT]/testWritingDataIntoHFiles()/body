@@ -1,0 +1,30 @@
+{
+  Configuration conf=util.getConfiguration();
+  util.startMiniCluster();
+  Path testDir=util.getDataTestDirOnTestFS("testWritingDataIntoHFiles");
+  FileSystem fs=testDir.getFileSystem(conf);
+  LOG.info("testWritingDataIntoHFiles dir writing to dir: " + testDir);
+  conf.setInt("mapreduce.task.io.sort.mb",20);
+  conf.setLong(HConstants.HREGION_MAX_FILESIZE,64 * 1024);
+  try {
+    Job job=Job.getInstance(conf,"testWritingDataIntoHFiles");
+    FileOutputFormat.setOutputPath(job,testDir);
+    job.setInputFormatClass(NMapInputFormat.class);
+    job.setMapperClass(Random_TableKV_GeneratingMapper.class);
+    job.setMapOutputKeyClass(ImmutableBytesWritable.class);
+    job.setMapOutputValueClass(KeyValue.class);
+    job.setReducerClass(Table_KeyValueSortReducer.class);
+    job.setOutputFormatClass(MultiHFileOutputFormat.class);
+    job.getConfiguration().setStrings("io.serializations",conf.get("io.serializations"),MutationSerialization.class.getName(),ResultSerialization.class.getName(),KeyValueSerialization.class.getName());
+    TableMapReduceUtil.addDependencyJars(job);
+    TableMapReduceUtil.initCredentials(job);
+    LOG.info("\nStarting test testWritingDataIntoHFiles\n");
+    assertTrue(job.waitForCompletion(true));
+    LOG.info("\nWaiting on checking MapReduce output\n");
+    assertTrue(checkMROutput(fs,testDir,0));
+  }
+  finally {
+    testDir.getFileSystem(conf).delete(testDir,true);
+    util.shutdownMiniCluster();
+  }
+}

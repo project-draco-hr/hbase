@@ -1,0 +1,66 @@
+{
+  KeyValue kv=KeyValueUtil.ensureKeyValue(cell);
+  if (row == null && kv == null) {
+    rollWriters();
+    return;
+  }
+  byte[] rowKey=CellUtil.cloneRow(kv);
+  long length=kv.getLength();
+  byte[] family=CellUtil.cloneFamily(kv);
+  WriterLength wl=this.writers.get(family);
+  if (wl == null) {
+    fs.mkdirs(new Path(outputDir,Bytes.toString(family)));
+  }
+  if (wl != null && wl.written + length >= maxsize) {
+    this.rollRequested=true;
+  }
+  if (rollRequested && Bytes.compareTo(this.previousRow,rowKey) != 0) {
+    rollWriters();
+  }
+  if (wl == null || wl.writer == null) {
+    if (conf.getBoolean(LOCALITY_SENSITIVE_CONF_KEY,DEFAULT_LOCALITY_SENSITIVE)) {
+      HRegionLocation loc=null;
+      String tableName=conf.get(OUTPUT_TABLE_NAME_CONF_KEY);
+      if (tableName != null) {
+        try (Connection connection=ConnectionFactory.createConnection(conf);RegionLocator locator=connection.getRegionLocator(TableName.valueOf(tableName))){
+          loc=locator.getRegionLocation(rowKey);
+        }
+ catch (        Throwable e) {
+          LOG.warn("there's something wrong when locating rowkey: " + Bytes.toString(rowKey),e);
+          loc=null;
+        }
+      }
+      if (null == loc) {
+        if (LOG.isTraceEnabled()) {
+          LOG.trace("failed to get region location, so use default writer: " + Bytes.toString(rowKey));
+        }
+        wl=getNewWriter(family,conf,null);
+      }
+ else {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("first rowkey: [" + Bytes.toString(rowKey) + "]");
+        }
+        InetSocketAddress initialIsa=new InetSocketAddress(loc.getHostname(),loc.getPort());
+        if (initialIsa.isUnresolved()) {
+          if (LOG.isTraceEnabled()) {
+            LOG.trace("failed to resolve bind address: " + loc.getHostname() + ":"+ loc.getPort()+ ", so use default writer");
+          }
+          wl=getNewWriter(family,conf,null);
+        }
+ else {
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("use favored nodes writer: " + initialIsa.getHostString());
+          }
+          wl=getNewWriter(family,conf,new InetSocketAddress[]{initialIsa});
+        }
+      }
+    }
+ else {
+      wl=getNewWriter(family,conf,null);
+    }
+  }
+  kv.updateLatestStamp(this.now);
+  wl.writer.append(kv);
+  wl.written+=length;
+  this.previousRow=rowKey;
+}

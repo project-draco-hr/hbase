@@ -1,0 +1,29 @@
+{
+  WriterLength wl=new WriterLength();
+  Path familyDir=new Path(outputDir,Bytes.toString(family));
+  Algorithm compression=compressionMap.get(family);
+  compression=compression == null ? defaultCompression : compression;
+  BloomType bloomType=bloomTypeMap.get(family);
+  bloomType=bloomType == null ? BloomType.NONE : bloomType;
+  Integer blockSize=blockSizeMap.get(family);
+  blockSize=blockSize == null ? HConstants.DEFAULT_BLOCKSIZE : blockSize;
+  DataBlockEncoding encoding=overriddenEncoding;
+  encoding=encoding == null ? datablockEncodingMap.get(family) : encoding;
+  encoding=encoding == null ? DataBlockEncoding.NONE : encoding;
+  Configuration tempConf=new Configuration(conf);
+  tempConf.setFloat(HConstants.HFILE_BLOCK_CACHE_SIZE_KEY,0.0f);
+  HFileContextBuilder contextBuilder=new HFileContextBuilder().withCompression(compression).withChecksumType(HStore.getChecksumType(conf)).withBytesPerCheckSum(HStore.getBytesPerChecksum(conf)).withBlockSize(blockSize);
+  if (HFile.getFormatVersion(conf) >= HFile.MIN_FORMAT_VERSION_WITH_TAGS) {
+    contextBuilder.withIncludesTags(true);
+  }
+  contextBuilder.withDataBlockEncoding(encoding);
+  HFileContext hFileContext=contextBuilder.build();
+  if (null == favoredNodes) {
+    wl.writer=new StoreFileWriter.Builder(conf,new CacheConfig(tempConf),fs).withOutputDir(familyDir).withBloomType(bloomType).withComparator(CellComparator.COMPARATOR).withFileContext(hFileContext).build();
+  }
+ else {
+    wl.writer=new StoreFileWriter.Builder(conf,new CacheConfig(tempConf),new HFileSystem(fs)).withOutputDir(familyDir).withBloomType(bloomType).withComparator(CellComparator.COMPARATOR).withFileContext(hFileContext).withFavoredNodes(favoredNodes).build();
+  }
+  this.writers.put(family,wl);
+  return wl;
+}

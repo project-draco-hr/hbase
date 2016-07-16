@@ -1,0 +1,26 @@
+{
+  final Path outputPath=FileOutputFormat.getOutputPath(context);
+  final Path outputDir=new FileOutputCommitter(outputPath,context).getWorkPath();
+  final Configuration conf=context.getConfiguration();
+  final FileSystem fs=outputDir.getFileSystem(conf);
+  final Map<ImmutableBytesWritable,RecordWriter<ImmutableBytesWritable,V>> tableWriters=new HashMap<ImmutableBytesWritable,RecordWriter<ImmutableBytesWritable,V>>();
+  return new RecordWriter<ImmutableBytesWritable,V>(){
+    @Override public void write(    ImmutableBytesWritable tableName,    V cell) throws IOException, InterruptedException {
+      RecordWriter<ImmutableBytesWritable,V> tableWriter=tableWriters.get(tableName);
+      if (tableWriter == null) {
+        final Path tableOutputDir=new Path(outputDir,Bytes.toString(tableName.copyBytes()));
+        fs.mkdirs(tableOutputDir);
+        LOG.info("Writing Table '" + tableName.toString() + "' data into following directory"+ tableOutputDir.toString());
+        tableWriter=new HFileOutputFormat2.HFileRecordWriter<V>(context,tableOutputDir);
+        tableWriters.put(tableName,tableWriter);
+      }
+      tableWriter.write(null,cell);
+    }
+    @Override public void close(    TaskAttemptContext c) throws IOException, InterruptedException {
+      for (      RecordWriter<ImmutableBytesWritable,V> writer : tableWriters.values()) {
+        writer.close(c);
+      }
+    }
+  }
+;
+}
