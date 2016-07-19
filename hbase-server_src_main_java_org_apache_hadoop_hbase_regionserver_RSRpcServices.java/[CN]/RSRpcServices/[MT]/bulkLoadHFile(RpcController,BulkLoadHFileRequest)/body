@@ -3,20 +3,25 @@
     checkOpen();
     requestCount.increment();
     Region region=getRegion(request.getRegion());
-    List<Pair<byte[],String>> familyPaths=new ArrayList<Pair<byte[],String>>();
-    for (    FamilyPath familyPath : request.getFamilyPathList()) {
-      familyPaths.add(new Pair<byte[],String>(familyPath.getFamily().toByteArray(),familyPath.getPath()));
-    }
     boolean bypass=false;
-    if (region.getCoprocessorHost() != null) {
-      bypass=region.getCoprocessorHost().preBulkLoadHFile(familyPaths);
-    }
     boolean loaded=false;
-    if (!bypass) {
-      loaded=region.bulkLoadHFiles(familyPaths,request.getAssignSeqNum(),null);
+    if (!request.hasBulkToken()) {
+      List<Pair<byte[],String>> familyPaths=new ArrayList<Pair<byte[],String>>(request.getFamilyPathCount());
+      for (      FamilyPath familyPath : request.getFamilyPathList()) {
+        familyPaths.add(new Pair<byte[],String>(familyPath.getFamily().toByteArray(),familyPath.getPath()));
+      }
+      if (region.getCoprocessorHost() != null) {
+        bypass=region.getCoprocessorHost().preBulkLoadHFile(familyPaths);
+      }
+      if (!bypass) {
+        loaded=region.bulkLoadHFiles(familyPaths,request.getAssignSeqNum(),null);
+      }
+      if (region.getCoprocessorHost() != null) {
+        loaded=region.getCoprocessorHost().postBulkLoadHFile(familyPaths,loaded);
+      }
     }
-    if (region.getCoprocessorHost() != null) {
-      loaded=region.getCoprocessorHost().postBulkLoadHFile(familyPaths,loaded);
+ else {
+      loaded=regionServer.secureBulkLoadManager.secureBulkLoadHFiles(region,request);
     }
     BulkLoadHFileResponse.Builder builder=BulkLoadHFileResponse.newBuilder();
     builder.setLoaded(loaded);

@@ -1,0 +1,41 @@
+{
+  long iteration=numBulkLoads.getAndIncrement();
+  Path dir=UTIL.getDataTestDirOnTestFS(String.format("bulkLoad_%08d",iteration));
+  FileSystem fs=UTIL.getTestFileSystem();
+  byte[] val=Bytes.toBytes(String.format("%010d",iteration));
+  final List<Pair<byte[],String>> famPaths=new ArrayList<Pair<byte[],String>>(NUM_CFS);
+  for (int i=0; i < NUM_CFS; i++) {
+    Path hfile=new Path(dir,family(i));
+    byte[] fam=Bytes.toBytes(family(i));
+    createHFile(fs,hfile,fam,QUAL,val,1000);
+    famPaths.add(new Pair<>(fam,hfile.toString()));
+  }
+  final ClusterConnection conn=(ClusterConnection)UTIL.getAdmin().getConnection();
+  RegionServerCallable<Void> callable=new RegionServerCallable<Void>(conn,tableName,Bytes.toBytes("aaa")){
+    @Override public Void call(    int callTimeout) throws Exception {
+      LOG.info("Non-secure old client");
+      byte[] regionName=getLocation().getRegionInfo().getRegionName();
+      BulkLoadHFileRequest request=RequestConverter.buildBulkLoadHFileRequest(famPaths,regionName,true,null,null);
+      getStub().bulkLoadHFile(null,request);
+      return null;
+    }
+  }
+;
+  RpcRetryingCallerFactory factory=new RpcRetryingCallerFactory(conf);
+  RpcRetryingCaller<Void> caller=factory.<Void>newCaller();
+  caller.callWithRetries(callable,Integer.MAX_VALUE);
+  if (numBulkLoads.get() % 5 == 0) {
+    callable=new RegionServerCallable<Void>(conn,tableName,Bytes.toBytes("aaa")){
+      @Override public Void call(      int callTimeout) throws Exception {
+        LOG.debug("compacting " + getLocation() + " for row "+ Bytes.toStringBinary(getRow()));
+        AdminProtos.AdminService.BlockingInterface server=conn.getAdmin(getLocation().getServerName());
+        CompactRegionRequest request=RequestConverter.buildCompactRegionRequest(getLocation().getRegionInfo().getRegionName(),true,null);
+        server.compactRegion(null,request);
+        numCompactions.incrementAndGet();
+        return null;
+      }
+    }
+;
+    caller.callWithRetries(callable,Integer.MAX_VALUE);
+  }
+}

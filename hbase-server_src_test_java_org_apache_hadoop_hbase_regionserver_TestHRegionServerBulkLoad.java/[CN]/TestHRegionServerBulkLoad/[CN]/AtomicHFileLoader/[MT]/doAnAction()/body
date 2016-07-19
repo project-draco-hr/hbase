@@ -11,13 +11,18 @@
     famPaths.add(new Pair<>(fam,hfile.toString()));
   }
   final ClusterConnection conn=(ClusterConnection)UTIL.getAdmin().getConnection();
+  Table table=conn.getTable(tableName);
+  final String bulkToken=new SecureBulkLoadClient(table).prepareBulkLoad(conn);
   RegionServerCallable<Void> callable=new RegionServerCallable<Void>(conn,tableName,Bytes.toBytes("aaa")){
     @Override public Void call(    int callTimeout) throws Exception {
       LOG.debug("Going to connect to server " + getLocation() + " for row "+ Bytes.toStringBinary(getRow()));
+      SecureBulkLoadClient secureClient=null;
       byte[] regionName=getLocation().getRegionInfo().getRegionName();
-      BulkLoadHFileRequest request=RequestConverter.buildBulkLoadHFileRequest(famPaths,regionName,true);
-      getStub().bulkLoadHFile(null,request);
-      return null;
+      try (Table table=conn.getTable(getTableName())){
+        secureClient=new SecureBulkLoadClient(table);
+        secureClient.secureBulkLoadHFiles(getStub(),famPaths,regionName,true,null,bulkToken);
+      }
+       return null;
     }
   }
 ;
