@@ -1,0 +1,43 @@
+{
+  try {
+    String nodePath=ZKUtil.joinZNode(this.queuesZNode,znode);
+    ReplicationQueueInfo replicationQueueInfo=new ReplicationQueueInfo(peerId);
+    String clusterPath=ZKUtil.joinZNode(nodePath,peerId);
+    if (!peerExists(replicationQueueInfo.getPeerId())) {
+      LOG.warn("Peer " + peerId + " didn't exist, skipping the replay");
+      return null;
+    }
+    String newCluster=peerId + "-" + znode;
+    String newClusterZnode=ZKUtil.joinZNode(this.myQueuesZnode,newCluster);
+    List<String> wals=ZKUtil.listChildrenNoWatch(this.zookeeper,clusterPath);
+    if (wals == null || wals.size() == 0) {
+      return null;
+    }
+    ZKUtil.createNodeIfNotExistsAndWatch(this.zookeeper,newClusterZnode,HConstants.EMPTY_BYTE_ARRAY);
+    SortedSet<String> logQueue=new TreeSet<>();
+    for (    String wal : wals) {
+      String z=ZKUtil.joinZNode(clusterPath,wal);
+      byte[] positionBytes=ZKUtil.getData(this.zookeeper,z);
+      long position=0;
+      try {
+        position=ZKUtil.parseWALPositionFrom(positionBytes);
+      }
+ catch (      DeserializationException e) {
+        LOG.warn("Failed parse of wal position from the following znode: " + z + ", Exception: "+ e);
+      }
+      LOG.debug("Creating " + wal + " with data "+ position);
+      String child=ZKUtil.joinZNode(newClusterZnode,wal);
+      ZKUtil.createNodeIfNotExistsAndWatch(this.zookeeper,child,positionBytes);
+      logQueue.add(wal);
+    }
+    return new Pair<>(newCluster,logQueue);
+  }
+ catch (  KeeperException e) {
+    LOG.warn("Got exception in copyQueueFromLockedRS: ",e);
+  }
+catch (  InterruptedException e) {
+    LOG.warn(e);
+    Thread.currentThread().interrupt();
+  }
+  return null;
+}
