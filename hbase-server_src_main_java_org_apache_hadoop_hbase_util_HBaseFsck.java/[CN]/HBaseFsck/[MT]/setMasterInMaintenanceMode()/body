@@ -1,0 +1,26 @@
+{
+  RetryCounter retryCounter=createZNodeRetryCounterFactory.create();
+  hbckEphemeralNodePath=ZKUtil.joinZNode(ZooKeeperWatcher.masterMaintZNode,"hbck-" + Long.toString(EnvironmentEdgeManager.currentTime()));
+  do {
+    try {
+      hbckZodeCreated=ZKUtil.createEphemeralNodeAndWatch(zkw,hbckEphemeralNodePath,null);
+      if (hbckZodeCreated) {
+        break;
+      }
+    }
+ catch (    KeeperException e) {
+      if (retryCounter.getAttemptTimes() >= retryCounter.getMaxAttempts()) {
+        throw new IOException("Can't create znode " + hbckEphemeralNodePath,e);
+      }
+    }
+    LOG.warn("Fail to create znode " + hbckEphemeralNodePath + ", try="+ (retryCounter.getAttemptTimes() + 1)+ " of "+ retryCounter.getMaxAttempts());
+    try {
+      retryCounter.sleepUntilNextRetry();
+    }
+ catch (    InterruptedException ie) {
+      throw (InterruptedIOException)new InterruptedIOException("Can't create znode " + hbckEphemeralNodePath).initCause(ie);
+    }
+  }
+ while (retryCounter.shouldRetry());
+  return hbckZodeCreated;
+}

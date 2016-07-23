@@ -1,41 +1,17 @@
 {
   errors.print("Version: " + status.getHBaseVersion());
   offlineHdfsIntegrityRepair();
-  boolean oldBalancer=false;
-  if (shouldDisableBalancer()) {
-    oldBalancer=admin.setBalancerRunning(false,true);
+  if (!setMasterInMaintenanceMode()) {
+    LOG.warn("HBCK is running while master is not in maintenance mode, you might see transient " + "error.  Please run HBCK multiple times to reduce the chance of transient error.");
   }
-  boolean[] oldSplitAndMerge=null;
-  if (shouldDisableSplitAndMerge()) {
-    oldSplitAndMerge=admin.setSplitOrMergeEnabled(false,false,MasterSwitchType.SPLIT,MasterSwitchType.MERGE);
-  }
-  try {
-    onlineConsistencyRepair();
-  }
-  finally {
-    if (shouldDisableBalancer() && oldBalancer) {
-      admin.setBalancerRunning(oldBalancer,false);
-    }
-    if (shouldDisableSplitAndMerge()) {
-      if (oldSplitAndMerge != null) {
-        if (oldSplitAndMerge[0] && oldSplitAndMerge[1]) {
-          admin.setSplitOrMergeEnabled(true,false,MasterSwitchType.SPLIT,MasterSwitchType.MERGE);
-        }
- else         if (oldSplitAndMerge[0]) {
-          admin.setSplitOrMergeEnabled(true,false,MasterSwitchType.SPLIT);
-        }
- else         if (oldSplitAndMerge[1]) {
-          admin.setSplitOrMergeEnabled(true,false,MasterSwitchType.MERGE);
-        }
-      }
-    }
-  }
+  onlineConsistencyRepair();
   if (checkRegionBoundaries) {
     checkRegionBoundaries();
   }
   offlineReferenceFileRepair();
   checkAndFixTableLocks();
   checkAndFixReplication();
+  cleanupHbckZnode();
   unlockHbck();
   printTableSummary(tablesInfo);
   return errors.summarize();
