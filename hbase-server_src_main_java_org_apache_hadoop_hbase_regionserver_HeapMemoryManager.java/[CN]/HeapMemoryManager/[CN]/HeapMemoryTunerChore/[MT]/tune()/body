@@ -1,16 +1,24 @@
 {
   long curEvictCount;
   long curCacheMisCount;
+  long blockedFlushCnt;
+  long unblockedFlushCnt;
   curEvictCount=blockCache.getStats().getEvictedCount();
   tunerContext.setEvictCount(curEvictCount - evictCount);
   evictCount=curEvictCount;
   curCacheMisCount=blockCache.getStats().getMissCachingCount();
   tunerContext.setCacheMissCount(curCacheMisCount - cacheMissCount);
   cacheMissCount=curCacheMisCount;
-  tunerContext.setBlockedFlushCount(blockedFlushCount.getAndSet(0));
-  tunerContext.setUnblockedFlushCount(unblockedFlushCount.getAndSet(0));
+  blockedFlushCnt=blockedFlushCount.getAndSet(0);
+  tunerContext.setBlockedFlushCount(blockedFlushCnt);
+  metricsHeapMemoryManager.updateBlockedFlushCount(blockedFlushCnt);
+  unblockedFlushCnt=unblockedFlushCount.getAndSet(0);
+  tunerContext.setUnblockedFlushCount(unblockedFlushCnt);
+  metricsHeapMemoryManager.updateUnblockedFlushCount(unblockedFlushCnt);
   tunerContext.setCurBlockCacheUsed((float)blockCache.getCurrentSize() / maxHeapSize);
+  metricsHeapMemoryManager.setCurBlockCacheSizeGauge(blockCache.getCurrentSize());
   tunerContext.setCurMemStoreUsed((float)regionServerAccounting.getGlobalMemstoreSize() / maxHeapSize);
+  metricsHeapMemoryManager.setCurMemStoreSizeGauge(regionServerAccounting.getGlobalMemstoreSize());
   tunerContext.setCurBlockCacheSize(blockCachePercent);
   tunerContext.setCurMemStoreSize(globalMemStorePercent);
   TunerResult result=null;
@@ -46,6 +54,10 @@
       LOG.info("Current heap configuration from HeapMemoryTuner exceeds " + "the threshold required for successful cluster operation. " + "The combined value cannot exceed 0.8. " + HeapMemorySizeUtil.MEMSTORE_SIZE_KEY + " is "+ memstoreSize+ " and "+ HFILE_BLOCK_CACHE_SIZE_KEY+ " is "+ blockCacheSize);
     }
  else {
+      int memStoreDeltaSize=(int)((memstoreSize - globalMemStorePercent) * CONVERT_TO_PERCENTAGE);
+      int blockCacheDeltaSize=(int)((blockCacheSize - blockCachePercent) * CONVERT_TO_PERCENTAGE);
+      metricsHeapMemoryManager.updateMemStoreDeltaSizeHistogram(memStoreDeltaSize);
+      metricsHeapMemoryManager.updateBlockCacheDeltaSizeHistogram(blockCacheDeltaSize);
       long newBlockCacheSize=(long)(maxHeapSize * blockCacheSize);
       long newMemstoreSize=(long)(maxHeapSize * memstoreSize);
       LOG.info("Setting block cache heap size to " + newBlockCacheSize + " and memstore heap size to "+ newMemstoreSize);
@@ -55,7 +67,10 @@
       memStoreFlusher.setGlobalMemstoreLimit(newMemstoreSize);
     }
   }
- else   if (LOG.isDebugEnabled()) {
-    LOG.debug("No changes made by HeapMemoryTuner.");
+ else {
+    metricsHeapMemoryManager.increaseTunerDoNothingCounter();
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("No changes made by HeapMemoryTuner.");
+    }
   }
 }
