@@ -1,0 +1,90 @@
+{
+  if (filter != null && filter.filterAllRemaining()) {
+    return MatchCode.DONE_SCAN;
+  }
+  MatchCode returnCode=preCheck(cell);
+  if (returnCode != null) {
+    return returnCode;
+  }
+  long timestamp=cell.getTimestamp();
+  byte typeByte=cell.getTypeByte();
+  long mvccVersion=cell.getSequenceId();
+  if (CellUtil.isDelete(cell)) {
+    if (keepDeletedCells == KeepDeletedCells.FALSE || (keepDeletedCells == KeepDeletedCells.TTL && timestamp < oldestUnexpiredTS)) {
+      boolean includeDeleteMarker=tr.withinOrAfterTimeRange(timestamp);
+      if (includeDeleteMarker && mvccVersion <= maxReadPointToTrackVersions) {
+        this.deletes.add(cell);
+      }
+    }
+    if (timeToPurgeDeletes > 0 && (EnvironmentEdgeManager.currentTime() - timestamp) <= timeToPurgeDeletes) {
+      return MatchCode.INCLUDE;
+    }
+ else     if (retainDeletesInOutput || mvccVersion > maxReadPointToTrackVersions) {
+      return MatchCode.INCLUDE;
+    }
+ else     if (keepDeletedCells == KeepDeletedCells.TRUE || (keepDeletedCells == KeepDeletedCells.TTL && timestamp >= oldestUnexpiredTS)) {
+      if (timestamp < earliestPutTs) {
+        return columns.getNextRowOrNextColumn(cell);
+      }
+    }
+ else {
+      return MatchCode.SKIP;
+    }
+  }
+ else   if (!this.deletes.isEmpty()) {
+    DeleteResult deleteResult=deletes.isDeleted(cell);
+switch (deleteResult) {
+case FAMILY_DELETED:
+case COLUMN_DELETED:
+      return columns.getNextRowOrNextColumn(cell);
+case VERSION_DELETED:
+case FAMILY_VERSION_DELETED:
+    return MatchCode.SKIP;
+case NOT_DELETED:
+  break;
+default :
+throw new RuntimeException("UNEXPECTED");
+}
+}
+int timestampComparison=tr.compare(timestamp);
+if (timestampComparison >= 1) {
+return MatchCode.SKIP;
+}
+ else if (timestampComparison <= -1) {
+return columns.getNextRowOrNextColumn(cell);
+}
+MatchCode colChecker=columns.checkColumn(cell,typeByte);
+if (colChecker == MatchCode.INCLUDE) {
+ReturnCode filterResponse=ReturnCode.SKIP;
+if (filter != null) {
+filterResponse=filter.filterKeyValue(cell);
+switch (filterResponse) {
+case SKIP:
+return MatchCode.SKIP;
+case NEXT_COL:
+return columns.getNextRowOrNextColumn(cell);
+case NEXT_ROW:
+stickyNextRow=true;
+return MatchCode.SEEK_NEXT_ROW;
+case SEEK_NEXT_USING_HINT:
+return MatchCode.SEEK_NEXT_USING_HINT;
+default :
+break;
+}
+}
+colChecker=columns.checkVersions(cell,timestamp,typeByte,mvccVersion > maxReadPointToTrackVersions);
+boolean seekNextRowFromEssential=filterResponse == ReturnCode.INCLUDE_AND_SEEK_NEXT_ROW && filter.isFamilyEssential(cell.getFamilyArray());
+if (colChecker == MatchCode.INCLUDE_AND_SEEK_NEXT_ROW || seekNextRowFromEssential) {
+stickyNextRow=true;
+}
+if (filterResponse == ReturnCode.INCLUDE_AND_SEEK_NEXT_ROW) {
+if (colChecker != MatchCode.SKIP) {
+return MatchCode.INCLUDE_AND_SEEK_NEXT_ROW;
+}
+return MatchCode.SEEK_NEXT_ROW;
+}
+return (filterResponse == ReturnCode.INCLUDE_AND_NEXT_COL && colChecker == MatchCode.INCLUDE) ? MatchCode.INCLUDE_AND_SEEK_NEXT_COL : colChecker;
+}
+stickyNextRow=(colChecker == MatchCode.SEEK_NEXT_ROW) ? true : stickyNextRow;
+return colChecker;
+}
