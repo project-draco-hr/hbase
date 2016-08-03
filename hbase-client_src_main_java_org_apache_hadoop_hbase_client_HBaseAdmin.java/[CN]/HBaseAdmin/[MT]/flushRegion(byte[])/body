@@ -6,15 +6,17 @@
   if (regionServerPair.getSecond() == null) {
     throw new NoServerForRegionException(Bytes.toStringBinary(regionName));
   }
-  HRegionInfo hRegionInfo=regionServerPair.getFirst();
+  final HRegionInfo hRegionInfo=regionServerPair.getFirst();
   ServerName serverName=regionServerPair.getSecond();
-  PayloadCarryingRpcController controller=rpcControllerFactory.newController();
-  AdminService.BlockingInterface admin=this.connection.getAdmin(serverName);
-  FlushRegionRequest request=RequestConverter.buildFlushRegionRequest(hRegionInfo.getRegionName());
-  try {
-    admin.flushRegion(controller,request);
+  final PayloadCarryingRpcController controller=rpcControllerFactory.newController();
+  final AdminService.BlockingInterface admin=this.connection.getAdmin(serverName);
+  executeCallable(new RpcRetryingCallable<Void>(){
+    @Override protected Void rpcCall(    int callTimeout) throws Exception {
+      controller.setCallTimeout(callTimeout);
+      FlushRegionRequest request=RequestConverter.buildFlushRegionRequest(hRegionInfo.getRegionName());
+      admin.flushRegion(controller,request);
+      return null;
+    }
   }
- catch (  ServiceException se) {
-    throw ProtobufUtil.getRemoteException(se);
-  }
+);
 }

@@ -2,19 +2,20 @@
   if (null == serverName || ("").equals(serverName.trim())) {
     throw new IllegalArgumentException("The servername cannot be null or empty.");
   }
-  ServerName sn=ServerName.valueOf(serverName);
-  AdminService.BlockingInterface admin=this.connection.getAdmin(sn);
-  CloseRegionRequest request=RequestConverter.buildCloseRegionRequest(sn,encodedRegionName);
-  try {
-    PayloadCarryingRpcController controller=rpcControllerFactory.newController();
-    CloseRegionResponse response=admin.closeRegion(controller,request);
-    boolean isRegionClosed=response.getClosed();
-    if (false == isRegionClosed) {
-      LOG.error("Not able to close the region " + encodedRegionName + ".");
+  final ServerName sn=ServerName.valueOf(serverName);
+  final AdminService.BlockingInterface admin=connection.getAdmin(sn);
+  final PayloadCarryingRpcController controller=rpcControllerFactory.newController();
+  return executeCallable(new RpcRetryingCallable<Boolean>(){
+    @Override protected Boolean rpcCall(    int callTimeout) throws Exception {
+      controller.setCallTimeout(callTimeout);
+      CloseRegionRequest request=RequestConverter.buildCloseRegionRequest(sn,encodedRegionName);
+      CloseRegionResponse response=admin.closeRegion(controller,request);
+      boolean closed=response.getClosed();
+      if (false == closed) {
+        LOG.error("Not able to close the region " + encodedRegionName + ".");
+      }
+      return closed;
     }
-    return isRegionClosed;
   }
- catch (  ServiceException se) {
-    throw ProtobufUtil.getRemoteException(se);
-  }
+);
 }

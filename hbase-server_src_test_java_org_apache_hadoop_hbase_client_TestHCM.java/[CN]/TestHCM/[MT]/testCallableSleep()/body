@@ -2,9 +2,8 @@
   long pauseTime;
   long baseTime=100;
   TableName tableName=TableName.valueOf("HCM-testCallableSleep");
-  Table table=TEST_UTIL.createTable(tableName,FAM_NAM);
-  RegionServerCallable<Object> regionServerCallable=new RegionServerCallable<Object>(TEST_UTIL.getConnection(),tableName,ROW){
-    public Object call(    int timeout) throws IOException {
+  RegionServerCallable<Object> regionServerCallable=new RegionServerCallable<Object>(TEST_UTIL.getConnection(),new RpcControllerFactory(TEST_UTIL.getConfiguration()),tableName,ROW){
+    @Override protected Object call(    PayloadCarryingRpcController controller) throws Exception {
       return null;
     }
   }
@@ -16,7 +15,7 @@
     assertTrue(pauseTime <= (baseTime * HConstants.RETRY_BACKOFF[i] * 1.01f));
   }
   RegionAdminServiceCallable<Object> regionAdminServiceCallable=new RegionAdminServiceCallable<Object>((ClusterConnection)TEST_UTIL.getConnection(),new RpcControllerFactory(TEST_UTIL.getConfiguration()),tableName,ROW){
-    public Object call(    int timeout) throws IOException {
+    @Override public Object call(    PayloadCarryingRpcController controller) throws Exception {
       return null;
     }
   }
@@ -27,15 +26,20 @@
     assertTrue(pauseTime >= (baseTime * HConstants.RETRY_BACKOFF[i]));
     assertTrue(pauseTime <= (baseTime * HConstants.RETRY_BACKOFF[i] * 1.01f));
   }
-  MasterCallable masterCallable=new MasterCallable(TEST_UTIL.getConnection()){
-    public Object call(    int timeout) throws IOException {
+  MasterCallable<Object> masterCallable=new MasterCallable<Object>(TEST_UTIL.getConnection(),new RpcControllerFactory(TEST_UTIL.getConfiguration())){
+    @Override protected Object call(    PayloadCarryingRpcController rpcController) throws Exception {
       return null;
     }
   }
 ;
-  for (int i=0; i < HConstants.RETRY_BACKOFF.length; i++) {
-    pauseTime=masterCallable.sleep(baseTime,i);
-    assertTrue(pauseTime >= (baseTime * HConstants.RETRY_BACKOFF[i]));
-    assertTrue(pauseTime <= (baseTime * HConstants.RETRY_BACKOFF[i] * 1.01f));
+  try {
+    for (int i=0; i < HConstants.RETRY_BACKOFF.length; i++) {
+      pauseTime=masterCallable.sleep(baseTime,i);
+      assertTrue(pauseTime >= (baseTime * HConstants.RETRY_BACKOFF[i]));
+      assertTrue(pauseTime <= (baseTime * HConstants.RETRY_BACKOFF[i] * 1.01f));
+    }
+  }
+  finally {
+    masterCallable.close();
   }
 }
