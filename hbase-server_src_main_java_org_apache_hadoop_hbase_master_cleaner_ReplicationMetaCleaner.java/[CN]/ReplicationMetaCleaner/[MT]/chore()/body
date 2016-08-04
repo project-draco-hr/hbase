@@ -1,0 +1,94 @@
+{
+  try {
+    Map<String,HTableDescriptor> tables=master.getTableDescriptors().getAllDescriptors();
+    Map<String,Set<String>> serialTables=new HashMap<>();
+    for (    Map.Entry<String,HTableDescriptor> entry : tables.entrySet()) {
+      boolean hasSerialScope=false;
+      for (      HColumnDescriptor column : entry.getValue().getFamilies()) {
+        if (column.getScope() == HConstants.REPLICATION_SCOPE_SERIAL) {
+          hasSerialScope=true;
+          break;
+        }
+      }
+      if (hasSerialScope) {
+        serialTables.put(entry.getValue().getTableName().getNameAsString(),new HashSet<String>());
+      }
+    }
+    if (serialTables.isEmpty()) {
+      return;
+    }
+    Map<String,ReplicationPeerConfig> peers=replicationAdmin.listPeerConfigs();
+    for (    Map.Entry<String,ReplicationPeerConfig> entry : peers.entrySet()) {
+      for (      Map.Entry<TableName,List<String>> map : entry.getValue().getTableCFsMap().entrySet()) {
+        if (serialTables.containsKey(map.getKey().getNameAsString())) {
+          serialTables.get(map.getKey().getNameAsString()).add(entry.getKey());
+          break;
+        }
+      }
+    }
+    Map<String,List<Long>> barrierMap=MetaTableAccessor.getAllBarriers(master.getConnection());
+    for (    Map.Entry<String,List<Long>> entry : barrierMap.entrySet()) {
+      String encodedName=entry.getKey();
+      byte[] encodedBytes=Bytes.toBytes(encodedName);
+      boolean canClearRegion=false;
+      Map<String,Long> posMap=MetaTableAccessor.getReplicationPositionForAllPeer(master.getConnection(),encodedBytes);
+      if (posMap.isEmpty()) {
+        continue;
+      }
+      String tableName=MetaTableAccessor.getSerialReplicationTableName(master.getConnection(),encodedBytes);
+      Set<String> confPeers=serialTables.get(tableName);
+      if (confPeers == null) {
+        canClearRegion=true;
+      }
+ else {
+        if (!allPeersHavePosition(confPeers,posMap)) {
+          continue;
+        }
+        String daughterValue=MetaTableAccessor.getSerialReplicationDaughterRegion(master.getConnection(),encodedBytes);
+        if (daughterValue != null) {
+          boolean allDaughterStart=true;
+          String[] daughterRegions=daughterValue.split(",");
+          for (          String daughter : daughterRegions) {
+            byte[] region=Bytes.toBytes(daughter);
+            if (!MetaTableAccessor.getReplicationBarriers(master.getConnection(),region).isEmpty() && !allPeersHavePosition(confPeers,MetaTableAccessor.getReplicationPositionForAllPeer(master.getConnection(),region))) {
+              allDaughterStart=false;
+              break;
+            }
+          }
+          if (allDaughterStart) {
+            canClearRegion=true;
+          }
+        }
+      }
+      if (canClearRegion) {
+        Delete delete=new Delete(encodedBytes);
+        delete.addFamily(HConstants.REPLICATION_POSITION_FAMILY);
+        delete.addFamily(HConstants.REPLICATION_BARRIER_FAMILY);
+        try (Table metaTable=master.getConnection().getTable(TableName.META_TABLE_NAME)){
+          metaTable.delete(delete);
+        }
+       }
+ else {
+        long minPos=Long.MAX_VALUE;
+        for (        Map.Entry<String,Long> pos : posMap.entrySet()) {
+          minPos=Math.min(minPos,pos.getValue());
+        }
+        List<Long> barriers=entry.getValue();
+        int index=Collections.binarySearch(barriers,minPos);
+        if (index < 0) {
+          index=-index - 1;
+        }
+        Delete delete=new Delete(encodedBytes);
+        for (int i=0; i < index - 1; i++) {
+          delete.addColumn(HConstants.REPLICATION_BARRIER_FAMILY,Bytes.toBytes(barriers.get(i)));
+        }
+        try (Table metaTable=master.getConnection().getTable(TableName.META_TABLE_NAME)){
+          metaTable.delete(delete);
+        }
+       }
+    }
+  }
+ catch (  IOException e) {
+    LOG.error("Exception during cleaning up.",e);
+  }
+}

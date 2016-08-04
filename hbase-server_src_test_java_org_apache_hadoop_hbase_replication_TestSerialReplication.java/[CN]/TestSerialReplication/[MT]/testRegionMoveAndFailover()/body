@@ -1,0 +1,61 @@
+{
+  TableName tableName=TableName.valueOf("testRSFailover");
+  HTableDescriptor table=new HTableDescriptor(tableName);
+  HColumnDescriptor fam=new HColumnDescriptor(famName);
+  fam.setScope(HConstants.REPLICATION_SCOPE_SERIAL);
+  table.addFamily(fam);
+  utility1.getHBaseAdmin().createTable(table);
+  utility2.getHBaseAdmin().createTable(table);
+  try (Table t1=utility1.getConnection().getTable(tableName);Table t2=utility2.getConnection().getTable(tableName)){
+    LOG.info("move to 1");
+    moveRegion(t1,1);
+    LOG.info("move to 0");
+    moveRegion(t1,0);
+    for (int i=10; i < 20; i++) {
+      Put put=new Put(ROWS[i]);
+      put.addColumn(famName,VALUE,VALUE);
+      t1.put(put);
+    }
+    LOG.info("move to 2");
+    moveRegion(t1,2);
+    for (int i=20; i < 30; i++) {
+      Put put=new Put(ROWS[i]);
+      put.addColumn(famName,VALUE,VALUE);
+      t1.put(put);
+    }
+    utility1.getHBaseCluster().abortRegionServer(2);
+    for (int i=30; i < 40; i++) {
+      Put put=new Put(ROWS[i]);
+      put.addColumn(famName,VALUE,VALUE);
+      t1.put(put);
+    }
+    long start=EnvironmentEdgeManager.currentTime();
+    while (EnvironmentEdgeManager.currentTime() - start < 180000) {
+      Scan scan=new Scan();
+      scan.setCaching(100);
+      List<Cell> list=new ArrayList<>();
+      try (ResultScanner results=t2.getScanner(scan)){
+        for (        Result result : results) {
+          assertEquals(1,result.rawCells().length);
+          list.add(result.rawCells()[0]);
+        }
+      }
+       List<Integer> listOfNumbers=getRowNumbers(list);
+      LOG.info(Arrays.toString(listOfNumbers.toArray()));
+      assertIntegerList(listOfNumbers,10,1);
+      if (listOfNumbers.size() != 30) {
+        LOG.info("Waiting all logs pushed to slave. Expected 30 , actual " + list.size());
+        Thread.sleep(200);
+        continue;
+      }
+      return;
+    }
+    throw new Exception("Not all logs have been pushed");
+  }
+  finally {
+    utility1.getHBaseAdmin().disableTable(tableName);
+    utility2.getHBaseAdmin().disableTable(tableName);
+    utility1.getHBaseAdmin().deleteTable(tableName);
+    utility2.getHBaseAdmin().deleteTable(tableName);
+  }
+}

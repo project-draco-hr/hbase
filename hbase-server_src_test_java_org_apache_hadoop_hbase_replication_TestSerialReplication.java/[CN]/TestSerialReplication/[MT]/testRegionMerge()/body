@@ -1,0 +1,67 @@
+{
+  TableName tableName=TableName.valueOf("testRegionMerge");
+  HTableDescriptor table=new HTableDescriptor(tableName);
+  HColumnDescriptor fam=new HColumnDescriptor(famName);
+  fam.setScope(HConstants.REPLICATION_SCOPE_SERIAL);
+  table.addFamily(fam);
+  utility1.getHBaseAdmin().createTable(table);
+  utility2.getHBaseAdmin().createTable(table);
+  utility1.getHBaseAdmin().split(tableName,ROWS[50]);
+  Thread.sleep(5000L);
+  try (Table t1=utility1.getConnection().getTable(tableName);Table t2=utility2.getConnection().getTable(tableName)){
+    for (int i=10; i < 100; i+=10) {
+      Put put=new Put(ROWS[i]);
+      put.addColumn(famName,VALUE,VALUE);
+      t1.put(put);
+    }
+    List<Pair<HRegionInfo,ServerName>> regions=MetaTableAccessor.getTableRegionsAndLocations(utility1.getConnection(),tableName);
+    assertEquals(2,regions.size());
+    utility1.getHBaseAdmin().mergeRegions(regions.get(0).getFirst().getRegionName(),regions.get(1).getFirst().getRegionName(),true);
+    for (int i=11; i < 100; i+=10) {
+      Put put=new Put(ROWS[i]);
+      put.addColumn(famName,VALUE,VALUE);
+      t1.put(put);
+    }
+    long start=EnvironmentEdgeManager.currentTime();
+    while (EnvironmentEdgeManager.currentTime() - start < 180000) {
+      Scan scan=new Scan();
+      scan.setCaching(100);
+      List<Cell> list=new ArrayList<>();
+      try (ResultScanner results=t2.getScanner(scan)){
+        for (        Result result : results) {
+          assertEquals(1,result.rawCells().length);
+          list.add(result.rawCells()[0]);
+        }
+      }
+       List<Integer> listOfNumbers=getRowNumbers(list);
+      List<Integer> list0=new ArrayList<>();
+      List<Integer> list1=new ArrayList<>();
+      for (      int num : listOfNumbers) {
+        if (num % 10 == 0) {
+          list0.add(num);
+        }
+ else {
+          list1.add(num);
+        }
+      }
+      LOG.info(Arrays.toString(list0.toArray()));
+      LOG.info(Arrays.toString(list1.toArray()));
+      assertIntegerList(list0,10,10);
+      assertIntegerList(list1,11,10);
+      if (!list1.isEmpty()) {
+        assertEquals(9,list0.size());
+      }
+      if (list.size() == 18) {
+        return;
+      }
+      LOG.info("Waiting all logs pushed to slave. Expected 18 , actual " + list.size());
+      Thread.sleep(200);
+    }
+  }
+  finally {
+    utility1.getHBaseAdmin().disableTable(tableName);
+    utility2.getHBaseAdmin().disableTable(tableName);
+    utility1.getHBaseAdmin().deleteTable(tableName);
+    utility2.getHBaseAdmin().deleteTable(tableName);
+  }
+}

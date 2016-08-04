@@ -47,9 +47,20 @@
     currentNbOperations=0;
     currentNbHFiles=0;
     List<WAL.Entry> entries=new ArrayList<WAL.Entry>(1);
+    Map<String,Long> lastPositionsForSerialScope=new HashMap<>();
     currentSize=0;
     try {
-      if (readAllEntriesToReplicateOrNextFile(currentWALisBeingWrittenTo,entries)) {
+      if (readAllEntriesToReplicateOrNextFile(currentWALisBeingWrittenTo,entries,lastPositionsForSerialScope)) {
+        for (        Map.Entry<String,Long> entry : lastPositionsForSerialScope.entrySet()) {
+          waitingUntilCanPush(entry);
+        }
+        try {
+          MetaTableAccessor.updateReplicationPositions(manager.getConnection(),actualPeerId,lastPositionsForSerialScope);
+        }
+ catch (        IOException e) {
+          LOG.error("updateReplicationPositions fail",e);
+          stopper.stop("updateReplicationPositions fail");
+        }
         continue;
       }
     }
@@ -85,8 +96,20 @@
         LOG.warn("Unable to finalize the tailing of a file",e);
       }
     }
+    for (    Map.Entry<String,Long> entry : lastPositionsForSerialScope.entrySet()) {
+      waitingUntilCanPush(entry);
+    }
     if (isWorkerActive() && (gotIOE || entries.isEmpty())) {
       if (this.lastLoggedPosition != this.repLogReader.getPosition()) {
+        if (!gotIOE) {
+          try {
+            MetaTableAccessor.updateReplicationPositions(manager.getConnection(),actualPeerId,lastPositionsForSerialScope);
+          }
+ catch (          IOException e) {
+            LOG.error("updateReplicationPositions fail",e);
+            stopper.stop("updateReplicationPositions fail");
+          }
+        }
         manager.logPositionAndCleanOldLogs(this.currentPath,peerClusterZnode,this.repLogReader.getPosition(),this.replicationQueueInfo.isQueueRecovered(),currentWALisBeingWrittenTo);
         this.lastLoggedPosition=this.repLogReader.getPosition();
       }
@@ -99,8 +122,7 @@
       }
       continue;
     }
-    sleepMultiplier=1;
-    shipEdits(currentWALisBeingWrittenTo,entries);
+    shipEdits(currentWALisBeingWrittenTo,entries,lastPositionsForSerialScope);
   }
   if (replicationQueueInfo.isQueueRecovered()) {
 synchronized (workerThreads) {
