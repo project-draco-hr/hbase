@@ -7,14 +7,22 @@
     r=region.getCoprocessorHost().preIncrement(increment);
   }
   if (r == null) {
-    long nonce=startNonceOperation(mutation,nonceGroup);
+    boolean canProceed=startNonceOperation(mutation,nonceGroup);
     boolean success=false;
     try {
-      r=region.increment(increment,nonceGroup,nonce);
+      if (canProceed) {
+        r=region.increment(increment,nonceGroup,mutation.getNonce());
+      }
+ else {
+        List<Cell> results=region.get(ProtobufUtil.toGet(mutation,cells),false,nonceGroup,mutation.getNonce());
+        r=Result.create(results);
+      }
       success=true;
     }
   finally {
-      endNonceOperation(mutation,nonceGroup,success);
+      if (canProceed) {
+        endNonceOperation(mutation,nonceGroup,success);
+      }
     }
     if (region.getCoprocessorHost() != null) {
       r=region.getCoprocessorHost().postIncrement(increment,r);

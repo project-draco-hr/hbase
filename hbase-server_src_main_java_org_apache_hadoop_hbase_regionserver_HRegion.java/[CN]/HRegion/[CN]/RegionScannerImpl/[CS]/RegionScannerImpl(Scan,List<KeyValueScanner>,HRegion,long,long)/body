@@ -1,0 +1,30 @@
+{
+  this.region=region;
+  this.maxResultSize=scan.getMaxResultSize();
+  if (scan.hasFilter()) {
+    this.filter=new FilterWrapper(scan.getFilter());
+  }
+ else {
+    this.filter=null;
+  }
+  this.comparator=region.getCellCompartor();
+  defaultScannerContext=ScannerContext.newBuilder().setBatchLimit(scan.getBatch()).build();
+  if (Bytes.equals(scan.getStopRow(),HConstants.EMPTY_END_ROW) && !scan.isGetScan()) {
+    this.stopRow=null;
+  }
+ else {
+    this.stopRow=scan.getStopRow();
+  }
+  this.isScan=scan.isGetScan() ? 1 : 0;
+  IsolationLevel isolationLevel=scan.getIsolationLevel();
+synchronized (scannerReadPoints) {
+    if (nonce == HConstants.NO_NONCE || rsServices == null || rsServices.getNonceManager() == null) {
+      this.readPt=getReadPoint(isolationLevel);
+    }
+ else {
+      this.readPt=rsServices.getNonceManager().getMvccFromOperationContext(nonceGroup,nonce);
+    }
+    scannerReadPoints.put(this,this.readPt);
+  }
+  initializeScanners(scan,additionalScanners);
+}

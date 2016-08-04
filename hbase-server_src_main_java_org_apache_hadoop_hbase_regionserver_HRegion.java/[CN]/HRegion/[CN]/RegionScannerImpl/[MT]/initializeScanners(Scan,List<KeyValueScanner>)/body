@@ -1,0 +1,32 @@
+{
+  List<KeyValueScanner> scanners=new ArrayList<KeyValueScanner>(scan.getFamilyMap().size());
+  List<KeyValueScanner> joinedScanners=new ArrayList<KeyValueScanner>(scan.getFamilyMap().size());
+  List<KeyValueScanner> instantiatedScanners=new ArrayList<KeyValueScanner>();
+  if (additionalScanners != null && !additionalScanners.isEmpty()) {
+    scanners.addAll(additionalScanners);
+    instantiatedScanners.addAll(additionalScanners);
+  }
+  try {
+    for (    Map.Entry<byte[],NavigableSet<byte[]>> entry : scan.getFamilyMap().entrySet()) {
+      Store store=stores.get(entry.getKey());
+      KeyValueScanner scanner;
+      try {
+        scanner=store.getScanner(scan,entry.getValue(),this.readPt);
+      }
+ catch (      FileNotFoundException e) {
+        throw handleFileNotFound(e);
+      }
+      instantiatedScanners.add(scanner);
+      if (this.filter == null || !scan.doLoadColumnFamiliesOnDemand() || this.filter.isFamilyEssential(entry.getKey())) {
+        scanners.add(scanner);
+      }
+ else {
+        joinedScanners.add(scanner);
+      }
+    }
+    initializeKVHeap(scanners,joinedScanners,region);
+  }
+ catch (  Throwable t) {
+    throw handleException(instantiatedScanners,t);
+  }
+}

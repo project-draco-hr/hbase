@@ -1,20 +1,28 @@
 {
   long before=EnvironmentEdgeManager.currentTime();
-  Append append=ProtobufUtil.toAppend(m,cellScanner);
+  Append append=ProtobufUtil.toAppend(mutation,cellScanner);
   quota.addMutation(append);
   Result r=null;
   if (region.getCoprocessorHost() != null) {
     r=region.getCoprocessorHost().preAppend(append);
   }
   if (r == null) {
-    long nonce=startNonceOperation(m,nonceGroup);
+    boolean canProceed=startNonceOperation(mutation,nonceGroup);
     boolean success=false;
     try {
-      r=region.append(append,nonceGroup,nonce);
+      if (canProceed) {
+        r=region.append(append,nonceGroup,mutation.getNonce());
+      }
+ else {
+        List<Cell> results=region.get(ProtobufUtil.toGet(mutation,cellScanner),false,nonceGroup,mutation.getNonce());
+        r=Result.create(results);
+      }
       success=true;
     }
   finally {
-      endNonceOperation(m,nonceGroup,success);
+      if (canProceed) {
+        endNonceOperation(mutation,nonceGroup,success);
+      }
     }
     if (region.getCoprocessorHost() != null) {
       region.getCoprocessorHost().postAppend(append,r);
