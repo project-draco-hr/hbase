@@ -1,10 +1,22 @@
 {
-  checkHasFamilies(increment);
-  RegionServerCallable<Result> callable=new RegionServerCallable<Result>(this.connection,this.rpcControllerFactory,getName(),increment.getRow()){
-    @Override protected Result call(    PayloadCarryingRpcController controller) throws Exception {
-      MutateRequest request=RequestConverter.buildMutateRequest(getLocation().getRegionInfo().getRegionName(),increment,getNonceGroup(),getNewNonce());
-      MutateResponse response=getStub().mutate(controller,request);
-      return ProtobufUtil.toResult(response.getResult(),controller.cellScanner());
+  if (!increment.hasFamilies()) {
+    throw new IOException("Invalid arguments to increment, no columns specified");
+  }
+  NonceGenerator ng=this.connection.getNonceGenerator();
+  final long nonceGroup=ng.getNonceGroup(), nonce=ng.newNonce();
+  RegionServerCallable<Result> callable=new RegionServerCallable<Result>(this.connection,getName(),increment.getRow()){
+    @Override public Result call(    int callTimeout) throws IOException {
+      PayloadCarryingRpcController controller=rpcControllerFactory.newController();
+      controller.setPriority(getTableName());
+      controller.setCallTimeout(callTimeout);
+      try {
+        MutateRequest request=RequestConverter.buildMutateRequest(getLocation().getRegionInfo().getRegionName(),increment,nonceGroup,nonce);
+        MutateResponse response=getStub().mutate(controller,request);
+        return ProtobufUtil.toResult(response.getResult(),controller.cellScanner());
+      }
+ catch (      ServiceException se) {
+        throw ProtobufUtil.getRemoteException(se);
+      }
     }
   }
 ;

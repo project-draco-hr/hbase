@@ -1,56 +1,48 @@
 {
   AdminProtos.GetRegionInfoResponse.CompactionState state=AdminProtos.GetRegionInfoResponse.CompactionState.NONE;
   checkTableExists(tableName);
-  final PayloadCarryingRpcController rpcController=rpcControllerFactory.newController();
+  PayloadCarryingRpcController controller=rpcControllerFactory.newController();
 switch (compactType) {
 case MOB:
-    final AdminProtos.AdminService.BlockingInterface masterAdmin=this.connection.getAdmin(getMasterAddress());
-  Callable<AdminProtos.GetRegionInfoResponse.CompactionState> callable=new Callable<AdminProtos.GetRegionInfoResponse.CompactionState>(){
-    @Override public AdminProtos.GetRegionInfoResponse.CompactionState call() throws Exception {
+    try {
+      ServerName master=getMasterAddress();
       HRegionInfo info=getMobRegionInfo(tableName);
       GetRegionInfoRequest request=RequestConverter.buildGetRegionInfoRequest(info.getRegionName(),true);
-      GetRegionInfoResponse response=masterAdmin.getRegionInfo(rpcController,request);
-      return response.getCompactionState();
+      GetRegionInfoResponse response=this.connection.getAdmin(master).getRegionInfo(controller,request);
+      state=response.getCompactionState();
     }
-  }
-;
-state=ProtobufUtil.call(callable);
-break;
+ catch (    ServiceException se) {
+      throw ProtobufUtil.getRemoteException(se);
+    }
+  break;
 case NORMAL:
 default :
 ZooKeeperWatcher zookeeper=null;
 try {
 List<Pair<HRegionInfo,ServerName>> pairs;
 if (TableName.META_TABLE_NAME.equals(tableName)) {
-zookeeper=new ZooKeeperWatcher(conf,ZK_IDENTIFIER_PREFIX + connection.toString(),new ThrowableAbortable());
-pairs=new MetaTableLocator().getMetaRegionsAndLocations(zookeeper);
+  zookeeper=new ZooKeeperWatcher(conf,ZK_IDENTIFIER_PREFIX + connection.toString(),new ThrowableAbortable());
+  pairs=new MetaTableLocator().getMetaRegionsAndLocations(zookeeper);
 }
  else {
-pairs=MetaTableAccessor.getTableRegionsAndLocations(connection,tableName);
+  pairs=MetaTableAccessor.getTableRegionsAndLocations(connection,tableName);
 }
 for (Pair<HRegionInfo,ServerName> pair : pairs) {
-if (pair.getFirst().isOffline()) continue;
-if (pair.getSecond() == null) continue;
-final ServerName sn=pair.getSecond();
-final byte[] regionName=pair.getFirst().getRegionName();
-final AdminService.BlockingInterface snAdmin=this.connection.getAdmin(sn);
-try {
-Callable<GetRegionInfoResponse> regionInfoCallable=new Callable<GetRegionInfoResponse>(){
-  @Override public GetRegionInfoResponse call() throws Exception {
-    GetRegionInfoRequest request=RequestConverter.buildGetRegionInfoRequest(regionName,true);
-    return snAdmin.getRegionInfo(rpcController,request);
-  }
-}
-;
-GetRegionInfoResponse response=ProtobufUtil.call(regionInfoCallable);
+  if (pair.getFirst().isOffline())   continue;
+  if (pair.getSecond() == null)   continue;
+  try {
+    ServerName sn=pair.getSecond();
+    AdminService.BlockingInterface admin=this.connection.getAdmin(sn);
+    GetRegionInfoRequest request=RequestConverter.buildGetRegionInfoRequest(pair.getFirst().getRegionName(),true);
+    GetRegionInfoResponse response=admin.getRegionInfo(controller,request);
 switch (response.getCompactionState()) {
 case MAJOR_AND_MINOR:
-  return CompactionState.MAJOR_AND_MINOR;
+      return CompactionState.MAJOR_AND_MINOR;
 case MAJOR:
-if (state == AdminProtos.GetRegionInfoResponse.CompactionState.MINOR) {
-  return CompactionState.MAJOR_AND_MINOR;
-}
-state=AdminProtos.GetRegionInfoResponse.CompactionState.MAJOR;
+    if (state == AdminProtos.GetRegionInfoResponse.CompactionState.MINOR) {
+      return CompactionState.MAJOR_AND_MINOR;
+    }
+  state=AdminProtos.GetRegionInfoResponse.CompactionState.MAJOR;
 break;
 case MINOR:
 if (state == AdminProtos.GetRegionInfoResponse.CompactionState.MAJOR) {
@@ -79,7 +71,10 @@ throw e;
 }
 }
 }
-  finally {
+ catch (ServiceException se) {
+throw ProtobufUtil.getRemoteException(se);
+}
+ finally {
 if (zookeeper != null) {
 zookeeper.close();
 }

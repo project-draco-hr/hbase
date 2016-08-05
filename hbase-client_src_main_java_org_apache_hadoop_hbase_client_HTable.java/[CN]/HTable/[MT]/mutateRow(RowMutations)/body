@@ -1,19 +1,32 @@
 {
-  PayloadCarryingServerCallable<MultiResponse> callable=new PayloadCarryingServerCallable<MultiResponse>(this.connection,getName(),rm.getRow(),rpcControllerFactory){
-    @Override protected MultiResponse call(    PayloadCarryingRpcController controller) throws Exception {
-      RegionAction.Builder regionMutationBuilder=RequestConverter.buildRegionAction(getLocation().getRegionInfo().getRegionName(),rm);
-      regionMutationBuilder.setAtomic(true);
-      MultiRequest request=MultiRequest.newBuilder().addRegionAction(regionMutationBuilder.build()).build();
-      ClientProtos.MultiResponse response=getStub().multi(controller,request);
-      ClientProtos.RegionActionResult res=response.getRegionActionResultList().get(0);
-      if (res.hasException()) {
-        Throwable ex=ProtobufUtil.toException(res.getException());
-        if (ex instanceof IOException) {
-          throw (IOException)ex;
-        }
-        throw new IOException("Failed to mutate row: " + Bytes.toStringBinary(rm.getRow()),ex);
+  final RetryingTimeTracker tracker=new RetryingTimeTracker();
+  PayloadCarryingServerCallable<MultiResponse> callable=new PayloadCarryingServerCallable<MultiResponse>(connection,getName(),rm.getRow(),rpcControllerFactory){
+    @Override public MultiResponse call(    int callTimeout) throws IOException {
+      tracker.start();
+      controller.setPriority(tableName);
+      int remainingTime=tracker.getRemainingTime(callTimeout);
+      if (remainingTime == 0) {
+        throw new DoNotRetryIOException("Timeout for mutate row");
       }
-      return ResponseConverter.getResults(request,response,controller.cellScanner());
+      controller.setCallTimeout(remainingTime);
+      try {
+        RegionAction.Builder regionMutationBuilder=RequestConverter.buildRegionAction(getLocation().getRegionInfo().getRegionName(),rm);
+        regionMutationBuilder.setAtomic(true);
+        MultiRequest request=MultiRequest.newBuilder().addRegionAction(regionMutationBuilder.build()).build();
+        ClientProtos.MultiResponse response=getStub().multi(controller,request);
+        ClientProtos.RegionActionResult res=response.getRegionActionResultList().get(0);
+        if (res.hasException()) {
+          Throwable ex=ProtobufUtil.toException(res.getException());
+          if (ex instanceof IOException) {
+            throw (IOException)ex;
+          }
+          throw new IOException("Failed to mutate row: " + Bytes.toStringBinary(rm.getRow()),ex);
+        }
+        return ResponseConverter.getResults(request,response,controller.cellScanner());
+      }
+ catch (      ServiceException se) {
+        throw ProtobufUtil.getRemoteException(se);
+      }
     }
   }
 ;
