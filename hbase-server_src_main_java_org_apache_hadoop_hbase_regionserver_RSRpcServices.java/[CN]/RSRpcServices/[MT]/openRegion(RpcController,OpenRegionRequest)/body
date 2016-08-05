@@ -56,11 +56,6 @@ catch (      IOException e) {
         throw new IOException(error);
       }
       LOG.info("Open " + region.getRegionNameAsString());
-      htd=htds.get(region.getTable());
-      if (htd == null) {
-        htd=regionServer.tableDescriptors.get(region.getTable());
-        htds.put(region.getTable(),htd);
-      }
       final Boolean previous=regionServer.regionsInTransitionInRS.putIfAbsent(encodedNameBytes,Boolean.TRUE);
       if (Boolean.FALSE.equals(previous)) {
         if (regionServer.getFromOnlineRegions(encodedName) != null) {
@@ -85,14 +80,19 @@ catch (      IOException e) {
             ZKSplitLog.deleteRecoveringRegionZNodes(regionServer.getZooKeeper(),tmpRegions);
           }
         }
+        htd=htds.get(region.getTable());
+        if (htd == null) {
+          htd=regionServer.tableDescriptors.get(region.getTable());
+          htds.put(region.getTable(),htd);
+        }
+        if (htd == null) {
+          throw new IOException("Missing table descriptor for " + region.getEncodedName());
+        }
         if (region.isMetaRegion()) {
           regionServer.service.submit(new OpenMetaHandler(regionServer,regionServer,region,htd,masterSystemTime));
         }
  else {
           regionServer.updateRegionFavoredNodesMapping(region.getEncodedName(),regionOpenInfo.getFavoredNodesList());
-          if (htd == null) {
-            throw new IOException("Missing table descriptor for " + region.getEncodedName());
-          }
           if (htd.getPriority() >= HConstants.ADMIN_QOS || region.getTable().isSystemTable()) {
             regionServer.service.submit(new OpenPriorityRegionHandler(regionServer,regionServer,region,htd,masterSystemTime));
           }
