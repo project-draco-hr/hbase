@@ -10,16 +10,16 @@
     createHFile(fs,hfile,fam,QUAL,val,1000);
     famPaths.add(new Pair<>(fam,hfile.toString()));
   }
-  final ClusterConnection conn=(ClusterConnection)UTIL.getAdmin().getConnection();
+  final ClusterConnection conn=(ClusterConnection)UTIL.getConnection();
   Table table=conn.getTable(tableName);
-  final String bulkToken=new SecureBulkLoadClient(table).prepareBulkLoad(conn);
-  RegionServerCallable<Void> callable=new RegionServerCallable<Void>(conn,tableName,Bytes.toBytes("aaa")){
-    @Override public Void call(    int callTimeout) throws Exception {
+  final String bulkToken=new SecureBulkLoadClient(UTIL.getConfiguration(),table).prepareBulkLoad(conn);
+  RegionServerCallable<Void> callable=new RegionServerCallable<Void>(conn,new RpcControllerFactory(UTIL.getConfiguration()),tableName,Bytes.toBytes("aaa")){
+    @Override public Void rpcCall() throws Exception {
       LOG.debug("Going to connect to server " + getLocation() + " for row "+ Bytes.toStringBinary(getRow()));
       SecureBulkLoadClient secureClient=null;
       byte[] regionName=getLocation().getRegionInfo().getRegionName();
       try (Table table=conn.getTable(getTableName())){
-        secureClient=new SecureBulkLoadClient(table);
+        secureClient=new SecureBulkLoadClient(UTIL.getConfiguration(),table);
         secureClient.secureBulkLoadHFiles(getStub(),famPaths,regionName,true,null,bulkToken);
       }
        return null;
@@ -30,8 +30,8 @@
   RpcRetryingCaller<Void> caller=factory.<Void>newCaller();
   caller.callWithRetries(callable,Integer.MAX_VALUE);
   if (numBulkLoads.get() % 5 == 0) {
-    callable=new RegionServerCallable<Void>(conn,tableName,Bytes.toBytes("aaa")){
-      @Override public Void call(      int callTimeout) throws Exception {
+    callable=new RegionServerCallable<Void>(conn,new RpcControllerFactory(UTIL.getConfiguration()),tableName,Bytes.toBytes("aaa")){
+      @Override protected Void rpcCall() throws Exception {
         LOG.debug("compacting " + getLocation() + " for row "+ Bytes.toStringBinary(getRow()));
         AdminProtos.AdminService.BlockingInterface server=conn.getAdmin(getLocation().getServerName());
         CompactRegionRequest request=RequestConverter.buildCompactRegionRequest(getLocation().getRegionInfo().getRegionName(),true,null);

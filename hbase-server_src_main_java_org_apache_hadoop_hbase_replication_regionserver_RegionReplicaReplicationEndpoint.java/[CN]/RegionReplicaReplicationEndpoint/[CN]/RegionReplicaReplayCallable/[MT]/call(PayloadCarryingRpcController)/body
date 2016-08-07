@@ -1,0 +1,23 @@
+{
+  boolean skip=false;
+  if (!Bytes.equals(location.getRegionInfo().getEncodedNameAsBytes(),initialEncodedRegionName)) {
+    skip=true;
+  }
+  if (!this.entries.isEmpty() && !skip) {
+    Entry[] entriesArray=new Entry[this.entries.size()];
+    entriesArray=this.entries.toArray(entriesArray);
+    Pair<AdminProtos.ReplicateWALEntryRequest,CellScanner> p=ReplicationProtbufUtil.buildReplicateWALEntryRequest(entriesArray,location.getRegionInfo().getEncodedNameAsBytes(),null,null,null);
+    controller.setCellScanner(p.getSecond());
+    return stub.replay(controller,p.getFirst());
+  }
+  if (skip) {
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("Skipping " + entries.size() + " entries in table "+ tableName+ " because located region "+ location.getRegionInfo().getEncodedName()+ " is different than the original region "+ Bytes.toStringBinary(initialEncodedRegionName)+ " from WALEdit");
+      for (      Entry entry : entries) {
+        LOG.trace("Skipping : " + entry);
+      }
+    }
+    skippedEntries.addAndGet(entries.size());
+  }
+  return ReplicateWALEntryResponse.newBuilder().build();
+}

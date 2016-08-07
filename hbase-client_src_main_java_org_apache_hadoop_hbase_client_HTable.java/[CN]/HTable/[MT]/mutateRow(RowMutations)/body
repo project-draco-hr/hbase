@@ -1,32 +1,19 @@
 {
-  final RetryingTimeTracker tracker=new RetryingTimeTracker();
-  PayloadCarryingServerCallable<MultiResponse> callable=new PayloadCarryingServerCallable<MultiResponse>(connection,getName(),rm.getRow(),rpcControllerFactory){
-    @Override public MultiResponse call(    int callTimeout) throws IOException {
-      tracker.start();
-      controller.setPriority(tableName);
-      int remainingTime=tracker.getRemainingTime(callTimeout);
-      if (remainingTime == 0) {
-        throw new DoNotRetryIOException("Timeout for mutate row");
-      }
-      controller.setCallTimeout(remainingTime);
-      try {
-        RegionAction.Builder regionMutationBuilder=RequestConverter.buildRegionAction(getLocation().getRegionInfo().getRegionName(),rm);
-        regionMutationBuilder.setAtomic(true);
-        MultiRequest request=MultiRequest.newBuilder().addRegionAction(regionMutationBuilder.build()).build();
-        ClientProtos.MultiResponse response=getStub().multi(controller,request);
-        ClientProtos.RegionActionResult res=response.getRegionActionResultList().get(0);
-        if (res.hasException()) {
-          Throwable ex=ProtobufUtil.toException(res.getException());
-          if (ex instanceof IOException) {
-            throw (IOException)ex;
-          }
-          throw new IOException("Failed to mutate row: " + Bytes.toStringBinary(rm.getRow()),ex);
+  CancellableRegionServerCallable<MultiResponse> callable=new CancellableRegionServerCallable<MultiResponse>(this.connection,getName(),rm.getRow(),rpcControllerFactory){
+    @Override protected MultiResponse rpcCall() throws Exception {
+      RegionAction.Builder regionMutationBuilder=RequestConverter.buildRegionAction(getLocation().getRegionInfo().getRegionName(),rm);
+      regionMutationBuilder.setAtomic(true);
+      MultiRequest request=MultiRequest.newBuilder().addRegionAction(regionMutationBuilder.build()).build();
+      ClientProtos.MultiResponse response=getStub().multi(getRpcController(),request);
+      ClientProtos.RegionActionResult res=response.getRegionActionResultList().get(0);
+      if (res.hasException()) {
+        Throwable ex=ProtobufUtil.toException(res.getException());
+        if (ex instanceof IOException) {
+          throw (IOException)ex;
         }
-        return ResponseConverter.getResults(request,response,controller.cellScanner());
+        throw new IOException("Failed to mutate row: " + Bytes.toStringBinary(rm.getRow()),ex);
       }
- catch (      ServiceException se) {
-        throw ProtobufUtil.getRemoteException(se);
-      }
+      return ResponseConverter.getResults(request,response,getRpcControllerCellScanner());
     }
   }
 ;

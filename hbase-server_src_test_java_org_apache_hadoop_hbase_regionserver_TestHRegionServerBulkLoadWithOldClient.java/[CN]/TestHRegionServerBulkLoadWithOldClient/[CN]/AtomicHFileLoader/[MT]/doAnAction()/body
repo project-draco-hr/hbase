@@ -11,8 +11,9 @@
     famPaths.add(new Pair<>(fam,hfile.toString()));
   }
   final ClusterConnection conn=(ClusterConnection)UTIL.getAdmin().getConnection();
-  RegionServerCallable<Void> callable=new RegionServerCallable<Void>(conn,tableName,Bytes.toBytes("aaa")){
-    @Override public Void call(    int callTimeout) throws Exception {
+  RpcControllerFactory rpcControllerFactory=new RpcControllerFactory(UTIL.getConfiguration());
+  RegionServerCallable<Void> callable=new RegionServerCallable<Void>(conn,rpcControllerFactory,tableName,Bytes.toBytes("aaa")){
+    @Override protected Void rpcCall() throws Exception {
       LOG.info("Non-secure old client");
       byte[] regionName=getLocation().getRegionInfo().getRegionName();
       BulkLoadHFileRequest request=RequestConverter.buildBulkLoadHFileRequest(famPaths,regionName,true,null,null);
@@ -25,8 +26,8 @@
   RpcRetryingCaller<Void> caller=factory.<Void>newCaller();
   caller.callWithRetries(callable,Integer.MAX_VALUE);
   if (numBulkLoads.get() % 5 == 0) {
-    callable=new RegionServerCallable<Void>(conn,tableName,Bytes.toBytes("aaa")){
-      @Override public Void call(      int callTimeout) throws Exception {
+    callable=new RegionServerCallable<Void>(conn,rpcControllerFactory,tableName,Bytes.toBytes("aaa")){
+      @Override protected Void rpcCall() throws Exception {
         LOG.debug("compacting " + getLocation() + " for row "+ Bytes.toStringBinary(getRow()));
         AdminProtos.AdminService.BlockingInterface server=conn.getAdmin(getLocation().getServerName());
         CompactRegionRequest request=RequestConverter.buildCompactRegionRequest(getLocation().getRegionInfo().getRegionName(),true,null);
