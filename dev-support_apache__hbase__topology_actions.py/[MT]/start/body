@@ -1,0 +1,44 @@
+def start(args):
+    'This function will be executed when ./bin/start_cluster apache_hbase is invoked.'
+    uuid = str(uuid4())
+    container_cluster_config_dir = join(CLUSTERDOCK_VOLUME, uuid, 'config')
+    makedirs(container_cluster_config_dir)
+    for mount in client.inspect_container(get_clusterdock_container_id())['Mounts']:
+        if (mount['Destination'] == CLUSTERDOCK_VOLUME):
+            host_cluster_config_dir = join(mount['Source'], uuid, 'config')
+            break
+    else:
+        raise Exception('Could not find source of {0} mount.'.format(CLUSTERDOCK_VOLUME))
+    logger.debug('Creating directory for cluster configuration files in %s...', host_cluster_config_dir)
+    image = '/'.join([item for item in [args.registry_url, (args.namespace or DEFAULT_APACHE_NAMESPACE), 'clusterdock:{os}_java-{java}_hadoop-{hadoop}_hbase-{hbase}'.format(os=args.operating_system, java=args.java_version, hadoop=args.hadoop_version, hbase=args.hbase_version)] if item])
+    if (args.always_pull or (not is_image_available_locally(image))):
+        pull_image(image)
+    get_hbase_web_ui_port_command = '/hbase/bin/hbase org.apache.hadoop.hbase.util.HBaseConfTool hbase.master.info.port'
+    container_id = client.create_container(image=image, command=get_hbase_web_ui_port_command, environment={'JAVA_HOME': '/java', })['Id']
+    logger.debug('Created temporary container (id: %s) from which to copy configuration files.', container_id)
+    _copy_container_folder_to_host(container_id, '/hadoop/etc/hadoop', join(container_cluster_config_dir, 'hadoop'), join(host_cluster_config_dir, 'hadoop'))
+    _copy_container_folder_to_host(container_id, '/hbase/conf', join(container_cluster_config_dir, 'hbase'), join(host_cluster_config_dir, 'hbase'))
+    logger.info('The /hbase/lib folder on containers in the cluster will be volume mounted into %s...', join(host_cluster_config_dir, 'hbase-lib'))
+    _copy_container_folder_to_host(container_id, '/hbase/lib', join(container_cluster_config_dir, 'hbase-lib'), join(host_cluster_config_dir, 'hbase-lib'))
+    shared_volumes = [{join(host_cluster_config_dir, 'hadoop'): '/hadoop/etc/hadoop', }, {join(host_cluster_config_dir, 'hbase'): '/hbase/conf', }, {join(host_cluster_config_dir, 'hbase-lib'): '/hbase/lib', }]
+    client.start(container=container_id)
+    if (client.wait(container=container_id) == EX_OK):
+        hbase_master_web_ui_port = client.logs(container=container_id).rstrip()
+        client.remove_container(container=container_id, force=True)
+    else:
+        raise Exception('Failed to remove HBase configuration container.')
+    primary_node = Node(hostname=args.primary_node[0], network=args.network, image=image, ports=[NAMENODE_WEB_UI_PORT, hbase_master_web_ui_port, RESOURCEMANAGER_WEB_UI_PORT, HBASE_REST_SERVER_PORT], volumes=shared_volumes)
+    secondary_nodes = []
+    for hostname in args.secondary_nodes:
+        service_directories = ['dfs', 'yarn']
+        volumes = shared_volumes[:]
+        if args.data_directories:
+            data_directories = args.data_directories.split(',')
+            volumes += [{join(data_directory, uuid, hostname, service_directory): '/{0}{1}'.format(service_directory, i), } for (i, data_directory) in enumerate(data_directories, start=1) for service_directory in service_directories]
+        secondary_nodes.append(Node(hostname=hostname, network=args.network, image=image, volumes=volumes))
+    Cluster(topology='apache_hbase', node_groups=[NodeGroup(name='primary', nodes=[primary_node]), NodeGroup(name='secondary', nodes=secondary_nodes)], network_name=args.network).start()
+    _create_configs_from_file(filename=args.configurations, cluster_config_dir=container_cluster_config_dir, wildcards={'primary_node': args.primary_node, 'secondary_nodes': args.secondary_nodes, 'all_nodes': (args.primary_node + args.secondary_nodes), 'network': args.network, })
+    if args.data_directories:
+        _update_config_for_data_dirs(container_cluster_config_dir=container_cluster_config_dir, data_directories=data_directories)
+    if (not args.dont_start_services):
+        _start_services(primary_node, hbase_master_web_ui_port=hbase_master_web_ui_port)
