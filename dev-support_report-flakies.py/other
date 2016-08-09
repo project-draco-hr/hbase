@@ -1,11 +1,14 @@
+'\nThis script uses Jenkins REST api to collect test result(s) of given build/builds and generates\nflakyness data about unittests.\nPrint help: report-flakies.py -h\n'
 import argparse
-import findHangingTests
 from jinja2 import Template
-import os
 import logging
+import os
 import requests
+import findHangingTests
 parser = argparse.ArgumentParser()
-parser.add_argument('--urls', metavar='url[ max-builds]', action='append', required=True, help='Urls to analyze, which can refer to simple projects, multi-configuration projects or individual build run. Optionally, specify maximum builds to analyze for this url (if available on jenkins) using space as separator. By default, all available builds are analyzed.')
+parser.add_argument('--urls', metavar='URL', action='append', required=True, help='Urls to analyze, which can refer to simple projects, multi-configuration projects or individual build run.')
+parser.add_argument('--excluded-builds', metavar='n1,n2', action='append', help='List of build numbers to exclude (or "None"). Not required, but if specified, number of uses should be same as that of --urls since the values are matched.')
+parser.add_argument('--max-builds', metavar='n', action='append', type=int, help='The maximum number of builds to use (if available on jenkins). Specify 0 to analyze all builds. Not required, but if specified, number of uses should be same as that of --urls since the values are matched.')
 parser.add_argument('--mvn', action='store_true', help='Writes two strings for including/excluding these flaky tests using maven flags. These strings are written to files so they can be saved as artifacts and easily imported in other projects. Also writes timeout and failing tests in separate files for reference.')
 parser.add_argument('-v', '--verbose', help='Prints more logs.', action='store_true')
 args = parser.parse_args()
@@ -17,9 +20,10 @@ all_timeout_tests = set()
 all_failed_tests = set()
 all_hanging_tests = set()
 url_to_bad_test_results = {}
-expanded_urls = expand_multi_configuration_projects(args.urls)
+expanded_urls = expand_multi_config_projects(args)
 for url_max_build in expanded_urls:
     url = url_max_build['url']
+    excludes = url_max_build['excludes']
     json_response = requests.get((url + '/api/json')).json()
     if json_response.has_key('builds'):
         builds = json_response['builds']
@@ -33,15 +37,17 @@ for url_max_build in expanded_urls:
     build_ids_without_tests_run = []
     for build in builds:
         build_id = build['number']
-        build_ids.append(build_id)
+        if (build_id in excludes):
+            continue
         result = get_bad_tests(build['url'])
-        if (result == {}):
+        if (not result):
             continue
         if (len(result[0]) > 0):
             build_id_to_results[build_id] = result
         else:
             build_ids_without_tests_run.append(build_id)
         num_builds += 1
+        build_ids.append(build_id)
         if (num_builds == url_max_build['max_builds']):
             break
     bad_tests = set()
@@ -88,10 +94,10 @@ if args.mvn:
     excludes = ['**/{0}.java'.format(bad_test) for bad_test in all_bad_tests]
     with open('./excludes', 'w') as exc_file:
         exc_file.write(','.join(excludes))
-    with open('./timeout', 'w') as file:
-        file.write(','.join(all_timeout_tests))
-    with open('./failed', 'w') as file:
-        file.write(','.join(all_failed_tests))
+    with open('./timeout', 'w') as timeout_file:
+        timeout_file.write(','.join(all_timeout_tests))
+    with open('./failed', 'w') as failed_file:
+        failed_file.write(','.join(all_failed_tests))
 dev_support_dir = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(dev_support_dir, 'flaky-dashboard-template.html'), 'r') as f:
     template = Template(f.read())
