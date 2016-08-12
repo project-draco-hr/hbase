@@ -1,60 +1,17 @@
 {
   if (this.generalBloomFilterWriter != null) {
-    boolean newKey=true;
-    if (this.lastCell != null) {
+    if (this.bloomContext == null) {
 switch (bloomType) {
 case ROW:
-        newKey=!CellUtil.matchingRows(cell,lastCell);
+        bloomContext=new RowBloomContext(generalBloomFilterWriter);
       break;
 case ROWCOL:
-    newKey=!CellUtil.matchingRowColumn(cell,lastCell);
+    bloomContext=new RowColBloomContext(generalBloomFilterWriter);
   break;
-case NONE:
-newKey=false;
-break;
 default :
 throw new IOException("Invalid Bloom filter type: " + bloomType + " (ROW or ROWCOL expected)");
 }
 }
-if (newKey) {
-byte[] bloomKey=null;
-KeyValue bloomKeyKV=null;
-int bloomKeyOffset, bloomKeyLen;
-switch (bloomType) {
-case ROW:
-bloomKey=cell.getRowArray();
-bloomKeyOffset=cell.getRowOffset();
-bloomKeyLen=cell.getRowLength();
-break;
-case ROWCOL:
-bloomKeyKV=KeyValueUtil.createFirstOnRow(cell.getRowArray(),cell.getRowOffset(),cell.getRowLength(),HConstants.EMPTY_BYTE_ARRAY,0,0,cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength());
-bloomKey=bloomKeyKV.getBuffer();
-bloomKeyOffset=bloomKeyKV.getKeyOffset();
-bloomKeyLen=bloomKeyKV.getKeyLength();
-break;
-default :
-throw new IOException("Invalid Bloom filter type: " + bloomType + " (ROW or ROWCOL expected)");
-}
-generalBloomFilterWriter.add(bloomKey,bloomKeyOffset,bloomKeyLen);
-if (lastBloomKey != null) {
-int res=0;
-if (bloomType == BloomType.ROW) {
-res=Bytes.BYTES_RAWCOMPARATOR.compare(bloomKey,bloomKeyOffset,bloomKeyLen,lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen);
-}
- else {
-res=CellComparator.COMPARATOR.compare(bloomKeyKV,lastBloomKeyOnlyKV);
-}
-if (res <= 0) {
-throw new IOException("Non-increasing Bloom keys: " + Bytes.toStringBinary(bloomKey,bloomKeyOffset,bloomKeyLen) + " after "+ Bytes.toStringBinary(lastBloomKey,lastBloomKeyOffset,lastBloomKeyLen));
-}
-}
-lastBloomKey=bloomKey;
-lastBloomKeyOffset=bloomKeyOffset;
-lastBloomKeyLen=bloomKeyLen;
-if (bloomType == BloomType.ROWCOL) {
-lastBloomKeyOnlyKV.setKey(bloomKey,bloomKeyOffset,bloomKeyLen);
-}
-this.lastCell=cell;
-}
+bloomContext.writeBloom(cell);
 }
 }
