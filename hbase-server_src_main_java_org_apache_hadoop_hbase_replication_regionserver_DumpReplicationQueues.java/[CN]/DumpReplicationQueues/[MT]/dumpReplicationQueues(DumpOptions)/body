@@ -1,0 +1,43 @@
+{
+  Configuration conf=getConf();
+  HBaseAdmin.available(conf);
+  ReplicationAdmin replicationAdmin=new ReplicationAdmin(conf);
+  ClusterConnection connection=(ClusterConnection)ConnectionFactory.createConnection(conf);
+  long deleted=0;
+  ZooKeeperWatcher zkw=new ZooKeeperWatcher(conf,"DumpReplicationQueues" + System.currentTimeMillis(),new WarnOnlyAbortable(),true);
+  try {
+    LOG.info("Our Quorum: " + zkw.getQuorum());
+    List<HashMap<String,String>> replicatedTables=replicationAdmin.listReplicated();
+    if (replicatedTables.isEmpty()) {
+      LOG.info("No tables with a configured replication peer were found.");
+      return (0);
+    }
+ else {
+      LOG.info("Replicated Tables: " + replicatedTables);
+    }
+    Map<String,ReplicationPeerConfig> peerConfigs=replicationAdmin.listPeerConfigs();
+    if (peerConfigs.isEmpty()) {
+      LOG.info("Replication is enabled but no peer configuration was found.");
+    }
+    System.out.println("Dumping replication peers and configurations:");
+    System.out.println(dumpPeersState(replicationAdmin,peerConfigs));
+    if (opts.isDistributed()) {
+      LOG.info("Found [--distributed], will poll each RegionServer.");
+      System.out.println(dumpQueues(connection,zkw,opts.isHdfs(),deleted));
+      if (deleted > 0) {
+        LOG.warn("Found " + deleted + " deleted queues"+ ", run hbck -fixReplication in order to remove the deleted replication queues");
+      }
+    }
+ else {
+      System.out.print("Dumping replication znodes via ZooKeeper:");
+      System.out.println(ZKUtil.getReplicationZnodesDump(zkw));
+    }
+    return (0);
+  }
+ catch (  IOException e) {
+    return (-1);
+  }
+ finally {
+    zkw.close();
+  }
+}

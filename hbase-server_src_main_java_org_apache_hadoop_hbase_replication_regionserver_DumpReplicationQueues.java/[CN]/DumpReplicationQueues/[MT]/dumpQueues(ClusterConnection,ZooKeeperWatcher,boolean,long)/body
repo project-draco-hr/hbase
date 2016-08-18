@@ -1,0 +1,35 @@
+{
+  ReplicationQueuesClient queuesClient;
+  ReplicationPeers replicationPeers;
+  ReplicationQueues replicationQueues;
+  ReplicationQueuesClientArguments replicationArgs=new ReplicationQueuesClientArguments(getConf(),new WarnOnlyAbortable(),zkw);
+  StringBuilder sb=new StringBuilder();
+  queuesClient=ReplicationFactory.getReplicationQueuesClient(replicationArgs);
+  queuesClient.init();
+  replicationQueues=ReplicationFactory.getReplicationQueues(replicationArgs);
+  replicationPeers=ReplicationFactory.getReplicationPeers(zkw,getConf(),queuesClient,connection);
+  replicationPeers.init();
+  Set<String> peerIds=new HashSet<String>(replicationPeers.getAllPeerIds());
+  try {
+    List<String> regionservers=queuesClient.getListOfReplicators();
+    for (    String regionserver : regionservers) {
+      List<String> queueIds=queuesClient.getAllQueues(regionserver);
+      replicationQueues.init(regionserver);
+      for (      String queueId : queueIds) {
+        ReplicationQueueInfo queueInfo=new ReplicationQueueInfo(queueId);
+        List<String> wals=queuesClient.getLogsInQueue(regionserver,queueId);
+        if (!peerIds.contains(queueInfo.getPeerId())) {
+          deleted++;
+          sb.append(formatQueue(regionserver,replicationQueues,queueInfo,queueId,wals,true,hdfs));
+        }
+ else {
+          sb.append(formatQueue(regionserver,replicationQueues,queueInfo,queueId,wals,false,hdfs));
+        }
+      }
+    }
+  }
+ catch (  KeeperException ke) {
+    throw new IOException(ke);
+  }
+  return sb.toString();
+}
