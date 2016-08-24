@@ -1,0 +1,61 @@
+{
+  byte[][] families={fam1,fam2,fam3};
+  Configuration hc=initSplit();
+  String method=this.getName();
+  this.region=initHRegion(tableName,method,hc,families);
+  try {
+    LOG.info("" + HBaseTestCase.addContent(region,fam3));
+    region.flush(true);
+    region.compactStores();
+    byte[] splitRow=region.checkSplit();
+    assertNotNull(splitRow);
+    LOG.info("SplitRow: " + Bytes.toString(splitRow));
+    HRegion[] regions=splitRegion(region,splitRow);
+    try {
+      for (int i=0; i < regions.length; i++) {
+        regions[i]=HRegion.openHRegion(regions[i],null);
+      }
+      assertGet(regions[0],fam3,Bytes.toBytes(START_KEY));
+      assertGet(regions[1],fam3,splitRow);
+      assertScan(regions[0],fam3,Bytes.toBytes(START_KEY));
+      assertScan(regions[1],fam3,splitRow);
+      for (int i=0; i < regions.length; i++) {
+        for (int j=0; j < 2; j++) {
+          HBaseTestCase.addContent(regions[i],fam3);
+        }
+        HBaseTestCase.addContent(regions[i],fam2);
+        HBaseTestCase.addContent(regions[i],fam1);
+        regions[i].flush(true);
+      }
+      byte[][] midkeys=new byte[regions.length][];
+      for (int i=0; i < regions.length; i++) {
+        regions[i].compactStores();
+        midkeys[i]=regions[i].checkSplit();
+      }
+      TreeMap<String,HRegion> sortedMap=new TreeMap<String,HRegion>();
+      for (int i=0; i < regions.length; i++) {
+        HRegion[] rs=null;
+        if (midkeys[i] != null) {
+          rs=splitRegion(regions[i],midkeys[i]);
+          for (int j=0; j < rs.length; j++) {
+            sortedMap.put(Bytes.toString(rs[j].getRegionInfo().getRegionName()),HRegion.openHRegion(rs[j],null));
+          }
+        }
+      }
+      LOG.info("Made 4 regions");
+    }
+  finally {
+      for (int i=0; i < regions.length; i++) {
+        try {
+          regions[i].close();
+        }
+ catch (        IOException e) {
+        }
+      }
+    }
+  }
+  finally {
+    HBaseTestingUtility.closeRegionAndWAL(this.region);
+    this.region=null;
+  }
+}

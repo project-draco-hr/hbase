@@ -1,0 +1,44 @@
+{
+  String[] keys1={"A","A","B","C"};
+  String[] keys2={"A","B","D"};
+  addRowsByKeys(memstore,keys1);
+  assertEquals(496,regionServicesForStores.getGlobalMemstoreTotalSize());
+  long size=memstore.getFlushableSize();
+  ((CompactingMemStore)memstore).flushInMemory();
+  while (((CompactingMemStore)memstore).isMemStoreFlushingInMemory()) {
+    Threads.sleep(1000);
+  }
+  int counter=0;
+  for (  Segment s : memstore.getSegments()) {
+    counter+=s.getCellsCount();
+  }
+  assertEquals(3,counter);
+  assertEquals(0,memstore.getSnapshot().getCellsCount());
+  assertEquals(264,regionServicesForStores.getGlobalMemstoreTotalSize());
+  addRowsByKeys(memstore,keys2);
+  assertEquals(640,regionServicesForStores.getGlobalMemstoreTotalSize());
+  size=memstore.getFlushableSize();
+  ((CompactingMemStore)memstore).flushInMemory();
+  int i=0;
+  while (((CompactingMemStore)memstore).isMemStoreFlushingInMemory()) {
+    Threads.sleep(10);
+    if (i > 10000000) {
+      ((CompactingMemStore)memstore).debug();
+      assertTrue("\n\n<<< Infinite loop! :( \n",false);
+    }
+  }
+  assertEquals(0,memstore.getSnapshot().getCellsCount());
+  counter=0;
+  for (  Segment s : memstore.getSegments()) {
+    counter+=s.getCellsCount();
+  }
+  assertEquals(4,counter);
+  assertEquals(368,regionServicesForStores.getGlobalMemstoreTotalSize());
+  size=memstore.getFlushableSize();
+  MemStoreSnapshot snapshot=memstore.snapshot();
+  region.addAndGetGlobalMemstoreSize(-size);
+  ImmutableSegment s=memstore.getSnapshot();
+  assertEquals(4,s.getCellsCount());
+  assertEquals(0,regionServicesForStores.getGlobalMemstoreTotalSize());
+  memstore.clearSnapshot(snapshot.getId());
+}

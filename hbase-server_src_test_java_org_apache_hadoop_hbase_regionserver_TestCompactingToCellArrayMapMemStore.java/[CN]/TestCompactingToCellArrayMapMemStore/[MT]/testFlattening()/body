@@ -1,0 +1,31 @@
+{
+  String[] keys1={"A","A","B","C","F","H"};
+  String[] keys2={"A","B","D","G","I","J"};
+  String[] keys3={"D","B","B","E"};
+  memstore.getConfiguration().setBoolean("hbase.hregion.compacting.memstore.flatten",true);
+  addRowsByKeys(memstore,keys1);
+  ((CompactingMemStore)memstore).flushInMemory();
+  while (((CompactingMemStore)memstore).isMemStoreFlushingInMemory()) {
+    Threads.sleep(10);
+  }
+  assertEquals(0,memstore.getSnapshot().getCellsCount());
+  addRowsByKeys(memstore,keys2);
+  ((CompactingMemStore)memstore).disableCompaction();
+  ((CompactingMemStore)memstore).flushInMemory();
+  assertEquals(0,memstore.getSnapshot().getCellsCount());
+  addRowsByKeys(memstore,keys3);
+  ((CompactingMemStore)memstore).enableCompaction();
+  ((CompactingMemStore)memstore).flushInMemory();
+  while (((CompactingMemStore)memstore).isMemStoreFlushingInMemory()) {
+    Threads.sleep(10);
+  }
+  assertEquals(0,memstore.getSnapshot().getCellsCount());
+  int counter=0;
+  for (  Segment s : memstore.getSegments()) {
+    counter+=s.getCellsCount();
+  }
+  assertEquals(10,counter);
+  MemStoreSnapshot snapshot=memstore.snapshot();
+  ImmutableSegment s=memstore.getSnapshot();
+  memstore.clearSnapshot(snapshot.getId());
+}

@@ -1,0 +1,26 @@
+{
+  if (requesterVersion != version) {
+    LOG.warn("Segment flattening failed, because versions do not match. Requester version: " + requesterVersion + ", actual version: "+ version);
+    return false;
+  }
+synchronized (pipeline) {
+    if (requesterVersion != version) {
+      LOG.warn("Segment flattening failed, because versions do not match");
+      return false;
+    }
+    for (    ImmutableSegment s : pipeline) {
+      long sizeBeforeFlat=s.keySize();
+      long globalMemstoreSize=0;
+      if (s.flatten()) {
+        if (region != null) {
+          long sizeAfterFlat=s.keySize();
+          long delta=sizeBeforeFlat - sizeAfterFlat;
+          globalMemstoreSize=region.addAndGetGlobalMemstoreSize(-delta);
+        }
+        LOG.debug("Compaction pipeline segment " + s + " was flattened; globalMemstoreSize: "+ globalMemstoreSize);
+        return true;
+      }
+    }
+  }
+  return false;
+}
