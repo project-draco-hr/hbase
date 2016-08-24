@@ -9,6 +9,7 @@
   long smallestSeqIdInStores=Long.MAX_VALUE;
   startRegionOperation();
   try {
+    Map<Store,Long> map=new HashMap<Store,Long>();
 synchronized (writestate) {
       for (      Store store : getStores()) {
         long maxSeqIdBefore=store.getMaxSequenceId();
@@ -30,7 +31,7 @@ synchronized (writestate) {
               }
             }
           }
-          totalFreedSize+=dropMemstoreContentsForSeqId(storeSeqId,store);
+          map.put(store,storeSeqId);
         }
       }
       dropPrepareFlushIfPossible();
@@ -39,6 +40,18 @@ synchronized (writestate) {
       }
       if (this.lastReplayedOpenRegionSeqId < smallestSeqIdInStores) {
         this.lastReplayedOpenRegionSeqId=smallestSeqIdInStores;
+      }
+    }
+    if (!map.isEmpty()) {
+      if (!force) {
+        for (        Map.Entry<Store,Long> entry : map.entrySet()) {
+          totalFreedSize+=dropMemstoreContentsForSeqId(entry.getValue(),entry.getKey());
+        }
+      }
+ else {
+synchronized (storeSeqIds) {
+          storeSeqIds.add(map);
+        }
       }
     }
 synchronized (this) {
