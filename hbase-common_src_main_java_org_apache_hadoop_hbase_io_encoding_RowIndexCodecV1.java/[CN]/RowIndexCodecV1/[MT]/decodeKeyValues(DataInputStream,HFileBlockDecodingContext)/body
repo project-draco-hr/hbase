@@ -1,0 +1,34 @@
+{
+  ByteBuffer sourceAsBuffer=ByteBufferUtils.drainInputStreamToBuffer(source);
+  sourceAsBuffer.mark();
+  if (!decodingCtx.getHFileContext().isIncludesTags()) {
+    sourceAsBuffer.position(sourceAsBuffer.limit() - Bytes.SIZEOF_INT);
+    int onDiskSize=sourceAsBuffer.getInt();
+    sourceAsBuffer.reset();
+    ByteBuffer dup=sourceAsBuffer.duplicate();
+    dup.position(sourceAsBuffer.position());
+    dup.limit(sourceAsBuffer.position() + onDiskSize);
+    return dup.slice();
+  }
+ else {
+    RowIndexSeekerV1 seeker=new RowIndexSeekerV1(CellComparator.COMPARATOR,decodingCtx);
+    seeker.setCurrentBuffer(new SingleByteBuff(sourceAsBuffer));
+    List<Cell> kvs=new ArrayList<Cell>();
+    kvs.add(seeker.getCell());
+    while (seeker.next()) {
+      kvs.add(seeker.getCell());
+    }
+    boolean includesMvcc=decodingCtx.getHFileContext().isIncludesMvcc();
+    ByteArrayOutputStream baos=new ByteArrayOutputStream();
+    DataOutputStream out=new DataOutputStream(baos);
+    for (    Cell cell : kvs) {
+      KeyValue currentCell=KeyValueUtil.copyToNewKeyValue(cell);
+      out.write(currentCell.getBuffer(),currentCell.getOffset(),currentCell.getLength());
+      if (includesMvcc) {
+        WritableUtils.writeVLong(out,cell.getSequenceId());
+      }
+    }
+    out.flush();
+    return ByteBuffer.wrap(baos.getBuffer(),0,baos.size());
+  }
+}

@@ -1,0 +1,45 @@
+{
+  previous.invalidate();
+  int index=binarySearch(seekCell,seekBefore);
+  if (index < 0) {
+    return HConstants.INDEX_KEY_MAGIC;
+  }
+ else {
+    int offset=rowOffsets.getIntAfterPosition(index * Bytes.SIZEOF_INT);
+    if (offset != 0) {
+      decodeAtPosition(offset);
+    }
+  }
+  do {
+    int comp;
+    comp=comparator.compareKeyIgnoresMvcc(seekCell,current.currentKey);
+    if (comp == 0) {
+      if (seekBefore) {
+        if (!previous.isValid()) {
+          throw new IllegalStateException("Cannot seekBefore if " + "positioned at the first key in the block: key=" + Bytes.toStringBinary(seekCell.getRowArray()));
+        }
+        moveToPrevious();
+        return 1;
+      }
+      return 0;
+    }
+    if (comp < 0) {
+      if (previous.isValid()) {
+        moveToPrevious();
+      }
+ else {
+        return HConstants.INDEX_KEY_MAGIC;
+      }
+      return 1;
+    }
+    if (currentBuffer.hasRemaining()) {
+      previous.copyFromNext(current);
+      decodeNext();
+    }
+ else {
+      break;
+    }
+  }
+ while (true);
+  return 1;
+}
