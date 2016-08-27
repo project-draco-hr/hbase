@@ -4,18 +4,25 @@
   FileStatus[] running=FSUtils.listStatus(fs,snapshotTmpDir);
   if (running != null) {
     for (    FileStatus run : running) {
+      ReentrantLock lock=null;
+      if (snapshotManager != null) {
+        lock=snapshotManager.getLocks().acquireLock(run.getPath().getName());
+      }
       try {
         snapshotInProgress.addAll(fileInspector.filesUnderSnapshot(run.getPath()));
       }
  catch (      CorruptedSnapshotException e) {
         if (e.getCause() instanceof FileNotFoundException) {
-          if (!fs.exists(new Path(run.getPath(),SnapshotDescriptionUtils.SNAPSHOT_IN_PROGRESS))) {
-            fs.delete(run.getPath(),true);
-            LOG.warn("delete the " + run.getPath() + " due to exception:",e.getCause());
-          }
+          fs.delete(run.getPath(),true);
+          LOG.warn("delete the " + run.getPath() + " due to exception:",e.getCause());
         }
  else {
           throw e;
+        }
+      }
+ finally {
+        if (lock != null) {
+          lock.unlock();
         }
       }
     }
