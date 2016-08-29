@@ -1,0 +1,47 @@
+{
+  long rowSize=12345;
+  int maxTotalConcurrentTasks=100;
+  int maxConcurrentTasksPerServer=2;
+  int maxConcurrentTasksPerRegion=1;
+  AtomicLong tasksInProgress=new AtomicLong(0);
+  Map<ServerName,AtomicInteger> taskCounterPerServer=new HashMap<>();
+  Map<byte[],AtomicInteger> taskCounterPerRegion=new HashMap<>();
+  TaskCountChecker checker=new TaskCountChecker(maxTotalConcurrentTasks,maxConcurrentTasksPerServer,maxConcurrentTasksPerRegion,tasksInProgress,taskCounterPerServer,taskCounterPerRegion);
+  for (int i=0; i != 10; ++i) {
+    ReturnCode code=checker.canTakeOperation(loc1,rowSize);
+    assertEquals(RowChecker.ReturnCode.INCLUDE,code);
+  }
+  ReturnCode code=checker.canTakeOperation(loc1,rowSize);
+  assertEquals(RowChecker.ReturnCode.INCLUDE,code);
+  checker.notifyFinal(code,loc1,rowSize);
+  taskCounterPerRegion.put(loc1.getRegionInfo().getRegionName(),new AtomicInteger(100));
+  taskCounterPerServer.put(loc1.getServerName(),new AtomicInteger(100));
+  for (int i=0; i != maxConcurrentTasksPerRegion * 5; ++i) {
+    ReturnCode includeCode=checker.canTakeOperation(loc1,rowSize);
+    assertEquals(RowChecker.ReturnCode.INCLUDE,includeCode);
+    checker.notifyFinal(includeCode,loc1,rowSize);
+  }
+  taskCounterPerRegion.put(loc3.getRegionInfo().getRegionName(),new AtomicInteger(100));
+  taskCounterPerServer.put(loc3.getServerName(),new AtomicInteger(100));
+  for (int i=0; i != maxConcurrentTasksPerRegion * 5; ++i) {
+    ReturnCode excludeCode=checker.canTakeOperation(loc3,rowSize);
+    assertNotEquals(RowChecker.ReturnCode.INCLUDE,excludeCode);
+    checker.notifyFinal(excludeCode,loc3,rowSize);
+  }
+  taskCounterPerRegion.put(loc3.getRegionInfo().getRegionName(),new AtomicInteger(0));
+  taskCounterPerServer.put(loc3.getServerName(),new AtomicInteger(0));
+  ReturnCode code3=checker.canTakeOperation(loc3,rowSize);
+  assertEquals(RowChecker.ReturnCode.INCLUDE,code3);
+  checker.notifyFinal(code3,loc3,rowSize);
+  for (int i=0; i != maxConcurrentTasksPerRegion * 5; ++i) {
+    ReturnCode includeCode=checker.canTakeOperation(loc3,rowSize);
+    assertEquals(RowChecker.ReturnCode.INCLUDE,includeCode);
+    checker.notifyFinal(includeCode,loc3,rowSize);
+  }
+  checker.reset();
+  for (int i=0; i != maxConcurrentTasksPerRegion * 5; ++i) {
+    ReturnCode includeCode=checker.canTakeOperation(loc1,rowSize);
+    assertNotEquals(RowChecker.ReturnCode.INCLUDE,includeCode);
+    checker.notifyFinal(includeCode,loc1,rowSize);
+  }
+}

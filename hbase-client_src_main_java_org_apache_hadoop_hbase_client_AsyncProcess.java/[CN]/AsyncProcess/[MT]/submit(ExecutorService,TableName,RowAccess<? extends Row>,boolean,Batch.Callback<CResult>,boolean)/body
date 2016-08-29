@@ -1,0 +1,62 @@
+{
+  if (rows.isEmpty()) {
+    return NO_REQS_RESULT;
+  }
+  Map<ServerName,MultiAction<Row>> actionsByServer=new HashMap<ServerName,MultiAction<Row>>();
+  List<Action<Row>> retainedActions=new ArrayList<Action<Row>>(rows.size());
+  NonceGenerator ng=this.connection.getNonceGenerator();
+  long nonceGroup=ng.getNonceGroup();
+  List<Exception> locationErrors=null;
+  List<Integer> locationErrorRows=null;
+  RowCheckerHost checker=createRowCheckerHost();
+  boolean firstIter=true;
+  do {
+    waitForMaximumCurrentTasks(maxTotalConcurrentTasks - 1,tableName.getNameAsString());
+    int posInList=-1;
+    if (!firstIter) {
+      checker.reset();
+    }
+    Iterator<? extends Row> it=rows.iterator();
+    while (it.hasNext()) {
+      Row r=it.next();
+      HRegionLocation loc;
+      try {
+        if (r == null) {
+          throw new IllegalArgumentException("#" + id + ", row cannot be null");
+        }
+        RegionLocations locs=connection.locateRegion(tableName,r.getRow(),true,true,RegionReplicaUtil.DEFAULT_REPLICA_ID);
+        if (locs == null || locs.isEmpty() || locs.getDefaultRegionLocation() == null) {
+          throw new IOException("#" + id + ", no location found, aborting submit for"+ " tableName="+ tableName+ " rowkey="+ Bytes.toStringBinary(r.getRow()));
+        }
+        loc=locs.getDefaultRegionLocation();
+      }
+ catch (      IOException ex) {
+        locationErrors=new ArrayList<Exception>();
+        locationErrorRows=new ArrayList<Integer>();
+        LOG.error("Failed to get region location ",ex);
+        retainedActions.add(new Action<Row>(r,++posInList));
+        locationErrors.add(ex);
+        locationErrorRows.add(posInList);
+        it.remove();
+        break;
+      }
+      long rowSize=(r instanceof Mutation) ? ((Mutation)r).heapSize() : 0;
+      ReturnCode code=checker.canTakeOperation(loc,rowSize);
+      if (code == ReturnCode.END) {
+        break;
+      }
+      if (code == ReturnCode.INCLUDE) {
+        Action<Row> action=new Action<Row>(r,++posInList);
+        setNonce(ng,r,action);
+        retainedActions.add(action);
+        byte[] regionName=loc.getRegionInfo().getRegionName();
+        addAction(loc.getServerName(),regionName,action,actionsByServer,nonceGroup);
+        it.remove();
+      }
+    }
+    firstIter=false;
+  }
+ while (retainedActions.isEmpty() && atLeastOne && (locationErrors == null));
+  if (retainedActions.isEmpty())   return NO_REQS_RESULT;
+  return submitMultiActions(tableName,retainedActions,nonceGroup,callback,null,needResults,locationErrors,locationErrorRows,actionsByServer,pool);
+}

@@ -1,0 +1,72 @@
+{
+  ClusterConnection conn=createHConnection();
+  final long defaultHeapSizePerRequest=conn.getConfiguration().getLong(AsyncProcess.HBASE_CLIENT_MAX_PERREQUEST_HEAPSIZE,AsyncProcess.DEFAULT_HBASE_CLIENT_MAX_PERREQUEST_HEAPSIZE);
+  conn.getConfiguration().setLong(AsyncProcess.HBASE_CLIENT_MAX_PERREQUEST_HEAPSIZE,maxHeapSizePerRequest);
+  BufferedMutatorParams bufferParam=new BufferedMutatorParams(DUMMY_TABLE);
+  long putSizeSN=0;
+  long putSizeSN2=0;
+  List<Put> puts=new ArrayList<>();
+  while ((putSizeSN + putSizeSN2) <= putsHeapSize) {
+    Put put1=new Put(DUMMY_BYTES_1);
+    put1.addColumn(DUMMY_BYTES_1,DUMMY_BYTES_1,DUMMY_BYTES_1);
+    Put put2=new Put(DUMMY_BYTES_2);
+    put2.addColumn(DUMMY_BYTES_2,DUMMY_BYTES_2,DUMMY_BYTES_2);
+    Put put3=new Put(DUMMY_BYTES_3);
+    put3.addColumn(DUMMY_BYTES_3,DUMMY_BYTES_3,DUMMY_BYTES_3);
+    putSizeSN+=(put1.heapSize() + put2.heapSize());
+    putSizeSN2+=put3.heapSize();
+    puts.add(put1);
+    puts.add(put2);
+    puts.add(put3);
+  }
+  int minCountSnRequest=(int)calculateRequestCount(putSizeSN,maxHeapSizePerRequest);
+  int minCountSn2Request=(int)calculateRequestCount(putSizeSN2,maxHeapSizePerRequest);
+  LOG.info("Total put count:" + puts.size() + ", putSizeSN:"+ putSizeSN+ ", putSizeSN2:"+ putSizeSN2+ ", maxHeapSizePerRequest:"+ maxHeapSizePerRequest+ ", minCountSnRequest:"+ minCountSnRequest+ ", minCountSn2Request:"+ minCountSn2Request);
+  try (HTable ht=new HTable(conn,bufferParam)){
+    MyAsyncProcess ap=new MyAsyncProcess(conn,conf,true);
+    ht.mutator.ap=ap;
+    Assert.assertEquals(0L,ht.mutator.currentWriteBufferSize.get());
+    ht.put(puts);
+    List<AsyncRequestFuture> reqs=ap.allReqs;
+    int actualSnReqCount=0;
+    int actualSn2ReqCount=0;
+    for (    AsyncRequestFuture req : reqs) {
+      if (!(req instanceof AsyncRequestFutureImpl)) {
+        continue;
+      }
+      AsyncRequestFutureImpl ars=(AsyncRequestFutureImpl)req;
+      if (ars.getRequestHeapSize().containsKey(sn)) {
+        ++actualSnReqCount;
+      }
+      if (ars.getRequestHeapSize().containsKey(sn2)) {
+        ++actualSn2ReqCount;
+      }
+    }
+    assertEquals(true,minCountSnRequest <= actualSnReqCount);
+    assertEquals(true,minCountSn2Request <= actualSn2ReqCount);
+    Map<ServerName,Long> sizePerServers=new HashMap<>();
+    for (    AsyncRequestFuture req : reqs) {
+      if (!(req instanceof AsyncRequestFutureImpl)) {
+        continue;
+      }
+      AsyncRequestFutureImpl ars=(AsyncRequestFutureImpl)req;
+      Map<ServerName,List<Long>> requestHeapSize=ars.getRequestHeapSize();
+      for (      Map.Entry<ServerName,List<Long>> entry : requestHeapSize.entrySet()) {
+        long sum=0;
+        for (        long size : entry.getValue()) {
+          assertEquals(true,size <= maxHeapSizePerRequest);
+          sum+=size;
+        }
+        assertEquals(true,sum <= maxHeapSizePerRequest);
+        long value=sizePerServers.containsKey(entry.getKey()) ? sizePerServers.get(entry.getKey()) : 0L;
+        sizePerServers.put(entry.getKey(),value + sum);
+      }
+    }
+    assertEquals(true,sizePerServers.containsKey(sn));
+    assertEquals(true,sizePerServers.containsKey(sn2));
+    assertEquals(false,sizePerServers.containsKey(sn3));
+    assertEquals(putSizeSN,(long)sizePerServers.get(sn));
+    assertEquals(putSizeSN2,(long)sizePerServers.get(sn2));
+  }
+   conn.getConfiguration().setLong(AsyncProcess.HBASE_CLIENT_MAX_PERREQUEST_HEAPSIZE,defaultHeapSizePerRequest);
+}

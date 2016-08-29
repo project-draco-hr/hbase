@@ -1,44 +1,38 @@
 {
-  LinkedList<Mutation> buffer=new LinkedList<>();
-  long dequeuedSize=0;
-  try {
-    Mutation m;
-    while ((writeBufferSize <= 0 || dequeuedSize < (writeBufferSize * 2) || synchronous) && (m=writeAsyncBuffer.poll()) != null) {
-      buffer.add(m);
-      long size=m.heapSize();
-      dequeuedSize+=size;
-      currentWriteBufferSize.addAndGet(-size);
-    }
-    if (!synchronous && dequeuedSize == 0) {
-      return;
-    }
-    if (!synchronous) {
-      ap.submit(tableName,buffer,true,null,false);
+  if (!synchronous && writeAsyncBuffer.isEmpty()) {
+    return;
+  }
+  if (!synchronous) {
+    QueueRowAccess taker=new QueueRowAccess();
+    try {
+      ap.submit(tableName,taker,true,null,false);
       if (ap.hasError()) {
         LOG.debug(tableName + ": One or more of the operations have failed -" + " waiting for all operation in progress to finish (successfully or not)");
       }
     }
-    if (synchronous || ap.hasError()) {
-      while (!buffer.isEmpty()) {
-        ap.submit(tableName,buffer,true,null,false);
-      }
-      RetriesExhaustedWithDetailsException error=ap.waitForAllPreviousOpsAndReset(null,tableName.getNameAsString());
-      if (error != null) {
-        if (listener == null) {
-          throw error;
-        }
- else {
-          this.listener.onException(error,this);
-        }
-      }
+  finally {
+      taker.restoreRemainder();
     }
   }
+  if (synchronous || ap.hasError()) {
+    QueueRowAccess taker=new QueueRowAccess();
+    try {
+      while (!taker.isEmpty()) {
+        ap.submit(tableName,taker,true,null,false);
+        taker.reset();
+      }
+    }
   finally {
-    for (    Mutation mut : buffer) {
-      long size=mut.heapSize();
-      currentWriteBufferSize.addAndGet(size);
-      dequeuedSize-=size;
-      writeAsyncBuffer.add(mut);
+      taker.restoreRemainder();
+    }
+    RetriesExhaustedWithDetailsException error=ap.waitForAllPreviousOpsAndReset(null,tableName.getNameAsString());
+    if (error != null) {
+      if (listener == null) {
+        throw error;
+      }
+ else {
+        this.listener.onException(error,this);
+      }
     }
   }
 }

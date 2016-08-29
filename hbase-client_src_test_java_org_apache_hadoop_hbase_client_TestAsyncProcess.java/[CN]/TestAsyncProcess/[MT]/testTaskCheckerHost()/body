@@ -1,0 +1,26 @@
+{
+  final int maxTotalConcurrentTasks=100;
+  final int maxConcurrentTasksPerServer=2;
+  final int maxConcurrentTasksPerRegion=1;
+  final AtomicLong tasksInProgress=new AtomicLong(0);
+  final Map<ServerName,AtomicInteger> taskCounterPerServer=new HashMap<>();
+  final Map<byte[],AtomicInteger> taskCounterPerRegion=new HashMap<>();
+  TaskCountChecker countChecker=new TaskCountChecker(maxTotalConcurrentTasks,maxConcurrentTasksPerServer,maxConcurrentTasksPerRegion,tasksInProgress,taskCounterPerServer,taskCounterPerRegion);
+  final long maxHeapSizePerRequest=2 * 1024 * 1024;
+  RequestSizeChecker sizeChecker=new RequestSizeChecker(maxHeapSizePerRequest);
+  RowCheckerHost checkerHost=new RowCheckerHost(Arrays.asList(countChecker,sizeChecker));
+  ReturnCode loc1Code=checkerHost.canTakeOperation(loc1,maxHeapSizePerRequest);
+  assertEquals(RowChecker.ReturnCode.INCLUDE,loc1Code);
+  ReturnCode loc1Code_2=checkerHost.canTakeOperation(loc1,maxHeapSizePerRequest);
+  assertNotEquals(RowChecker.ReturnCode.INCLUDE,loc1Code_2);
+  ReturnCode loc2Code=checkerHost.canTakeOperation(loc2,maxHeapSizePerRequest);
+  assertNotEquals(RowChecker.ReturnCode.INCLUDE,loc2Code);
+  taskCounterPerRegion.put(loc3.getRegionInfo().getRegionName(),new AtomicInteger(100));
+  taskCounterPerServer.put(loc3.getServerName(),new AtomicInteger(100));
+  ReturnCode loc3Code=checkerHost.canTakeOperation(loc3,1L);
+  assertNotEquals(RowChecker.ReturnCode.INCLUDE,loc3Code);
+  taskCounterPerRegion.put(loc3.getRegionInfo().getRegionName(),new AtomicInteger(0));
+  taskCounterPerServer.put(loc3.getServerName(),new AtomicInteger(0));
+  ReturnCode loc3Code_2=checkerHost.canTakeOperation(loc3,1L);
+  assertEquals(RowChecker.ReturnCode.INCLUDE,loc3Code_2);
+}
