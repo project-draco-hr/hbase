@@ -1,0 +1,32 @@
+{
+  while (true) {
+    if (workersFailed.get()) {
+      return EXIT_FAILURE;
+    }
+    long procId=procIds.getAndIncrement();
+    if (procId >= numProcs) {
+      break;
+    }
+    if (procId != 0 && procId % 10000 == 0) {
+      long ms=System.currentTimeMillis() - start;
+      System.out.println("Wrote " + procId + " procedures in "+ StringUtils.humanTimeDiff(ms));
+    }
+    try {
+      if (procId > 0 && procId % numProcsPerWal == 0) {
+        store.rollWriterForTesting();
+        System.out.println("Starting new log : " + store.getActiveLogs().get(store.getActiveLogs().size() - 1));
+      }
+    }
+ catch (    IOException ioe) {
+      workersFailed.set(true);
+      System.err.println("Exception when rolling log file. Current procId = " + procId);
+      ioe.printStackTrace();
+      return EXIT_FAILURE;
+    }
+    ProcedureTestingUtility.TestProcedure proc=new ProcedureTestingUtility.TestProcedure(procId);
+    proc.setData(serializedState);
+    store.insert(proc,null);
+    store.update(proc);
+  }
+  return EXIT_SUCCESS;
+}

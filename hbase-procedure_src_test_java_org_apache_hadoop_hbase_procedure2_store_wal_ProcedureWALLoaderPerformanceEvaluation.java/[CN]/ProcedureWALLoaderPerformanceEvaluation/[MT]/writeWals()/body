@@ -1,0 +1,30 @@
+{
+  List<Integer> procStates=shuffleProcWriteSequence();
+  TestProcedure[] procs=new TestProcedure[numProcs + 1];
+  int numProcsPerWal=numWals > 0 ? (int)Math.ceil(procStates.size() / numWals) : Integer.MAX_VALUE;
+  long startTime=currentTimeMillis();
+  long lastTime=startTime;
+  for (int i=0; i < procStates.size(); ++i) {
+    int procId=procStates.get(i);
+    if (procId < 0) {
+      store.delete(procs[-procId].getProcId());
+      procs[-procId]=null;
+    }
+ else     if (procs[procId] == null) {
+      procs[procId]=new TestProcedure(procId,0);
+      procs[procId].setData(serializedState);
+      store.insert(procs[procId],null);
+    }
+ else {
+      store.update(procs[procId]);
+    }
+    if (i > 0 && i % numProcsPerWal == 0) {
+      long currentTime=currentTimeMillis();
+      System.out.println("Forcing wall roll. Time taken on last WAL: " + (currentTime - lastTime) / 1000.0f + " sec");
+      store.rollWriterForTesting();
+      lastTime=currentTime;
+    }
+  }
+  long timeTaken=currentTimeMillis() - startTime;
+  System.out.println("\n\nDone writing WALs.\nNum procs : " + numProcs + "\nTotal time taken : "+ StringUtils.humanTimeDiff(timeTaken)+ "\n\n");
+}
