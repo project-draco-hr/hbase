@@ -2,23 +2,21 @@
   Configuration conf=new Configuration(CONF);
   conf.setInt(RpcServer.MAX_REQUEST_SIZE,100);
   RpcServer rpcServer=new TestRpcServer(conf);
-  AbstractRpcClient client=createRpcClient(conf);
-  try {
+  try (AbstractRpcClient client=createRpcClient(conf)){
     rpcServer.start();
-    MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
-    EchoRequestProto param=EchoRequestProto.newBuilder().setMessage("hello.hello.hello.hello." + "hello.hello.hello.hello.hello.hello.hello.hello.hello.hello.hello.hello").build();
-    InetSocketAddress address=rpcServer.getListenerAddress();
-    if (address == null) {
-      throw new IOException("Listener channel is closed");
+    BlockingInterface stub=newBlockingStub(client,rpcServer.getListenerAddress());
+    StringBuilder message=new StringBuilder(120);
+    for (int i=0; i < 20; i++) {
+      message.append("hello.");
     }
-    try {
-      client.call(new PayloadCarryingRpcController(CellUtil.createCellScanner(ImmutableList.<Cell>of(CELL))),md,param,md.getOutputType().toProto(),User.getCurrent(),address,new MetricsConnection.CallStats());
-      fail("RPC should have failed because it exceeds max request size");
-    }
- catch (    IOException ex) {
-    }
+    EchoRequestProto param=EchoRequestProto.newBuilder().setMessage(message.toString()).build();
+    stub.echo(new PayloadCarryingRpcController(CellUtil.createCellScanner(ImmutableList.<Cell>of(CELL))),param);
+    fail("RPC should have failed because it exceeds max request size");
   }
-  finally {
+ catch (  ServiceException e) {
+    LOG.info("Caught expected exception: " + e.toString());
+  }
+ finally {
     rpcServer.stop();
   }
 }

@@ -2,18 +2,13 @@
   RpcScheduler scheduler=spy(new FifoRpcScheduler(CONF,1));
   RpcServer rpcServer=new TestRpcServer(scheduler,CONF);
   verify(scheduler).init((RpcScheduler.Context)anyObject());
-  AbstractRpcClient client=createRpcClient(CONF);
-  try {
+  try (AbstractRpcClient client=createRpcClient(CONF)){
     rpcServer.start();
     verify(scheduler).start();
-    MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
+    BlockingInterface stub=newBlockingStub(client,rpcServer.getListenerAddress());
     EchoRequestProto param=EchoRequestProto.newBuilder().setMessage("hello").build();
-    InetSocketAddress address=rpcServer.getListenerAddress();
-    if (address == null) {
-      throw new IOException("Listener channel is closed");
-    }
     for (int i=0; i < 10; i++) {
-      client.call(new PayloadCarryingRpcController(CellUtil.createCellScanner(ImmutableList.<Cell>of(CELL))),md,param,md.getOutputType().toProto(),User.getCurrent(),address,new MetricsConnection.CallStats());
+      stub.echo(null,param);
     }
     verify(scheduler,times(10)).dispatch((CallRunner)anyObject());
   }

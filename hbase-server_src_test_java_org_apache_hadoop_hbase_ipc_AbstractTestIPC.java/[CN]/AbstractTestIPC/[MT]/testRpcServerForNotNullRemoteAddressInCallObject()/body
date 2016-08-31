@@ -1,18 +1,10 @@
 {
-  final RpcScheduler scheduler=new FifoRpcScheduler(CONF,1);
-  final TestRpcServer1 rpcServer=new TestRpcServer1(scheduler);
-  final InetSocketAddress localAddr=new InetSocketAddress("localhost",0);
-  try (AbstractRpcClient client=new RpcClientImpl(CONF,HConstants.CLUSTER_ID_DEFAULT,localAddr,null)){
+  TestRpcServer rpcServer=new TestRpcServer();
+  InetSocketAddress localAddr=new InetSocketAddress("localhost",0);
+  try (AbstractRpcClient client=createRpcClient(CONF)){
     rpcServer.start();
-    final InetSocketAddress isa=rpcServer.getListenerAddress();
-    if (isa == null) {
-      throw new IOException("Listener channel is closed");
-    }
-    final BlockingRpcChannel channel=client.createBlockingRpcChannel(ServerName.valueOf(isa.getHostName(),isa.getPort(),System.currentTimeMillis()),User.getCurrent(),0);
-    BlockingInterface stub=TestRpcServiceProtos.TestProtobufRpcProto.newBlockingStub(channel);
-    final EchoRequestProto echoRequest=EchoRequestProto.newBuilder().setMessage("GetRemoteAddress").build();
-    final EchoResponseProto echoResponse=stub.echo(null,echoRequest);
-    Assert.assertEquals(localAddr.getAddress().getHostAddress(),echoResponse.getMessage());
+    BlockingInterface stub=newBlockingStub(client,rpcServer.getListenerAddress());
+    assertEquals(localAddr.getAddress().getHostAddress(),stub.addr(null,EmptyRequestProto.getDefaultInstance()).getAddr());
   }
   finally {
     rpcServer.stop();

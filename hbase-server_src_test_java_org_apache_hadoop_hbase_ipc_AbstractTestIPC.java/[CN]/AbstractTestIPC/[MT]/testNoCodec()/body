@@ -3,16 +3,11 @@
   TestRpcServer rpcServer=new TestRpcServer();
   try (AbstractRpcClient client=createRpcClientNoCodec(conf)){
     rpcServer.start();
-    MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
-    final String message="hello";
-    EchoRequestProto param=EchoRequestProto.newBuilder().setMessage(message).build();
-    InetSocketAddress address=rpcServer.getListenerAddress();
-    if (address == null) {
-      throw new IOException("Listener channel is closed");
-    }
-    Pair<Message,CellScanner> r=client.call(null,md,param,md.getOutputType().toProto(),User.getCurrent(),address,new MetricsConnection.CallStats());
-    assertTrue(r.getSecond() == null);
-    assertTrue(r.getFirst().toString().contains(message));
+    BlockingInterface stub=newBlockingStub(client,rpcServer.getListenerAddress());
+    PayloadCarryingRpcController pcrc=new PayloadCarryingRpcController();
+    String message="hello";
+    assertEquals(message,stub.echo(pcrc,EchoRequestProto.newBuilder().setMessage(message).build()).getMessage());
+    assertNull(pcrc.cellScanner());
   }
   finally {
     rpcServer.stop();

@@ -1,0 +1,28 @@
+{
+  TestRpcServer rpcServer=new TestRpcServer();
+  try (AbstractRpcClient client=createRpcClient(CONF)){
+    rpcServer.start();
+    BlockingInterface stub=newBlockingStub(client,rpcServer.getListenerAddress());
+    PayloadCarryingRpcController pcrc=new PayloadCarryingRpcController();
+    int ms=1000;
+    int timeout=100;
+    for (int i=0; i < 10; i++) {
+      pcrc.reset();
+      pcrc.setCallTimeout(timeout);
+      long startTime=System.nanoTime();
+      try {
+        stub.pause(pcrc,PauseRequestProto.newBuilder().setMs(ms).build());
+      }
+ catch (      ServiceException e) {
+        long waitTime=(System.nanoTime() - startTime) / 1000000;
+        LOG.info("Caught expected exception: " + e.getMessage());
+        IOException ioe=ProtobufUtil.handleRemoteException(e);
+        assertTrue(ioe.getCause() instanceof CallTimeoutException);
+        assertTrue(waitTime < ms);
+      }
+    }
+  }
+  finally {
+    rpcServer.stop();
+  }
+}

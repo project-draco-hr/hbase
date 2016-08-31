@@ -9,17 +9,15 @@
   TestRpcServer rpcServer=new TestRpcServer();
   try (AbstractRpcClient client=createRpcClient(conf)){
     rpcServer.start();
-    MethodDescriptor md=SERVICE.getDescriptorForType().findMethodByName("echo");
-    EchoRequestProto param=EchoRequestProto.newBuilder().setMessage("hello").build();
+    BlockingInterface stub=newBlockingStub(client,rpcServer.getListenerAddress());
     PayloadCarryingRpcController pcrc=new PayloadCarryingRpcController(CellUtil.createCellScanner(cells));
-    InetSocketAddress address=rpcServer.getListenerAddress();
-    if (address == null) {
-      throw new IOException("Listener channel is closed");
-    }
-    Pair<Message,CellScanner> r=client.call(pcrc,md,param,md.getOutputType().toProto(),User.getCurrent(),address,new MetricsConnection.CallStats());
+    String message="hello";
+    assertEquals(message,stub.echo(pcrc,EchoRequestProto.newBuilder().setMessage(message).build()).getMessage());
     int index=0;
-    while (r.getSecond().advance()) {
-      assertTrue(CELL.equals(r.getSecond().current()));
+    CellScanner cellScanner=pcrc.cellScanner();
+    assertNotNull(cellScanner);
+    while (cellScanner.advance()) {
+      assertEquals(CELL,cellScanner.current());
       index++;
     }
     assertEquals(count,index);
