@@ -1,0 +1,21 @@
+{
+  AbstractRpcClient<?> client=createRpcClient(CONF);
+  TestRpcServer rpcServer=new TestRpcServer();
+  try {
+    rpcServer.start();
+    Interface stub=newStub(client,rpcServer.getListenerAddress());
+    BlockingRpcCallback<EmptyResponseProto> callback=new BlockingRpcCallback<>();
+    HBaseRpcController pcrc=new HBaseRpcControllerImpl();
+    stub.error(pcrc,EmptyRequestProto.getDefaultInstance(),callback);
+    assertNull(callback.get());
+    assertTrue(pcrc.failed());
+    LOG.info("Caught expected exception: " + pcrc.getFailed());
+    IOException ioe=ProtobufUtil.handleRemoteException(pcrc.getFailed());
+    assertTrue(ioe instanceof DoNotRetryIOException);
+    assertTrue(ioe.getMessage().contains("server error!"));
+  }
+  finally {
+    client.close();
+    rpcServer.stop();
+  }
+}

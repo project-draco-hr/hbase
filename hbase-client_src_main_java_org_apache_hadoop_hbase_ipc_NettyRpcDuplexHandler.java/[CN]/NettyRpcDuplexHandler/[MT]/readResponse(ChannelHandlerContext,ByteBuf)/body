@@ -1,0 +1,54 @@
+{
+  int totalSize=buf.readInt();
+  ByteBufInputStream in=new ByteBufInputStream(buf);
+  ResponseHeader responseHeader=ResponseHeader.parseDelimitedFrom(in);
+  int id=responseHeader.getCallId();
+  if (LOG.isTraceEnabled()) {
+    LOG.trace("got response header " + TextFormat.shortDebugString(responseHeader) + ", totalSize: "+ totalSize+ " bytes");
+  }
+  RemoteException remoteExc;
+  if (responseHeader.hasException()) {
+    ExceptionResponse exceptionResponse=responseHeader.getException();
+    remoteExc=IPCUtil.createRemoteException(exceptionResponse);
+    if (IPCUtil.isFatalConnectionException(exceptionResponse)) {
+      exceptionCaught(ctx,remoteExc);
+      return;
+    }
+  }
+ else {
+    remoteExc=null;
+  }
+  Call call=id2Call.remove(id);
+  if (call == null) {
+    int readSoFar=IPCUtil.getTotalSizeWhenWrittenDelimited(responseHeader);
+    int whatIsLeftToRead=totalSize - readSoFar;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Unknown callId: " + id + ", skipping over this response of "+ whatIsLeftToRead+ " bytes");
+    }
+    return;
+  }
+  if (remoteExc != null) {
+    call.setException(remoteExc);
+    return;
+  }
+  Message value;
+  if (call.responseDefaultType != null) {
+    Builder builder=call.responseDefaultType.newBuilderForType();
+    builder.mergeDelimitedFrom(in);
+    value=builder.build();
+  }
+ else {
+    value=null;
+  }
+  CellScanner cellBlockScanner;
+  if (responseHeader.hasCellBlockMeta()) {
+    int size=responseHeader.getCellBlockMeta().getLength();
+    byte[] cellBlock=new byte[size];
+    buf.readBytes(cellBlock);
+    cellBlockScanner=cellBlockBuilder.createCellScanner(this.codec,this.compressor,cellBlock);
+  }
+ else {
+    cellBlockScanner=null;
+  }
+  call.setResponse(value,cellBlockScanner);
+}

@@ -1,0 +1,28 @@
+{
+  int len=msg.readInt();
+  if (len == SaslUtil.SWITCH_TO_SIMPLE_AUTH) {
+    saslRpcClient.dispose();
+    if (saslRpcClient.fallbackAllowed) {
+      saslPromise.setSuccess(false);
+    }
+ else {
+      saslPromise.setFailure(new FallbackDisallowedException());
+    }
+    return;
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Will read input token of size " + len + " for processing by initSASLContext");
+  }
+  final byte[] challenge=new byte[len];
+  msg.readBytes(challenge);
+  byte[] response=ugi.doAs(new PrivilegedExceptionAction<byte[]>(){
+    @Override public byte[] run() throws Exception {
+      return saslRpcClient.evaluateChallenge(challenge);
+    }
+  }
+);
+  if (response != null) {
+    writeResponse(ctx,response);
+  }
+  tryComplete(ctx);
+}

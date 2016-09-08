@@ -1,0 +1,76 @@
+{
+  if (socket != null) {
+    return;
+  }
+  if (this.rpcClient.failedServers.isFailedServer(remoteId.getAddress())) {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Not trying to connect to " + remoteId.address + " this server is in the failed servers list");
+    }
+    throw new FailedServerException("This server is in the failed servers list: " + remoteId.address);
+  }
+  try {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Connecting to " + remoteId.address);
+    }
+    short numRetries=0;
+    final short MAX_RETRIES=5;
+    while (true) {
+      setupConnection();
+      InputStream inStream=NetUtils.getInputStream(socket);
+      OutputStream outStream=NetUtils.getOutputStream(socket,this.rpcClient.writeTO);
+      writeConnectionHeaderPreamble(outStream);
+      if (useSasl) {
+        final InputStream in2=inStream;
+        final OutputStream out2=outStream;
+        UserGroupInformation ticket=getUGI();
+        boolean continueSasl;
+        if (ticket == null) {
+          throw new FatalConnectionException("ticket/user is null");
+        }
+        try {
+          continueSasl=ticket.doAs(new PrivilegedExceptionAction<Boolean>(){
+            @Override public Boolean run() throws IOException {
+              return setupSaslConnection(in2,out2);
+            }
+          }
+);
+        }
+ catch (        Exception ex) {
+          ExceptionUtil.rethrowIfInterrupt(ex);
+          handleSaslConnectionFailure(numRetries++,MAX_RETRIES,ex,ticket);
+          continue;
+        }
+        if (continueSasl) {
+          inStream=saslRpcClient.getInputStream(inStream);
+          outStream=saslRpcClient.getOutputStream(outStream);
+        }
+ else {
+        }
+      }
+      this.in=new DataInputStream(new BufferedInputStream(inStream));
+      this.out=new DataOutputStream(new BufferedOutputStream(outStream));
+      writeConnectionHeader();
+      break;
+    }
+  }
+ catch (  Throwable t) {
+    closeSocket();
+    IOException e=ExceptionUtil.asInterrupt(t);
+    if (e == null) {
+      this.rpcClient.failedServers.addToFailedServers(remoteId.address);
+      if (t instanceof LinkageError) {
+        e=new DoNotRetryIOException(t);
+      }
+ else       if (t instanceof IOException) {
+        e=(IOException)t;
+      }
+ else {
+        e=new IOException("Could not set up IO Streams to " + remoteId.address,t);
+      }
+    }
+    throw e;
+  }
+  thread=new Thread(this,threadName);
+  thread.setDaemon(true);
+  thread.start();
+}

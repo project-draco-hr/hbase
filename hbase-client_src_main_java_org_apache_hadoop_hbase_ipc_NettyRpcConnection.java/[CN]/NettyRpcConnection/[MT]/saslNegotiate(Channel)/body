@@ -1,0 +1,33 @@
+{
+  UserGroupInformation ticket=getUGI();
+  if (ticket == null) {
+    failInit(ch,new FatalConnectionException("ticket/user is null"));
+    return;
+  }
+  Promise<Boolean> saslPromise=ch.eventLoop().newPromise();
+  ChannelHandler saslHandler;
+  try {
+    saslHandler=new AsyncHBaseSaslRpcClientHandler(saslPromise,ticket,authMethod,token,serverPrincipal,rpcClient.fallbackAllowed,this.rpcClient.conf.get("hbase.rpc.protection",QualityOfProtection.AUTHENTICATION.name().toLowerCase()));
+  }
+ catch (  IOException e) {
+    failInit(ch,e);
+    return;
+  }
+  ch.pipeline().addFirst(new SaslChallengeDecoder(),saslHandler);
+  saslPromise.addListener(new FutureListener<Boolean>(){
+    @Override public void operationComplete(    Future<Boolean> future) throws Exception {
+      if (future.isSuccess()) {
+        ChannelPipeline p=ch.pipeline();
+        p.remove(SaslChallengeDecoder.class);
+        p.remove(AsyncHBaseSaslRpcClientHandler.class);
+        established(ch);
+      }
+ else {
+        final Throwable error=future.cause();
+        scheduleRelogin(error);
+        failInit(ch,toIOE(error));
+      }
+    }
+  }
+);
+}

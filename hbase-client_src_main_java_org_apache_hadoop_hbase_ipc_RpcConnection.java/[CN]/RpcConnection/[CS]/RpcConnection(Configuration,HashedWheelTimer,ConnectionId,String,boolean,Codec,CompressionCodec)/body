@@ -1,0 +1,49 @@
+{
+  if (remoteId.getAddress().isUnresolved()) {
+    throw new UnknownHostException("unknown host: " + remoteId.getAddress().getHostName());
+  }
+  this.timeoutTimer=timeoutTimer;
+  this.codec=codec;
+  this.compressor=compressor;
+  UserGroupInformation ticket=remoteId.getTicket().getUGI();
+  SecurityInfo securityInfo=SecurityInfo.getInfo(remoteId.getServiceName());
+  this.useSasl=isSecurityEnabled;
+  Token<? extends TokenIdentifier> token=null;
+  String serverPrincipal=null;
+  if (useSasl && securityInfo != null) {
+    AuthenticationProtos.TokenIdentifier.Kind tokenKind=securityInfo.getTokenKind();
+    if (tokenKind != null) {
+      TokenSelector<? extends TokenIdentifier> tokenSelector=AbstractRpcClient.TOKEN_HANDLERS.get(tokenKind);
+      if (tokenSelector != null) {
+        token=tokenSelector.selectToken(new Text(clusterId),ticket.getTokens());
+      }
+ else       if (LOG.isDebugEnabled()) {
+        LOG.debug("No token selector found for type " + tokenKind);
+      }
+    }
+    String serverKey=securityInfo.getServerPrincipal();
+    if (serverKey == null) {
+      throw new IOException("Can't obtain server Kerberos config key from SecurityInfo");
+    }
+    serverPrincipal=SecurityUtil.getServerPrincipal(conf.get(serverKey),remoteId.address.getAddress().getCanonicalHostName().toLowerCase());
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("RPC Server Kerberos principal name for service=" + remoteId.getServiceName() + " is "+ serverPrincipal);
+    }
+  }
+  this.token=token;
+  this.serverPrincipal=serverPrincipal;
+  if (!useSasl) {
+    authMethod=AuthMethod.SIMPLE;
+  }
+ else   if (token != null) {
+    authMethod=AuthMethod.DIGEST;
+  }
+ else {
+    authMethod=AuthMethod.KERBEROS;
+  }
+  if (LOG.isDebugEnabled()) {
+    LOG.debug("Use " + authMethod + " authentication for service "+ remoteId.serviceName+ ", sasl="+ useSasl);
+  }
+  reloginMaxBackoff=conf.getInt("hbase.security.relogin.maxbackoff",5000);
+  this.remoteId=remoteId;
+}

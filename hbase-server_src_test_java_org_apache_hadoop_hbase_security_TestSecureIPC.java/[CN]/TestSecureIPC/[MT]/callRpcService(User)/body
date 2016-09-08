@@ -1,0 +1,32 @@
+{
+  SecurityInfo securityInfoMock=Mockito.mock(SecurityInfo.class);
+  Mockito.when(securityInfoMock.getServerPrincipal()).thenReturn(HBaseKerberosUtils.KRB_PRINCIPAL);
+  SecurityInfo.addInfo("TestProtobufRpcProto",securityInfoMock);
+  InetSocketAddress isa=new InetSocketAddress(HOST,0);
+  RpcServerInterface rpcServer=new RpcServer(null,"AbstractTestSecureIPC",Lists.newArrayList(new RpcServer.BlockingServiceAndInterface(SERVICE,null)),isa,serverConf,new FifoRpcScheduler(serverConf,1));
+  rpcServer.start();
+  try (RpcClient rpcClient=RpcClientFactory.createClient(clientConf,HConstants.DEFAULT_CLUSTER_ID.toString())){
+    BlockingInterface stub=newBlockingStub(rpcClient,rpcServer.getListenerAddress(),clientUser);
+    TestThread th1=new TestThread(stub);
+    final Throwable exception[]=new Throwable[1];
+    Collections.synchronizedList(new ArrayList<Throwable>());
+    Thread.UncaughtExceptionHandler exceptionHandler=new Thread.UncaughtExceptionHandler(){
+      public void uncaughtException(      Thread th,      Throwable ex){
+        exception[0]=ex;
+      }
+    }
+;
+    th1.setUncaughtExceptionHandler(exceptionHandler);
+    th1.start();
+    th1.join();
+    if (exception[0] != null) {
+      while (exception[0].getCause() != null) {
+        exception[0]=exception[0].getCause();
+      }
+      throw (Exception)exception[0];
+    }
+  }
+  finally {
+    rpcServer.stop();
+  }
+}

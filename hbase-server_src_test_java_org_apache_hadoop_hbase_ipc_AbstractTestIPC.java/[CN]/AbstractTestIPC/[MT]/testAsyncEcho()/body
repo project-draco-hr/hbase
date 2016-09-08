@@ -1,0 +1,27 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  TestRpcServer rpcServer=new TestRpcServer();
+  try (AbstractRpcClient<?> client=createRpcClient(conf)){
+    rpcServer.start();
+    Interface stub=newStub(client,rpcServer.getListenerAddress());
+    int num=10;
+    List<HBaseRpcController> pcrcList=new ArrayList<>();
+    List<BlockingRpcCallback<EchoResponseProto>> callbackList=new ArrayList<>();
+    for (int i=0; i < num; i++) {
+      HBaseRpcController pcrc=new HBaseRpcControllerImpl();
+      BlockingRpcCallback<EchoResponseProto> done=new BlockingRpcCallback<>();
+      stub.echo(pcrc,EchoRequestProto.newBuilder().setMessage("hello-" + i).build(),done);
+      pcrcList.add(pcrc);
+      callbackList.add(done);
+    }
+    for (int i=0; i < num; i++) {
+      HBaseRpcController pcrc=pcrcList.get(i);
+      assertFalse(pcrc.failed());
+      assertNull(pcrc.cellScanner());
+      assertEquals("hello-" + i,callbackList.get(i).get().getMessage());
+    }
+  }
+  finally {
+    rpcServer.stop();
+  }
+}

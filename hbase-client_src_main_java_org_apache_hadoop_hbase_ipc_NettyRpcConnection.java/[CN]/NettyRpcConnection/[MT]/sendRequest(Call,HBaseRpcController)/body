@@ -1,0 +1,37 @@
+{
+  if (reloginInProgress) {
+    throw new IOException("Can not send request because relogin is in progress.");
+  }
+  pcrc.notifyOnCancel(new RpcCallback<Object>(){
+    @Override public void run(    Object parameter){
+      setCancelled(call);
+synchronized (this) {
+        if (channel != null) {
+          channel.pipeline().fireUserEventTriggered(new CallEvent(CANCELLED,call));
+        }
+      }
+    }
+  }
+,new CancellationCallback(){
+    @Override public void run(    boolean cancelled) throws IOException {
+      if (cancelled) {
+        setCancelled(call);
+      }
+ else {
+        if (channel == null) {
+          connect();
+        }
+        scheduleTimeoutTask(call);
+        channel.writeAndFlush(call).addListener(new ChannelFutureListener(){
+          @Override public void operationComplete(          ChannelFuture future) throws Exception {
+            if (!future.isSuccess()) {
+              call.setException(toIOE(future.cause()));
+            }
+          }
+        }
+);
+      }
+    }
+  }
+);
+}

@@ -1,23 +1,17 @@
 {
-  if (pcrc == null) {
-    pcrc=new HBaseRpcControllerImpl();
-  }
-  Pair<Message,CellScanner> val;
+  BlockingRpcCallback<Message> done=new BlockingRpcCallback<>();
+  callMethod(md,hrc,param,returnType,ticket,isa,done);
+  Message val;
   try {
-    final MetricsConnection.CallStats cs=MetricsConnection.newCallStats();
-    cs.setStartTime(EnvironmentEdgeManager.currentTime());
-    val=call(pcrc,md,param,returnType,ticket,isa,cs);
-    pcrc.setCellScanner(val.getSecond());
-    cs.setCallTimeMs(EnvironmentEdgeManager.currentTime() - cs.getStartTime());
-    if (metrics != null) {
-      metrics.updateRpc(md,param,cs);
-    }
-    if (LOG.isTraceEnabled()) {
-      LOG.trace("Call: " + md.getName() + ", callTime: "+ cs.getCallTimeMs()+ "ms");
-    }
-    return val.getFirst();
+    val=done.get();
   }
- catch (  Throwable e) {
+ catch (  IOException e) {
     throw new ServiceException(e);
+  }
+  if (hrc.failed()) {
+    throw new ServiceException(hrc.getFailed());
+  }
+ else {
+    return val;
   }
 }
