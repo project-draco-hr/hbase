@@ -1,11 +1,17 @@
 {
-  RegionServerCallable<Boolean> callable=new RegionServerCallable<Boolean>(connection,this.rpcControllerFactory,getName(),delete.getRow()){
-    @Override protected Boolean rpcCall() throws Exception {
+  CancellableRegionServerCallable<SingleResponse> callable=new CancellableRegionServerCallable<SingleResponse>(connection,getName(),delete.getRow(),this.rpcControllerFactory){
+    @Override protected SingleResponse rpcCall() throws Exception {
       MutateRequest request=RequestConverter.buildMutateRequest(getLocation().getRegionInfo().getRegionName(),delete);
       MutateResponse response=getStub().mutate(getRpcController(),request);
-      return Boolean.valueOf(response.getProcessed());
+      return ResponseConverter.getResult(request,response,getRpcControllerCellScanner());
     }
   }
 ;
-  rpcCallerFactory.<Boolean>newCaller(writeRpcTimeout).callWithRetries(callable,this.operationTimeout);
+  List<Row> rows=new ArrayList<Row>();
+  rows.add(delete);
+  AsyncRequestFuture ars=multiAp.submitAll(pool,tableName,rows,null,null,callable,operationTimeout);
+  ars.waitUntilDone();
+  if (ars.hasError()) {
+    throw ars.getErrors();
+  }
 }

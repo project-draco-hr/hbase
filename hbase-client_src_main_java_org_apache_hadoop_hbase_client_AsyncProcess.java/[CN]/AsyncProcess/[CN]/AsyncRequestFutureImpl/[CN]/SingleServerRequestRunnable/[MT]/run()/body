@@ -1,11 +1,11 @@
 {
-  MultiResponse res;
+  AbstractResponse res;
   CancellableRegionServerCallable callable=currentCallable;
   try {
     if (callable == null) {
       callable=createCallable(server,tableName,multiAction);
     }
-    RpcRetryingCaller<MultiResponse> caller=createCaller(callable);
+    RpcRetryingCaller<AbstractResponse> caller=createCaller(callable);
     try {
       if (callsInProgress != null) {
         callsInProgress.add(callable);
@@ -24,7 +24,16 @@ catch (    Throwable t) {
       receiveGlobalFailure(multiAction,server,numAttempt,t);
       return;
     }
-    receiveMultiAction(multiAction,server,res,numAttempt);
+    if (res.type() == AbstractResponse.ResponseType.MULTI) {
+      receiveMultiAction(multiAction,server,(MultiResponse)res,numAttempt);
+    }
+ else {
+      if (results != null) {
+        SingleResponse singleResponse=(SingleResponse)res;
+        results[0]=singleResponse.getEntry();
+      }
+      decActionCounter(1);
+    }
   }
  catch (  Throwable t) {
     LOG.error("Internal AsyncProcess #" + id + " error for "+ tableName+ " processing for "+ server,t);
