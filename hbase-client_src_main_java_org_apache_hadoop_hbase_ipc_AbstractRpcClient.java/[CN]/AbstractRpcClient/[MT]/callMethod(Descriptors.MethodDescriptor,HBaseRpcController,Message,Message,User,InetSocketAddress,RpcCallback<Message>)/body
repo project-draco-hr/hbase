@@ -1,14 +1,20 @@
 {
   final MetricsConnection.CallStats cs=MetricsConnection.newCallStats();
   cs.setStartTime(EnvironmentEdgeManager.currentTime());
+  final AtomicInteger counter=concurrentCounterCache.getUnchecked(addr);
   Call call=new Call(nextCallId(),md,param,hrc.cellScanner(),returnType,hrc.getCallTimeout(),hrc.getPriority(),new RpcCallback<Call>(){
     @Override public void run(    Call call){
+      counter.decrementAndGet();
       onCallFinished(call,hrc,addr,callback);
     }
   }
 ,cs);
   ConnectionId remoteId=new ConnectionId(ticket,md.getService().getName(),addr);
+  int count=counter.incrementAndGet();
   try {
+    if (count > maxConcurrentCallsPerServer) {
+      throw new ServerTooBusyException(addr,count);
+    }
     T connection=getConnection(remoteId);
     connection.sendRequest(call,hrc);
   }
