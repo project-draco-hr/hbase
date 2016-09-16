@@ -1,0 +1,22 @@
+{
+  final TableName tableName=TableName.valueOf("testtb");
+  final HRegionInfo regionA=new HRegionInfo(tableName,Bytes.toBytes("a"),Bytes.toBytes("b"));
+  queue.addBack(new TestRegionProcedure(1,tableName,TableProcedureInterface.TableOperationType.ASSIGN,regionA));
+  queue.addBack(new TestTableProcedure(2,tableName,TableProcedureInterface.TableOperationType.EDIT));
+  queue.addBack(new TestRegionProcedure(3,tableName,TableProcedureInterface.TableOperationType.UNASSIGN,regionA));
+  Procedure proc=queue.poll();
+  assertEquals(1,proc.getProcId());
+  assertEquals(false,queue.waitRegion(proc,regionA));
+  assertEquals(null,queue.poll(0));
+  queue.wakeRegion(proc,regionA);
+  proc=queue.poll();
+  assertEquals(2,proc.getProcId());
+  assertEquals(true,queue.tryAcquireTableExclusiveLock(proc,tableName));
+  assertEquals(null,queue.poll(0));
+  queue.releaseTableExclusiveLock(proc,tableName);
+  proc=queue.poll();
+  assertEquals(3,proc.getProcId());
+  assertEquals(false,queue.waitRegion(proc,regionA));
+  assertEquals(null,queue.poll(0));
+  queue.wakeRegion(proc,regionA);
+}
