@@ -1,0 +1,31 @@
+{
+  boolean hasWait=cutoff != Long.MAX_VALUE;
+  long lastLog=EnvironmentEdgeManager.currentTime();
+  long currentInProgress;
+  while (0 != (currentInProgress=actionsInProgress.get())) {
+    long now=EnvironmentEdgeManager.currentTime();
+    if (hasWait && (now * 1000L) > cutoff) {
+      return false;
+    }
+    if (!hasWait) {
+      if (now > lastLog + 10000) {
+        lastLog=now;
+        LOG.info("#" + asyncProcess.id + ", waiting for "+ currentInProgress+ "  actions to finish on table: "+ tableName);
+        if (currentInProgress <= asyncProcess.thresholdToLogUndoneTaskDetails) {
+          asyncProcess.logDetailsOfUndoneTasks(currentInProgress);
+        }
+      }
+    }
+synchronized (actionsInProgress) {
+      if (actionsInProgress.get() == 0)       break;
+      if (!hasWait) {
+        actionsInProgress.wait(10);
+      }
+ else {
+        long waitMicroSecond=Math.min(100000L,(cutoff - now * 1000L));
+        TimeUnit.MICROSECONDS.timedWait(actionsInProgress,waitMicroSecond);
+      }
+    }
+  }
+  return true;
+}
