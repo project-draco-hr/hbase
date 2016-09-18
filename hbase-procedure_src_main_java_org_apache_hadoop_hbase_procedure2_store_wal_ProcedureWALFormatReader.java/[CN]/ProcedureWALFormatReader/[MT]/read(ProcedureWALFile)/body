@@ -1,4 +1,8 @@
 {
+  localTracker=log.getTracker().isPartial() ? log.getTracker() : null;
+  if (localTracker != null) {
+    LOG.info("Rebuilding tracker for log - " + log);
+  }
   FSDataInputStream stream=log.getStream();
   try {
     boolean hasMore=true;
@@ -6,7 +10,6 @@
       ProcedureWALEntry entry=ProcedureWALFormat.readEntry(stream);
       if (entry == null) {
         LOG.warn("nothing left to decode. exiting with missing EOF");
-        hasMore=false;
         break;
       }
 switch (entry.getType()) {
@@ -34,6 +37,9 @@ throw new CorruptedWALProcedureStoreException("Invalid entry: " + entry);
  catch (InvalidProtocolBufferException e) {
 LOG.error("got an exception while reading the procedure WAL: " + log,e);
 loader.markCorruptedWAL(log,e);
+}
+if (localTracker != null) {
+localTracker.setPartialFlag(false);
 }
 if (!localProcedureMap.isEmpty()) {
 log.setProcIds(localProcedureMap.getMinProcId(),localProcedureMap.getMaxProcId());
