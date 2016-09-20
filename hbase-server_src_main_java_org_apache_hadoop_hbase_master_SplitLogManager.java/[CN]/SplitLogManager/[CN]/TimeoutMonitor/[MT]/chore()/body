@@ -1,4 +1,5 @@
 {
+  if (server.getCoordinatedStateManager() == null)   return;
   int resubmitted=0;
   int unassigned=0;
   int tot=0;
@@ -20,7 +21,7 @@ synchronized (deadWorkersLock) {
     found_assigned_task=true;
     if (localDeadWorkers != null && localDeadWorkers.contains(cur_worker)) {
       SplitLogCounters.tot_mgr_resubmit_dead_server_task.incrementAndGet();
-      if (((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().resubmitTask(path,task,FORCE)) {
+      if (getSplitLogManagerCoordination().resubmitTask(path,task,FORCE)) {
         resubmitted++;
       }
  else {
@@ -28,7 +29,7 @@ synchronized (deadWorkersLock) {
         LOG.warn("Failed to resubmit task " + path + " owned by dead "+ cur_worker+ ", will retry.");
       }
     }
- else     if (((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().resubmitTask(path,task,CHECK)) {
+ else     if (getSplitLogManagerCoordination().resubmitTask(path,task,CHECK)) {
       resubmitted++;
     }
   }
@@ -47,22 +48,22 @@ synchronized (deadWorkersLock) {
       String key=e.getKey();
       Task task=e.getValue();
       if (task.isUnassigned() && (task.status != FAILURE)) {
-        ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().checkTaskStillAvailable(key);
+        getSplitLogManagerCoordination().checkTaskStillAvailable(key);
       }
     }
-    ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().checkTasks();
+    getSplitLogManagerCoordination().checkTasks();
     SplitLogCounters.tot_mgr_resubmit_unassigned.incrementAndGet();
     LOG.debug("resubmitting unassigned task(s) after timeout");
   }
-  Set<String> failedDeletions=((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().getDetails().getFailedDeletions();
+  Set<String> failedDeletions=getSplitLogManagerCoordination().getDetails().getFailedDeletions();
   if (failedDeletions.size() > 0) {
     List<String> tmpPaths=new ArrayList<String>(failedDeletions);
     for (    String tmpPath : tmpPaths) {
-      ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().deleteTask(tmpPath);
+      getSplitLogManagerCoordination().deleteTask(tmpPath);
     }
     failedDeletions.removeAll(tmpPaths);
   }
-  long timeInterval=EnvironmentEdgeManager.currentTime() - ((BaseCoordinatedStateManager)server.getCoordinatedStateManager()).getSplitLogManagerCoordination().getLastRecoveryTime();
+  long timeInterval=EnvironmentEdgeManager.currentTime() - getSplitLogManagerCoordination().getLastRecoveryTime();
   if (!failedRecoveringRegionDeletions.isEmpty() || (tot == 0 && tasks.size() == 0 && (timeInterval > checkRecoveringTimeThreshold))) {
     if (!failedRecoveringRegionDeletions.isEmpty()) {
       List<Pair<Set<ServerName>,Boolean>> previouslyFailedDeletions=new ArrayList<Pair<Set<ServerName>,Boolean>>(failedRecoveringRegionDeletions);
