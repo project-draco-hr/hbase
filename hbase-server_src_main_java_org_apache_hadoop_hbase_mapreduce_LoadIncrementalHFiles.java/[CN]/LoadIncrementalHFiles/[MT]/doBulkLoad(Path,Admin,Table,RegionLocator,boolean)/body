@@ -2,62 +2,15 @@
   if (!admin.isTableAvailable(regionLocator.getName())) {
     throw new TableNotFoundException("Table " + table.getName() + " is not currently available.");
   }
-  ExecutorService pool=createExecutorService();
+  boolean validateHFile=getConf().getBoolean("hbase.loadincremental.validate.hfile",true);
+  if (!validateHFile) {
+    LOG.warn("You are skipping HFiles validation, it might cause some data loss if files " + "are not correct. If you fail to read data from your table after using this " + "option, consider removing the files and bulkload again without this option. "+ "See HBASE-13985");
+  }
   Deque<LoadQueueItem> queue=new LinkedList<>();
-  SecureBulkLoadClient secureClient=new SecureBulkLoadClient(table.getConfiguration(),table);
-  try {
-    boolean validateHFile=getConf().getBoolean("hbase.loadincremental.validate.hfile",true);
-    if (!validateHFile) {
-      LOG.warn("You are skipping HFiles validation, it might cause some data loss if files " + "are not correct. If you fail to read data from your table after using this " + "option, consider removing the files and bulkload again without this option. "+ "See HBASE-13985");
-    }
-    prepareHFileQueue(hfofDir,table,queue,validateHFile,silence);
-    int count=0;
-    if (queue.isEmpty()) {
-      LOG.warn("Bulk load operation did not find any files to load in " + "directory " + hfofDir.toUri() + ".  Does it contain files in "+ "subdirectories that correspond to column family names?");
-      return;
-    }
-    if (isSecureBulkLoadEndpointAvailable()) {
-      LOG.warn("SecureBulkLoadEndpoint is deprecated. It will be removed in future releases.");
-      LOG.warn("Secure bulk load has been integrated into HBase core.");
-    }
-    fsDelegationToken.acquireDelegationToken(fs);
-    bulkToken=secureClient.prepareBulkLoad(admin.getConnection());
-    while (!queue.isEmpty()) {
-      final Pair<byte[][],byte[][]> startEndKeys=regionLocator.getStartEndKeys();
-      if (count != 0) {
-        LOG.info("Split occured while grouping HFiles, retry attempt " + +count + " with "+ queue.size()+ " files remaining to group or split");
-      }
-      int maxRetries=getConf().getInt(HConstants.BULKLOAD_MAX_RETRIES_NUMBER,10);
-      maxRetries=Math.max(maxRetries,startEndKeys.getFirst().length + 1);
-      if (maxRetries != 0 && count >= maxRetries) {
-        throw new IOException("Retry attempted " + count + " times without completing, bailing out");
-      }
-      count++;
-      Multimap<ByteBuffer,LoadQueueItem> regionGroups=groupOrSplitPhase(table,pool,queue,startEndKeys);
-      if (!checkHFilesCountPerRegionPerFamily(regionGroups)) {
-        throw new IOException("Trying to load more than " + maxFilesPerRegionPerFamily + " hfiles to one family of one region");
-      }
-      bulkLoadPhase(table,admin.getConnection(),pool,queue,regionGroups);
-    }
+  prepareHFileQueue(hfofDir,table,queue,validateHFile,silence);
+  if (queue.isEmpty()) {
+    LOG.warn("Bulk load operation did not find any files to load in " + "directory " + hfofDir != null ? hfofDir.toUri() : "" + ".  Does it contain files in " + "subdirectories that correspond to column family names?");
+    return;
   }
-  finally {
-    fsDelegationToken.releaseDelegationToken();
-    if (bulkToken != null) {
-      secureClient.cleanupBulkLoad(admin.getConnection(),bulkToken);
-    }
-    pool.shutdown();
-    if (queue != null && !queue.isEmpty()) {
-      StringBuilder err=new StringBuilder();
-      err.append("-------------------------------------------------\n");
-      err.append("Bulk load aborted with some files not yet loaded:\n");
-      err.append("-------------------------------------------------\n");
-      for (      LoadQueueItem q : queue) {
-        err.append("  ").append(q.hfilePath).append('\n');
-      }
-      LOG.error(err);
-    }
-  }
-  if (queue != null && !queue.isEmpty()) {
-    throw new RuntimeException("Bulk load aborted with some files not yet loaded." + "Please check log for more details.");
-  }
+  performBulkLoad(admin,table,regionLocator,queue);
 }
