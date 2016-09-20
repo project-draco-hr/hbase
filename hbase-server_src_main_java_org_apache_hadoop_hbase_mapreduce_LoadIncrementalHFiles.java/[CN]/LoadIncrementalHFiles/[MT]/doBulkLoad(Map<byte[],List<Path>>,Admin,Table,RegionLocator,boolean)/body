@@ -3,10 +3,19 @@
     throw new TableNotFoundException("Table " + table.getName() + " is not currently available.");
   }
   Deque<LoadQueueItem> queue=new LinkedList<>();
-  prepareHFileQueue(map,table,queue,silence);
-  if (queue.isEmpty()) {
-    LOG.warn("Bulk load operation did not get any files to load");
-    return;
+  ExecutorService pool=null;
+  SecureBulkLoadClient secureClient=null;
+  try {
+    prepareHFileQueue(map,table,queue,silence);
+    if (queue.isEmpty()) {
+      LOG.warn("Bulk load operation did not get any files to load");
+      return;
+    }
+    pool=createExecutorService();
+    secureClient=new SecureBulkLoadClient(table.getConfiguration(),table);
+    performBulkLoad(admin,table,regionLocator,queue,pool,secureClient);
   }
-  performBulkLoad(admin,table,regionLocator,queue);
+  finally {
+    cleanup(admin,queue,pool,secureClient);
+  }
 }
