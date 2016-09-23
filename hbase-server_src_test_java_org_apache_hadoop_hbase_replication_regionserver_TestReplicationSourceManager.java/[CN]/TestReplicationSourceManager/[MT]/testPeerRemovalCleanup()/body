@@ -2,19 +2,30 @@
   String replicationSourceImplName=conf.get("replication.replicationsource.implementation");
   try {
     DummyServer server=new DummyServer();
-    ReplicationQueues rq=ReplicationFactory.getReplicationQueues(new ReplicationQueuesArguments(server.getConfiguration(),server,server.getZooKeeper()));
+    final ReplicationQueues rq=ReplicationFactory.getReplicationQueues(new ReplicationQueuesArguments(server.getConfiguration(),server,server.getZooKeeper()));
     rq.init(server.getServerName().toString());
-    conf.set("replication.replicationsource.implementation","fakeReplicationSourceImpl");
-    ReplicationPeers rp=manager.getReplicationPeers();
+    conf.set("replication.replicationsource.implementation",FailInitializeDummyReplicationSource.class.getName());
+    final ReplicationPeers rp=manager.getReplicationPeers();
     rp.registerPeer("FakePeer",new ReplicationPeerConfig().setClusterKey("localhost:1:/hbase"));
-    rp.peerConnected("FakePeer");
-    List<String> fakePeers=new ArrayList<>();
-    fakePeers.add("FakePeer");
-    manager.peerListChanged(fakePeers);
+    Waiter.waitFor(conf,20000,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        return (rp.getConnectedPeer("FakePeer") != null);
+      }
+    }
+);
+    List<ReplicationSourceInterface> sources=manager.getSources();
+    for (    ReplicationSourceInterface source : sources) {
+      assertNotEquals("FakePeer",source.getPeerClusterId());
+    }
     rq.addLog("FakePeer","FakeFile");
-    manager.removePeer("FakePeer");
-    assertFalse(rq.getAllQueues().contains("FakePeer"));
-    assertNull(rp.getConnectedPeer("FakePeer"));
+    rp.unregisterPeer("FakePeer");
+    Waiter.waitFor(conf,20000,new Waiter.Predicate<Exception>(){
+      @Override public boolean evaluate() throws Exception {
+        List<String> peers=rp.getAllPeerIds();
+        return (!rq.getAllQueues().contains("FakePeer")) && (rp.getConnectedPeer("FakePeer") == null) && (!peers.contains("FakePeer"));
+      }
+    }
+);
   }
   finally {
     conf.set("replication.replicationsource.implementation",replicationSourceImplName);
