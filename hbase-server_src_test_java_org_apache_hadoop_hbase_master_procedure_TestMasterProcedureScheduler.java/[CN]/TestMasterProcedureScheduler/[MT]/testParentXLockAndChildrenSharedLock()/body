@@ -1,0 +1,26 @@
+{
+  final TableName tableName=TableName.valueOf("testParentXLockAndChildrenSharedLock");
+  final HRegionInfo[] regions=new HRegionInfo[]{new HRegionInfo(tableName,Bytes.toBytes("a"),Bytes.toBytes("b")),new HRegionInfo(tableName,Bytes.toBytes("b"),Bytes.toBytes("c")),new HRegionInfo(tableName,Bytes.toBytes("c"),Bytes.toBytes("d"))};
+  queue.addBack(new TestTableProcedure(1,tableName,TableProcedureInterface.TableOperationType.CREATE));
+  Procedure parentProc=queue.poll();
+  assertEquals(1,parentProc.getProcId());
+  assertTrue(queue.tryAcquireTableExclusiveLock(parentProc,tableName));
+  for (int i=0; i < regions.length; ++i) {
+    queue.addFront(new TestRegionProcedure(1,1 + i,tableName,TableProcedureInterface.TableOperationType.ASSIGN,regions[i]));
+  }
+  queue.addBack(new TestTableProcedure(100,tableName,TableProcedureInterface.TableOperationType.EDIT));
+  for (int i=0; i < regions.length; ++i) {
+    final int regionIdx=regions.length - i - 1;
+    Procedure childProc=queue.poll();
+    LOG.debug("fetch children " + childProc);
+    assertEquals(1 + regionIdx,childProc.getProcId());
+    assertEquals(false,queue.waitRegion(childProc,regions[regionIdx]));
+    queue.wakeRegion(childProc,regions[regionIdx]);
+  }
+  assertEquals(null,queue.poll(0));
+  queue.releaseTableExclusiveLock(parentProc,tableName);
+  Procedure proc=queue.poll();
+  assertEquals(100,proc.getProcId());
+  assertTrue(queue.tryAcquireTableExclusiveLock(proc,tableName));
+  queue.releaseTableExclusiveLock(proc,tableName);
+}

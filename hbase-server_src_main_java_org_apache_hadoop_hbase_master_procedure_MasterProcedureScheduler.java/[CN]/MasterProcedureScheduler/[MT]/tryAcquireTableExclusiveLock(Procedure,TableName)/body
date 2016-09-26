@@ -2,22 +2,27 @@
   schedLock.lock();
   TableQueue queue=getTableQueue(table);
   if (!queue.getNamespaceQueue().trySharedLock()) {
+    schedLock.unlock();
     return false;
   }
-  if (!queue.tryExclusiveLock(procedure.getProcId())) {
+  if (!queue.tryExclusiveLock(procedure)) {
     queue.getNamespaceQueue().releaseSharedLock();
     schedLock.unlock();
     return false;
   }
   removeFromRunQueue(tableRunQueue,queue);
+  boolean hasParentLock=queue.hasParentLock(procedure);
   schedLock.unlock();
-  boolean hasXLock=queue.tryZkExclusiveLock(lockManager,procedure.toString());
-  if (!hasXLock) {
-    schedLock.lock();
-    queue.releaseExclusiveLock();
-    queue.getNamespaceQueue().releaseSharedLock();
-    addToRunQueue(tableRunQueue,queue);
-    schedLock.unlock();
+  boolean hasXLock=true;
+  if (!hasParentLock) {
+    hasXLock=queue.tryZkExclusiveLock(lockManager,procedure.toString());
+    if (!hasXLock) {
+      schedLock.lock();
+      if (!hasParentLock)       queue.releaseExclusiveLock();
+      queue.getNamespaceQueue().releaseSharedLock();
+      addToRunQueue(tableRunQueue,queue);
+      schedLock.unlock();
+    }
   }
   return hasXLock;
 }

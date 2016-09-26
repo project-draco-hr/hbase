@@ -1,0 +1,66 @@
+{
+  final TableName tableName=TableName.valueOf("testtb");
+  final int NPROCS=20;
+  final int NRUNS=100;
+  for (long i=0; i < NPROCS; ++i) {
+    queue.addBack(new TestTableProcedureWithEvent(i,tableName,TableProcedureInterface.TableOperationType.READ));
+  }
+  final Thread[] threads=new Thread[4];
+  final AtomicInteger waitCount=new AtomicInteger(0);
+  final AtomicInteger wakeCount=new AtomicInteger(0);
+  final ConcurrentSkipListSet<TestTableProcedureWithEvent> waitQueue=new ConcurrentSkipListSet<TestTableProcedureWithEvent>();
+  threads[0]=new Thread(){
+    @Override public void run(){
+      while (true) {
+        if (useWakeBatch) {
+          ProcedureEvent[] ev=new ProcedureEvent[waitQueue.size()];
+          for (int i=0; i < ev.length; ++i) {
+            ev[i]=waitQueue.pollFirst().getEvent();
+            LOG.debug("WAKE " + ev[i] + " total="+ wakeCount.get());
+          }
+          queue.wakeEvents(ev,ev.length);
+          wakeCount.addAndGet(ev.length);
+        }
+ else {
+          int size=waitQueue.size();
+          while (size-- > 0) {
+            ProcedureEvent ev=waitQueue.pollFirst().getEvent();
+            queue.wakeEvent(ev);
+            LOG.debug("WAKE " + ev + " total="+ wakeCount.get());
+            wakeCount.incrementAndGet();
+          }
+        }
+        if (wakeCount.get() >= NRUNS) {
+          break;
+        }
+        Threads.sleepWithoutInterrupt(25);
+      }
+    }
+  }
+;
+  for (int i=1; i < threads.length; ++i) {
+    threads[i]=new Thread(){
+      @Override public void run(){
+        while (true) {
+          TestTableProcedureWithEvent proc=(TestTableProcedureWithEvent)queue.poll();
+          if (proc == null)           continue;
+          waitQueue.add(proc);
+          queue.suspendEvent(proc.getEvent());
+          queue.waitEvent(proc.getEvent(),proc);
+          LOG.debug("WAIT " + proc.getEvent());
+          if (waitCount.incrementAndGet() >= NRUNS) {
+            break;
+          }
+        }
+      }
+    }
+;
+  }
+  for (int i=0; i < threads.length; ++i) {
+    threads[i].start();
+  }
+  for (int i=0; i < threads.length; ++i) {
+    threads[i].join();
+  }
+  queue.clear();
+}
