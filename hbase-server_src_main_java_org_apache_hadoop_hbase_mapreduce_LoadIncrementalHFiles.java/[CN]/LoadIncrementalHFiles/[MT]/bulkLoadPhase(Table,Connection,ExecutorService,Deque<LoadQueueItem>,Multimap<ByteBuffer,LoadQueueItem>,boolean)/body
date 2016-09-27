@@ -1,0 +1,33 @@
+{
+  Set<Future<List<LoadQueueItem>>> loadingFutures=new HashSet<>();
+  for (  Entry<ByteBuffer,? extends Collection<LoadQueueItem>> e : regionGroups.asMap().entrySet()) {
+    final byte[] first=e.getKey().array();
+    final Collection<LoadQueueItem> lqis=e.getValue();
+    final Callable<List<LoadQueueItem>> call=new Callable<List<LoadQueueItem>>(){
+      @Override public List<LoadQueueItem> call() throws Exception {
+        List<LoadQueueItem> toRetry=tryAtomicRegionLoad(conn,table.getName(),first,lqis,copyFile);
+        return toRetry;
+      }
+    }
+;
+    loadingFutures.add(pool.submit(call));
+  }
+  for (  Future<List<LoadQueueItem>> future : loadingFutures) {
+    try {
+      List<LoadQueueItem> toRetry=future.get();
+      queue.addAll(toRetry);
+    }
+ catch (    ExecutionException e1) {
+      Throwable t=e1.getCause();
+      if (t instanceof IOException) {
+        throw new IOException("BulkLoad encountered an unrecoverable problem",t);
+      }
+      LOG.error("Unexpected execution exception during bulk load",e1);
+      throw new IllegalStateException(t);
+    }
+catch (    InterruptedException e1) {
+      LOG.error("Unexpected interrupted exception during bulk load",e1);
+      throw (InterruptedIOException)new InterruptedIOException().initCause(e1);
+    }
+  }
+}

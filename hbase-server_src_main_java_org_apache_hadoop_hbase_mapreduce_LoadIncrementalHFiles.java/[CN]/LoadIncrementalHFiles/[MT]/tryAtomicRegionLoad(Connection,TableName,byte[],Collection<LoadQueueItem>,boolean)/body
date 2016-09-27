@@ -1,0 +1,64 @@
+{
+  final List<Pair<byte[],String>> famPaths=new ArrayList<>(lqis.size());
+  for (  LoadQueueItem lqi : lqis) {
+    if (!unmatchedFamilies.contains(Bytes.toString(lqi.family))) {
+      famPaths.add(Pair.newPair(lqi.family,lqi.hfilePath.toString()));
+    }
+  }
+  final RegionServerCallable<Boolean> svrCallable=new RegionServerCallable<Boolean>(conn,rpcControllerFactory,tableName,first){
+    @Override protected Boolean rpcCall() throws Exception {
+      SecureBulkLoadClient secureClient=null;
+      boolean success=false;
+      try {
+        LOG.debug("Going to connect to server " + getLocation() + " for row "+ Bytes.toStringBinary(getRow())+ " with hfile group "+ famPaths);
+        byte[] regionName=getLocation().getRegionInfo().getRegionName();
+        try (Table table=conn.getTable(getTableName())){
+          secureClient=new SecureBulkLoadClient(getConf(),table);
+          success=secureClient.secureBulkLoadHFiles(getStub(),famPaths,regionName,assignSeqIds,fsDelegationToken.getUserToken(),bulkToken,copyFile);
+        }
+         return success;
+      }
+  finally {
+        if (secureClient != null && !success) {
+          FileSystem targetFs=FileSystem.get(getConf());
+          if (fs == null) {
+            fs=lqis.iterator().next().hfilePath.getFileSystem(getConf());
+          }
+          if (FSHDFSUtils.isSameHdfs(getConf(),fs,targetFs)) {
+            for (            Pair<byte[],String> el : famPaths) {
+              Path hfileStagingPath=null;
+              Path hfileOrigPath=new Path(el.getSecond());
+              try {
+                hfileStagingPath=new Path(new Path(bulkToken,Bytes.toString(el.getFirst())),hfileOrigPath.getName());
+                if (targetFs.rename(hfileStagingPath,hfileOrigPath)) {
+                  LOG.debug("Moved back file " + hfileOrigPath + " from "+ hfileStagingPath);
+                }
+ else                 if (targetFs.exists(hfileStagingPath)) {
+                  LOG.debug("Unable to move back file " + hfileOrigPath + " from "+ hfileStagingPath);
+                }
+              }
+ catch (              Exception ex) {
+                LOG.debug("Unable to move back file " + hfileOrigPath + " from "+ hfileStagingPath,ex);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+;
+  try {
+    List<LoadQueueItem> toRetry=new ArrayList<>();
+    Configuration conf=getConf();
+    boolean success=RpcRetryingCallerFactory.instantiate(conf,null).<Boolean>newCaller().callWithRetries(svrCallable,Integer.MAX_VALUE);
+    if (!success) {
+      LOG.warn("Attempt to bulk load region containing " + Bytes.toStringBinary(first) + " into table "+ tableName+ " with files "+ lqis+ " failed.  This is recoverable and they will be retried.");
+      toRetry.addAll(lqis);
+    }
+    return toRetry;
+  }
+ catch (  IOException e) {
+    LOG.error("Encountered unrecoverable error from region server, additional details: " + svrCallable.getExceptionMessageAdditionalDetail(),e);
+    throw e;
+  }
+}

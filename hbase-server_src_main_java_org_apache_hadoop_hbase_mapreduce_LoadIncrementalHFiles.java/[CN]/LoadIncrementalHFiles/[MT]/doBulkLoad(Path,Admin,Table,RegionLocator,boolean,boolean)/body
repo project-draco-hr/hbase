@@ -1,0 +1,25 @@
+{
+  if (!admin.isTableAvailable(regionLocator.getName())) {
+    throw new TableNotFoundException("Table " + table.getName() + " is not currently available.");
+  }
+  boolean validateHFile=getConf().getBoolean("hbase.loadincremental.validate.hfile",true);
+  if (!validateHFile) {
+    LOG.warn("You are skipping HFiles validation, it might cause some data loss if files " + "are not correct. If you fail to read data from your table after using this " + "option, consider removing the files and bulkload again without this option. "+ "See HBASE-13985");
+  }
+  Deque<LoadQueueItem> queue=new LinkedList<>();
+  ExecutorService pool=null;
+  SecureBulkLoadClient secureClient=null;
+  try {
+    prepareHFileQueue(hfofDir,table,queue,validateHFile,silence);
+    if (queue.isEmpty()) {
+      LOG.warn("Bulk load operation did not find any files to load in " + "directory " + hfofDir != null ? hfofDir.toUri() : "" + ".  Does it contain files in " + "subdirectories that correspond to column family names?");
+      return;
+    }
+    pool=createExecutorService();
+    secureClient=new SecureBulkLoadClient(table.getConfiguration(),table);
+    performBulkLoad(admin,table,regionLocator,queue,pool,secureClient,copyFile);
+  }
+  finally {
+    cleanup(admin,queue,pool,secureClient);
+  }
+}

@@ -1,0 +1,32 @@
+{
+  Path p=new Path(srcPath);
+  Path stageP=new Path(stagingDir,new Path(Bytes.toString(family),p.getName()));
+  if (p.equals(stageP)) {
+    LOG.debug(p.getName() + " is already available in staging directory. Skipping copy or rename.");
+    return stageP.toString();
+  }
+  if (srcFs == null) {
+    srcFs=FileSystem.get(p.toUri(),conf);
+  }
+  if (!isFile(p)) {
+    throw new IOException("Path does not reference a file: " + p);
+  }
+  if (!FSHDFSUtils.isSameHdfs(conf,srcFs,fs)) {
+    LOG.debug("Bulk-load file " + srcPath + " is on different filesystem than "+ "the destination filesystem. Copying file over to destination staging dir.");
+    FileUtil.copy(srcFs,p,fs,stageP,false,conf);
+  }
+ else   if (copyFile) {
+    LOG.debug("Bulk-load file " + srcPath + " is copied to destination staging dir.");
+    FileUtil.copy(srcFs,p,fs,stageP,false,conf);
+  }
+ else {
+    LOG.debug("Moving " + p + " to "+ stageP);
+    FileStatus origFileStatus=fs.getFileStatus(p);
+    origPermissions.put(srcPath,origFileStatus.getPermission());
+    if (!fs.rename(p,stageP)) {
+      throw new IOException("Failed to move HFile: " + p + " to "+ stageP);
+    }
+  }
+  fs.setPermission(stageP,PERM_ALL_ACCESS);
+  return stageP.toString();
+}

@@ -1,0 +1,62 @@
+{
+  Path dir=util.getDataTestDirOnTestFS(testName);
+  FileSystem fs=util.getTestFileSystem();
+  dir=dir.makeQualified(fs);
+  Path familyDir=new Path(dir,Bytes.toString(FAMILY));
+  int hfileIdx=0;
+  Map<byte[],List<Path>> map=null;
+  List<Path> list=null;
+  if (useMap || copyFiles) {
+    list=new ArrayList<>();
+  }
+  if (useMap) {
+    map=new TreeMap<byte[],List<Path>>(Bytes.BYTES_COMPARATOR);
+    map.put(FAMILY,list);
+  }
+  for (  byte[][] range : hfileRanges) {
+    byte[] from=range[0];
+    byte[] to=range[1];
+    Path path=new Path(familyDir,"hfile_" + hfileIdx++);
+    HFileTestUtil.createHFile(util.getConfiguration(),fs,path,FAMILY,QUALIFIER,from,to,1000);
+    if (useMap) {
+      list.add(path);
+    }
+  }
+  int expectedRows=hfileIdx * 1000;
+  if (preCreateTable || map != null) {
+    util.getHBaseAdmin().createTable(htd,tableSplitKeys);
+  }
+  final TableName tableName=htd.getTableName();
+  Configuration conf=util.getConfiguration();
+  if (copyFiles) {
+    conf.setBoolean(LoadIncrementalHFiles.ALWAYS_COPY_FILES,true);
+  }
+  LoadIncrementalHFiles loader=new LoadIncrementalHFiles(conf);
+  String[] args={dir.toString(),tableName.toString()};
+  if (useMap) {
+    loader.run(null,map,tableName);
+  }
+ else {
+    loader.run(args);
+  }
+  if (copyFiles) {
+    for (    Path p : list) {
+      assertTrue(fs.exists(p));
+    }
+  }
+  Table table=util.getConnection().getTable(tableName);
+  try {
+    assertEquals(expectedRows,util.countRows(table));
+  }
+  finally {
+    table.close();
+  }
+  Path stagingBasePath=new Path(FSUtils.getRootDir(util.getConfiguration()),HConstants.BULKLOAD_STAGING_DIR_NAME);
+  if (fs.exists(stagingBasePath)) {
+    FileStatus[] files=fs.listStatus(stagingBasePath);
+    for (    FileStatus file : files) {
+      assertTrue("Folder=" + file.getPath() + " is not cleaned up.",file.getPath().getName() != "DONOTERASE");
+    }
+  }
+  util.deleteTable(tableName);
+}
