@@ -5,8 +5,8 @@
   int compactInterval=10 * flushAndScanInterval;
   String method="testFlushCacheWhileScanning";
   this.region=initHRegion(tableName,method,CONF,family);
+  FlushThread flushThread=new FlushThread();
   try {
-    FlushThread flushThread=new FlushThread();
     flushThread.start();
     Scan scan=new Scan();
     scan.addFamily(family);
@@ -20,6 +20,7 @@
       put.addColumn(family,qual1,Bytes.toBytes(i % 10));
       region.put(put);
       if (i != 0 && i % compactInterval == 0) {
+        LOG.debug("iteration = " + i + " ts="+ System.currentTimeMillis());
         region.compact(true);
       }
       if (i % 10 == 5L) {
@@ -35,15 +36,20 @@
         if (!toggle) {
           flushThread.flush();
         }
-        assertEquals("i=" + i,expectedCount,res.size());
+        assertEquals("toggle=" + toggle + "i="+ i+ " ts="+ System.currentTimeMillis(),expectedCount,res.size());
         toggle=!toggle;
       }
     }
-    flushThread.done();
-    flushThread.join();
-    flushThread.checkNoError();
   }
   finally {
+    try {
+      flushThread.done();
+      flushThread.join();
+      flushThread.checkNoError();
+    }
+ catch (    InterruptedException ie) {
+      LOG.warn("Caught exception when joining with flushThread",ie);
+    }
     HBaseTestingUtility.closeRegionAndWAL(this.region);
     this.region=null;
   }

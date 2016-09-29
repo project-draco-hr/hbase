@@ -15,11 +15,11 @@
   }
   String method="testWritesWhileScanning";
   this.region=initHRegion(tableName,method,CONF,families);
+  FlushThread flushThread=new FlushThread();
+  PutThread putThread=new PutThread(numRows,families,qualifiers);
   try {
-    PutThread putThread=new PutThread(numRows,families,qualifiers);
     putThread.start();
     putThread.waitForFirstPut();
-    FlushThread flushThread=new FlushThread();
     flushThread.start();
     Scan scan=new Scan(Bytes.toBytes("row0"),Bytes.toBytes("row1"));
     int expectedCount=numFamilies * numQualifiers;
@@ -48,13 +48,18 @@
     }
     putThread.done();
     region.flush(true);
-    putThread.join();
-    putThread.checkNoError();
-    flushThread.done();
-    flushThread.join();
-    flushThread.checkNoError();
   }
   finally {
+    try {
+      flushThread.done();
+      flushThread.join();
+      flushThread.checkNoError();
+      putThread.join();
+      putThread.checkNoError();
+    }
+ catch (    InterruptedException ie) {
+      LOG.warn("Caught exception when joining with flushThread",ie);
+    }
     try {
       HBaseTestingUtility.closeRegionAndWAL(this.region);
     }
