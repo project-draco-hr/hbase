@@ -1,0 +1,33 @@
+{
+  String serviceName=call.getServiceName();
+  com.google.protobuf.Service service=coprocessorServiceHandlers.get(serviceName);
+  if (service == null) {
+    throw new UnknownProtocolException(null,"No registered coprocessor service found for " + serviceName + " in region "+ Bytes.toStringBinary(getRegionInfo().getRegionName()));
+  }
+  com.google.protobuf.Descriptors.ServiceDescriptor serviceDesc=service.getDescriptorForType();
+  String methodName=call.getMethodName();
+  com.google.protobuf.Descriptors.MethodDescriptor methodDesc=CoprocessorRpcUtils.getMethodDescriptor(methodName,serviceDesc);
+  com.google.protobuf.Message.Builder builder=service.getRequestPrototype(methodDesc).newBuilderForType();
+  org.apache.hadoop.hbase.protobuf.ProtobufUtil.mergeFrom(builder,call.getRequest().toByteArray());
+  com.google.protobuf.Message request=CoprocessorRpcUtils.getRequest(service,methodDesc,call.getRequest());
+  if (coprocessorHost != null) {
+    request=coprocessorHost.preEndpointInvocation(service,methodName,request);
+  }
+  final com.google.protobuf.Message.Builder responseBuilder=service.getResponsePrototype(methodDesc).newBuilderForType();
+  service.callMethod(methodDesc,controller,request,new com.google.protobuf.RpcCallback<com.google.protobuf.Message>(){
+    @Override public void run(    com.google.protobuf.Message message){
+      if (message != null) {
+        responseBuilder.mergeFrom(message);
+      }
+    }
+  }
+);
+  if (coprocessorHost != null) {
+    coprocessorHost.postEndpointInvocation(service,methodName,request,responseBuilder);
+  }
+  IOException exception=org.apache.hadoop.hbase.ipc.CoprocessorRpcUtils.getControllerException(controller);
+  if (exception != null) {
+    throw exception;
+  }
+  return responseBuilder.build();
+}

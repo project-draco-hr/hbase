@@ -1,0 +1,46 @@
+{
+  final int inLength=in.length();
+  int outIx=out.position();
+  int inIx=0;
+  try {
+    for (char c; inIx < inLength && (c=in.charAt(inIx)) < 0x80; ++inIx) {
+      out.put(outIx + inIx,(byte)c);
+    }
+    if (inIx == inLength) {
+      out.position(outIx + inIx);
+      return;
+    }
+    outIx+=inIx;
+    for (char c; inIx < inLength; ++inIx, ++outIx) {
+      c=in.charAt(inIx);
+      if (c < 0x80) {
+        out.put(outIx,(byte)c);
+      }
+ else       if (c < 0x800) {
+        out.put(outIx++,(byte)(0xC0 | (c >>> 6)));
+        out.put(outIx,(byte)(0x80 | (0x3F & c)));
+      }
+ else       if (c < MIN_SURROGATE || MAX_SURROGATE < c) {
+        out.put(outIx++,(byte)(0xE0 | (c >>> 12)));
+        out.put(outIx++,(byte)(0x80 | (0x3F & (c >>> 6))));
+        out.put(outIx,(byte)(0x80 | (0x3F & c)));
+      }
+ else {
+        final char low;
+        if (inIx + 1 == inLength || !isSurrogatePair(c,(low=in.charAt(++inIx)))) {
+          throw new UnpairedSurrogateException(inIx,inLength);
+        }
+        int codePoint=toCodePoint(c,low);
+        out.put(outIx++,(byte)((0xF << 4) | (codePoint >>> 18)));
+        out.put(outIx++,(byte)(0x80 | (0x3F & (codePoint >>> 12))));
+        out.put(outIx++,(byte)(0x80 | (0x3F & (codePoint >>> 6))));
+        out.put(outIx,(byte)(0x80 | (0x3F & codePoint)));
+      }
+    }
+    out.position(outIx);
+  }
+ catch (  IndexOutOfBoundsException e) {
+    int badWriteIndex=out.position() + Math.max(inIx,outIx - out.position() + 1);
+    throw new ArrayIndexOutOfBoundsException("Failed writing " + in.charAt(inIx) + " at index "+ badWriteIndex);
+  }
+}

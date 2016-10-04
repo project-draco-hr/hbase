@@ -1,0 +1,39 @@
+{
+  builder.setRow(UnsafeByteOperations.unsafeWrap(increment.getRow()));
+  builder.setMutateType(MutationType.INCREMENT);
+  builder.setDurability(toDurability(increment.getDurability()));
+  if (nonce != HConstants.NO_NONCE) {
+    builder.setNonce(nonce);
+  }
+  TimeRange timeRange=increment.getTimeRange();
+  setTimeRange(builder,timeRange);
+  ColumnValue.Builder columnBuilder=ColumnValue.newBuilder();
+  QualifierValue.Builder valueBuilder=QualifierValue.newBuilder();
+  for (  Map.Entry<byte[],List<Cell>> family : increment.getFamilyCellMap().entrySet()) {
+    columnBuilder.setFamily(UnsafeByteOperations.unsafeWrap(family.getKey()));
+    columnBuilder.clearQualifierValue();
+    List<Cell> values=family.getValue();
+    if (values != null && values.size() > 0) {
+      for (      Cell cell : values) {
+        valueBuilder.clear();
+        valueBuilder.setQualifier(UnsafeByteOperations.unsafeWrap(cell.getQualifierArray(),cell.getQualifierOffset(),cell.getQualifierLength()));
+        valueBuilder.setValue(UnsafeByteOperations.unsafeWrap(cell.getValueArray(),cell.getValueOffset(),cell.getValueLength()));
+        if (cell.getTagsLength() > 0) {
+          valueBuilder.setTags(UnsafeByteOperations.unsafeWrap(cell.getTagsArray(),cell.getTagsOffset(),cell.getTagsLength()));
+        }
+        columnBuilder.addQualifierValue(valueBuilder.build());
+      }
+    }
+    builder.addColumnValue(columnBuilder.build());
+  }
+  Map<String,byte[]> attributes=increment.getAttributesMap();
+  if (!attributes.isEmpty()) {
+    NameBytesPair.Builder attributeBuilder=NameBytesPair.newBuilder();
+    for (    Map.Entry<String,byte[]> attribute : attributes.entrySet()) {
+      attributeBuilder.setName(attribute.getKey());
+      attributeBuilder.setValue(UnsafeByteOperations.unsafeWrap(attribute.getValue()));
+      builder.addAttribute(attributeBuilder.build());
+    }
+  }
+  return builder.build();
+}

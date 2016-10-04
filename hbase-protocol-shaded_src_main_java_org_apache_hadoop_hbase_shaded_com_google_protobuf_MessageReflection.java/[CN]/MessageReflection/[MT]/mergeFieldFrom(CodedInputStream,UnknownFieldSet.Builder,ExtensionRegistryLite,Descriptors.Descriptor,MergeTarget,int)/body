@@ -1,0 +1,115 @@
+{
+  if (type.getOptions().getMessageSetWireFormat() && tag == WireFormat.MESSAGE_SET_ITEM_TAG) {
+    mergeMessageSetExtensionFromCodedStream(input,unknownFields,extensionRegistry,type,target);
+    return true;
+  }
+  final int wireType=WireFormat.getTagWireType(tag);
+  final int fieldNumber=WireFormat.getTagFieldNumber(tag);
+  final Descriptors.FieldDescriptor field;
+  Message defaultInstance=null;
+  if (type.isExtensionNumber(fieldNumber)) {
+    if (extensionRegistry instanceof ExtensionRegistry) {
+      final ExtensionRegistry.ExtensionInfo extension=target.findExtensionByNumber((ExtensionRegistry)extensionRegistry,type,fieldNumber);
+      if (extension == null) {
+        field=null;
+      }
+ else {
+        field=extension.descriptor;
+        defaultInstance=extension.defaultInstance;
+        if (defaultInstance == null && field.getJavaType() == Descriptors.FieldDescriptor.JavaType.MESSAGE) {
+          throw new IllegalStateException("Message-typed extension lacked default instance: " + field.getFullName());
+        }
+      }
+    }
+ else {
+      field=null;
+    }
+  }
+ else   if (target.getContainerType() == MergeTarget.ContainerType.MESSAGE) {
+    field=type.findFieldByNumber(fieldNumber);
+  }
+ else {
+    field=null;
+  }
+  boolean unknown=false;
+  boolean packed=false;
+  if (field == null) {
+    unknown=true;
+  }
+ else   if (wireType == FieldSet.getWireFormatForFieldType(field.getLiteType(),false)) {
+    packed=false;
+  }
+ else   if (field.isPackable() && wireType == FieldSet.getWireFormatForFieldType(field.getLiteType(),true)) {
+    packed=true;
+  }
+ else {
+    unknown=true;
+  }
+  if (unknown) {
+    return unknownFields.mergeFieldFrom(tag,input);
+  }
+  if (packed) {
+    final int length=input.readRawVarint32();
+    final int limit=input.pushLimit(length);
+    if (field.getLiteType() == WireFormat.FieldType.ENUM) {
+      while (input.getBytesUntilLimit() > 0) {
+        final int rawValue=input.readEnum();
+        if (field.getFile().supportsUnknownEnumValue()) {
+          target.addRepeatedField(field,field.getEnumType().findValueByNumberCreatingIfUnknown(rawValue));
+        }
+ else {
+          final Object value=field.getEnumType().findValueByNumber(rawValue);
+          if (value == null) {
+            return true;
+          }
+          target.addRepeatedField(field,value);
+        }
+      }
+    }
+ else {
+      while (input.getBytesUntilLimit() > 0) {
+        final Object value=WireFormat.readPrimitiveField(input,field.getLiteType(),target.getUtf8Validation(field));
+        target.addRepeatedField(field,value);
+      }
+    }
+    input.popLimit(limit);
+  }
+ else {
+    final Object value;
+switch (field.getType()) {
+case GROUP:
+{
+        value=target.parseGroup(input,extensionRegistry,field,defaultInstance);
+        break;
+      }
+case MESSAGE:
+{
+      value=target.parseMessage(input,extensionRegistry,field,defaultInstance);
+      break;
+    }
+case ENUM:
+  final int rawValue=input.readEnum();
+if (field.getFile().supportsUnknownEnumValue()) {
+  value=field.getEnumType().findValueByNumberCreatingIfUnknown(rawValue);
+}
+ else {
+  value=field.getEnumType().findValueByNumber(rawValue);
+  if (value == null) {
+    unknownFields.mergeVarintField(fieldNumber,rawValue);
+    return true;
+  }
+}
+break;
+default :
+value=WireFormat.readPrimitiveField(input,field.getLiteType(),target.getUtf8Validation(field));
+break;
+}
+if (field.isRepeated()) {
+target.addRepeatedField(field,value);
+}
+ else {
+target.setField(field,value);
+}
+}
+return true;
+}

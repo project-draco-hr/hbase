@@ -1,3 +1,22 @@
 {
-  return new MasterCoprocessorRpcChannel(connection);
+  return new SyncCoprocessorRpcChannel(){
+    @Override protected Message callExecService(    final RpcController controller,    final Descriptors.MethodDescriptor method,    final Message request,    final Message responsePrototype) throws IOException {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace("Call: " + method.getName() + ", "+ request.toString());
+      }
+      try (MasterCallable<CoprocessorServiceResponse> callable=new MasterCallable<CoprocessorServiceResponse>(connection,connection.getRpcControllerFactory()){
+        @Override protected CoprocessorServiceResponse rpcCall() throws Exception {
+          CoprocessorServiceRequest csr=CoprocessorRpcUtils.getCoprocessorServiceRequest(method,request);
+          return this.master.execMasterService(getRpcController(),csr);
+        }
+      }
+){
+        callable.prepare(false);
+        int operationTimeout=connection.getConnectionConfiguration().getOperationTimeout();
+        CoprocessorServiceResponse result=callable.call(operationTimeout);
+        return CoprocessorRpcUtils.getResponse(result,responsePrototype);
+      }
+     }
+  }
+;
 }

@@ -1,0 +1,53 @@
+{
+  if ((index | limit | buffer.limit() - limit) < 0) {
+    throw new ArrayIndexOutOfBoundsException(String.format("buffer limit=%d, index=%d, limit=%d",buffer.limit(),index,limit));
+  }
+  long address=addressOffset(buffer) + index;
+  final long addressLimit=address + (limit - index);
+  if (state != COMPLETE) {
+    if (address >= addressLimit) {
+      return state;
+    }
+    final int byte1=(byte)state;
+    if (byte1 < (byte)0xE0) {
+      if (byte1 < (byte)0xC2 || UnsafeUtil.getByte(address++) > (byte)0xBF) {
+        return MALFORMED;
+      }
+    }
+ else     if (byte1 < (byte)0xF0) {
+      int byte2=(byte)~(state >> 8);
+      if (byte2 == 0) {
+        byte2=UnsafeUtil.getByte(address++);
+        if (address >= addressLimit) {
+          return incompleteStateFor(byte1,byte2);
+        }
+      }
+      if (byte2 > (byte)0xBF || (byte1 == (byte)0xE0 && byte2 < (byte)0xA0) || (byte1 == (byte)0xED && byte2 >= (byte)0xA0) || UnsafeUtil.getByte(address++) > (byte)0xBF) {
+        return MALFORMED;
+      }
+    }
+ else {
+      int byte2=(byte)~(state >> 8);
+      int byte3=0;
+      if (byte2 == 0) {
+        byte2=UnsafeUtil.getByte(address++);
+        if (address >= addressLimit) {
+          return incompleteStateFor(byte1,byte2);
+        }
+      }
+ else {
+        byte3=(byte)(state >> 16);
+      }
+      if (byte3 == 0) {
+        byte3=UnsafeUtil.getByte(address++);
+        if (address >= addressLimit) {
+          return incompleteStateFor(byte1,byte2,byte3);
+        }
+      }
+      if (byte2 > (byte)0xBF || (((byte1 << 28) + (byte2 - (byte)0x90)) >> 30) != 0 || byte3 > (byte)0xBF || UnsafeUtil.getByte(address++) > (byte)0xBF) {
+        return MALFORMED;
+      }
+    }
+  }
+  return partialIsValidUtf8(address,(int)(addressLimit - address));
+}

@@ -1,0 +1,48 @@
+{
+  long outIx=getArrayBaseOffset() + offset;
+  final long outLimit=outIx + length;
+  final int inLimit=in.length();
+  if (inLimit > length || out.length - length < offset) {
+    throw new ArrayIndexOutOfBoundsException("Failed writing " + in.charAt(inLimit - 1) + " at index "+ (offset + length));
+  }
+  int inIx=0;
+  for (char c; inIx < inLimit && (c=in.charAt(inIx)) < 0x80; ++inIx) {
+    UnsafeUtil.putByte(out,outIx++,(byte)c);
+  }
+  if (inIx == inLimit) {
+    return (int)(outIx - getArrayBaseOffset());
+  }
+  for (char c; inIx < inLimit; ++inIx) {
+    c=in.charAt(inIx);
+    if (c < 0x80 && outIx < outLimit) {
+      UnsafeUtil.putByte(out,outIx++,(byte)c);
+    }
+ else     if (c < 0x800 && outIx <= outLimit - 2L) {
+      UnsafeUtil.putByte(out,outIx++,(byte)((0xF << 6) | (c >>> 6)));
+      UnsafeUtil.putByte(out,outIx++,(byte)(0x80 | (0x3F & c)));
+    }
+ else     if ((c < MIN_SURROGATE || MAX_SURROGATE < c) && outIx <= outLimit - 3L) {
+      UnsafeUtil.putByte(out,outIx++,(byte)((0xF << 5) | (c >>> 12)));
+      UnsafeUtil.putByte(out,outIx++,(byte)(0x80 | (0x3F & (c >>> 6))));
+      UnsafeUtil.putByte(out,outIx++,(byte)(0x80 | (0x3F & c)));
+    }
+ else     if (outIx <= outLimit - 4L) {
+      final char low;
+      if (inIx + 1 == inLimit || !isSurrogatePair(c,(low=in.charAt(++inIx)))) {
+        throw new UnpairedSurrogateException((inIx - 1),inLimit);
+      }
+      int codePoint=toCodePoint(c,low);
+      UnsafeUtil.putByte(out,outIx++,(byte)((0xF << 4) | (codePoint >>> 18)));
+      UnsafeUtil.putByte(out,outIx++,(byte)(0x80 | (0x3F & (codePoint >>> 12))));
+      UnsafeUtil.putByte(out,outIx++,(byte)(0x80 | (0x3F & (codePoint >>> 6))));
+      UnsafeUtil.putByte(out,outIx++,(byte)(0x80 | (0x3F & codePoint)));
+    }
+ else {
+      if ((MIN_SURROGATE <= c && c <= MAX_SURROGATE) && (inIx + 1 == inLimit || !isSurrogatePair(c,in.charAt(inIx + 1)))) {
+        throw new UnpairedSurrogateException(inIx,inLimit);
+      }
+      throw new ArrayIndexOutOfBoundsException("Failed writing " + c + " at index "+ outIx);
+    }
+  }
+  return (int)(outIx - getArrayBaseOffset());
+}

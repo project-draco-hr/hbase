@@ -1,0 +1,59 @@
+{
+  if (size == 0) {
+    return Internal.EMPTY_BYTE_ARRAY;
+  }
+  if (size < 0) {
+    throw InvalidProtocolBufferException.negativeSize();
+  }
+  int currentMessageSize=totalBytesRetired + pos + size;
+  if (currentMessageSize > sizeLimit) {
+    throw InvalidProtocolBufferException.sizeLimitExceeded();
+  }
+  if (currentMessageSize > currentLimit) {
+    skipRawBytes(currentLimit - totalBytesRetired - pos);
+    throw InvalidProtocolBufferException.truncatedMessage();
+  }
+  final int originalBufferPos=pos;
+  final int bufferedBytes=bufferSize - pos;
+  totalBytesRetired+=bufferSize;
+  pos=0;
+  bufferSize=0;
+  int sizeLeft=size - bufferedBytes;
+  if (sizeLeft < DEFAULT_BUFFER_SIZE || sizeLeft <= input.available()) {
+    final byte[] bytes=new byte[size];
+    System.arraycopy(buffer,originalBufferPos,bytes,0,bufferedBytes);
+    int tempPos=bufferedBytes;
+    while (tempPos < bytes.length) {
+      int n=input.read(bytes,tempPos,size - tempPos);
+      if (n == -1) {
+        throw InvalidProtocolBufferException.truncatedMessage();
+      }
+      totalBytesRetired+=n;
+      tempPos+=n;
+    }
+    return bytes;
+  }
+  final List<byte[]> chunks=new ArrayList<byte[]>();
+  while (sizeLeft > 0) {
+    final byte[] chunk=new byte[Math.min(sizeLeft,DEFAULT_BUFFER_SIZE)];
+    int tempPos=0;
+    while (tempPos < chunk.length) {
+      final int n=input.read(chunk,tempPos,chunk.length - tempPos);
+      if (n == -1) {
+        throw InvalidProtocolBufferException.truncatedMessage();
+      }
+      totalBytesRetired+=n;
+      tempPos+=n;
+    }
+    sizeLeft-=chunk.length;
+    chunks.add(chunk);
+  }
+  final byte[] bytes=new byte[size];
+  System.arraycopy(buffer,originalBufferPos,bytes,0,bufferedBytes);
+  int tempPos=bufferedBytes;
+  for (  final byte[] chunk : chunks) {
+    System.arraycopy(chunk,0,bytes,tempPos,chunk.length);
+    tempPos+=chunk.length;
+  }
+  return bytes;
+}

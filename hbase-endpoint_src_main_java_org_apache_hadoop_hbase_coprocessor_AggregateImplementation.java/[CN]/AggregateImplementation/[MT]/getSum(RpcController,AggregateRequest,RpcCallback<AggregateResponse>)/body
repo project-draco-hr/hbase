@@ -1,0 +1,47 @@
+{
+  AggregateResponse response=null;
+  InternalScanner scanner=null;
+  long sum=0l;
+  try {
+    ColumnInterpreter<T,S,P,Q,R> ci=constructColumnInterpreterFromRequest(request);
+    S sumVal=null;
+    T temp;
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    scanner=env.getRegion().getScanner(scan);
+    byte[] colFamily=scan.getFamilies()[0];
+    NavigableSet<byte[]> qualifiers=scan.getFamilyMap().get(colFamily);
+    byte[] qualifier=null;
+    if (qualifiers != null && !qualifiers.isEmpty()) {
+      qualifier=qualifiers.pollFirst();
+    }
+    List<Cell> results=new ArrayList<Cell>();
+    boolean hasMoreRows=false;
+    do {
+      hasMoreRows=scanner.next(results);
+      int listSize=results.size();
+      for (int i=0; i < listSize; i++) {
+        temp=ci.getValue(colFamily,qualifier,results.get(i));
+        if (temp != null)         sumVal=ci.add(sumVal,ci.castToReturnType(temp));
+      }
+      results.clear();
+    }
+ while (hasMoreRows);
+    if (sumVal != null) {
+      response=AggregateResponse.newBuilder().addFirstPart(ci.getProtoForPromotedType(sumVal).toByteString()).build();
+    }
+  }
+ catch (  IOException e) {
+    CoprocessorRpcUtils.setControllerException(controller,e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ignored) {
+      }
+    }
+  }
+  log.debug("Sum from this region is " + env.getRegion().getRegionInfo().getRegionNameAsString() + ": "+ sum);
+  done.run(response);
+}

@@ -1,0 +1,46 @@
+{
+  int utf16Length=in.length();
+  int j=offset;
+  int i=0;
+  int limit=offset + length;
+  for (char c; i < utf16Length && i + j < limit && (c=in.charAt(i)) < 0x80; i++) {
+    out[j + i]=(byte)c;
+  }
+  if (i == utf16Length) {
+    return j + utf16Length;
+  }
+  j+=i;
+  for (char c; i < utf16Length; i++) {
+    c=in.charAt(i);
+    if (c < 0x80 && j < limit) {
+      out[j++]=(byte)c;
+    }
+ else     if (c < 0x800 && j <= limit - 2) {
+      out[j++]=(byte)((0xF << 6) | (c >>> 6));
+      out[j++]=(byte)(0x80 | (0x3F & c));
+    }
+ else     if ((c < Character.MIN_SURROGATE || Character.MAX_SURROGATE < c) && j <= limit - 3) {
+      out[j++]=(byte)((0xF << 5) | (c >>> 12));
+      out[j++]=(byte)(0x80 | (0x3F & (c >>> 6)));
+      out[j++]=(byte)(0x80 | (0x3F & c));
+    }
+ else     if (j <= limit - 4) {
+      final char low;
+      if (i + 1 == in.length() || !Character.isSurrogatePair(c,(low=in.charAt(++i)))) {
+        throw new UnpairedSurrogateException((i - 1),utf16Length);
+      }
+      int codePoint=Character.toCodePoint(c,low);
+      out[j++]=(byte)((0xF << 4) | (codePoint >>> 18));
+      out[j++]=(byte)(0x80 | (0x3F & (codePoint >>> 12)));
+      out[j++]=(byte)(0x80 | (0x3F & (codePoint >>> 6)));
+      out[j++]=(byte)(0x80 | (0x3F & codePoint));
+    }
+ else {
+      if ((Character.MIN_SURROGATE <= c && c <= Character.MAX_SURROGATE) && (i + 1 == in.length() || !Character.isSurrogatePair(c,in.charAt(i + 1)))) {
+        throw new UnpairedSurrogateException(i,utf16Length);
+      }
+      throw new ArrayIndexOutOfBoundsException("Failed writing " + c + " at index "+ j);
+    }
+  }
+  return j;
+}

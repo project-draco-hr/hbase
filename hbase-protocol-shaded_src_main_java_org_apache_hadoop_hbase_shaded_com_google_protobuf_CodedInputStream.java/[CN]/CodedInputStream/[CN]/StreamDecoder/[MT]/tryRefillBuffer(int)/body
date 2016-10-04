@@ -1,0 +1,33 @@
+{
+  if (pos + n <= bufferSize) {
+    throw new IllegalStateException("refillBuffer() called when " + n + " bytes were already available in buffer");
+  }
+  if (totalBytesRetired + pos + n > currentLimit) {
+    return false;
+  }
+  if (refillCallback != null) {
+    refillCallback.onRefill();
+  }
+  int tempPos=pos;
+  if (tempPos > 0) {
+    if (bufferSize > tempPos) {
+      System.arraycopy(buffer,tempPos,buffer,0,bufferSize - tempPos);
+    }
+    totalBytesRetired+=tempPos;
+    bufferSize-=tempPos;
+    pos=0;
+  }
+  int bytesRead=input.read(buffer,bufferSize,buffer.length - bufferSize);
+  if (bytesRead == 0 || bytesRead < -1 || bytesRead > buffer.length) {
+    throw new IllegalStateException("InputStream#read(byte[]) returned invalid result: " + bytesRead + "\nThe InputStream implementation is buggy.");
+  }
+  if (bytesRead > 0) {
+    bufferSize+=bytesRead;
+    if (totalBytesRetired + n - sizeLimit > 0) {
+      throw InvalidProtocolBufferException.sizeLimitExceeded();
+    }
+    recomputeBufferSizeAfterLimit();
+    return (bufferSize >= n) ? true : tryRefillBuffer(n);
+  }
+  return false;
+}

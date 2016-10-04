@@ -3,37 +3,31 @@
     ServerRpcController serviceController=new ServerRpcController();
     CoprocessorServiceCall call=serviceRequest.getCall();
     String serviceName=call.getServiceName();
-    String methodName=call.getMethodName();
-    if (!coprocessorServiceHandlers.containsKey(serviceName)) {
-      throw new UnknownProtocolException(null,"No registered coprocessor service found for name " + serviceName);
+    com.google.protobuf.Service service=coprocessorServiceHandlers.get(serviceName);
+    if (service == null) {
+      throw new UnknownProtocolException(null,"No registered coprocessor service found for " + serviceName);
     }
-    Service service=coprocessorServiceHandlers.get(serviceName);
-    Descriptors.ServiceDescriptor serviceDesc=service.getDescriptorForType();
-    Descriptors.MethodDescriptor methodDesc=serviceDesc.findMethodByName(methodName);
+    com.google.protobuf.Descriptors.ServiceDescriptor serviceDesc=service.getDescriptorForType();
+    String methodName=call.getMethodName();
+    com.google.protobuf.Descriptors.MethodDescriptor methodDesc=serviceDesc.findMethodByName(methodName);
     if (methodDesc == null) {
       throw new UnknownProtocolException(service.getClass(),"Unknown method " + methodName + " called on service "+ serviceName);
     }
-    Message.Builder builderForType=service.getRequestPrototype(methodDesc).newBuilderForType();
-    ProtobufUtil.mergeFrom(builderForType,call.getRequest());
-    Message request=builderForType.build();
-    final Message.Builder responseBuilder=service.getResponsePrototype(methodDesc).newBuilderForType();
-    service.callMethod(methodDesc,serviceController,request,new RpcCallback<Message>(){
-      @Override public void run(      Message message){
+    com.google.protobuf.Message request=CoprocessorRpcUtils.getRequest(service,methodDesc,call.getRequest());
+    final com.google.protobuf.Message.Builder responseBuilder=service.getResponsePrototype(methodDesc).newBuilderForType();
+    service.callMethod(methodDesc,serviceController,request,new com.google.protobuf.RpcCallback<com.google.protobuf.Message>(){
+      @Override public void run(      com.google.protobuf.Message message){
         if (message != null) {
           responseBuilder.mergeFrom(message);
         }
       }
     }
 );
-    IOException exception=ResponseConverter.getControllerException(serviceController);
+    IOException exception=CoprocessorRpcUtils.getControllerException(serviceController);
     if (exception != null) {
       throw exception;
     }
-    Message execResult=responseBuilder.build();
-    ClientProtos.CoprocessorServiceResponse.Builder builder=ClientProtos.CoprocessorServiceResponse.newBuilder();
-    builder.setRegion(RequestConverter.buildRegionSpecifier(RegionSpecifierType.REGION_NAME,HConstants.EMPTY_BYTE_ARRAY));
-    builder.setValue(builder.getValueBuilder().setName(execResult.getClass().getName()).setValue(execResult.toByteString()));
-    return builder.build();
+    return CoprocessorRpcUtils.getResponse(responseBuilder.build(),HConstants.EMPTY_BYTE_ARRAY);
   }
  catch (  IOException ie) {
     throw new ServiceException(ie);

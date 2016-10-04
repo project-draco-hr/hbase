@@ -1,0 +1,51 @@
+{
+  AggregateResponse response=null;
+  InternalScanner scanner=null;
+  try {
+    ColumnInterpreter<T,S,P,Q,R> ci=constructColumnInterpreterFromRequest(request);
+    S sumVal=null;
+    Long rowCountVal=0l;
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    scanner=env.getRegion().getScanner(scan);
+    byte[] colFamily=scan.getFamilies()[0];
+    NavigableSet<byte[]> qualifiers=scan.getFamilyMap().get(colFamily);
+    byte[] qualifier=null;
+    if (qualifiers != null && !qualifiers.isEmpty()) {
+      qualifier=qualifiers.pollFirst();
+    }
+    List<Cell> results=new ArrayList<Cell>();
+    boolean hasMoreRows=false;
+    do {
+      results.clear();
+      hasMoreRows=scanner.next(results);
+      int listSize=results.size();
+      for (int i=0; i < listSize; i++) {
+        sumVal=ci.add(sumVal,ci.castToReturnType(ci.getValue(colFamily,qualifier,results.get(i))));
+      }
+      rowCountVal++;
+    }
+ while (hasMoreRows);
+    if (sumVal != null) {
+      ByteString first=ci.getProtoForPromotedType(sumVal).toByteString();
+      AggregateResponse.Builder pair=AggregateResponse.newBuilder();
+      pair.addFirstPart(first);
+      ByteBuffer bb=ByteBuffer.allocate(8).putLong(rowCountVal);
+      bb.rewind();
+      pair.setSecondPart(ByteString.copyFrom(bb));
+      response=pair.build();
+    }
+  }
+ catch (  IOException e) {
+    CoprocessorRpcUtils.setControllerException(controller,e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ignored) {
+      }
+    }
+  }
+  done.run(response);
+}

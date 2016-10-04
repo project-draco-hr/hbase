@@ -1,0 +1,53 @@
+{
+  Map<String,Method> nameToNoArgMethod=new HashMap<String,Method>();
+  Map<String,Method> nameToMethod=new HashMap<String,Method>();
+  Set<String> getters=new TreeSet<String>();
+  for (  Method method : messageLite.getClass().getDeclaredMethods()) {
+    nameToMethod.put(method.getName(),method);
+    if (method.getParameterTypes().length == 0) {
+      nameToNoArgMethod.put(method.getName(),method);
+      if (method.getName().startsWith("get")) {
+        getters.add(method.getName());
+      }
+    }
+  }
+  for (  String getter : getters) {
+    String suffix=getter.replaceFirst("get","");
+    if (suffix.endsWith(LIST_SUFFIX) && !suffix.endsWith(BUILDER_LIST_SUFFIX)) {
+      String camelCase=suffix.substring(0,1).toLowerCase() + suffix.substring(1,suffix.length() - LIST_SUFFIX.length());
+      Method listMethod=nameToNoArgMethod.get("get" + suffix);
+      if (listMethod != null) {
+        printField(buffer,indent,camelCaseToSnakeCase(camelCase),GeneratedMessageLite.invokeOrDie(listMethod,messageLite));
+        continue;
+      }
+    }
+    Method setter=nameToMethod.get("set" + suffix);
+    if (setter == null) {
+      continue;
+    }
+    if (suffix.endsWith(BYTES_SUFFIX) && nameToNoArgMethod.containsKey("get" + suffix.substring(0,suffix.length() - "Bytes".length()))) {
+      continue;
+    }
+    String camelCase=suffix.substring(0,1).toLowerCase() + suffix.substring(1);
+    Method getMethod=nameToNoArgMethod.get("get" + suffix);
+    Method hasMethod=nameToNoArgMethod.get("has" + suffix);
+    if (getMethod != null) {
+      Object value=GeneratedMessageLite.invokeOrDie(getMethod,messageLite);
+      final boolean hasValue=hasMethod == null ? !isDefaultValue(value) : (Boolean)GeneratedMessageLite.invokeOrDie(hasMethod,messageLite);
+      if (hasValue) {
+        printField(buffer,indent,camelCaseToSnakeCase(camelCase),value);
+      }
+      continue;
+    }
+  }
+  if (messageLite instanceof GeneratedMessageLite.ExtendableMessage) {
+    Iterator<Map.Entry<GeneratedMessageLite.ExtensionDescriptor,Object>> iter=((GeneratedMessageLite.ExtendableMessage<?,?>)messageLite).extensions.iterator();
+    while (iter.hasNext()) {
+      Map.Entry<GeneratedMessageLite.ExtensionDescriptor,Object> entry=iter.next();
+      printField(buffer,indent,"[" + entry.getKey().getNumber() + "]",entry.getValue());
+    }
+  }
+  if (((GeneratedMessageLite<?,?>)messageLite).unknownFields != null) {
+    ((GeneratedMessageLite<?,?>)messageLite).unknownFields.printWithIndent(buffer,indent);
+  }
+}

@@ -1,0 +1,56 @@
+{
+  AggregateResponse response=null;
+  InternalScanner scanner=null;
+  try {
+    ColumnInterpreter<T,S,P,Q,R> ci=constructColumnInterpreterFromRequest(request);
+    S sumVal=null, sumWeights=null, tempVal=null, tempWeight=null;
+    Scan scan=ProtobufUtil.toScan(request.getScan());
+    scanner=env.getRegion().getScanner(scan);
+    byte[] colFamily=scan.getFamilies()[0];
+    NavigableSet<byte[]> qualifiers=scan.getFamilyMap().get(colFamily);
+    byte[] valQualifier=null, weightQualifier=null;
+    if (qualifiers != null && !qualifiers.isEmpty()) {
+      valQualifier=qualifiers.pollFirst();
+      weightQualifier=qualifiers.pollLast();
+    }
+    List<Cell> results=new ArrayList<Cell>();
+    boolean hasMoreRows=false;
+    do {
+      tempVal=null;
+      tempWeight=null;
+      hasMoreRows=scanner.next(results);
+      int listSize=results.size();
+      for (int i=0; i < listSize; i++) {
+        Cell kv=results.get(i);
+        tempVal=ci.add(tempVal,ci.castToReturnType(ci.getValue(colFamily,valQualifier,kv)));
+        if (weightQualifier != null) {
+          tempWeight=ci.add(tempWeight,ci.castToReturnType(ci.getValue(colFamily,weightQualifier,kv)));
+        }
+      }
+      results.clear();
+      sumVal=ci.add(sumVal,tempVal);
+      sumWeights=ci.add(sumWeights,tempWeight);
+    }
+ while (hasMoreRows);
+    ByteString first_sumVal=ci.getProtoForPromotedType(sumVal).toByteString();
+    S s=sumWeights == null ? ci.castToReturnType(ci.getMinValue()) : sumWeights;
+    ByteString first_sumWeights=ci.getProtoForPromotedType(s).toByteString();
+    AggregateResponse.Builder pair=AggregateResponse.newBuilder();
+    pair.addFirstPart(first_sumVal);
+    pair.addFirstPart(first_sumWeights);
+    response=pair.build();
+  }
+ catch (  IOException e) {
+    CoprocessorRpcUtils.setControllerException(controller,e);
+  }
+ finally {
+    if (scanner != null) {
+      try {
+        scanner.close();
+      }
+ catch (      IOException ignored) {
+      }
+    }
+  }
+  done.run(response);
+}

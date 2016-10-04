@@ -1,0 +1,56 @@
+{
+  GenericDescriptor result;
+  String fullname;
+  if (name.startsWith(".")) {
+    fullname=name.substring(1);
+    result=findSymbol(fullname,filter);
+  }
+ else {
+    final int firstPartLength=name.indexOf('.');
+    final String firstPart;
+    if (firstPartLength == -1) {
+      firstPart=name;
+    }
+ else {
+      firstPart=name.substring(0,firstPartLength);
+    }
+    final StringBuilder scopeToTry=new StringBuilder(relativeTo.getFullName());
+    while (true) {
+      final int dotpos=scopeToTry.lastIndexOf(".");
+      if (dotpos == -1) {
+        fullname=name;
+        result=findSymbol(name,filter);
+        break;
+      }
+ else {
+        scopeToTry.setLength(dotpos + 1);
+        scopeToTry.append(firstPart);
+        result=findSymbol(scopeToTry.toString(),DescriptorPool.SearchFilter.AGGREGATES_ONLY);
+        if (result != null) {
+          if (firstPartLength != -1) {
+            scopeToTry.setLength(dotpos + 1);
+            scopeToTry.append(name);
+            result=findSymbol(scopeToTry.toString(),filter);
+          }
+          fullname=scopeToTry.toString();
+          break;
+        }
+        scopeToTry.setLength(dotpos);
+      }
+    }
+  }
+  if (result == null) {
+    if (allowUnknownDependencies && filter == SearchFilter.TYPES_ONLY) {
+      logger.warning("The descriptor for message type \"" + name + "\" can not be found and a placeholder is created for it");
+      result=new Descriptor(fullname);
+      this.dependencies.add(result.getFile());
+      return result;
+    }
+ else {
+      throw new DescriptorValidationException(relativeTo,'\"' + name + "\" is not defined.");
+    }
+  }
+ else {
+    return result;
+  }
+}

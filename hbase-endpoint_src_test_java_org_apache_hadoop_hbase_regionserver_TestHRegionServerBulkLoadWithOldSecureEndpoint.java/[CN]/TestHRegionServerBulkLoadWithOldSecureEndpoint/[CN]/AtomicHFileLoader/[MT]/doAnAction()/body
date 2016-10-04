@@ -1,0 +1,44 @@
+{
+  long iteration=numBulkLoads.getAndIncrement();
+  Path dir=UTIL.getDataTestDirOnTestFS(String.format("bulkLoad_%08d",iteration));
+  FileSystem fs=UTIL.getTestFileSystem();
+  byte[] val=Bytes.toBytes(String.format("%010d",iteration));
+  final List<Pair<byte[],String>> famPaths=new ArrayList<Pair<byte[],String>>(NUM_CFS);
+  for (int i=0; i < NUM_CFS; i++) {
+    Path hfile=new Path(dir,family(i));
+    byte[] fam=Bytes.toBytes(family(i));
+    createHFile(fs,hfile,fam,QUAL,val,1000);
+    famPaths.add(new Pair<>(fam,hfile.toString()));
+  }
+  final ClusterConnection conn=(ClusterConnection)UTIL.getAdmin().getConnection();
+  Table table=conn.getTable(tableName);
+  final String bulkToken=new SecureBulkLoadEndpointClient(table).prepareBulkLoad(tableName);
+  RpcControllerFactory rpcControllerFactory=new RpcControllerFactory(UTIL.getConfiguration());
+  ClientServiceCallable<Void> callable=new ClientServiceCallable<Void>(conn,tableName,Bytes.toBytes("aaa"),rpcControllerFactory.newController()){
+    @Override protected Void rpcCall() throws Exception {
+      LOG.debug("Going to connect to server " + getLocation() + " for row "+ Bytes.toStringBinary(getRow()));
+      try (Table table=conn.getTable(getTableName())){
+        boolean loaded=new SecureBulkLoadEndpointClient(table).bulkLoadHFiles(famPaths,null,bulkToken,getLocation().getRegionInfo().getStartKey());
+      }
+       return null;
+    }
+  }
+;
+  RpcRetryingCallerFactory factory=new RpcRetryingCallerFactory(conf);
+  RpcRetryingCaller<Void> caller=factory.<Void>newCaller();
+  caller.callWithRetries(callable,Integer.MAX_VALUE);
+  if (numBulkLoads.get() % 5 == 0) {
+    callable=new ClientServiceCallable<Void>(conn,tableName,Bytes.toBytes("aaa"),rpcControllerFactory.newController()){
+      @Override protected Void rpcCall() throws Exception {
+        LOG.debug("compacting " + getLocation() + " for row "+ Bytes.toStringBinary(getRow()));
+        AdminProtos.AdminService.BlockingInterface server=conn.getAdmin(getLocation().getServerName());
+        CompactRegionRequest request=RequestConverter.buildCompactRegionRequest(getLocation().getRegionInfo().getRegionName(),true,null);
+        server.compactRegion(null,request);
+        numCompactions.incrementAndGet();
+        return null;
+      }
+    }
+;
+    caller.callWithRetries(callable,Integer.MAX_VALUE);
+  }
+}

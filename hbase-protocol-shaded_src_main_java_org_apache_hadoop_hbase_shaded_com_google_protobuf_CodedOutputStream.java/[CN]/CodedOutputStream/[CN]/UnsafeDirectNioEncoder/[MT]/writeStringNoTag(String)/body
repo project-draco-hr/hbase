@@ -1,0 +1,34 @@
+{
+  long prevPos=position;
+  try {
+    int maxEncodedSize=value.length() * Utf8.MAX_BYTES_PER_CHAR;
+    int maxLengthVarIntSize=computeUInt32SizeNoTag(maxEncodedSize);
+    int minLengthVarIntSize=computeUInt32SizeNoTag(value.length());
+    if (minLengthVarIntSize == maxLengthVarIntSize) {
+      int stringStart=bufferPos(position) + minLengthVarIntSize;
+      buffer.position(stringStart);
+      Utf8.encodeUtf8(value,buffer);
+      int length=buffer.position() - stringStart;
+      writeUInt32NoTag(length);
+      position+=length;
+    }
+ else {
+      int length=Utf8.encodedLength(value);
+      writeUInt32NoTag(length);
+      repositionBuffer(position);
+      Utf8.encodeUtf8(value,buffer);
+      position+=length;
+    }
+  }
+ catch (  UnpairedSurrogateException e) {
+    position=prevPos;
+    repositionBuffer(position);
+    inefficientWriteStringNoTag(value,e);
+  }
+catch (  IllegalArgumentException e) {
+    throw new OutOfSpaceException(e);
+  }
+catch (  IndexOutOfBoundsException e) {
+    throw new OutOfSpaceException(e);
+  }
+}

@@ -1,0 +1,45 @@
+{
+  int typeId=0;
+  ByteString rawBytes=null;
+  ExtensionRegistry.ExtensionInfo extension=null;
+  while (true) {
+    final int tag=input.readTag();
+    if (tag == 0) {
+      break;
+    }
+    if (tag == WireFormat.MESSAGE_SET_TYPE_ID_TAG) {
+      typeId=input.readUInt32();
+      if (typeId != 0) {
+        if (extensionRegistry instanceof ExtensionRegistry) {
+          extension=target.findExtensionByNumber((ExtensionRegistry)extensionRegistry,type,typeId);
+        }
+      }
+    }
+ else     if (tag == WireFormat.MESSAGE_SET_MESSAGE_TAG) {
+      if (typeId != 0) {
+        if (extension != null && ExtensionRegistryLite.isEagerlyParseMessageSets()) {
+          eagerlyMergeMessageSetExtension(input,extension,extensionRegistry,target);
+          rawBytes=null;
+          continue;
+        }
+      }
+      rawBytes=input.readBytes();
+    }
+ else {
+      if (!input.skipField(tag)) {
+        break;
+      }
+    }
+  }
+  input.checkLastTagWas(WireFormat.MESSAGE_SET_ITEM_END_TAG);
+  if (rawBytes != null && typeId != 0) {
+    if (extension != null) {
+      mergeMessageSetExtensionFromBytes(rawBytes,extension,extensionRegistry,target);
+    }
+ else {
+      if (rawBytes != null) {
+        unknownFields.mergeField(typeId,UnknownFieldSet.Field.newBuilder().addLengthDelimited(rawBytes).build());
+      }
+    }
+  }
+}

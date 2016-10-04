@@ -1,0 +1,41 @@
+{
+  final int maxLength=value.length() * Utf8.MAX_BYTES_PER_CHAR;
+  final int maxLengthVarIntSize=computeUInt32SizeNoTag(maxLength);
+  if (maxLengthVarIntSize + maxLength > limit) {
+    final byte[] encodedBytes=new byte[maxLength];
+    int actualLength=Utf8.encode(value,encodedBytes,0,maxLength);
+    writeUInt32NoTag(actualLength);
+    writeLazy(encodedBytes,0,actualLength);
+    return;
+  }
+  if (maxLengthVarIntSize + maxLength > limit - position) {
+    doFlush();
+  }
+  final int oldPosition=position;
+  try {
+    final int minLengthVarIntSize=computeUInt32SizeNoTag(value.length());
+    if (minLengthVarIntSize == maxLengthVarIntSize) {
+      position=oldPosition + minLengthVarIntSize;
+      int newPosition=Utf8.encode(value,buffer,position,limit - position);
+      position=oldPosition;
+      int length=newPosition - oldPosition - minLengthVarIntSize;
+      bufferUInt32NoTag(length);
+      position=newPosition;
+      totalBytesWritten+=length;
+    }
+ else {
+      int length=Utf8.encodedLength(value);
+      bufferUInt32NoTag(length);
+      position=Utf8.encode(value,buffer,position,length);
+      totalBytesWritten+=length;
+    }
+  }
+ catch (  UnpairedSurrogateException e) {
+    totalBytesWritten-=position - oldPosition;
+    position=oldPosition;
+    inefficientWriteStringNoTag(value,e);
+  }
+catch (  IndexOutOfBoundsException e) {
+    throw new OutOfSpaceException(e);
+  }
+}

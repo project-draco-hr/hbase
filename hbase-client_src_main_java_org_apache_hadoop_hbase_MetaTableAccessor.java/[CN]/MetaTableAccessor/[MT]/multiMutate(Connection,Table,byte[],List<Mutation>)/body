@@ -1,0 +1,33 @@
+{
+  if (METALOG.isDebugEnabled()) {
+    METALOG.debug(mutationsToString(mutations));
+  }
+  RegionServerCallable<MutateRowsResponse,MultiRowMutationProtos.MultiRowMutationService.BlockingInterface> callable=new RegionServerCallable<MutateRowsResponse,MultiRowMutationProtos.MultiRowMutationService.BlockingInterface>(connection,table.getName(),row,null){
+    @Override protected MutateRowsResponse rpcCall() throws Exception {
+      final MutateRowsRequest.Builder builder=MutateRowsRequest.newBuilder();
+      for (      Mutation mutation : mutations) {
+        if (mutation instanceof Put) {
+          builder.addMutationRequest(ProtobufUtil.toMutation(ClientProtos.MutationProto.MutationType.PUT,mutation));
+        }
+ else         if (mutation instanceof Delete) {
+          builder.addMutationRequest(ProtobufUtil.toMutation(ClientProtos.MutationProto.MutationType.DELETE,mutation));
+        }
+ else {
+          throw new DoNotRetryIOException("multi in MetaEditor doesn't support " + mutation.getClass().getName());
+        }
+      }
+      HRegionLocation hrl=getLocation();
+      RegionSpecifier region=ProtobufUtil.buildRegionSpecifier(RegionSpecifierType.REGION_NAME,hrl.getRegionInfo().getRegionName());
+      builder.setRegion(region);
+      return getStub().mutateRows(null,builder.build());
+    }
+    @Override protected void setStubByServiceName(    ServerName serviceName) throws IOException {
+      CoprocessorRpcChannel channel=table.coprocessorService(getRow());
+      setStub(MultiRowMutationProtos.MultiRowMutationService.newBlockingStub(channel));
+    }
+  }
+;
+  int writeTimeout=connection.getConfiguration().getInt(HConstants.HBASE_RPC_WRITE_TIMEOUT_KEY,connection.getConfiguration().getInt(HConstants.HBASE_RPC_TIMEOUT_KEY,HConstants.DEFAULT_HBASE_RPC_TIMEOUT));
+  callable.prepare(false);
+  callable.call(writeTimeout);
+}

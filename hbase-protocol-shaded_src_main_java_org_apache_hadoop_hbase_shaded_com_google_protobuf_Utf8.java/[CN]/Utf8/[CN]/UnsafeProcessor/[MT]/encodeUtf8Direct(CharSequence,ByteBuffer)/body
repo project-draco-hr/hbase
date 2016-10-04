@@ -1,0 +1,50 @@
+{
+  final long address=addressOffset(out);
+  long outIx=address + out.position();
+  final long outLimit=address + out.limit();
+  final int inLimit=in.length();
+  if (inLimit > outLimit - outIx) {
+    throw new ArrayIndexOutOfBoundsException("Failed writing " + in.charAt(inLimit - 1) + " at index "+ out.limit());
+  }
+  int inIx=0;
+  for (char c; inIx < inLimit && (c=in.charAt(inIx)) < 0x80; ++inIx) {
+    UnsafeUtil.putByte(outIx++,(byte)c);
+  }
+  if (inIx == inLimit) {
+    out.position((int)(outIx - address));
+    return;
+  }
+  for (char c; inIx < inLimit; ++inIx) {
+    c=in.charAt(inIx);
+    if (c < 0x80 && outIx < outLimit) {
+      UnsafeUtil.putByte(outIx++,(byte)c);
+    }
+ else     if (c < 0x800 && outIx <= outLimit - 2L) {
+      UnsafeUtil.putByte(outIx++,(byte)((0xF << 6) | (c >>> 6)));
+      UnsafeUtil.putByte(outIx++,(byte)(0x80 | (0x3F & c)));
+    }
+ else     if ((c < MIN_SURROGATE || MAX_SURROGATE < c) && outIx <= outLimit - 3L) {
+      UnsafeUtil.putByte(outIx++,(byte)((0xF << 5) | (c >>> 12)));
+      UnsafeUtil.putByte(outIx++,(byte)(0x80 | (0x3F & (c >>> 6))));
+      UnsafeUtil.putByte(outIx++,(byte)(0x80 | (0x3F & c)));
+    }
+ else     if (outIx <= outLimit - 4L) {
+      final char low;
+      if (inIx + 1 == inLimit || !isSurrogatePair(c,(low=in.charAt(++inIx)))) {
+        throw new UnpairedSurrogateException((inIx - 1),inLimit);
+      }
+      int codePoint=toCodePoint(c,low);
+      UnsafeUtil.putByte(outIx++,(byte)((0xF << 4) | (codePoint >>> 18)));
+      UnsafeUtil.putByte(outIx++,(byte)(0x80 | (0x3F & (codePoint >>> 12))));
+      UnsafeUtil.putByte(outIx++,(byte)(0x80 | (0x3F & (codePoint >>> 6))));
+      UnsafeUtil.putByte(outIx++,(byte)(0x80 | (0x3F & codePoint)));
+    }
+ else {
+      if ((MIN_SURROGATE <= c && c <= MAX_SURROGATE) && (inIx + 1 == inLimit || !isSurrogatePair(c,in.charAt(inIx + 1)))) {
+        throw new UnpairedSurrogateException(inIx,inLimit);
+      }
+      throw new ArrayIndexOutOfBoundsException("Failed writing " + c + " at index "+ outIx);
+    }
+  }
+  out.position((int)(outIx - address));
+}

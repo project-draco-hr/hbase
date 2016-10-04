@@ -1,0 +1,26 @@
+{
+  try {
+    CoprocessorRpcChannel channel=table.coprocessorService(startRow);
+    SecureBulkLoadProtos.SecureBulkLoadService instance=ProtobufUtil.newServiceStub(SecureBulkLoadProtos.SecureBulkLoadService.class,channel);
+    DelegationToken protoDT=DelegationToken.newBuilder().build();
+    if (userToken != null) {
+      protoDT=DelegationToken.newBuilder().setIdentifier(ByteStringer.wrap(userToken.getIdentifier())).setPassword(ByteStringer.wrap(userToken.getPassword())).setKind(userToken.getKind().toString()).setService(userToken.getService().toString()).build();
+    }
+    List<ClientProtos.BulkLoadHFileRequest.FamilyPath> protoFamilyPaths=new ArrayList<ClientProtos.BulkLoadHFileRequest.FamilyPath>();
+    for (    Pair<byte[],String> el : familyPaths) {
+      protoFamilyPaths.add(ClientProtos.BulkLoadHFileRequest.FamilyPath.newBuilder().setFamily(ByteStringer.wrap(el.getFirst())).setPath(el.getSecond()).build());
+    }
+    SecureBulkLoadProtos.SecureBulkLoadHFilesRequest request=SecureBulkLoadProtos.SecureBulkLoadHFilesRequest.newBuilder().setFsToken(protoDT).addAllFamilyPath(protoFamilyPaths).setBulkToken(bulkToken).build();
+    ServerRpcController controller=new ServerRpcController();
+    CoprocessorRpcUtils.BlockingRpcCallback<SecureBulkLoadProtos.SecureBulkLoadHFilesResponse> rpcCallback=new CoprocessorRpcUtils.BlockingRpcCallback<SecureBulkLoadProtos.SecureBulkLoadHFilesResponse>();
+    instance.secureBulkLoadHFiles(controller,request,rpcCallback);
+    SecureBulkLoadProtos.SecureBulkLoadHFilesResponse response=rpcCallback.get();
+    if (controller.failedOnException()) {
+      throw controller.getFailedOn();
+    }
+    return response.getLoaded();
+  }
+ catch (  Throwable throwable) {
+    throw new IOException(throwable);
+  }
+}

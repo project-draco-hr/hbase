@@ -1,0 +1,71 @@
+{
+  FieldDescriptor field=null;
+  int startLine=tokenizer.getLine();
+  int startColumn=tokenizer.getColumn();
+  final Descriptor type=target.getDescriptorForType();
+  ExtensionRegistry.ExtensionInfo extension=null;
+  if (tokenizer.tryConsume("[")) {
+    final StringBuilder name=new StringBuilder(tokenizer.consumeIdentifier());
+    while (tokenizer.tryConsume(".")) {
+      name.append('.');
+      name.append(tokenizer.consumeIdentifier());
+    }
+    extension=target.findExtensionByName(extensionRegistry,name.toString());
+    if (extension == null) {
+      unknownFields.add((tokenizer.getPreviousLine() + 1) + ":" + (tokenizer.getPreviousColumn() + 1)+ ":\t"+ type.getFullName()+ ".["+ name+ "]");
+    }
+ else {
+      if (extension.descriptor.getContainingType() != type) {
+        throw tokenizer.parseExceptionPreviousToken("Extension \"" + name + "\" does not extend message type \""+ type.getFullName()+ "\".");
+      }
+      field=extension.descriptor;
+    }
+    tokenizer.consume("]");
+  }
+ else {
+    final String name=tokenizer.consumeIdentifier();
+    field=type.findFieldByName(name);
+    if (field == null) {
+      final String lowerName=name.toLowerCase(Locale.US);
+      field=type.findFieldByName(lowerName);
+      if (field != null && field.getType() != FieldDescriptor.Type.GROUP) {
+        field=null;
+      }
+    }
+    if (field != null && field.getType() == FieldDescriptor.Type.GROUP && !field.getMessageType().getName().equals(name)) {
+      field=null;
+    }
+    if (field == null) {
+      unknownFields.add((tokenizer.getPreviousLine() + 1) + ":" + (tokenizer.getPreviousColumn() + 1)+ ":\t"+ type.getFullName()+ "."+ name);
+    }
+  }
+  if (field == null) {
+    if (tokenizer.tryConsume(":") && !tokenizer.lookingAt("{") && !tokenizer.lookingAt("<")) {
+      skipFieldValue(tokenizer);
+    }
+ else {
+      skipFieldMessage(tokenizer);
+    }
+    return;
+  }
+  if (field.getJavaType() == FieldDescriptor.JavaType.MESSAGE) {
+    tokenizer.tryConsume(":");
+    if (parseTreeBuilder != null) {
+      TextFormatParseInfoTree.Builder childParseTreeBuilder=parseTreeBuilder.getBuilderForSubMessageField(field);
+      consumeFieldValues(tokenizer,extensionRegistry,target,field,extension,childParseTreeBuilder,unknownFields);
+    }
+ else {
+      consumeFieldValues(tokenizer,extensionRegistry,target,field,extension,parseTreeBuilder,unknownFields);
+    }
+  }
+ else {
+    tokenizer.consume(":");
+    consumeFieldValues(tokenizer,extensionRegistry,target,field,extension,parseTreeBuilder,unknownFields);
+  }
+  if (parseTreeBuilder != null) {
+    parseTreeBuilder.setLocation(field,TextFormatParseLocation.create(startLine,startColumn));
+  }
+  if (!tokenizer.tryConsume(";")) {
+    tokenizer.tryConsume(",");
+  }
+}
