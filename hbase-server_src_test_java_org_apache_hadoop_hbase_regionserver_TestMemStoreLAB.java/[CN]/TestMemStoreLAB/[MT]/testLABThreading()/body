@@ -10,10 +10,12 @@
     TestThread t=new MultithreadedTestUtil.RepeatingTestThread(ctx){
       private Random r=new Random();
       @Override public void doAnAction() throws Exception {
-        int size=r.nextInt(1000);
-        ByteRange alloc=mslab.allocateBytes(size);
+        int valSize=r.nextInt(1000);
+        KeyValue kv=new KeyValue(rk,cf,q,new byte[valSize]);
+        int size=KeyValueUtil.length(kv);
+        KeyValue newKv=(KeyValue)mslab.copyCellInto(kv);
         totalAllocated.addAndGet(size);
-        allocsByThisThread.add(new AllocRecord(alloc,size));
+        allocsByThisThread.add(new AllocRecord(newKv.getBuffer(),newKv.getOffset(),size));
       }
     }
 ;
@@ -29,20 +31,20 @@
   for (  AllocRecord rec : Iterables.concat(allocations)) {
     sizeCounted+=rec.size;
     if (rec.size == 0)     continue;
-    Map<Integer,AllocRecord> mapForThisByteArray=mapsByChunk.get(rec.alloc.getBytes());
+    Map<Integer,AllocRecord> mapForThisByteArray=mapsByChunk.get(rec.alloc);
     if (mapForThisByteArray == null) {
       mapForThisByteArray=Maps.newTreeMap();
-      mapsByChunk.put(rec.alloc.getBytes(),mapForThisByteArray);
+      mapsByChunk.put(rec.alloc,mapForThisByteArray);
     }
-    AllocRecord oldVal=mapForThisByteArray.put(rec.alloc.getOffset(),rec);
+    AllocRecord oldVal=mapForThisByteArray.put(rec.offset,rec);
     assertNull("Already had an entry " + oldVal + " for allocation "+ rec,oldVal);
   }
   assertEquals("Sanity check test",sizeCounted,totalAllocated.get());
   for (  Map<Integer,AllocRecord> allocsInChunk : mapsByChunk.values()) {
     int expectedOff=0;
     for (    AllocRecord alloc : allocsInChunk.values()) {
-      assertEquals(expectedOff,alloc.alloc.getOffset());
-      assertTrue("Allocation overruns buffer",alloc.alloc.getOffset() + alloc.size <= alloc.alloc.getBytes().length);
+      assertEquals(expectedOff,alloc.offset);
+      assertTrue("Allocation overruns buffer",alloc.offset + alloc.size <= alloc.alloc.length);
       expectedOff+=alloc.size;
     }
   }
