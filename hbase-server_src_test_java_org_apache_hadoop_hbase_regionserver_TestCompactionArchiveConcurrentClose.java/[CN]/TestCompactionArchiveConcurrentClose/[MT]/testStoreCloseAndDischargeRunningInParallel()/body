@@ -1,0 +1,63 @@
+{
+  byte[] fam=Bytes.toBytes("f");
+  byte[] col=Bytes.toBytes("c");
+  byte[] val=Bytes.toBytes("val");
+  TableName tableName=TableName.valueOf(getClass().getSimpleName());
+  HTableDescriptor htd=new HTableDescriptor(tableName);
+  htd.addFamily(new HColumnDescriptor(fam));
+  HRegionInfo info=new HRegionInfo(tableName,null,null,false);
+  Region region=initHRegion(htd,info);
+  RegionServerServices rss=mock(RegionServerServices.class);
+  List<Region> regions=new ArrayList<Region>();
+  regions.add(region);
+  when(rss.getOnlineRegions()).thenReturn(regions);
+  CompactedHFilesDischarger cleaner=new CompactedHFilesDischarger(1000,(Stoppable)null,rss,false);
+  int batchSize=10;
+  int fileCount=10;
+  for (int f=0; f < fileCount; f++) {
+    int start=f * batchSize;
+    for (int i=start; i < start + batchSize; i++) {
+      Put p=new Put(Bytes.toBytes("row" + i));
+      p.addColumn(fam,col,val);
+      region.put(p);
+    }
+    region.flush(true);
+  }
+  Store store=region.getStore(fam);
+  assertEquals(fileCount,store.getStorefilesCount());
+  Collection<StoreFile> storefiles=store.getStorefiles();
+  for (  StoreFile file : storefiles) {
+    assertFalse(file.isCompactedAway());
+  }
+  region.compact(true);
+  Thread cleanerThread=new Thread(){
+    public void run(){
+      cleaner.chore();
+    }
+  }
+;
+  cleanerThread.start();
+synchronized (archived) {
+    if (!archived.get()) {
+      archived.wait();
+    }
+  }
+  final AtomicReference<Exception> closeException=new AtomicReference<>();
+  Thread closeThread=new Thread(){
+    public void run(){
+      try {
+        ((HRegion)region).close();
+      }
+ catch (      IOException e) {
+        closeException.set(e);
+      }
+    }
+  }
+;
+  closeThread.start();
+  closeThread.join();
+  cleanerThread.join();
+  if (closeException.get() != null) {
+    throw closeException.get();
+  }
+}
