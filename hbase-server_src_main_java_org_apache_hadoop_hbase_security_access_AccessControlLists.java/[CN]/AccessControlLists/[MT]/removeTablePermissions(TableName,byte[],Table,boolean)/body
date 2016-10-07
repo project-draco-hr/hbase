@@ -1,0 +1,27 @@
+{
+  Scan scan=new Scan();
+  scan.addFamily(ACL_LIST_FAMILY);
+  String columnName=Bytes.toString(column);
+  scan.setFilter(new QualifierFilter(CompareOp.EQUAL,new RegexStringComparator(String.format("(%s%s%s)|(%s%s)$",ACL_KEY_DELIMITER,columnName,ACL_KEY_DELIMITER,ACL_KEY_DELIMITER,columnName))));
+  Set<byte[]> qualifierSet=new TreeSet<byte[]>(Bytes.BYTES_COMPARATOR);
+  ResultScanner scanner=null;
+  try {
+    scanner=table.getScanner(scan);
+    for (    Result res : scanner) {
+      for (      byte[] q : res.getFamilyMap(ACL_LIST_FAMILY).navigableKeySet()) {
+        qualifierSet.add(q);
+      }
+    }
+    if (qualifierSet.size() > 0) {
+      Delete d=new Delete(tableName.getName());
+      for (      byte[] qualifier : qualifierSet) {
+        d.addColumns(ACL_LIST_FAMILY,qualifier);
+      }
+      table.delete(d);
+    }
+  }
+  finally {
+    if (scanner != null)     scanner.close();
+    if (closeTable)     table.close();
+  }
+}
