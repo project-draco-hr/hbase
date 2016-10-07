@@ -26,7 +26,34 @@
       throw new DoNotRetryIOException("Unexpected data length " + dataLength + "!! from "+ getHostAddress());
     }
     if (dataLength > maxRequestSize) {
-      throw new DoNotRetryIOException("RPC data length of " + dataLength + " received from "+ getHostAddress()+ " is greater than max allowed "+ maxRequestSize+ ". Set \""+ MAX_REQUEST_SIZE+ "\" on server to override this limit (not recommended)");
+      String msg="RPC data length of " + dataLength + " received from "+ getHostAddress()+ " is greater than max allowed "+ maxRequestSize+ ". Set \""+ MAX_REQUEST_SIZE+ "\" on server to override this limit (not recommended)";
+      LOG.warn(msg);
+      if (connectionHeaderRead && connectionPreambleRead) {
+        incRpcCount();
+        ByteBuffer buf=ByteBuffer.allocate(1);
+        InputStream is=new InputStream(){
+          @Override public int read() throws IOException {
+            channelRead(channel,buf);
+            buf.flip();
+            int x=buf.get();
+            buf.flip();
+            return x;
+          }
+        }
+;
+        CodedInputStream cis=CodedInputStream.newInstance(is);
+        int headerSize=cis.readRawVarint32();
+        Message.Builder builder=RequestHeader.newBuilder();
+        ProtobufUtil.mergeFrom(builder,cis,headerSize);
+        RequestHeader header=(RequestHeader)builder.build();
+        Call reqTooBig=new Call(header.getCallId(),this.service,null,null,null,null,this,responder,0,null,this.addr,0);
+        metrics.exception(REQUEST_TOO_BIG_EXCEPTION);
+        setupResponse(null,reqTooBig,REQUEST_TOO_BIG_EXCEPTION,msg);
+        responseWriteLock.lock();
+        responder.processResponse(reqTooBig);
+        responseWriteLock.unlock();
+      }
+      return -1;
     }
     data=ByteBuffer.allocate(dataLength);
     incRpcCount();
