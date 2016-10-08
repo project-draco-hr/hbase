@@ -1,24 +1,16 @@
 {
   final TableName tableName=TableName.valueOf("testMergeRegionsTwiceWithSameNonce");
   final ProcedureExecutor<MasterProcedureEnv> procExec=getMasterProcedureExecutor();
-  HTableDescriptor desc=new HTableDescriptor(tableName);
-  desc.addFamily(new HColumnDescriptor(FAMILY));
-  byte[][] splitRows=new byte[2][];
-  splitRows[0]=new byte[]{(byte)'3'};
-  splitRows[1]=new byte[]{(byte)'6'};
-  admin.createTable(desc,splitRows);
-  List<HRegionInfo> tableRegions;
+  List<HRegionInfo> tableRegions=createTable(tableName,3);
   HRegionInfo[] regionsToMerge=new HRegionInfo[2];
-  tableRegions=admin.getTableRegions(tableName);
-  assertEquals(3,admin.getTableRegions(tableName).size());
   regionsToMerge[0]=tableRegions.get(0);
   regionsToMerge[1]=tableRegions.get(1);
   long procId1=procExec.submitProcedure(new DispatchMergingRegionsProcedure(procExec.getEnvironment(),tableName,regionsToMerge,true),nonceGroup,nonce);
   long procId2=procExec.submitProcedure(new DispatchMergingRegionsProcedure(procExec.getEnvironment(),tableName,regionsToMerge,true),nonceGroup,nonce);
+  assertEquals(procId1,procId2);
   ProcedureTestingUtility.waitProcedure(procExec,procId1);
   ProcedureTestingUtility.assertProcNotFailed(procExec,procId1);
   ProcedureTestingUtility.waitProcedure(procExec,procId2);
   ProcedureTestingUtility.assertProcNotFailed(procExec,procId2);
-  assertTrue(procId1 == procId2);
-  assertEquals(2,admin.getTableRegions(tableName).size());
+  assertRegionCount(tableName,2);
 }
