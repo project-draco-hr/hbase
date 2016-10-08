@@ -1,0 +1,33 @@
+{
+  if (ctx == null)   return false;
+  boolean bypass=false;
+  List<RegionServerEnvironment> envs=coprocessors.get();
+  int envsSize=envs.size();
+  for (int i=0; i < envsSize; i++) {
+    RegionServerEnvironment env=envs.get(i);
+    if (env.getInstance() instanceof RegionServerObserver) {
+      ctx.prepare(env);
+      Thread currentThread=Thread.currentThread();
+      ClassLoader cl=currentThread.getContextClassLoader();
+      try {
+        currentThread.setContextClassLoader(env.getClassLoader());
+        ctx.call((RegionServerObserver)env.getInstance(),ctx);
+      }
+ catch (      Throwable e) {
+        handleCoprocessorThrowable(env,e);
+      }
+ finally {
+        currentThread.setContextClassLoader(cl);
+      }
+      bypass|=ctx.shouldBypass();
+      if (ctx.shouldComplete()) {
+        break;
+      }
+    }
+  }
+  for (int i=0; i < envsSize; i++) {
+    RegionServerEnvironment env=envs.get(i);
+    ctx.postEnvCall(env);
+  }
+  return bypass;
+}
