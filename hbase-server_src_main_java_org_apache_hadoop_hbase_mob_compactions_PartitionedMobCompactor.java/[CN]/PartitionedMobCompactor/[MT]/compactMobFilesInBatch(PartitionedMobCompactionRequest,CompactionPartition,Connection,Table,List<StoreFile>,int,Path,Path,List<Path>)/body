@@ -5,72 +5,48 @@
   StoreFileWriter writer=null;
   StoreFileWriter refFileWriter=null;
   Path filePath=null;
+  Path refFilePath=null;
   long mobCells=0;
-  boolean cleanupTmpMobFile=false;
-  boolean cleanupBulkloadDirOfPartition=false;
-  boolean cleanupCommittedMobFile=false;
-  boolean closeReaders=true;
   try {
-    try {
-      writer=MobUtils.createWriter(conf,fs,column,partition.getPartitionId().getDate(),tempPath,Long.MAX_VALUE,column.getCompactionCompressionType(),partition.getPartitionId().getStartKey(),compactionCacheConfig,cryptoContext);
-      cleanupTmpMobFile=true;
-      filePath=writer.getPath();
-      byte[] fileName=Bytes.toBytes(filePath.getName());
-      refFileWriter=MobUtils.createRefFileWriter(conf,fs,column,bulkloadColumnPath,fileInfo.getSecond().longValue(),compactionCacheConfig,cryptoContext);
-      cleanupBulkloadDirOfPartition=true;
-      List<Cell> cells=new ArrayList<>();
-      boolean hasMore;
-      ScannerContext scannerContext=ScannerContext.newBuilder().setBatchLimit(compactionKVMax).build();
-      do {
-        hasMore=scanner.next(cells,scannerContext);
-        for (        Cell cell : cells) {
-          writer.append(cell);
-          KeyValue reference=MobUtils.createMobRefKeyValue(cell,fileName,tableNameTag);
-          refFileWriter.append(reference);
-          mobCells++;
-        }
-        cells.clear();
+    writer=MobUtils.createWriter(conf,fs,column,partition.getPartitionId().getDate(),tempPath,Long.MAX_VALUE,column.getCompactionCompressionType(),partition.getPartitionId().getStartKey(),compactionCacheConfig,cryptoContext);
+    filePath=writer.getPath();
+    byte[] fileName=Bytes.toBytes(filePath.getName());
+    refFileWriter=MobUtils.createRefFileWriter(conf,fs,column,bulkloadColumnPath,fileInfo.getSecond().longValue(),compactionCacheConfig,cryptoContext);
+    refFilePath=refFileWriter.getPath();
+    List<Cell> cells=new ArrayList<>();
+    boolean hasMore;
+    ScannerContext scannerContext=ScannerContext.newBuilder().setBatchLimit(compactionKVMax).build();
+    do {
+      hasMore=scanner.next(cells,scannerContext);
+      for (      Cell cell : cells) {
+        writer.append(cell);
+        KeyValue reference=MobUtils.createMobRefKeyValue(cell,fileName,tableNameTag);
+        refFileWriter.append(reference);
+        mobCells++;
       }
+      cells.clear();
+    }
  while (hasMore);
-    }
-  finally {
-      scanner.close();
-      if (cleanupTmpMobFile) {
-        closeMobFileWriter(writer,fileInfo.getFirst(),mobCells);
-      }
-      if (cleanupBulkloadDirOfPartition) {
-        closeRefFileWriter(refFileWriter,fileInfo.getFirst(),request.selectionTime);
-      }
-    }
-    if (mobCells > 0) {
-      MobUtils.commitFile(conf,fs,filePath,mobFamilyDir,compactionCacheConfig);
-      cleanupTmpMobFile=false;
-      cleanupCommittedMobFile=true;
-      bulkloadRefFile(connection,table,bulkloadPathOfPartition,filePath.getName());
-      cleanupCommittedMobFile=false;
-      newFiles.add(new Path(mobFamilyDir,filePath.getName()));
-    }
-    try {
-      closeStoreFileReaders(mobFilesToCompact);
-      closeReaders=false;
-      MobUtils.removeMobFiles(conf,fs,tableName,mobTableDir,column.getName(),mobFilesToCompact);
-    }
- catch (    IOException e) {
-      LOG.error("Failed to archive the files " + mobFilesToCompact,e);
-    }
   }
   finally {
-    if (closeReaders) {
-      closeStoreFileReaders(mobFilesToCompact);
-    }
-    if (cleanupTmpMobFile) {
-      deletePath(filePath);
-    }
-    if (cleanupBulkloadDirOfPartition) {
-      deletePath(bulkloadPathOfPartition);
-    }
-    if (cleanupCommittedMobFile) {
-      deletePath(new Path(mobFamilyDir,filePath.getName()));
-    }
+    scanner.close();
+    closeMobFileWriter(writer,fileInfo.getFirst(),mobCells);
+    closeRefFileWriter(refFileWriter,fileInfo.getFirst(),request.selectionTime);
+  }
+  if (mobCells > 0) {
+    MobUtils.commitFile(conf,fs,filePath,mobFamilyDir,compactionCacheConfig);
+    bulkloadRefFile(connection,table,bulkloadPathOfPartition,filePath.getName());
+    newFiles.add(new Path(mobFamilyDir,filePath.getName()));
+  }
+ else {
+    deletePath(filePath);
+    deletePath(refFilePath);
+  }
+  try {
+    closeStoreFileReaders(mobFilesToCompact);
+    MobUtils.removeMobFiles(conf,fs,tableName,mobTableDir,column.getName(),mobFilesToCompact);
+  }
+ catch (  IOException e) {
+    LOG.error("Failed to archive the files " + mobFilesToCompact,e);
   }
 }
