@@ -1,0 +1,32 @@
+{
+  error=translateException(error);
+  if (tries > startLogErrorsCnt) {
+    LOG.warn(errMsg.get(),error);
+  }
+  RetriesExhaustedException.ThrowableWithExtraContext qt=new RetriesExhaustedException.ThrowableWithExtraContext(error,EnvironmentEdgeManager.currentTime(),"");
+  exceptions.add(qt);
+  if (error instanceof DoNotRetryIOException || tries >= maxAttempts) {
+    completeExceptionally();
+    return;
+  }
+  long delayNs;
+  if (operationTimeoutNs > 0) {
+    long maxDelayNs=operationTimeoutNs - (System.nanoTime() - startNs);
+    if (maxDelayNs <= 0) {
+      completeExceptionally();
+      return;
+    }
+    delayNs=Math.min(maxDelayNs,getPauseTime(pauseNs,tries - 1));
+  }
+ else {
+    delayNs=getPauseTime(pauseNs,tries - 1);
+  }
+  updateCachedLocation.accept(error);
+  tries++;
+  retryTimer.newTimeout(new TimerTask(){
+    @Override public void run(    Timeout timeout) throws Exception {
+      locateThenCall();
+    }
+  }
+,delayNs,TimeUnit.NANOSECONDS);
+}
