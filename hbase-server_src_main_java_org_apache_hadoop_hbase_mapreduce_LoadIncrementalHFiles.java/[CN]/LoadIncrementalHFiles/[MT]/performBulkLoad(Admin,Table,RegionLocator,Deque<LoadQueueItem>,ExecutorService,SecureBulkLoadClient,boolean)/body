@@ -6,6 +6,7 @@
   }
   fsDelegationToken.acquireDelegationToken(fs);
   bulkToken=secureClient.prepareBulkLoad(admin.getConnection());
+  Pair<Multimap<ByteBuffer,LoadQueueItem>,List<String>> pair=null;
   while (!queue.isEmpty()) {
     final Pair<byte[][],byte[][]> startEndKeys=regionLocator.getStartEndKeys();
     if (count != 0) {
@@ -17,7 +18,8 @@
       throw new IOException("Retry attempted " + count + " times without completing, bailing out");
     }
     count++;
-    Multimap<ByteBuffer,LoadQueueItem> regionGroups=groupOrSplitPhase(table,pool,queue,startEndKeys);
+    pair=groupOrSplitPhase(table,pool,queue,startEndKeys);
+    Multimap<ByteBuffer,LoadQueueItem> regionGroups=pair.getFirst();
     if (!checkHFilesCountPerRegionPerFamily(regionGroups)) {
       throw new IOException("Trying to load more than " + maxFilesPerRegionPerFamily + " hfiles to one family of one region");
     }
@@ -26,4 +28,6 @@
   if (!queue.isEmpty()) {
     throw new RuntimeException("Bulk load aborted with some files not yet loaded." + "Please check log for more details.");
   }
+  if (pair == null)   return null;
+  return pair.getSecond();
 }

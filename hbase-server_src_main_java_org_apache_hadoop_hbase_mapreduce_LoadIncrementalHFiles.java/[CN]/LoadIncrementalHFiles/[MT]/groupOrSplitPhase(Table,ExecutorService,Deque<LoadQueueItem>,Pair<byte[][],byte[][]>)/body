@@ -1,23 +1,30 @@
 {
   Multimap<ByteBuffer,LoadQueueItem> rgs=HashMultimap.create();
   final Multimap<ByteBuffer,LoadQueueItem> regionGroups=Multimaps.synchronizedMultimap(rgs);
-  Set<Future<List<LoadQueueItem>>> splittingFutures=new HashSet<>();
+  List<String> missingHFiles=new ArrayList<>();
+  Pair<Multimap<ByteBuffer,LoadQueueItem>,List<String>> pair=new Pair<>(regionGroups,missingHFiles);
+  Set<Future<Pair<List<LoadQueueItem>,String>>> splittingFutures=new HashSet<>();
   while (!queue.isEmpty()) {
     final LoadQueueItem item=queue.remove();
-    final Callable<List<LoadQueueItem>> call=new Callable<List<LoadQueueItem>>(){
-      @Override public List<LoadQueueItem> call() throws Exception {
-        List<LoadQueueItem> splits=groupOrSplit(regionGroups,item,table,startEndKeys);
+    final Callable<Pair<List<LoadQueueItem>,String>> call=new Callable<Pair<List<LoadQueueItem>,String>>(){
+      @Override public Pair<List<LoadQueueItem>,String> call() throws Exception {
+        Pair<List<LoadQueueItem>,String> splits=groupOrSplit(regionGroups,item,table,startEndKeys);
         return splits;
       }
     }
 ;
     splittingFutures.add(pool.submit(call));
   }
-  for (  Future<List<LoadQueueItem>> lqis : splittingFutures) {
+  for (  Future<Pair<List<LoadQueueItem>,String>> lqis : splittingFutures) {
     try {
-      List<LoadQueueItem> splits=lqis.get();
+      Pair<List<LoadQueueItem>,String> splits=lqis.get();
       if (splits != null) {
-        queue.addAll(splits);
+        if (splits.getFirst() != null) {
+          queue.addAll(splits.getFirst());
+        }
+ else {
+          missingHFiles.add(splits.getSecond());
+        }
       }
     }
  catch (    ExecutionException e1) {
@@ -34,5 +41,5 @@ catch (    InterruptedException e1) {
       throw (InterruptedIOException)new InterruptedIOException().initCause(e1);
     }
   }
-  return regionGroups;
+  return pair;
 }
