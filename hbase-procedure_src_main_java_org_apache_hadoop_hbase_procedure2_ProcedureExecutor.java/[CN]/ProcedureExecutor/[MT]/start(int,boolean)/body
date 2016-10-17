@@ -3,22 +3,15 @@
     LOG.warn("Already running");
     return;
   }
-  threads=new Thread[numThreads + 1];
-  LOG.info("Starting procedure executor threads=" + threads.length);
-  for (int i=0; i < numThreads; ++i) {
-    threads[i]=new Thread("ProcedureExecutor-" + i){
-      @Override public void run(){
-        execLoop();
-      }
-    }
-;
+  this.corePoolSize=numThreads;
+  LOG.info("Starting procedure executor threads=" + corePoolSize);
+  threadGroup=new ThreadGroup("ProcedureExecutor");
+  timeoutExecutor=new TimeoutExecutorThread(threadGroup);
+  workerId.set(0);
+  workerThreads=new CopyOnWriteArrayList<WorkerThread>();
+  for (int i=0; i < corePoolSize; ++i) {
+    workerThreads.add(new WorkerThread(threadGroup));
   }
-  threads[numThreads]=new Thread("ProcedureExecutorTimeoutThread"){
-    @Override public void run(){
-      timeoutLoop();
-    }
-  }
-;
   long st, et;
   st=EnvironmentEdgeManager.currentTime();
   store.recoverLease();
@@ -29,8 +22,11 @@
   load(abortOnCorruption);
   et=EnvironmentEdgeManager.currentTime();
   LOG.info(String.format("load procedure store (%s): %s",store.getClass().getSimpleName(),StringUtils.humanTimeDiff(et - st)));
-  for (int i=0; i < threads.length; ++i) {
-    threads[i].start();
+  LOG.debug("start workers " + workerThreads.size());
+  timeoutExecutor.start();
+  for (  WorkerThread worker : workerThreads) {
+    worker.start();
   }
+  timeoutExecutor.add(new WorkerMonitor());
   addChore(new CompletedProcedureCleaner(conf,store,completed,nonceKeysToProcIdsMap));
 }
