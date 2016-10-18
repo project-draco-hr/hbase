@@ -12,10 +12,11 @@
   AtomicBoolean done=new AtomicBoolean(false);
   replicaSwitched.set(false);
   addCallsForCurrentReplica(cs,rl);
+  int startIndex=0;
   try {
     Future<Pair<Result[],ScannerCallable>> f=cs.poll(timeBeforeReplicas,TimeUnit.MICROSECONDS);
     if (f != null) {
-      Pair<Result[],ScannerCallable> r=f.get(timeout,TimeUnit.MILLISECONDS);
+      Pair<Result[],ScannerCallable> r=f.get();
       if (r != null && r.getSecond() != null) {
         updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
       }
@@ -23,7 +24,13 @@
     }
   }
  catch (  ExecutionException e) {
-    RpcRetryingCallerWithReadReplicas.throwEnrichedException(e,retries);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Scan with primary region returns " + e.getCause());
+    }
+    if ((rl.size() == 1) || (scan.getConsistency() == Consistency.STRONG)) {
+      RpcRetryingCallerWithReadReplicas.throwEnrichedException(e,retries);
+    }
+    startIndex=1;
   }
 catch (  CancellationException e) {
     throw new InterruptedIOException(e.getMessage());
@@ -31,24 +38,23 @@ catch (  CancellationException e) {
 catch (  InterruptedException e) {
     throw new InterruptedIOException(e.getMessage());
   }
-catch (  TimeoutException e) {
-    throw new InterruptedIOException(e.getMessage());
+  int endIndex=rl.size();
+  if (scan.getConsistency() == Consistency.STRONG) {
+    endIndex=1;
   }
-  addCallsForOtherReplicas(cs,rl,0,rl.size() - 1);
-  try {
-    long start=EnvironmentEdgeManager.currentTime();
-    Future<Pair<Result[],ScannerCallable>> f=cs.poll(timeout,TimeUnit.MILLISECONDS);
-    long duration=EnvironmentEdgeManager.currentTime() - start;
-    if (f != null) {
-      Pair<Result[],ScannerCallable> r=f.get(timeout - duration,TimeUnit.MILLISECONDS);
-      if (r != null && r.getSecond() != null) {
-        updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
-      }
-      return r == null ? null : r.getFirst();
-    }
  else {
+    addCallsForOtherReplicas(cs,rl,0,rl.size() - 1);
+  }
+  try {
+    Future<Pair<Result[],ScannerCallable>> f=cs.pollForFirstSuccessfullyCompletedTask(timeout,TimeUnit.MILLISECONDS,startIndex,endIndex);
+    if (f == null) {
       throw new IOException("Failed to get result within timeout, timeout=" + timeout + "ms");
     }
+    Pair<Result[],ScannerCallable> r=f.get();
+    if (r != null && r.getSecond() != null) {
+      updateCurrentlyServingReplica(r.getSecond(),r.getFirst(),done,pool);
+    }
+    return r == null ? null : r.getFirst();
   }
  catch (  ExecutionException e) {
     RpcRetryingCallerWithReadReplicas.throwEnrichedException(e,retries);
@@ -57,9 +63,6 @@ catch (  CancellationException e) {
     throw new InterruptedIOException(e.getMessage());
   }
 catch (  InterruptedException e) {
-    throw new InterruptedIOException(e.getMessage());
-  }
-catch (  TimeoutException e) {
     throw new InterruptedIOException(e.getMessage());
   }
  finally {

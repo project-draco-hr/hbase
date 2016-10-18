@@ -2,8 +2,11 @@
   boolean isTargetReplicaSpecified=(get.getReplicaId() >= 0);
   RegionLocations rl=getRegionLocations(true,(isTargetReplicaSpecified ? get.getReplicaId() : RegionReplicaUtil.DEFAULT_REPLICA_ID),cConnection,tableName,get.getRow());
   final ResultBoundedCompletionService<Result> cs=new ResultBoundedCompletionService<Result>(this.rpcRetryingCallerFactory,pool,rl.size());
+  int startIndex=0;
+  int endIndex=rl.size();
   if (isTargetReplicaSpecified) {
     addCallsForReplica(cs,rl,get.getReplicaId(),get.getReplicaId());
+    endIndex=1;
   }
  else {
     addCallsForReplica(cs,rl,0,0);
@@ -14,7 +17,10 @@
       }
     }
  catch (    ExecutionException e) {
-      throwEnrichedException(e,retries);
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Primary replica returns " + e.getCause());
+      }
+      startIndex=1;
     }
 catch (    CancellationException e) {
       throw new InterruptedIOException();
@@ -25,23 +31,16 @@ catch (    InterruptedException e) {
     addCallsForReplica(cs,rl,1,rl.size() - 1);
   }
   try {
-    try {
-      long start=EnvironmentEdgeManager.currentTime();
-      Future<Result> f=cs.poll(operationTimeout,TimeUnit.MILLISECONDS);
-      long duration=EnvironmentEdgeManager.currentTime() - start;
-      if (f == null) {
-        throw new RetriesExhaustedException("timed out after " + duration + " ms");
-      }
-      return f.get(operationTimeout - duration,TimeUnit.MILLISECONDS);
-    }
- catch (    ExecutionException e) {
-      throwEnrichedException(e,retries);
-    }
-catch (    TimeoutException te) {
+    Future<Result> f=cs.pollForFirstSuccessfullyCompletedTask(operationTimeout,TimeUnit.MILLISECONDS,startIndex,endIndex);
+    if (f == null) {
       throw new RetriesExhaustedException("timed out after " + operationTimeout + " ms");
     }
+    return f.get();
   }
- catch (  CancellationException e) {
+ catch (  ExecutionException e) {
+    throwEnrichedException(e,retries);
+  }
+catch (  CancellationException e) {
     throw new InterruptedIOException();
   }
 catch (  InterruptedException e) {
@@ -50,5 +49,6 @@ catch (  InterruptedException e) {
  finally {
     cs.cancelAll();
   }
+  LOG.error("Imposible? Arrive at an unreachable line...");
   return null;
 }
