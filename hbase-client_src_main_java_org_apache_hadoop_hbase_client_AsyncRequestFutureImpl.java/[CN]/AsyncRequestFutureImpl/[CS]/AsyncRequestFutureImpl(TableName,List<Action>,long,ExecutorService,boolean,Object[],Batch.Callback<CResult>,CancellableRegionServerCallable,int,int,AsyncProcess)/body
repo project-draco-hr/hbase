@@ -1,0 +1,69 @@
+{
+  this.pool=pool;
+  this.callback=callback;
+  this.nonceGroup=nonceGroup;
+  this.tableName=tableName;
+  this.actionsInProgress.set(actions.size());
+  if (results != null) {
+    assert needResults;
+    if (results.length != actions.size()) {
+      throw new AssertionError("results.length");
+    }
+    this.results=results;
+    for (int i=0; i != this.results.length; ++i) {
+      results[i]=null;
+    }
+  }
+ else {
+    this.results=needResults ? new Object[actions.size()] : null;
+  }
+  List<Integer> replicaGetIndices=null;
+  boolean hasAnyReplicaGets=false;
+  if (needResults) {
+    boolean hasAnyNonReplicaReqs=false;
+    int posInList=0;
+    for (    Action action : actions) {
+      boolean isReplicaGet=AsyncProcess.isReplicaGet(action.getAction());
+      if (isReplicaGet) {
+        hasAnyReplicaGets=true;
+        if (hasAnyNonReplicaReqs) {
+          if (replicaGetIndices == null) {
+            replicaGetIndices=new ArrayList<Integer>(actions.size() - 1);
+          }
+          replicaGetIndices.add(posInList);
+        }
+      }
+ else       if (!hasAnyNonReplicaReqs) {
+        hasAnyNonReplicaReqs=true;
+        if (posInList > 0) {
+          replicaGetIndices=new ArrayList<Integer>(actions.size() - 1);
+          for (int i=0; i < posInList; ++i) {
+            replicaGetIndices.add(i);
+          }
+        }
+      }
+      ++posInList;
+    }
+  }
+  this.hasAnyReplicaGets=hasAnyReplicaGets;
+  if (replicaGetIndices != null) {
+    this.replicaGetIndices=new int[replicaGetIndices.size()];
+    int i=0;
+    for (    Integer el : replicaGetIndices) {
+      this.replicaGetIndices[i++]=el;
+    }
+  }
+ else {
+    this.replicaGetIndices=null;
+  }
+  this.callsInProgress=!hasAnyReplicaGets ? null : Collections.newSetFromMap(new ConcurrentHashMap<CancellableRegionServerCallable,Boolean>());
+  this.asyncProcess=asyncProcess;
+  this.errorsByServer=createServerErrorTracker();
+  this.errors=(asyncProcess.globalErrors != null) ? asyncProcess.globalErrors : new BatchErrors();
+  this.operationTimeout=operationTimeout;
+  this.rpcTimeout=rpcTimeout;
+  this.currentCallable=callable;
+  if (callable == null) {
+    tracker=new RetryingTimeTracker().start();
+  }
+}

@@ -1,0 +1,47 @@
+{
+  Map<ServerName,MultiAction> actionsByServer=new HashMap<ServerName,MultiAction>();
+  boolean isReplica=false;
+  List<Action> unknownReplicaActions=null;
+  for (  Action action : currentActions) {
+    RegionLocations locs=findAllLocationsOrFail(action,true);
+    if (locs == null)     continue;
+    boolean isReplicaAction=!RegionReplicaUtil.isDefaultReplica(action.getReplicaId());
+    if (isReplica && !isReplicaAction) {
+      throw new AssertionError("Replica and non-replica actions in the same retry");
+    }
+    isReplica=isReplicaAction;
+    HRegionLocation loc=locs.getRegionLocation(action.getReplicaId());
+    if (loc == null || loc.getServerName() == null) {
+      if (isReplica) {
+        if (unknownReplicaActions == null) {
+          unknownReplicaActions=new ArrayList<Action>();
+        }
+        unknownReplicaActions.add(action);
+      }
+ else {
+        manageLocationError(action,null);
+      }
+    }
+ else {
+      byte[] regionName=loc.getRegionInfo().getRegionName();
+      AsyncProcess.addAction(loc.getServerName(),regionName,action,actionsByServer,nonceGroup);
+    }
+  }
+  boolean doStartReplica=(numAttempt == 1 && !isReplica && hasAnyReplicaGets);
+  boolean hasUnknown=unknownReplicaActions != null && !unknownReplicaActions.isEmpty();
+  if (!actionsByServer.isEmpty()) {
+    sendMultiAction(actionsByServer,numAttempt,(doStartReplica && !hasUnknown) ? currentActions : null,numAttempt > 1 && !hasUnknown);
+  }
+  if (hasUnknown) {
+    actionsByServer=new HashMap<ServerName,MultiAction>();
+    for (    Action action : unknownReplicaActions) {
+      HRegionLocation loc=getReplicaLocationOrFail(action);
+      if (loc == null)       continue;
+      byte[] regionName=loc.getRegionInfo().getRegionName();
+      AsyncProcess.addAction(loc.getServerName(),regionName,action,actionsByServer,nonceGroup);
+    }
+    if (!actionsByServer.isEmpty()) {
+      sendMultiAction(actionsByServer,numAttempt,doStartReplica ? currentActions : null,true);
+    }
+  }
+}

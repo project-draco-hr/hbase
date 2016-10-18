@@ -1,0 +1,39 @@
+{
+  errorsByServer.reportServerError(server);
+  Retry canRetry=errorsByServer.canTryMore(numAttempt) ? Retry.YES : Retry.NO_RETRIES_EXHAUSTED;
+  if (tableName == null && ClientExceptionsUtil.isMetaClearingException(t)) {
+    asyncProcess.connection.clearCaches(server);
+  }
+  int failed=0, stopped=0;
+  List<Action> toReplay=new ArrayList<Action>();
+  for (  Map.Entry<byte[],List<Action>> e : rsActions.actions.entrySet()) {
+    byte[] regionName=e.getKey();
+    byte[] row=e.getValue().iterator().next().getAction().getRow();
+    try {
+      if (tableName != null) {
+        asyncProcess.connection.updateCachedLocations(tableName,regionName,row,ClientExceptionsUtil.isMetaClearingException(t) ? null : t,server);
+      }
+    }
+ catch (    Throwable ex) {
+      LOG.error("Couldn't update cached region locations: " + ex);
+    }
+    for (    Action action : e.getValue()) {
+      Retry retry=manageError(action.getOriginalIndex(),action.getAction(),canRetry,t,server);
+      if (retry == Retry.YES) {
+        toReplay.add(action);
+      }
+ else       if (retry == Retry.NO_OTHER_SUCCEEDED) {
+        ++stopped;
+      }
+ else {
+        ++failed;
+      }
+    }
+  }
+  if (toReplay.isEmpty()) {
+    logNoResubmit(server,numAttempt,rsActions.size(),t,failed,stopped);
+  }
+ else {
+    resubmit(server,toReplay,numAttempt,rsActions.size(),t);
+  }
+}
