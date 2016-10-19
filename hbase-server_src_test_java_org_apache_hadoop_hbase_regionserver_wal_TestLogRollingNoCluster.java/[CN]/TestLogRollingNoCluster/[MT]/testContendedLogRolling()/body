@@ -1,29 +1,32 @@
 {
-  Path dir=TEST_UTIL.getDataTestDir();
-  TEST_UTIL.getConfiguration().setInt(HConstants.REGION_SERVER_HANDLER_COUNT,THREAD_COUNT);
+  TEST_UTIL.startMiniDFSCluster(3);
+  Path dir=TEST_UTIL.getDataTestDirOnTestFS();
+  TEST_UTIL.getConfiguration().setInt(HConstants.REGION_SERVER_HANDLER_COUNT,NUM_THREADS);
   final Configuration conf=new Configuration(TEST_UTIL.getConfiguration());
   conf.set(WALFactory.WAL_PROVIDER,"filesystem");
   FSUtils.setRootDir(conf,dir);
+  conf.set("hbase.regionserver.hlog.writer.impl",HighLatencySyncWriter.class.getName());
   final WALFactory wals=new WALFactory(conf,null,TestLogRollingNoCluster.class.getName());
   final WAL wal=wals.getWAL(new byte[]{},null);
   Appender[] appenders=null;
-  final int count=THREAD_COUNT;
-  appenders=new Appender[count];
+  final int numThreads=NUM_THREADS;
+  appenders=new Appender[numThreads];
   try {
-    for (int i=0; i < count; i++) {
-      appenders[i]=new Appender(wal,i,count);
+    for (int i=0; i < numThreads; i++) {
+      appenders[i]=new Appender(wal,i,NUM_ENTRIES);
     }
-    for (int i=0; i < count; i++) {
+    for (int i=0; i < numThreads; i++) {
       appenders[i].start();
     }
-    for (int i=0; i < count; i++) {
+    for (int i=0; i < numThreads; i++) {
       appenders[i].join();
     }
   }
   finally {
     wals.close();
   }
-  for (int i=0; i < count; i++) {
+  for (int i=0; i < numThreads; i++) {
     assertFalse(appenders[i].isException());
   }
+  TEST_UTIL.shutdownMiniDFSCluster();
 }
