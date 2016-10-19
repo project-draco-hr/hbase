@@ -1,0 +1,34 @@
+{
+  CompletableFuture<RESP> future=new CompletableFuture<>();
+  try {
+    byte[] regionName=loc.getRegionInfo().getRegionName();
+    MultiRequest req=reqConvert.convert(regionName,mutation);
+    stub.multi(controller,req,new RpcCallback<MultiResponse>(){
+      @Override public void run(      MultiResponse resp){
+        if (controller.failed()) {
+          future.completeExceptionally(controller.getFailed());
+        }
+ else {
+          try {
+            org.apache.hadoop.hbase.client.MultiResponse multiResp=ResponseConverter.getResults(req,resp,controller.cellScanner());
+            Throwable ex=multiResp.getException(regionName);
+            if (ex != null) {
+              future.completeExceptionally(ex instanceof IOException ? ex : new IOException("Failed to mutate row: " + Bytes.toStringBinary(mutation.getRow()),ex));
+            }
+ else {
+              future.complete(respConverter.apply((Result)multiResp.getResults().get(regionName).result.get(0)));
+            }
+          }
+ catch (          IOException e) {
+            future.completeExceptionally(e);
+          }
+        }
+      }
+    }
+);
+  }
+ catch (  IOException e) {
+    future.completeExceptionally(e);
+  }
+  return future;
+}
