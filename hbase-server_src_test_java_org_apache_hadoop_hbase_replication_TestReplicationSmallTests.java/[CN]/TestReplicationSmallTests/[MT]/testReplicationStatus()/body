@@ -1,6 +1,8 @@
 {
   LOG.info("testReplicationStatus");
-  try (Admin admin=utility1.getConnection().getAdmin()){
+  try (Admin hbaseAdmin=utility1.getConnection().getAdmin()){
+    Thread.sleep(5000);
+    admin.disablePeer(PEER_ID);
     final byte[] qualName=Bytes.toBytes("q");
     Put p;
     for (int i=0; i < NB_ROWS_IN_BATCH; i++) {
@@ -8,15 +10,29 @@
       p.addColumn(famName,qualName,Bytes.toBytes("val" + i));
       htable1.put(p);
     }
-    ClusterStatus status=admin.getClusterStatus();
+    ClusterStatus status=hbaseAdmin.getClusterStatus();
+    long globalSizeOfLogQueue=0;
     for (    JVMClusterUtil.RegionServerThread thread : utility1.getHBaseCluster().getRegionServerThreads()) {
       ServerName server=thread.getRegionServer().getServerName();
       ServerLoad sl=status.getLoad(server);
       List<ReplicationLoadSource> rLoadSourceList=sl.getReplicationLoadSourceList();
       ReplicationLoadSink rLoadSink=sl.getReplicationLoadSink();
-      assertTrue("failed to get ReplicationLoadSourceList",(rLoadSourceList.size() > 0));
+      assertTrue("failed to get ReplicationLoadSourceList",(rLoadSourceList.size() == 1));
+      globalSizeOfLogQueue+=rLoadSourceList.get(0).getSizeOfLogQueue();
       assertTrue("failed to get ReplicationLoadSink.AgeOfLastShippedOp ",(rLoadSink.getAgeOfLastAppliedOp() >= 0));
       assertTrue("failed to get ReplicationLoadSink.TimeStampsOfLastAppliedOp ",(rLoadSink.getTimeStampsOfLastAppliedOp() >= 0));
     }
+    utility1.getHBaseCluster().getRegionServer(1).stop("Stop RegionServer");
+    Thread.sleep(5000);
+    status=hbaseAdmin.getClusterStatus();
+    ServerName server=utility1.getHBaseCluster().getRegionServer(0).getServerName();
+    ServerLoad sl=status.getLoad(server);
+    List<ReplicationLoadSource> rLoadSourceList=sl.getReplicationLoadSourceList();
+    assertTrue("failed to get ReplicationLoadSourceList",(rLoadSourceList.size() == 1));
+    assertEquals(globalSizeOfLogQueue,rLoadSourceList.get(0).getSizeOfLogQueue());
   }
- }
+  finally {
+    utility1.getHBaseCluster().getRegionServer(1).start();
+    admin.enablePeer(PEER_ID);
+  }
+}

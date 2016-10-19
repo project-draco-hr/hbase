@@ -5,8 +5,9 @@
   rLoadSinkBuild.setAgeOfLastAppliedOp(sinkMetrics.getAgeOfLastAppliedOp());
   rLoadSinkBuild.setTimeStampsOfLastAppliedOp(sinkMetrics.getTimeStampOfLastAppliedOp());
   this.replicationLoadSink=rLoadSinkBuild.build();
-  this.replicationLoadSourceList=new ArrayList<ClusterStatusProtos.ReplicationLoadSource>();
+  Map<String,ClusterStatusProtos.ReplicationLoadSource> replicationLoadSourceMap=new HashMap<String,ClusterStatusProtos.ReplicationLoadSource>();
   for (  MetricsSource sm : this.sourceMetricsList) {
+    String peerId=sm.getPeerID();
     long ageOfLastShippedOp=sm.getAgeOfLastShippedOp();
     int sizeOfLogQueue=sm.getSizeOfLogQueue();
     long timeStampOfLastShippedOp=sm.getTimeStampOfLastShippedOp();
@@ -21,12 +22,20 @@
  else {
       replicationLag=0;
     }
+    ClusterStatusProtos.ReplicationLoadSource rLoadSource=replicationLoadSourceMap.get(peerId);
+    if (rLoadSource != null) {
+      ageOfLastShippedOp=Math.max(rLoadSource.getAgeOfLastShippedOp(),ageOfLastShippedOp);
+      sizeOfLogQueue+=rLoadSource.getSizeOfLogQueue();
+      timeStampOfLastShippedOp=Math.min(rLoadSource.getTimeStampOfLastShippedOp(),timeStampOfLastShippedOp);
+      replicationLag=Math.max(rLoadSource.getReplicationLag(),replicationLag);
+    }
     ClusterStatusProtos.ReplicationLoadSource.Builder rLoadSourceBuild=ClusterStatusProtos.ReplicationLoadSource.newBuilder();
-    rLoadSourceBuild.setPeerID(sm.getPeerID());
+    rLoadSourceBuild.setPeerID(peerId);
     rLoadSourceBuild.setAgeOfLastShippedOp(ageOfLastShippedOp);
     rLoadSourceBuild.setSizeOfLogQueue(sizeOfLogQueue);
     rLoadSourceBuild.setTimeStampOfLastShippedOp(timeStampOfLastShippedOp);
     rLoadSourceBuild.setReplicationLag(replicationLag);
-    this.replicationLoadSourceList.add(rLoadSourceBuild.build());
+    replicationLoadSourceMap.put(peerId,rLoadSourceBuild.build());
   }
+  this.replicationLoadSourceList=new ArrayList<ClusterStatusProtos.ReplicationLoadSource>(replicationLoadSourceMap.values());
 }
