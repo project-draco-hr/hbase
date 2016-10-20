@@ -1,7 +1,6 @@
 {
   LOG.info("testReplicationStatus");
   try (Admin hbaseAdmin=utility1.getConnection().getAdmin()){
-    Thread.sleep(5000);
     admin.disablePeer(PEER_ID);
     final byte[] qualName=Bytes.toBytes("q");
     Put p;
@@ -11,28 +10,27 @@
       htable1.put(p);
     }
     ClusterStatus status=hbaseAdmin.getClusterStatus();
-    long globalSizeOfLogQueue=0;
     for (    JVMClusterUtil.RegionServerThread thread : utility1.getHBaseCluster().getRegionServerThreads()) {
       ServerName server=thread.getRegionServer().getServerName();
       ServerLoad sl=status.getLoad(server);
       List<ReplicationLoadSource> rLoadSourceList=sl.getReplicationLoadSourceList();
       ReplicationLoadSink rLoadSink=sl.getReplicationLoadSink();
       assertTrue("failed to get ReplicationLoadSourceList",(rLoadSourceList.size() == 1));
-      globalSizeOfLogQueue+=rLoadSourceList.get(0).getSizeOfLogQueue();
+      assertEquals(PEER_ID,rLoadSourceList.get(0).getPeerID());
       assertTrue("failed to get ReplicationLoadSink.AgeOfLastShippedOp ",(rLoadSink.getAgeOfLastAppliedOp() >= 0));
       assertTrue("failed to get ReplicationLoadSink.TimeStampsOfLastAppliedOp ",(rLoadSink.getTimeStampsOfLastAppliedOp() >= 0));
     }
     utility1.getHBaseCluster().getRegionServer(1).stop("Stop RegionServer");
-    Thread.sleep(5000);
+    Thread.sleep(10000);
     status=hbaseAdmin.getClusterStatus();
     ServerName server=utility1.getHBaseCluster().getRegionServer(0).getServerName();
     ServerLoad sl=status.getLoad(server);
     List<ReplicationLoadSource> rLoadSourceList=sl.getReplicationLoadSourceList();
     assertTrue("failed to get ReplicationLoadSourceList",(rLoadSourceList.size() == 1));
-    assertEquals(globalSizeOfLogQueue,rLoadSourceList.get(0).getSizeOfLogQueue());
+    assertEquals(PEER_ID,rLoadSourceList.get(0).getPeerID());
   }
   finally {
-    utility1.getHBaseCluster().getRegionServer(1).start();
     admin.enablePeer(PEER_ID);
+    utility1.getHBaseCluster().getRegionServer(1).start();
   }
 }
