@@ -1,0 +1,41 @@
+{
+  if (saslServer == null)   return;
+  String qop=(String)saslServer.getNegotiatedProperty(Sasl.QOP);
+  boolean isEncryption=SaslUtil.QualityOfProtection.PRIVACY.getSaslQop().equalsIgnoreCase(qop);
+  boolean isCryptoAesEncryption=isEncryption && conf.getBoolean("hbase.rpc.crypto.encryption.aes.enabled",false);
+  if (!isCryptoAesEncryption)   return;
+  if (!header.hasRpcCryptoCipherTransformation())   return;
+  String transformation=header.getRpcCryptoCipherTransformation();
+  if (transformation == null || transformation.length() == 0)   return;
+  Properties properties=new Properties();
+  properties.setProperty(CryptoRandomFactory.CLASSES_KEY,conf.get("hbase.crypto.sasl.encryption.aes.crypto.random","org.apache.commons.crypto.random.JavaCryptoRandom"));
+  properties.setProperty(CryptoCipherFactory.CLASSES_KEY,conf.get("hbase.rpc.crypto.encryption.aes.cipher.class","org.apache.commons.crypto.cipher.JceCipher"));
+  int cipherKeyBits=conf.getInt("hbase.rpc.crypto.encryption.aes.cipher.keySizeBits",128);
+  if (cipherKeyBits % 8 != 0) {
+    throw new IllegalArgumentException("The AES cipher key size in bits" + " should be a multiple of byte");
+  }
+  int len=cipherKeyBits / 8;
+  byte[] inKey=new byte[len];
+  byte[] outKey=new byte[len];
+  byte[] inIv=new byte[len];
+  byte[] outIv=new byte[len];
+  try {
+    CryptoRandom secureRandom=CryptoRandomFactory.getCryptoRandom(properties);
+    secureRandom.nextBytes(inKey);
+    secureRandom.nextBytes(outKey);
+    secureRandom.nextBytes(inIv);
+    secureRandom.nextBytes(outIv);
+    cryptoAES=new CryptoAES(transformation,properties,inKey,outKey,inIv,outIv);
+    RPCProtos.CryptoCipherMeta.Builder ccmBuilder=RPCProtos.CryptoCipherMeta.newBuilder();
+    ccmBuilder.setTransformation(transformation);
+    ccmBuilder.setInIv(getByteString(outIv));
+    ccmBuilder.setInKey(getByteString(outKey));
+    ccmBuilder.setOutIv(getByteString(inIv));
+    ccmBuilder.setOutKey(getByteString(inKey));
+    chrBuilder.setCryptoCipherMeta(ccmBuilder);
+    useCryptoAesWrap=true;
+  }
+ catch (  GeneralSecurityException|IOException ex) {
+    throw new UnsupportedCryptoException(ex.getMessage(),ex);
+  }
+}

@@ -1,0 +1,23 @@
+{
+  byte[] decrypted=new byte[len - 4];
+  byte[] peerSeqNum=new byte[4];
+  try {
+    decryptor.update(data,offset,len - 4,decrypted,0);
+  }
+ catch (  ShortBufferException sbe) {
+    throw new SaslException("Error happens during decrypt data",sbe);
+  }
+  System.arraycopy(data,offset + decrypted.length,peerSeqNum,0,4);
+  byte[] msg=new byte[decrypted.length - 10];
+  byte[] mac=new byte[10];
+  System.arraycopy(decrypted,0,msg,0,msg.length);
+  System.arraycopy(decrypted,msg.length,mac,0,10);
+  if (!integrity.compareHMAC(mac,peerSeqNum,msg,0,msg.length)) {
+    throw new SaslException("Unmatched MAC");
+  }
+  if (!integrity.comparePeerSeqNum(peerSeqNum)) {
+    throw new SaslException("Out of order sequencing of messages. Got: " + integrity.byteToInt(peerSeqNum) + " Expected: "+ integrity.peerSeqNum);
+  }
+  integrity.incPeerSeqNum();
+  return msg;
+}

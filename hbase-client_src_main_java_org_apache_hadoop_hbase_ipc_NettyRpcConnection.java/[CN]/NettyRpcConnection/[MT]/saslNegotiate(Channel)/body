@@ -5,9 +5,9 @@
     return;
   }
   Promise<Boolean> saslPromise=ch.eventLoop().newPromise();
-  ChannelHandler saslHandler;
+  final NettyHBaseSaslRpcClientHandler saslHandler;
   try {
-    saslHandler=new NettyHBaseSaslRpcClientHandler(saslPromise,ticket,authMethod,token,serverPrincipal,rpcClient.fallbackAllowed,this.rpcClient.conf.get("hbase.rpc.protection",QualityOfProtection.AUTHENTICATION.name().toLowerCase()));
+    saslHandler=new NettyHBaseSaslRpcClientHandler(saslPromise,ticket,authMethod,token,serverPrincipal,rpcClient.fallbackAllowed,this.rpcClient.conf);
   }
  catch (  IOException e) {
     failInit(ch,e);
@@ -20,7 +20,32 @@
         ChannelPipeline p=ch.pipeline();
         p.remove(SaslChallengeDecoder.class);
         p.remove(NettyHBaseSaslRpcClientHandler.class);
-        established(ch);
+        if (saslHandler.isNeedProcessConnectionHeader()) {
+          Promise<Boolean> connectionHeaderPromise=ch.eventLoop().newPromise();
+          ChannelHandler chHandler=new NettyHBaseRpcConnectionHeaderHandler(connectionHeaderPromise,conf,connectionHeaderWithLength);
+          p.addFirst(new ReadTimeoutHandler(RpcClient.DEFAULT_SOCKET_TIMEOUT_READ,TimeUnit.MILLISECONDS));
+          p.addLast(chHandler);
+          connectionHeaderPromise.addListener(new FutureListener<Boolean>(){
+            @Override public void operationComplete(            Future<Boolean> future) throws Exception {
+              if (future.isSuccess()) {
+                ChannelPipeline p=ch.pipeline();
+                p.remove(ReadTimeoutHandler.class);
+                p.remove(NettyHBaseRpcConnectionHeaderHandler.class);
+                established(ch);
+              }
+ else {
+                final Throwable error=future.cause();
+                scheduleRelogin(error);
+                failInit(ch,toIOE(error));
+              }
+            }
+          }
+);
+        }
+ else {
+          ch.write(connectionHeaderWithLength.retainedDuplicate());
+          established(ch);
+        }
       }
  else {
         final Throwable error=future.cause();
