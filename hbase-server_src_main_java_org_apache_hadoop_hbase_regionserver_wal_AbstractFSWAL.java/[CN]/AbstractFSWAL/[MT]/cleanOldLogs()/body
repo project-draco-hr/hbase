@@ -1,23 +1,23 @@
 {
-  List<Path> logsToArchive=null;
-  for (  Map.Entry<Path,Map<byte[],Long>> e : this.byWalRegionSequenceIds.entrySet()) {
+  List<Pair<Path,Long>> logsToArchive=null;
+  for (  Map.Entry<Path,WalProps> e : this.walFile2Props.entrySet()) {
     Path log=e.getKey();
-    Map<byte[],Long> sequenceNums=e.getValue();
+    Map<byte[],Long> sequenceNums=e.getValue().encodedName2HighestSequenceId;
     if (this.sequenceIdAccounting.areAllLower(sequenceNums)) {
       if (logsToArchive == null) {
-        logsToArchive=new ArrayList<Path>();
+        logsToArchive=new ArrayList<>();
       }
-      logsToArchive.add(log);
+      logsToArchive.add(Pair.newPair(log,e.getValue().logSize));
       if (LOG.isTraceEnabled()) {
         LOG.trace("WAL file ready for archiving " + log);
       }
     }
   }
   if (logsToArchive != null) {
-    for (    Path p : logsToArchive) {
-      this.totalLogSize.addAndGet(-this.fs.getFileStatus(p).getLen());
-      archiveLogFile(p);
-      this.byWalRegionSequenceIds.remove(p);
+    for (    Pair<Path,Long> logAndSize : logsToArchive) {
+      this.totalLogSize.addAndGet(-logAndSize.getSecond());
+      archiveLogFile(logAndSize.getFirst());
+      this.walFile2Props.remove(logAndSize.getFirst());
     }
   }
 }
