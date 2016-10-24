@@ -1,27 +1,35 @@
 {
   ImmutableSegment result=null;
   boolean resultSwapped=false;
+  Action nextStep=null;
   try {
-    if (shouldFlatten()) {
-      LOG.debug("In-Memory compaction does not pay off - storing the flattened segment" + " for store: " + compactingMemStore.getFamilyName());
+    nextStep=policy();
+    if (nextStep == Action.NOOP) {
+      return;
+    }
+    if (nextStep == Action.FLATTEN) {
       compactingMemStore.flattenOneSegment(versionedList.getVersion());
       return;
     }
     if (!isInterrupted.get()) {
-      result=compact(immutCellsNum);
+      result=createSubstitution();
     }
     if (!isInterrupted.get()) {
-      if (resultSwapped=compactingMemStore.swapCompactedSegments(versionedList,result)) {
+      if (resultSwapped=compactingMemStore.swapCompactedSegments(versionedList,result,(action == Action.MERGE))) {
         compactingMemStore.updateLowestUnflushedSequenceIdInWAL(true);
       }
     }
   }
- catch (  Exception e) {
+ catch (  IOException e) {
     LOG.debug("Interrupting the MemStore in-memory compaction for store " + compactingMemStore.getFamilyName());
     Thread.currentThread().interrupt();
   }
  finally {
-    if ((result != null) && (!resultSwapped))     result.close();
+    if (nextStep != Action.MERGE) {
+      if ((result != null) && (!resultSwapped)) {
+        result.close();
+      }
+    }
     releaseResources();
   }
 }

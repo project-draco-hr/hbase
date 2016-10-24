@@ -1,0 +1,36 @@
+{
+  Configuration conf=HBaseConfiguration.create();
+  conf.setLong(HConstants.HREGION_MEMSTORE_FLUSH_SIZE,600 * 1024);
+  conf.set(FlushPolicyFactory.HBASE_FLUSH_POLICY_KEY,FlushNonSloppyStoresFirstPolicy.class.getName());
+  conf.setLong(FlushLargeStoresPolicy.HREGION_COLUMNFAMILY_FLUSH_SIZE_LOWER_BOUND_MIN,200 * 1024);
+  conf.setDouble(CompactingMemStore.IN_MEMORY_FLUSH_THRESHOLD_FACTOR_KEY,0.5);
+  conf.set("hbase.hregion.compacting.memstore.type","index-compaction");
+  HRegion region=initHRegion("testSelectiveFlushAndWALinDataCompaction",conf);
+  Thread[] threads=new Thread[25];
+  for (int i=0; i < threads.length; i++) {
+    int id=i * 10000;
+    ConcurrentPutRunnable runnable=new ConcurrentPutRunnable(region,id);
+    threads[i]=new Thread(runnable);
+    threads[i].start();
+  }
+  Threads.sleep(10000);
+  region.flush(true);
+  Threads.sleep(10000);
+  region.flush(true);
+  ((CompactingMemStore)((HStore)region.getStore(FAMILY1)).memstore).flushInMemory();
+  ((CompactingMemStore)((HStore)region.getStore(FAMILY3)).memstore).flushInMemory();
+  while (((CompactingMemStore)((HStore)region.getStore(FAMILY1)).memstore).isMemStoreFlushingInMemory()) {
+    Threads.sleep(10);
+  }
+  while (((CompactingMemStore)((HStore)region.getStore(FAMILY3)).memstore).isMemStoreFlushingInMemory()) {
+    Threads.sleep(10);
+  }
+  for (int i=0; i < threads.length; i++) {
+    try {
+      threads[i].join();
+    }
+ catch (    InterruptedException e) {
+      e.printStackTrace();
+    }
+  }
+}
