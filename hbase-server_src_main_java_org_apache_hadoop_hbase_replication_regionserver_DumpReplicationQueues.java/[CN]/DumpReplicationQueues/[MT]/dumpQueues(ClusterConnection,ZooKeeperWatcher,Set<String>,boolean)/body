@@ -2,24 +2,28 @@
   ReplicationQueuesClient queuesClient;
   ReplicationPeers replicationPeers;
   ReplicationQueues replicationQueues;
+  ReplicationTracker replicationTracker;
   ReplicationQueuesClientArguments replicationArgs=new ReplicationQueuesClientArguments(getConf(),new WarnOnlyAbortable(),zkw);
   StringBuilder sb=new StringBuilder();
   queuesClient=ReplicationFactory.getReplicationQueuesClient(replicationArgs);
   queuesClient.init();
   replicationQueues=ReplicationFactory.getReplicationQueues(replicationArgs);
   replicationPeers=ReplicationFactory.getReplicationPeers(zkw,getConf(),queuesClient,connection);
-  replicationPeers.init();
-  Set<String> peerIds=new HashSet<String>(replicationPeers.getAllPeerIds());
+  replicationTracker=ReplicationFactory.getReplicationTracker(zkw,replicationPeers,getConf(),new WarnOnlyAbortable(),new WarnOnlyStoppable());
+  List<String> liveRegionServers=replicationTracker.getListOfRegionServers();
   try {
     List<String> regionservers=queuesClient.getListOfReplicators();
     for (    String regionserver : regionservers) {
       List<String> queueIds=queuesClient.getAllQueues(regionserver);
       replicationQueues.init(regionserver);
+      if (!liveRegionServers.contains(regionserver)) {
+        deadRegionServers.add(regionserver);
+      }
       for (      String queueId : queueIds) {
         ReplicationQueueInfo queueInfo=new ReplicationQueueInfo(queueId);
         List<String> wals=queuesClient.getLogsInQueue(regionserver,queueId);
         if (!peerIds.contains(queueInfo.getPeerId())) {
-          deleted++;
+          deletedQueues.add(regionserver + "/" + queueId);
           sb.append(formatQueue(regionserver,replicationQueues,queueInfo,queueId,wals,true,hdfs));
         }
  else {
